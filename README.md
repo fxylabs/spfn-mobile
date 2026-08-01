@@ -18,8 +18,8 @@ model cannot drift apart between them.
 
 | Area | State |
 | --- | --- |
-| Swift module graph | 5 targets, building in Swift 6 language mode |
-| Android module graph | 5 modules, compiling as AAR libraries |
+| Swift module graph | 6 targets, building in Swift 6 language mode |
+| Android module graph | 6 modules, compiling as AAR libraries |
 | Contract | one bundle pinned by real SHA-256 — **hand-authored here**, not an upstream export |
 | Codegen | `tools/contract-codegen` produces both clients from that bundle, deterministically |
 | `clientProofV1` | canonical proof input, SHA-256 digest, HMAC proof, replay and revocation rules |
@@ -36,10 +36,10 @@ Package.swift            SwiftPM manifest (repo root, required by SwiftPM)
 settings.gradle.kts      Android multi-project root
 Contracts/               pinned contract bundle, lock, schemas, conformance fixtures
 Sources/                 Swift targets: SPFNCore, SPFNGenerated, SPFNAuth,
-                         SPFNPersistence, SPFNHybrid
+                         SPFNClient, SPFNPersistence, SPFNHybrid
 Tests/                   Swift unit, repository and conformance tests
 android/                 Kotlin modules: spfn-core, spfn-generated, spfn-auth,
-                         spfn-sync, spfn-hybrid
+                         spfn-client, spfn-sync, spfn-hybrid
 tools/                   module graph, offline validator, contract codegen,
                          CocoaPods fixture
 examples/                reference apps (placeholders)

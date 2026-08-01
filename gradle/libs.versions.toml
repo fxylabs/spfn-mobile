@@ -16,6 +16,11 @@ kotlin = "2.4.10"
 foojay-resolver = "1.0.0"
 junit = "4.13.2"
 
+# The Android SDK's only runtime dependency line, added with the transport module.
+# `mockwebserver3` ships from the same release train, so it is versioned by `okhttp`.
+okhttp = "5.4.0"
+kotlinx-coroutines = "1.11.0"
+
 # Numeric baselines consumed by the module build scripts.
 jdk-toolchain = "21"
 min-sdk = "24"
@@ -26,6 +31,9 @@ target-sdk = "36"
 
 [libraries]
 junit = { module = "junit:junit", version.ref = "junit" }
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
+okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver3", version.ref = "okhttp" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 
 [plugins]
 android-library = { id = "com.android.library", version.ref = "agp" }

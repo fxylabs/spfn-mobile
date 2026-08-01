@@ -43,6 +43,11 @@ Pod::Spec.new do |s|
     sp.dependency 'SPFNMobileCompatFixture/SPFNCore'
   end
 
+  s.subspec 'SPFNClient' do |sp|
+    sp.source_files = 'Sources/SPFNClient/**/*.swift'
+    sp.dependency 'SPFNMobileCompatFixture/SPFNCore'
+  end
+
   s.subspec 'SPFNPersistence' do |sp|
     sp.source_files = 'Sources/SPFNPersistence/**/*.swift'
     sp.dependency 'SPFNMobileCompatFixture/SPFNCore'

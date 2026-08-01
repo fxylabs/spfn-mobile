@@ -39,6 +39,7 @@ include(
     ":spfn-core",
     ":spfn-generated",
     ":spfn-auth",
+    ":spfn-client",
     ":spfn-sync",
     ":spfn-hybrid",
     ":contract-codegen"
@@ -47,6 +48,7 @@ include(
 project(":spfn-core").projectDir = file("android/spfn-core")
 project(":spfn-generated").projectDir = file("android/spfn-generated")
 project(":spfn-auth").projectDir = file("android/spfn-auth")
+project(":spfn-client").projectDir = file("android/spfn-client")
 project(":spfn-sync").projectDir = file("android/spfn-sync")
 project(":spfn-hybrid").projectDir = file("android/spfn-hybrid")
 

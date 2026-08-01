@@ -15,6 +15,23 @@ vertical slice end to end. Nothing is committed, tagged or published.
 - First release-train version: `0.1.0-alpha.1` (decision D9, 2026-08-01), lockstep
   across the SwiftPM tag and Maven version; 1.0.0 waits on Step 5 evidence.
 
+### Added after Step 2 — transport boundary
+
+- `SPFNClient` (Swift) and `spfn-client` (Android): a transport that sends exactly one
+  HTTP request and returns one HTTP response. It does not retry, does not follow
+  redirects, keeps no cookies and no cache, distinguishes a timeout from a connectivity
+  failure, keeps an absent request body distinct from an empty one, and returns every
+  non-2xx status as a response rather than an error.
+- Platform adapters: `SPFNURLSessionTransport` over URLSession, `SpfnOkHttpTransport`
+  over OkHttp 5. Two test suites with corresponding case names, so the parity between
+  them is checkable rather than asserted.
+- OkHttp 5.4.0 and kotlinx-coroutines 1.11.0 — the Android SDK's first runtime
+  dependencies, with real network-fetched checksums in
+  `gradle/verification-metadata.xml`. The Swift package still has none.
+- The validator's toolchain-baseline check now reads its module list from
+  `tools/module-graph.json` instead of a hand-written list that stopped covering a
+  module the moment one was added.
+
 ### Added in Step 2
 
 - Toolchain baseline from decision D5: swift-tools 6.0 with Swift 6 language mode,
@@ -52,7 +69,8 @@ vertical slice end to end. Nothing is committed, tagged or published.
 
 ### Still deliberately absent
 
-An upstream-exported contract bundle (D17), transport, persistence, the hybrid bridge,
+An upstream-exported contract bundle (D17), everything above the transport — session,
+handshake, proof attachment, a single execute path — persistence, the hybrid bridge,
 key custody, CODEOWNERS identities, signing identities, registry configuration,
 pinned CI action SHAs, and every `COMPATIBILITY.md` support row. See
 `docs/OPEN-DECISIONS.md`.

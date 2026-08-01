@@ -5,6 +5,7 @@
     {"id": "core", "swiftTarget": "SPFNCore", "androidModule": "spfn-core", "swiftDependsOn": [], "androidDependsOn": []},
     {"id": "generated", "swiftTarget": "SPFNGenerated", "androidModule": "spfn-generated", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"]},
     {"id": "auth", "swiftTarget": "SPFNAuth", "androidModule": "spfn-auth", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"]},
+    {"id": "client", "swiftTarget": "SPFNClient", "androidModule": "spfn-client", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"]},
     {"id": "persistence", "swiftTarget": "SPFNPersistence", "androidModule": "spfn-sync", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"]},
     {"id": "hybrid", "swiftTarget": "SPFNHybrid", "androidModule": "spfn-hybrid", "swiftDependsOn": ["SPFNCore", "SPFNAuth"], "androidDependsOn": ["spfn-core", "spfn-auth"]}
   ],
