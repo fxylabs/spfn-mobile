@@ -3,6 +3,12 @@ description: Report incorrect behaviour in the SPFN Mobile SDK
 title: "[Bug]: "
 labels: []
 body:
+  - type: markdown
+    attributes:
+      value: |
+        A report becomes workable only after a maintainer accepts it: the issue
+        receives the `status:accepted` label AND a work unit is registered in the
+        project state. Filing an issue does not start any work.
   - type: input
     id: version
     attributes:
