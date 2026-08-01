@@ -1,0 +1,44 @@
+{
+  "lockVersion": 2,
+  "status": "RESOLVED_DEV_BUNDLE",
+  "provenance": {
+    "origin": "spfn-mobile-step2-dev-bundle",
+    "exportedByUpstreamCI": false,
+    "statement": "Contracts/spfn-mobile-contract.v1.json was hand-authored inside spfn-mobile during Step 2. It was NOT exported by SPFN primitives CI, and no SPFN primitives commit is referenced, because the mobile contract export tooling does not exist yet.",
+    "whyThisIsNotAnUpstreamPin": "Pinning a digest is only meaningful if it names something an independent party produced. This digest names a file this repository wrote, so it proves the generator and both SDKs read the same bytes, and it proves nothing about SPFN primitives.",
+    "replacementRule": "When upstream export tooling exists, the exported bundle REPLACES this file, status becomes RESOLVED_UPSTREAM, and source.repository / source.commit / source.exporterVersion carry real values. Editing this bundle to look upstream-exported is the specific failure tools/validate/validate.sh section 4 exists to catch.",
+    "trackedAs": "docs/OPEN-DECISIONS.md D17"
+  },
+  "source": {
+    "repository": "spfn-mobile (this repository)",
+    "commit": "UNCOMMITTED",
+    "exporterVersion": "spfn-mobile/tools/contract-codegen@0.1.0-dev"
+  },
+  "contract": {
+    "name": "spfn-mobile-contract",
+    "version": "1.0.0-dev.1",
+    "major": 1,
+    "bundlePath": "Contracts/spfn-mobile-contract.v1.json",
+    "manifestSha256": "c696d9ff3b71fbae5a427de090693d014351e047013043e7ca21b75a90de68ac",
+    "supportedRange": ">=1.0.0-dev.1 <2.0.0"
+  },
+  "authProfiles": {
+    "allowed": ["clientProofV1"],
+    "unknownProfilePolicy": "reject",
+    "mixingWithinSession": "prohibited"
+  },
+  "digestDiscipline": {
+    "rule": "manifestSha256 must be the real SHA-256 of the file named by contract.bundlePath. tools/validate/validate.sh recomputes it, and tools/contract-codegen refuses to generate when it does not match, so a tampered bundle fails on both paths rather than producing plausible clients.",
+    "verify": "shasum -a 256 Contracts/spfn-mobile-contract.v1.json",
+    "enforcedBy": [
+      "tools/validate/validate.sh",
+      "tools/contract-codegen",
+      "Tests/SPFNRepositoryTests/ModuleGraphTests.swift"
+    ]
+  },
+  "notes": [
+    "Floating branches or URLs are prohibited as a lock source; only an exact path plus digest, or an exact repository, commit SHA and exporter version, are acceptable.",
+    "A published contract version and digest are never modified. A mistake becomes a new version.",
+    "The bundle carries no secret and no real private key."
+  ]
+}

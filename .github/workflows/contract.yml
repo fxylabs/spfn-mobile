@@ -1,0 +1,32 @@
+# STEP2-SCAFFOLD: NOT A GATE.
+#
+# Manual-only. No checkout, no toolchain setup and no third-party action, because
+# pinning actions by commit SHA is still an open decision (D14) and an unpinned action
+# is worse than no action.
+#
+# The checks it must run once it becomes real all exist locally today:
+#   sh tools/validate/validate.sh
+#   ./gradlew :contract-codegen:spfnCodegenVerify
+#   swift test --filter SPFNConformanceTests
+#   ./gradlew :spfn-auth:testDebugUnitTest
+#
+# Still missing before this can gate anything:
+#   - an upstream-exported contract bundle to verify against (D17)
+#   - a breaking-contract diff report against the previous contract version
+name: contract
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: State repository status
+        run: |
+          echo "STEP2-SCAFFOLD: contract validation runs locally, not here."
+          echo "The bundle pinned in Contracts/upstream.lock.json was authored in this"
+          echo "repository and has NOT been exported by SPFN primitives."

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spfn.invalid/schemas/auth-profiles/clientProofV1.placeholder.json",
+  "title": "clientProofV1 — Step 1 placeholder schema",
+  "description": "SHAPE ONLY. The authoritative clientProofV1 schema is owned by SPFN primitives and arrives inside the pinned contract bundle. This placeholder fixes the file location and the profile allowlist so the skeleton is coherent; it does not describe real canonicalization, proof fields, key custody or replay semantics. $id uses the reserved .invalid TLD precisely so it can never resolve to a live endpoint.",
+  "x-spfn-status": "UNRESOLVED_PLACEHOLDER",
+  "x-spfn-authoritative-source": "SPFN primitives contract bundle (see Contracts/upstream.lock.json)",
+  "type": "object",
+  "properties": {
+    "profile": {
+      "type": "string",
+      "const": "clientProofV1",
+      "description": "The only auth profile v1 allows. No fallback profile exists."
+    }
+  },
+  "required": ["profile"],
+  "additionalProperties": true
+}

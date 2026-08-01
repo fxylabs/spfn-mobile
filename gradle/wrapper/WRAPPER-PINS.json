@@ -1,0 +1,18 @@
+{
+  "comment": "Pinned Gradle wrapper provenance for D5. tools/validate/validate.sh recomputes the wrapper jar digest and cross-checks gradle-wrapper.properties against this file. Every checksum here was fetched from gradle.org, never hand-written.",
+  "gradleVersion": "9.5.1",
+  "distributionType": "bin",
+  "distributionUrl": "https://services.gradle.org/distributions/gradle-9.5.1-bin.zip",
+  "distributionSha256": "bafc141b619ad6350fd975fc903156dd5c151998cc8b058e8c1044ab5f7b031f",
+  "wrapperJarSha256": "497c8c2a7e5031f6aa847f88104aa80a93532ec32ee17bdb8d1d2f67a194a9c7",
+  "checksumSources": [
+    "https://services.gradle.org/versions/all (fields checksum, wrapperChecksum for version 9.5.1)",
+    "https://services.gradle.org/distributions/gradle-9.5.1-bin.zip.sha256",
+    "https://services.gradle.org/distributions/gradle-9.5.1-wrapper.jar.sha256"
+  ],
+  "howTheJarWasProduced": "The verified gradle-9.5.1-bin.zip was extracted and its own `gradle wrapper` task generated gradle/wrapper/. The resulting gradle-wrapper.jar digest equals the wrapper jar checksum Gradle publishes for 9.5.1, so the committed jar is byte-identical to the upstream artifact rather than merely plausible.",
+  "verify": [
+    "shasum -a 256 gradle/wrapper/gradle-wrapper.jar",
+    "grep distributionSha256Sum gradle/wrapper/gradle-wrapper.properties"
+  ]
+}

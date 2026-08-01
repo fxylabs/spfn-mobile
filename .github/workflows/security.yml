@@ -1,0 +1,29 @@
+# STEP2-SCAFFOLD: NOT A GATE.
+#
+# Manual-only. No checkout, no toolchain setup, no third-party action (D14).
+#
+# Gates this file must implement before it becomes a required check:
+#   - secret, license and dependency scanning
+#   - fuzzing of the canonical JSON parser and the proof input builder, both of which
+#     now exist and both of which parse untrusted bytes
+#   - SPDX or CycloneDX SBOM generation
+#   - checksum and source-to-artifact traceability
+#
+# Until then the honest security check is local and offline:
+#   sh tools/validate/validate.sh
+name: security
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: State repository status
+        run: |
+          echo "STEP2-SCAFFOLD: security CI is not implemented."
+          echo "Run locally instead: sh tools/validate/validate.sh"

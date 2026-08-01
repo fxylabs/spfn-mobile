@@ -1,0 +1,34 @@
+# CODEOWNERS — INACTIVE.
+#
+# Every rule below is commented out on purpose. Real teams and handles have not been
+# decided (docs/OPEN-DECISIONS.md, D6), and inventing one would route reviews to an
+# identity that does not exist or, worse, to a real person who never agreed to it.
+# tools/validate/validate.sh fails if any active line in this file names an owner.
+#
+# Routing to activate once owners exist:
+#
+#   /Contracts/                    <contract-owner> <ios-owner> <android-owner> <security-owner>
+#   /tools/contract-codegen/       <contract-owner> <ios-owner> <android-owner> <security-owner>
+#   /Sources/                      <ios-owner>
+#   /Tests/                        <ios-owner>
+#   /Package.swift                 <ios-owner>
+#   /examples/ios-swiftui/         <ios-owner>
+#   /android/                      <android-owner>
+#   /settings.gradle.kts           <android-owner>
+#   /build.gradle.kts              <android-owner>
+#   /gradle/                       <android-owner>
+#   /examples/android-compose/     <android-owner>
+#   /Sources/SPFNAuth/             <ios-owner> <security-owner>
+#   /Sources/SPFNHybrid/           <ios-owner> <security-owner>
+#   /android/spfn-auth/            <android-owner> <security-owner>
+#   /android/spfn-hybrid/          <android-owner> <security-owner>
+#   /.github/workflows/            <release-owner> <security-owner>
+#   /VERSION                       <release-owner> <security-owner>
+#   /RELEASE.md                    <release-owner> <security-owner>
+#   /CODEOWNERS                    <release-owner> <security-owner>
+#
+# Review semantics to remember when activating: GitHub satisfies a code-owner
+# requirement when ONE of several owners on a path approves. Where contract, auth or
+# release changes must have both a platform owner AND a security owner, CODEOWNERS
+# alone is not enough — a separate merge policy or check has to verify that an approval
+# from each role exists, and stale approvals must be dismissed on new pushes.

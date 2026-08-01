@@ -1,0 +1,43 @@
+# STEP2-SCAFFOLD: NOT A GATE.
+#
+# Manual-only, and deliberately inert. This file exists so the location is reserved and
+# so nobody adds release automation somewhere less visible. It performs no build, holds
+# no credential, and reads no secret.
+#
+# A successful candidate build is never approval to release. Before this file may do
+# anything real, every one of these must be decided by a person:
+#   - repository visibility and whether the source may be disclosed at all
+#   - target registry, coordinates and account ownership
+#   - credential custody and signing identity
+#   - retention and immutability policy
+#   - the exact source commit, tag, contract digest and artifact hashes being approved
+#
+# One blocker is not a decision but a missing capability: the pinned contract bundle was
+# authored in this repository, not exported by SPFN primitives (D17). Releasing an SDK
+# generated from a locally invented contract would ship a client for a server nobody
+# agreed to.
+#
+# Gates it must then implement:
+#   - tag / VERSION / contract digest agreement
+#   - sources, docs and POM metadata completeness
+#   - SBOM, checksums and signatures
+#   - clean-consumer integration from a fresh checkout
+#   - the v2 acceptance suite T01-T48
+#   - fresh independent review traceability
+name: release-candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse to imply a release path exists
+        run: |
+          echo "STEP2-SCAFFOLD: no release candidate pipeline exists."
+          echo "No artifact has been built, signed, uploaded or approved."
+          exit 0

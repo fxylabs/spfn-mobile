@@ -1,0 +1,15 @@
+{
+  "comment": "Single source of truth for the SPFN Mobile module graph. Canonical format: exactly one module object per line inside \"modules\". Consumed by tools/validate/validate.sh and tools/cocoapods-compat/generate-podspec.sh.",
+  "schemaVersion": 1,
+  "modules": [
+    {"id": "core", "swiftTarget": "SPFNCore", "androidModule": "spfn-core", "swiftDependsOn": [], "androidDependsOn": []},
+    {"id": "generated", "swiftTarget": "SPFNGenerated", "androidModule": "spfn-generated", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"]},
+    {"id": "auth", "swiftTarget": "SPFNAuth", "androidModule": "spfn-auth", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"]},
+    {"id": "persistence", "swiftTarget": "SPFNPersistence", "androidModule": "spfn-sync", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"]},
+    {"id": "hybrid", "swiftTarget": "SPFNHybrid", "androidModule": "spfn-hybrid", "swiftDependsOn": ["SPFNCore", "SPFNAuth"], "androidDependsOn": ["spfn-core", "spfn-auth"]}
+  ],
+  "notes": [
+    "The Swift/Android name asymmetry (SPFNPersistence <-> spfn-sync) is carried verbatim from the approved topology artifact section 3. Renaming either side is an UNRESOLVED decision, not a scaffold choice.",
+    "Dependency edges are a Step 1 scaffold proposal derived from the layered design; they carry no implementation and may be revised in Step 2."
+  ]
+}

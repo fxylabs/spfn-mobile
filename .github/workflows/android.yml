@@ -1,0 +1,32 @@
+# STEP2-SCAFFOLD: NOT A GATE.
+#
+# Manual-only. No checkout, no toolchain setup, no third-party action (D14).
+#
+# What runs locally today, with ANDROID_HOME pointing at an Android SDK:
+#   ./gradlew build                    # five modules compile, unit tests run
+#   ./gradlew spfnScaffoldCheck        # module graph coherence
+#   ./gradlew spfnToolchainReport      # the effective D5 baseline
+#
+# Gates this file must implement before it becomes a required check:
+#   - Gradle dependency verification against gradle/verification-metadata.xml
+#   - lint and assemble in addition to unit tests
+#   - API and binary compatibility snapshots
+#   - Keystore and WebView coverage; emulator on main, real device at candidate stage
+#
+# How CI obtains and pins an Android SDK is open decision D20.
+name: android
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: State repository status
+        run: |
+          echo "STEP2-SCAFFOLD: Android CI is not implemented."
+          echo "Run locally instead: ANDROID_HOME=... ./gradlew build"

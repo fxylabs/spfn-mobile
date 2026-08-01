@@ -1,0 +1,34 @@
+# SPFN Mobile — Step 2 toolchain baseline.
+#
+# These versions implement decision D5 (confirmed 2026-08-01). They are a BUILD and
+# PARITY baseline: they say what this repository compiles with, not which devices or
+# OS releases are supported. COMPATIBILITY.md support rows stay UNRESOLVED until real
+# device evidence exists.
+#
+# Every entry is the current stable patch of the approved line, recorded on 2026-08-01.
+# Any addition here also needs real, network-fetched checksums in
+# gradle/verification-metadata.xml, which is regenerated with:
+#   ./gradlew --write-verification-metadata sha256 help
+
+[versions]
+agp = "9.2.1"
+kotlin = "2.4.10"
+foojay-resolver = "1.0.0"
+junit = "4.13.2"
+
+# Numeric baselines consumed by the module build scripts.
+jdk-toolchain = "21"
+min-sdk = "24"
+compile-sdk = "36"
+# targetSdk applies to applications only. No example application module exists yet,
+# so this value is recorded rather than applied.
+target-sdk = "36"
+
+[libraries]
+junit = { module = "junit:junit", version.ref = "junit" }
+
+[plugins]
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+foojay-resolver = { id = "org.gradle.toolchains.foojay-resolver-convention", version.ref = "foojay-resolver" }

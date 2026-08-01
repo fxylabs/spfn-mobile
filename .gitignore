@@ -1,0 +1,31 @@
+# Swift / SwiftPM
+.build/
+.swiftpm/
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+*.xcuserstate
+
+# Gradle
+.gradle/
+build/
+local.properties
+
+# CocoaPods (fixture only; nothing here is a real integration)
+Pods/
+*.lock
+
+# macOS
+.DS_Store
+
+# Never commit credentials or signing material. The validator also fails on these,
+# but ignoring them first means an accidental local file cannot be staged by mistake.
+*.p12
+*.jks
+*.keystore
+*.mobileprovision
+*.pem
+*.key
+.netrc
+.env
+.env.*

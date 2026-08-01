@@ -1,0 +1,28 @@
+# STEP2-SCAFFOLD: NOT A GATE.
+#
+# Manual-only. No checkout, no toolchain setup, no third-party action (D14).
+#
+# What runs locally today:
+#   swift build && swift test          # 45 tests, Swift 6 language mode
+#
+# Gates this file must implement before it becomes a required check:
+#   - swift build and swift test on a Linux runner (core, no Apple frameworks)
+#   - a separate macOS job for Keychain, Secure Enclave and WKWebView coverage
+#   - concurrency, cancellation and error-path tests
+#   - every third-party action pinned by commit SHA
+name: swift
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: State repository status
+        run: |
+          echo "STEP2-SCAFFOLD: Swift CI is not implemented."
+          echo "Run locally instead: swift build && swift test"
