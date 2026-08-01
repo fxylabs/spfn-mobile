@@ -8,6 +8,10 @@
 // One Swift case has no counterpart: `nonHttpResponseSurfacesAsInvalidResponse`. OkHttp
 // only ever produces an HTTP response, so `InvalidResponse` is unreachable here, whereas
 // URLSession can hand back a plain URLResponse.
+//
+// The client-hardening cases have no Swift counterpart either: URLSession's posture lives
+// in a URLSessionConfiguration, which `SPFNURLSessionRequestMappingTests` asserts directly,
+// and it has no equivalent of a caller-supplied client to override.
 
 package xyz.superfunction.spfn.client
 
@@ -20,16 +24,23 @@ import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import mockwebserver3.RecordedRequest
+import okhttp3.Cache
 import okhttp3.Call
+import okhttp3.Cookie
+import okhttp3.CookieJar
 import okhttp3.EventListener
+import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.util.concurrent.CountDownLatch
@@ -37,6 +48,9 @@ import java.util.concurrent.TimeUnit
 
 class SpfnOkHttpTransportTest
 {
+    @get:Rule
+    val cacheDirectory: TemporaryFolder = TemporaryFolder()
+
     private lateinit var server: MockWebServer
 
     @Before
@@ -67,6 +81,89 @@ class SpfnOkHttpTransportTest
             timeoutMillis = timeoutMillis
         )
 
+    // --- client hardening ---------------------------------------------------
+    //
+    // Asserted against the client OkHttp actually ends up with, not against behaviour.
+    // A behavioural test cannot see these: the default client already has no cache and no
+    // cookie jar, so removing the hardening leaves every round-trip test green. That gap
+    // is what a reviewer's probe found, and these cases are that probe made permanent.
+
+    /** A caller's client with every setting the hardening has to override turned on. */
+    private fun unsafeCallerClient(): OkHttpClient =
+        OkHttpClient.Builder()
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .cookieJar(recordingCookieJar())
+            .cache(Cache(cacheDirectory.newFolder("okhttp-cache"), 1L * 1024 * 1024))
+            .connectTimeout(7, TimeUnit.SECONDS)
+            .readTimeout(7, TimeUnit.SECONDS)
+            .writeTimeout(7, TimeUnit.SECONDS)
+            .build()
+
+    private fun recordingCookieJar(): CookieJar = object : CookieJar
+    {
+        override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>)
+        {
+        }
+
+        override fun loadForRequest(url: HttpUrl): List<Cookie> = emptyList()
+    }
+
+    @Test
+    fun hardeningTurnsOffRetryRedirectsCookiesAndCache()
+    {
+        val hardened = hardened(OkHttpClient())
+
+        // A retry can re-send a request that was already written to a pooled socket the
+        // server had closed. For a request carrying a proof over a nonce that is a second
+        // delivery of the same nonce, so one execute would stop meaning one exchange.
+        assertFalse("retryOnConnectionFailure must be off", hardened.retryOnConnectionFailure)
+        assertFalse(hardened.followRedirects)
+        assertFalse(hardened.followSslRedirects)
+        assertSame(CookieJar.NO_COOKIES, hardened.cookieJar)
+        assertNull(hardened.cache)
+        assertEquals("timeoutMillis is meant to be the only deadline", 0, hardened.connectTimeoutMillis)
+        assertEquals(0, hardened.readTimeoutMillis)
+        assertEquals(0, hardened.writeTimeoutMillis)
+    }
+
+    @Test
+    fun hardeningOverridesACallerSuppliedClient()
+    {
+        val caller = unsafeCallerClient()
+        val hardened = hardened(caller)
+
+        assertTrue("the fixture must start with the unsafe settings on", caller.retryOnConnectionFailure)
+        assertTrue(caller.followRedirects)
+        assertTrue("the fixture must start with a cache", caller.cache != null)
+
+        assertFalse("retryOnConnectionFailure must be off", hardened.retryOnConnectionFailure)
+        assertFalse(hardened.followRedirects)
+        assertFalse(hardened.followSslRedirects)
+        assertSame(CookieJar.NO_COOKIES, hardened.cookieJar)
+        assertNull("a caller's cache must not survive the hardening", hardened.cache)
+        assertEquals(0, hardened.connectTimeoutMillis)
+        assertEquals(0, hardened.readTimeoutMillis)
+        assertEquals(0, hardened.writeTimeoutMillis)
+
+        caller.cache?.close()
+    }
+
+    @Test
+    fun hardeningLeavesTheCallersDispatcherAndConnectionPoolAlone()
+    {
+        val caller = unsafeCallerClient()
+        val hardened = hardened(caller)
+
+        // Sharing one pool with the host app is the reason the constructor takes a client
+        // at all. Only the four unsafe settings and the timeouts are replaced.
+        assertSame(caller.dispatcher, hardened.dispatcher)
+        assertSame(caller.connectionPool, hardened.connectionPool)
+
+        caller.cache?.close()
+    }
+
     // --- request mapping ----------------------------------------------------
 
     @Test
@@ -92,15 +189,57 @@ class SpfnOkHttpTransportTest
     }
 
     @Test
-    fun duplicateRequestHeadersAreCarriedInOrder()
+    fun duplicateRequestHeaderNamesAreRefused()
     {
-        val mapped = toOkHttpRequest(
-            request(headers = listOf("X-Spfn-Trace" to "first", "X-Spfn-Trace" to "second"))
+        // OkHttp would write two header lines while URLRequest folds them into one
+        // comma-joined field. The same request must not produce different bytes on the two
+        // platforms, so neither sends it.
+        val repeated = listOf(
+            listOf("X-Spfn-Trace" to "first", "X-Spfn-Trace" to "second"),
+            listOf("Accept" to "application/json", "accept" to "text/plain"),
+            listOf("X-Spfn-Trace" to "first", "X-Other" to "x", "X-SPFN-TRACE" to "second")
         )
 
-        // OkHttp keeps repeated names as separate header lines, in order. URLRequest
-        // cannot: the Swift counterpart asserts the comma-joined form instead.
-        assertEquals(listOf("first", "second"), mapped.headers.values("X-Spfn-Trace"))
+        for (headers in repeated)
+        {
+            val error = assertThrowsTransportError { toOkHttpRequest(request(headers = headers)) }
+            assertTrue(error is SpfnTransportError.Connectivity)
+            assertEquals(
+                "duplicate request header name: ${headers[0].first.lowercase()}",
+                (error as SpfnTransportError.Connectivity).reason
+            )
+        }
+    }
+
+    @Test
+    fun distinctHeaderNamesAreNotRefused()
+    {
+        val mapped = toOkHttpRequest(
+            request(headers = listOf("Accept" to "application/json", "X-Spfn-Trace" to "first"))
+        )
+
+        assertEquals("application/json", mapped.header("Accept"))
+        assertEquals("first", mapped.header("X-Spfn-Trace"))
+    }
+
+    @Test
+    fun duplicateHeaderRefusalCarriesNoHeaderValue()
+    {
+        val error = assertThrowsTransportError {
+            toOkHttpRequest(
+                request(
+                    headers = listOf(
+                        "Authorization" to "spfn-proof deadbeef",
+                        "authorization" to "spfn-proof cafe"
+                    )
+                )
+            )
+        }
+
+        val reason = (error as SpfnTransportError.Connectivity).reason
+        assertFalse("a header value reached the refusal reason", reason.contains("deadbeef"))
+        assertFalse("a header value reached the refusal reason", reason.contains("cafe"))
+        assertTrue(reason.contains("authorization"))
     }
 
     @Test

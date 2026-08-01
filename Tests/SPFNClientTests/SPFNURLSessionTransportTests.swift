@@ -50,16 +50,56 @@ final class SPFNURLSessionRequestMappingTests: XCTestCase
         XCTAssertEqual(mapped.httpBody, Data([0x7B, 0x7D]))
     }
 
-    func testDuplicateRequestHeadersAreCarriedInOrder() throws
+    func testDuplicateRequestHeaderNamesAreRefused() throws
+    {
+        // URLRequest would fold these into one comma-joined field while OkHttp writes two
+        // header lines. The same request must not produce different bytes on the two
+        // platforms, so neither sends it.
+        let repeated: [[(String, String)]] = [
+            [("X-Spfn-Trace", "first"), ("X-Spfn-Trace", "second")],
+            [("Accept", "application/json"), ("accept", "text/plain")],
+            [("X-Spfn-Trace", "first"), ("X-Other", "x"), ("X-SPFN-TRACE", "second")],
+        ]
+
+        for headers in repeated
+        {
+            XCTAssertThrowsError(try SPFNURLSessionTransport.urlRequest(from: request(headers: headers)))
+            { error in
+                XCTAssertEqual(
+                    error as? SPFNTransportError,
+                    .connectivity("duplicate request header name: \(headers[0].0.lowercased())")
+                )
+            }
+        }
+    }
+
+    func testDistinctHeaderNamesAreNotRefused() throws
     {
         let mapped = try SPFNURLSessionTransport.urlRequest(
-            from: request(headers: [("X-Spfn-Trace", "first"), ("X-Spfn-Trace", "second")])
+            from: request(headers: [("Accept", "application/json"), ("X-Spfn-Trace", "first")])
         )
 
-        // URLRequest has no repeated-field representation: it folds repeats into one
-        // comma-joined value. Order is what survives, and order is what the proof layer
-        // needs. The Kotlin adapter emits two separate header lines for the same input.
-        XCTAssertEqual(mapped.value(forHTTPHeaderField: "X-Spfn-Trace"), "first,second")
+        XCTAssertEqual(mapped.value(forHTTPHeaderField: "Accept"), "application/json")
+        XCTAssertEqual(mapped.value(forHTTPHeaderField: "X-Spfn-Trace"), "first")
+    }
+
+    func testDuplicateHeaderRefusalCarriesNoHeaderValue() throws
+    {
+        XCTAssertThrowsError(
+            try SPFNURLSessionTransport.urlRequest(
+                from: request(headers: [("Authorization", "spfn-proof deadbeef"), ("authorization", "spfn-proof cafe")])
+            )
+        )
+        { error in
+            guard case .connectivity(let reason)? = error as? SPFNTransportError
+            else
+            {
+                return XCTFail("expected a connectivity refusal, got \(error)")
+            }
+            XCTAssertFalse(reason.contains("deadbeef"), "a header value reached the refusal reason")
+            XCTAssertFalse(reason.contains("cafe"), "a header value reached the refusal reason")
+            XCTAssertTrue(reason.contains("authorization"))
+        }
     }
 
     func testAbsentBodyAndEmptyBodyAreDistinct() throws
@@ -82,11 +122,24 @@ final class SPFNURLSessionRequestMappingTests: XCTestCase
         let mapped = try SPFNURLSessionTransport.urlRequest(from: request())
         XCTAssertFalse(mapped.httpShouldHandleCookies)
         XCTAssertEqual(mapped.cachePolicy, .reloadIgnoringLocalAndRemoteCacheData)
+    }
+
+    /// Asserted against the configuration the session is actually built from, not against
+    /// behaviour. A round-trip test cannot see this: `.ephemeral` keeps nothing on disk, so
+    /// a single exchange looks identical whether or not the hardening ran. The Kotlin
+    /// counterpart is `hardeningTurnsOffRetryRedirectsCookiesAndCache`.
+    func testHardenedConfigurationTurnsOffCookiesAndCaching() throws
+    {
+        let inherited = URLSessionConfiguration.ephemeral
+        XCTAssertNotNil(inherited.urlCache, "the fixture must start with the unsafe defaults on")
+        XCTAssertNotNil(inherited.httpCookieStorage, "the fixture must start with the unsafe defaults on")
 
         let configuration = SPFNURLSessionTransport.hardenedConfiguration()
-        XCTAssertNil(configuration.httpCookieStorage)
-        XCTAssertNil(configuration.urlCache)
+        XCTAssertNil(configuration.urlCache, "an inherited cache must not survive the hardening")
+        XCTAssertNil(configuration.httpCookieStorage, "an inherited cookie jar must not survive the hardening")
         XCTAssertFalse(configuration.httpShouldSetCookies)
+        XCTAssertEqual(configuration.httpCookieAcceptPolicy, .never)
+        XCTAssertEqual(configuration.requestCachePolicy, .reloadIgnoringLocalAndRemoteCacheData)
     }
 
     func testNonPositiveTimeoutIsRefused() throws

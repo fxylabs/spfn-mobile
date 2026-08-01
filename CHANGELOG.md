@@ -18,10 +18,16 @@ vertical slice end to end. Nothing is committed, tagged or published.
 ### Added after Step 2 — transport boundary
 
 - `SPFNClient` (Swift) and `spfn-client` (Android): a transport that sends exactly one
-  HTTP request and returns one HTTP response. It does not retry, does not follow
-  redirects, keeps no cookies and no cache, distinguishes a timeout from a connectivity
-  failure, keeps an absent request body distinct from an empty one, and returns every
-  non-2xx status as a response rather than an error.
+  HTTP request and returns one HTTP response. It does not retry — including OkHttp's
+  connection-failure retry, which is switched off because it can re-send a request that
+  was already written to a socket the server had closed — does not follow redirects,
+  keeps no cookies and no cache, distinguishes a timeout from a connectivity failure,
+  keeps an absent request body distinct from an empty one, and returns every non-2xx
+  status as a response rather than an error.
+- A request that names the same header field twice is refused before anything is sent.
+  OkHttp writes two header lines for it and URLRequest folds them into one comma-joined
+  field, so the same request would otherwise put different bytes on the wire on the two
+  platforms.
 - Platform adapters: `SPFNURLSessionTransport` over URLSession, `SpfnOkHttpTransport`
   over OkHttp 5. Two test suites with corresponding case names, so the parity between
   them is checkable rather than asserted.

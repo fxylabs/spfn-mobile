@@ -12,8 +12,11 @@
 /// One outbound HTTP request, already fully assembled by the caller.
 ///
 /// Headers are an ordered list rather than a dictionary on purpose: a proof is taken
-/// over an exact request, and a dictionary silently reorders and deduplicates. What each
-/// platform's HTTP stack then does with duplicates is documented on the adapter.
+/// over an exact request, and a dictionary silently reorders and deduplicates.
+///
+/// A repeated field name is refused before anything is sent. The two platforms' HTTP
+/// stacks put different bytes on the wire for the same repeated name, so the layers above
+/// assemble each header exactly once instead.
 public struct SPFNTransportRequest: Sendable
 {
     /// Uppercase HTTP method. Passed through verbatim; the transport never rewrites it.
@@ -22,7 +25,8 @@ public struct SPFNTransportRequest: Sendable
     /// Absolute request URL, including any query.
     public let url: String
 
-    /// Header fields in the order they were assembled. Duplicate names are allowed.
+    /// Header fields in the order they were assembled. A name may appear only once,
+    /// compared without regard to case; a repeated name is refused before sending.
     public let headers: [(String, String)]
 
     /// The request body, or `nil` for a request that carries no body at all.

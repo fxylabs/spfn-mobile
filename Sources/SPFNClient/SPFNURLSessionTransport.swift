@@ -121,6 +121,8 @@ public struct SPFNURLSessionTransport: SPFNTransport
             throw SPFNTransportError.connectivity("request URL is not an absolute URL")
         }
 
+        try Self.rejectDuplicateHeaderNames(request.headers)
+
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = request.method
         urlRequest.httpBody = request.body.map { Data($0) }
@@ -134,13 +136,36 @@ public struct SPFNURLSessionTransport: SPFNTransport
 
         for (name, value) in request.headers
         {
-            // `addValue` appends. URLRequest still folds repeated names into one
-            // comma-joined field, which is the HTTP-equivalent form and the closest
-            // URLRequest can represent; the Kotlin adapter emits them as separate lines.
+            // Safe to append: the names are already known to be unique, so `addValue`
+            // never reaches the folding path that would rewrite two fields into one.
             urlRequest.addValue(value, forHTTPHeaderField: name)
         }
 
         return urlRequest
+    }
+
+    /// Refuses a request that names the same header field twice, comparing names the way
+    /// HTTP does — without regard to case.
+    ///
+    /// The two stacks cannot agree on what to do with a repeated name. OkHttp writes two
+    /// header lines; URLRequest has no representation for that at all and folds them into
+    /// one comma-joined value. Rather than let the same request produce different bytes on
+    /// the two platforms, neither sends it.
+    ///
+    /// The reason carries the field name and never the value: a repeated `Authorization`
+    /// is exactly the case where a value must not reach an error string.
+    private static func rejectDuplicateHeaderNames(_ headers: [(String, String)]) throws
+    {
+        var seen = Set<String>()
+        for (name, _) in headers
+        {
+            let key = name.lowercased()
+            guard seen.insert(key).inserted
+            else
+            {
+                throw SPFNTransportError.connectivity("duplicate request header name: \(key)")
+            }
+        }
     }
 
     /// Response headers as an ordered list.

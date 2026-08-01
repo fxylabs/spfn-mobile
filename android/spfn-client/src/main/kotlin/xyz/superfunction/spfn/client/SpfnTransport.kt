@@ -19,6 +19,10 @@ import java.io.IOException
  * Headers are an ordered list rather than a map on purpose: a proof is taken over an
  * exact request, and a map silently reorders and deduplicates.
  *
+ * A repeated field name is refused before anything is sent. The two platforms' HTTP
+ * stacks put different bytes on the wire for the same repeated name, so the layers above
+ * assemble each header exactly once instead.
+ *
  * Deliberately not a `data class`. The generated `toString` would print every header
  * value and every body byte, and the generated `equals` would compare [body] by identity;
  * both are worse than having neither.
@@ -28,7 +32,10 @@ class SpfnTransportRequest(
     val method: String,
     /** Absolute request URL, including any query. */
     val url: String,
-    /** Header fields in the order they were assembled. Duplicate names are allowed. */
+    /**
+     * Header fields in the order they were assembled. A name may appear only once,
+     * compared without regard to case; a repeated name is refused before sending.
+     */
     val headers: List<Pair<String, String>> = emptyList(),
     /**
      * The request body, or `null` for a request that carries no body at all.

@@ -32,32 +32,7 @@ import kotlin.coroutines.resumeWithException
  */
 class SpfnOkHttpTransport(client: OkHttpClient = OkHttpClient()) : SpfnTransport
 {
-    /**
-     * The caller's client with the transport contract imposed on it.
-     *
-     * Hardening a supplied client rather than only a default one means the contract holds
-     * for every caller: sharing a connection pool with the rest of an app must not import
-     * that app's cookie jar, cache or redirect policy into an authenticated exchange.
-     *
-     * The individual connect/read/write limits are removed because the request's
-     * `timeoutMillis` is meant to be the only deadline; a leftover 10-second read limit
-     * would silently override a 30-second request.
-     *
-     * `retryOnConnectionFailure` is deliberately left at OkHttp's default. It retries
-     * establishing a connection — a second route, a pooled socket the server already
-     * closed — and never re-sends a request that received a response. One `execute` is
-     * still one HTTP exchange, which is what the layers above count. URLSession retries
-     * connections the same way and offers no switch for it either.
-     */
-    private val hardenedClient: OkHttpClient = client.newBuilder()
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .cookieJar(CookieJar.NO_COOKIES)
-        .cache(null)
-        .connectTimeout(0, TimeUnit.MILLISECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS)
-        .writeTimeout(0, TimeUnit.MILLISECONDS)
-        .build()
+    private val hardenedClient: OkHttpClient = hardened(client)
 
     /**
      * Sends the request once.
@@ -101,6 +76,37 @@ class SpfnOkHttpTransport(client: OkHttpClient = OkHttpClient()) : SpfnTransport
 }
 
 /**
+ * The caller's client with the transport contract imposed on it.
+ *
+ * Hardening a supplied client rather than only a default one means the contract holds for
+ * every caller: sharing a connection pool with the rest of an app must not import that
+ * app's cookie jar, cache, redirect policy or retry policy into an authenticated exchange.
+ * Only those four and the timeouts are replaced — the dispatcher, the connection pool,
+ * interceptors and every other setting are the caller's and are shared as they were.
+ *
+ * `retryOnConnectionFailure` is off. OkHttp's retry is not confined to establishing a
+ * connection: when a request has already been written to a pooled socket the server has
+ * since closed, OkHttp can write that same request again on a new connection. For a
+ * request carrying a proof over a nonce, that is a second delivery of the same nonce, and
+ * the exactly-one-exchange contract the layers above count on would be silently false.
+ *
+ * The individual connect/read/write limits are removed because the request's
+ * `timeoutMillis` is meant to be the only deadline; a leftover 10-second read limit would
+ * silently override a 30-second request.
+ */
+internal fun hardened(client: OkHttpClient): OkHttpClient =
+    client.newBuilder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .retryOnConnectionFailure(false)
+        .cookieJar(CookieJar.NO_COOKIES)
+        .cache(null)
+        .connectTimeout(0, TimeUnit.MILLISECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .writeTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
+
+/**
  * Methods for which HTTP requires a body, restated because OkHttp's own list is internal.
  *
  * A request with no body on one of these gets a zero-length body instead of being
@@ -108,6 +114,31 @@ class SpfnOkHttpTransport(client: OkHttpClient = OkHttpClient()) : SpfnTransport
  * object keeps `body == null`, so the absent-body digest above this layer is unaffected.
  */
 private val METHODS_REQUIRING_BODY = setOf("POST", "PUT", "PATCH", "PROPPATCH", "REPORT")
+
+/**
+ * Refuses a request that names the same header field twice, comparing names the way HTTP
+ * does — without regard to case.
+ *
+ * The two stacks cannot agree on what to do with a repeated name. OkHttp writes two header
+ * lines; URLRequest has no representation for that at all and folds them into one
+ * comma-joined value. Rather than let the same request produce different bytes on the two
+ * platforms, neither sends it. The layers above assemble each header once.
+ *
+ * The reason carries the field name and never the value: a repeated `Authorization` is
+ * exactly the case where a value must not reach an error string.
+ */
+internal fun rejectDuplicateHeaderNames(headers: List<Pair<String, String>>)
+{
+    val seen = mutableSetOf<String>()
+    for ((name, _) in headers)
+    {
+        val key = name.lowercase()
+        if (!seen.add(key))
+        {
+            throw SpfnTransportError.Connectivity("duplicate request header name: $key")
+        }
+    }
+}
 
 /** Maps the transport request onto an OkHttp request without adding anything of its own. */
 internal fun toOkHttpRequest(request: SpfnTransportRequest): Request
@@ -123,11 +154,12 @@ internal fun toOkHttpRequest(request: SpfnTransportRequest): Request
     val url = request.url.toHttpUrlOrNull()
         ?: throw SpfnTransportError.Connectivity("request URL is not an absolute URL")
 
+    rejectDuplicateHeaderNames(request.headers)
+
     val builder = Request.Builder().url(url)
 
-    // `addHeader` appends, so repeated names stay repeated and stay in order. This is the
-    // one place the two adapters differ in wire output: URLRequest folds repeats into a
-    // single comma-joined field.
+    // `addHeader` appends rather than replaces, so a header the caller assembled reaches
+    // the wire exactly once, as itself.
     for ((name, value) in request.headers)
     {
         builder.addHeader(name, value)
