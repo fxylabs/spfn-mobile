@@ -1,0 +1,47 @@
+name: Bug report
+description: Report incorrect behaviour in the SPFN Mobile SDK
+title: "[Bug]: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A report becomes workable only after a maintainer accepts it: the issue
+        receives the `status:accepted` label AND a work unit is registered in the
+        project state. Filing an issue does not start any work.
+  - type: input
+    id: version
+    attributes:
+      label: SDK version / commit
+      description: The VERSION value or commit hash you observed this on.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - iOS (Swift)
+        - Android (Kotlin)
+        - Both
+        - Tooling (codegen / validator / build)
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Smallest sequence that shows the problem — commands, code, fixture.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        Security-sensitive reports: do not include secrets or tokens in any issue.
+        Follow SECURITY.md instead of filing a public issue.

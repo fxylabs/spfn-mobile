@@ -1,0 +1,35 @@
+name: Feature proposal
+description: Propose a capability or change to the SPFN Mobile SDK
+title: "[Feature]: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A proposal becomes workable only after a maintainer accepts it: the issue
+        receives the `status:accepted` label AND a work unit is registered in the
+        project state. Filing an issue does not start any work.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Required outcome
+      description: What must be true when this is done — an observable result, not an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why now
+      description: The concrete situation that makes this worth doing.
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Boundaries
+      description: |
+        What this must NOT do. Note that some boundaries are fixed for every proposal:
+        the auth surface stays clientProofV1-only, publication stays disabled until its
+        own approval, and generated files are never hand-edited.
+    validations:
+      required: false

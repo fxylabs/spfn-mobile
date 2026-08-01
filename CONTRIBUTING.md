@@ -18,6 +18,20 @@ This repository operates under a strict change policy, decided 2026-08-01
 The SDK itself is still in staged bootstrap — transport, persistence and the hybrid
 bridge are scaffold stubs (see `docs/SCAFFOLD-STATUS.md`). Strict process, early code.
 
+## Issues and pull requests
+
+GitHub is the transparency surface; the project state holds the gates.
+
+- **Issues** use the provided templates (feature / bug). An issue becomes workable
+  only when a maintainer accepts it: the `status:accepted` label AND a registered
+  work unit in the project state, as a pair. One without the other starts nothing,
+  and no automation turns an external issue into agent work.
+- **Pull requests** follow the template: a registered change set id, a fresh
+  cross-model review receipt id bound to the exact diff, the verification commands'
+  results, and a `Closes #N` reference. A green checklist is necessary, not
+  sufficient — the owner's recorded approval is the merge gate.
+- **Merges** are squash-only and `main` history is linear.
+
 ## Before you change anything
 
 Run the checks:
