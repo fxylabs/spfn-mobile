@@ -1,7 +1,22 @@
 # Contributing
 
-This repository is a scaffold under staged bootstrap. It is not open for general
-contribution yet, and the review, ownership and branch policies are undecided.
+This repository operates under a strict change policy, decided 2026-08-01
+(state decision `01kyyx00a2`):
+
+- **No direct commits to `main`.** Branch protection rejects them, including from
+  administrators. Every change lands through a pull request.
+- **Every change set is registered and reviewed.** A branch is registered as a
+  change set in the project state (`self integration register`), receives a fresh
+  cross-model review receipt (`self review ingest`) bound to the exact reviewed
+  bytes, and merges only with the owner's explicit approval.
+- **Delegated implementation runs as recorded attempts**, never as untracked agent
+  sessions: the attempt spool records the plan, capability boundary, model and
+  result envelope for every run.
+- The GitHub PR is the transport; the project state holds the gates. A green PR
+  with no receipt does not merge.
+
+The SDK itself is still in staged bootstrap — transport, persistence and the hybrid
+bridge are scaffold stubs (see `docs/SCAFFOLD-STATUS.md`). Strict process, early code.
 
 ## Before you change anything
 
