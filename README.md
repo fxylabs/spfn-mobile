@@ -48,9 +48,10 @@ docs/                    architecture, migration, security, open decisions
 
 ## Distribution
 
-Swift Package Manager is the primary iOS channel. Android modules are Gradle/Maven
-modules. **CocoaPods is not supported**; `tools/cocoapods-compat/` holds an internal,
-unpublished fixture whose only job is to prove the module graph stays single-sourced.
+Swift Package Manager is the only iOS distribution channel (D11, resolved). Android
+modules are Gradle/Maven modules. **CocoaPods is not supported**; `tools/cocoapods-compat/`
+holds an internal, unpublished fixture whose only job is to prove the module graph stays
+single-sourced.
 
 ## Running the checks
 

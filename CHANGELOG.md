@@ -14,6 +14,10 @@ vertical slice end to end. Nothing is committed, tagged or published.
   SPFN primitives repository.
 - First release-train version: `0.1.0-alpha.1` (decision D9, 2026-08-01), lockstep
   across the SwiftPM tag and Maven version; 1.0.0 waits on Step 5 evidence.
+- iOS distribution channel: Swift Package Manager only (decision D11, 2026-08-02).
+  CocoaPods is not supported, the fixture under `tools/cocoapods-compat/` stays as
+  proof that the Swift sources are single-sourced, and no activation condition is
+  recorded.
 
 ### Added after Step 2 — the integration run against a server this repository did not write
 
