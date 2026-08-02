@@ -172,6 +172,7 @@ for path in \
     tools/contract-codegen/README.md \
     tools/contract-codegen/build.gradle.kts \
     tools/validate/validate.sh tools/validate/d11-forbidden.ere \
+    tools/validate/probe-register-routing.sh \
     tools/validate/d11-policy.lock.json tools/validate/probe-d11-guardrail.sh \
     tools/cocoapods-compat/generate-podspec.sh \
     docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md docs/IMPLEMENTATION-PITFALLS.md \
@@ -947,6 +948,11 @@ contains docs/OPEN-DECISIONS.md 'Upstream contract export tooling | **RESOLVED' 
 # and reporting that as clean is the shape this repository has already been bitten by.
 REGISTER=docs/IMPLEMENTATION-PITFALLS.md
 awk '
+# Fenced blocks are examples, not structure. A fenced line can start with a pipe and a
+# fenced line can start with "## P", and either one read as structure lets the document
+# describe a route or an entry it does not have.
+/^[[:space:]]*```/ { fence = !fence; next }
+fence              { next }
 /^## 트리거 → 항목/ { table = 1; next }
 /^---$/            { table = 0 }
 # Table ROWS, not the region between the heading and the rule. Scanning the region lets
