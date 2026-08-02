@@ -62,6 +62,15 @@ requires, so the repository does not acquire a second toolchain. It is registere
 `:contract-codegen` and excluded from every SDK-module check, because it is a build tool
 rather than something anyone links against.
 
+`tools/reference-server` is registered the same way, as `:reference-server`, and for the
+same reason: it is a test fixture that implements the pinned contract so both SDKs can be
+driven over real HTTP, not something anyone links against. Its `main` source set has zero
+external dependencies — the HTTP layer is the JDK's own `com.sun.net.httpserver` — and it
+compiles the canonical serializer, the proof input and the generated contract listing
+straight out of the Android modules' source directories rather than reimplementing them.
+An Android library cannot be a dependency of a JVM module, and a second copy of
+SPFN-CANON-JSON-1 would turn the round trip into two copies agreeing with each other.
+
 One tool sits outside that boundary on purpose:
 `Contracts/fixtures/derive-expected-values.py` derives the expected conformance values
 using only the Python standard library. It is not part of any build, and its
