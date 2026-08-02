@@ -439,17 +439,30 @@ case "$STATUS" in
         # This is a list of exact claims, not a vocabulary ban — prose describing the
         # dev-bundle branch, or scoped to Step 2, stays legal because it stays true. What
         # it therefore does not catch: a paraphrase, a case variant, a claim in a code
-        # comment, or one in a file type outside the three globs below. It closes the
+        # comment, one in a file type outside the three globs below, or one reachable
+        # only through a symlink, since `-type f` does not follow them. It closes the
         # wordings that were actually written here, and nothing wider.
+        #
         # Enumerated and scanned in two steps, one file at a time. A single `find -exec
         # grep +` cannot tell "nothing matched" from "the scan could not run": both leave
         # an empty result and a non-zero status, and a check that passes when it could not
         # run is worse than no check. Here an enumeration that finds implausibly few
-        # documents fails, an unreadable file fails, and only a completed scan with no hit
-        # passes.
+        # documents fails, an unreadable file fails, a path the reader cannot address
+        # fails, and only a completed scan with no hit passes.
         STALE_DOCS=''
         STALE_UNREADABLE=0
         STALE_SCANNED=0
+
+        # find writes one line per path, so a path holding a newline arrives as two paths
+        # that each resolve somewhere else — the real file goes unscanned while the run
+        # still reports clean. Counting the files independently of their names is what
+        # notices: `-exec echo x \;` emits one line per file whatever the name contains,
+        # so the two counts agree only when no path holds a newline. The format is `echo`
+        # once per file rather than one `printf` over many, because a format string with
+        # no conversion specifier consumes no argument and prints once for the whole set.
+        STALE_FILES=$(find . -type f \( -name '*.md' -o -name '*.yml' -o -name '*.yaml' \) \
+            -not -path './.git/*' -not -path '*/build/*' -not -path './.build/*' \
+            -exec echo x \; 2>/dev/null | wc -l | tr -d ' ')
 
         if find . -type f \( -name '*.md' -o -name '*.yml' -o -name '*.yaml' \) \
             -not -path './.git/*' -not -path '*/build/*' -not -path './.build/*' \
@@ -480,6 +493,9 @@ case "$STATUS" in
         if [ "$STALE_SCANNED" -lt 20 ]
         then
             fail "the stale-provenance scan reached only $STALE_SCANNED documents; it did not run"
+        elif [ "$STALE_SCANNED" -ne "$STALE_FILES" ]
+        then
+            fail "the stale-provenance scan read $STALE_SCANNED lines for $STALE_FILES documents; a path contains a newline and cannot be addressed"
         elif [ "$STALE_UNREADABLE" -ne 0 ]
         then
             fail "the stale-provenance scan could not read $STALE_UNREADABLE of $STALE_SCANNED documents"
