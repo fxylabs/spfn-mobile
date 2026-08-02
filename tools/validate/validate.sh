@@ -701,6 +701,20 @@ contains docs/OPEN-DECISIONS.md 'OS/toolchain baseline' 'open decisions still re
 contains docs/OPEN-DECISIONS.md 'Maven' 'open decisions record the Maven namespace question'
 contains docs/OPEN-DECISIONS.md 'upstream export tooling' \
     'open decisions record that upstream contract export tooling must replace the dev bundle'
+contains docs/OPEN-DECISIONS.md '| D11 | iOS distribution channel and the CocoaPods fixture | **RESOLVED 2026-08-02** |' \
+    'open decisions record D11 as resolved: SwiftPM is the only iOS distribution channel'
+
+# D11 decided that CocoaPods is not supported and deliberately recorded no activation
+# condition. Wording that reopens the tier as a proposal, or that names a route to turn
+# it on, makes "not supported" read as "available on request" — which is the one reading
+# the decision exists to prevent.
+if grep -qiE 'awaiting (human )?confirmation|proposal awaiting|private specs repository' \
+    tools/cocoapods-compat/README.md
+then
+    fail 'the CocoaPods fixture README reopens D11 with proposal or activation wording'
+else
+    pass 'the CocoaPods fixture README states D11 as decided, with no activation condition'
+fi
 
 # A build/parity baseline is not a support commitment. The compatibility matrix must not
 # quietly acquire one just because the toolchain was pinned.
