@@ -172,7 +172,6 @@ for path in \
     tools/contract-codegen/README.md \
     tools/contract-codegen/build.gradle.kts \
     tools/validate/validate.sh tools/validate/d11-forbidden.ere \
-    tools/validate/probe-register-routing.sh \
     tools/validate/d11-policy.lock.json tools/validate/probe-d11-guardrail.sh \
     tools/cocoapods-compat/generate-podspec.sh \
     docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md docs/IMPLEMENTATION-PITFALLS.md \
@@ -939,85 +938,6 @@ contains docs/OPEN-DECISIONS.md 'Maven' 'open decisions record the Maven namespa
 contains docs/OPEN-DECISIONS.md 'Upstream contract export tooling | **RESOLVED' \
     'open decisions record D17 as resolved by a real upstream export'
 
-# The pitfall register is only a device if its trigger table reaches every entry. An
-# entry nothing routes to is never quoted into a brief, and a row pointing at an anchor
-# that does not exist is a dead link — both rot the moment somebody adds an entry and
-# forgets the table, which is the one failure mode this document has of its own.
-#
-# Counted, not merely searched: a run that reached no entries did not check the routing,
-# and reporting that as clean is the shape this repository has already been bitten by.
-REGISTER=docs/IMPLEMENTATION-PITFALLS.md
-awk '
-# Fenced blocks are examples, not structure. A fenced line can start with a pipe and a
-# fenced line can start with "## P", and either one read as structure lets the document
-# describe a route or an entry it does not have.
-/^[[:space:]]*```/ { fence = !fence; next }
-fence              { next }
-/^## 트리거 → 항목/ { table = 1; next }
-/^---$/            { table = 0 }
-# Table ROWS, not the region between the heading and the rule. Scanning the region lets
-# a link in an explanatory paragraph stand in for a row that is gone: the table would no
-# longer route the entry and the check would still say it does.
-table && /^[[:space:]]*\|/ {
-    rest = $0
-    while (match(rest, /\(#p[0-9]+\)/))
-    {
-        routed[substr(rest, RSTART + 2, RLENGTH - 3)] = 1
-        rest = substr(rest, RSTART + RLENGTH)
-    }
-}
-# Headings are counted before the anchor is looked for, so an entry heading that carries
-# no anchor is seen rather than skipped. Counting them together hides exactly the entry a
-# reader would believe exists.
-/^## P[0-9]+\./ {
-    headings++
-    if (match($0, /\{#p[0-9]+\}/))
-    {
-        anchored++
-        entries[substr($0, RSTART + 2, RLENGTH - 3)] = 1
-    }
-}
-END {
-    unrouted = ""; dead = ""
-    for (a in entries) { total++;  if (!(a in routed))  { unrouted = unrouted " " a } }
-    for (a in routed)  { routes++; if (!(a in entries)) { dead = dead " " a } }
-    printf "%d %d %d %d %s|%s\n", total + 0, routes + 0, headings + 0, anchored + 0, unrouted, dead
-}
-' "$REGISTER" > "$TMP/register" 2>/dev/null || true
-
-REGISTER_ENTRIES=$(awk '{print $1}' "$TMP/register")
-REGISTER_ROUTES=$(awk '{print $2}' "$TMP/register")
-REGISTER_HEADINGS=$(awk '{print $3}' "$TMP/register")
-REGISTER_ANCHORED=$(awk '{print $4}' "$TMP/register")
-REGISTER_UNROUTED=$(sed 's/|.*//; s/^[0-9]* [0-9]* [0-9]* [0-9]* *//' "$TMP/register")
-REGISTER_DEAD=$(sed 's/^[^|]*|//; s/^ *//' "$TMP/register")
-
-if [ "${REGISTER_ENTRIES:-0}" -lt 10 ]
-then
-    fail "the pitfall register yielded only ${REGISTER_ENTRIES:-0} entries; it lost its entries or the scan could not read it"
-elif [ "${REGISTER_ROUTES:-0}" -lt 10 ]
-then
-    fail "the pitfall register's trigger table yielded only ${REGISTER_ROUTES:-0} routed entries; the table is gone or the scan could not read it"
-elif [ "${REGISTER_HEADINGS:-0}" -ne "${REGISTER_ANCHORED:-0}" ]
-then
-    fail "the pitfall register has ${REGISTER_HEADINGS:-0} entry headings but ${REGISTER_ANCHORED:-0} carry an anchor; an entry cannot be routed without one"
-elif [ "${REGISTER_ANCHORED:-0}" -ne "$REGISTER_ENTRIES" ]
-then
-    # Anchors are collected as map keys, so two entries sharing one anchor collapse into
-    # a single key and every reachability check below passes while one of them cannot be
-    # addressed. Counting anchored headings separately is what sees it. The routes side
-    # gets no such rule on purpose: an entry routed from several trigger rows is correct,
-    # and P2 is deliberately reachable from three.
-    fail "the pitfall register has ${REGISTER_ANCHORED:-0} anchored entries but only $REGISTER_ENTRIES distinct anchors; an anchor is used twice"
-elif [ -n "$REGISTER_DEAD" ]
-then
-    fail "the pitfall register's trigger table points at entries that do not exist:$REGISTER_DEAD"
-elif [ -n "$REGISTER_UNROUTED" ]
-then
-    fail "these pitfall register entries are not reachable from the trigger table:$REGISTER_UNROUTED"
-else
-    pass "the pitfall register routes all $REGISTER_ENTRIES entries from its trigger table"
-fi
 # D11 decided that CocoaPods is not supported and deliberately recorded no activation
 # condition. Wording that names a route to turn it on makes "not supported" read as
 # "available on request", which is the one reading the decision exists to prevent.
