@@ -60,8 +60,13 @@ sealed class SpfnSessionError(message: String) : IllegalStateException(message)
      * every stack trace, and [envelope] is text the server wrote, so putting even its
      * code in the message would publish server-chosen text into any log. Read
      * [envelope] to classify on it.
+     *
+     * [httpStatus] is carried because this is the only layer that ever sees it: the
+     * execute path above classifies a refusal on the envelope's code and reports the
+     * status the server actually chose, which is not always the one the contract
+     * declares for that code.
      */
-    class HandshakeRejected(val envelope: SpfnErrorEnvelope) :
+    class HandshakeRejected(val httpStatus: Int, val envelope: SpfnErrorEnvelope) :
         SpfnSessionError("the server refused the handshake")
 
     /**
@@ -70,6 +75,21 @@ sealed class SpfnSessionError(message: String) : IllegalStateException(message)
      */
     class MalformedResponse(val reason: String) :
         SpfnSessionError("malformed handshake response: $reason")
+
+    companion object
+    {
+        /**
+         * The two shapes a handshake answer can fail to be.
+         *
+         * Public because the execute path above maps a malformed handshake onto its own
+         * decoding vocabulary, and comparing against a re-spelled literal there would let
+         * the two files disagree about which shape was expected without anything failing.
+         */
+        const val NOT_A_HANDSHAKE_RESPONSE = "response body is not a HandshakeResponse"
+
+        /** See [NOT_A_HANDSHAKE_RESPONSE]. */
+        const val NOT_AN_ERROR_ENVELOPE = "response body is not an SPFN error envelope"
+    }
 }
 
 /**
@@ -88,7 +108,15 @@ class SpfnSession(
     private val timeoutMillis: Long = 15_000
 )
 {
-    private val baseUrl: String = baseUrl.trimEnd('/')
+    /**
+     * The server every request goes to, without a trailing slash.
+     *
+     * Public and immutable so the execute path above reads the base URL from the session
+     * that signs against it rather than holding a second copy of it. Two copies is one too
+     * many: a request proved against one host and sent to another is a 401 nobody can
+     * explain from the call site.
+     */
+    val baseUrl: String = baseUrl.trimEnd('/')
 
     private val mutex = Mutex()
     private var state: SpfnSessionState? = null
@@ -206,11 +234,40 @@ class SpfnSession(
     /** Discards the held session and abandons any handshake still in flight. */
     suspend fun invalidate()
     {
+        mutex.withLock { discard() }
+    }
+
+    /**
+     * Discards the held session only while it is still the one [staleSessionId] names.
+     *
+     * This is what a caller reacting to a refused request wants, and the unconditional
+     * [invalidate] is not. Several requests can be in flight against one session; when the
+     * server revokes it they are all refused, and if each of them discarded whatever the
+     * session happens to be holding by then, the first one to re-open a session would have
+     * it thrown away by the second, which would re-open another, and so on. Matching on the
+     * identifier the refused request actually presented means the first refusal discards
+     * the session and the rest find it already gone and join the one handshake.
+     *
+     * The comparison and the discard happen under one lock, so a caller cannot do the same
+     * thing with [currentState] and [invalidate]: between those two calls is exactly where
+     * the session it checked can be replaced.
+     */
+    suspend fun invalidate(staleSessionId: String)
+    {
         mutex.withLock {
-            state = null;
-            generation += 1;
-            inFlight = null;
+            if (state?.sessionId == staleSessionId)
+            {
+                discard();
+            }
         }
+    }
+
+    /** Caller holds [mutex]. */
+    private fun discard()
+    {
+        state = null;
+        generation += 1;
+        inFlight = null;
     }
 
     // ---- assembly ----------------------------------------------------------
@@ -303,7 +360,14 @@ class SpfnSession(
     private fun readSession(response: SpfnTransportResponse): SpfnSessionState
     {
         val opened = response.statusCode in 200..299;
-        val reason = if (opened) NOT_A_HANDSHAKE_RESPONSE else NOT_AN_ERROR_ENVELOPE;
+        val reason = if (opened)
+        {
+            SpfnSessionError.NOT_A_HANDSHAKE_RESPONSE
+        }
+        else
+        {
+            SpfnSessionError.NOT_AN_ERROR_ENVELOPE
+        };
 
         val parsed = try
         {
@@ -324,7 +388,7 @@ class SpfnSession(
             {
                 throw SpfnSessionError.MalformedResponse(reason);
             }
-            throw SpfnSessionError.HandshakeRejected(envelope);
+            throw SpfnSessionError.HandshakeRejected(response.statusCode, envelope);
         }
 
         val decoded = try
@@ -336,11 +400,5 @@ class SpfnSession(
             throw SpfnSessionError.MalformedResponse(reason);
         }
         return SpfnSessionState(sessionId = decoded.sessionId, expiresAtMillis = decoded.expiresAtMillis);
-    }
-
-    private companion object
-    {
-        const val NOT_A_HANDSHAKE_RESPONSE = "response body is not a HandshakeResponse"
-        const val NOT_AN_ERROR_ENVELOPE = "response body is not an SPFN error envelope"
     }
 }

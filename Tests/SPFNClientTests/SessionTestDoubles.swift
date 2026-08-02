@@ -66,12 +66,24 @@ actor ScriptedTransport: SPFNTransport
 {
     private var outcomes: [Result<SPFNTransportResponse, any Error>]
     private let holdNanos: UInt64
+
+    /// Runs after the request is recorded and before its answer is produced, with the
+    /// 1-based call number. The execute suite uses it to make something happen at an
+    /// exact point in a call — cancelling between two attempts, for instance — rather
+    /// than racing a timer against the code under test.
+    private let onCall: (@Sendable (Int) async -> Void)?
+
     private(set) var received: [SPFNTransportRequest] = []
 
-    init(_ outcomes: [Result<SPFNTransportResponse, any Error>], holdNanos: UInt64 = 0)
+    init(
+        _ outcomes: [Result<SPFNTransportResponse, any Error>],
+        holdNanos: UInt64 = 0,
+        onCall: (@Sendable (Int) async -> Void)? = nil
+    )
     {
         self.outcomes = outcomes
         self.holdNanos = holdNanos
+        self.onCall = onCall
     }
 
     var callCount: Int
@@ -82,6 +94,7 @@ actor ScriptedTransport: SPFNTransport
     func execute(_ request: SPFNTransportRequest) async throws -> SPFNTransportResponse
     {
         received.append(request)
+        await onCall?(received.count)
         if holdNanos > 0
         {
             try? await Task.sleep(nanoseconds: holdNanos)

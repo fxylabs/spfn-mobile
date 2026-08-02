@@ -15,6 +15,37 @@ vertical slice end to end. Nothing is committed, tagged or published.
 - First release-train version: `0.1.0-alpha.1` (decision D9, 2026-08-01), lockstep
   across the SwiftPM tag and Maven version; 1.0.0 waits on Step 5 evidence.
 
+### Added after Step 2 — the single execute path
+
+- `SPFNClient` (Swift) and `SpfnClient` (Android): one function every operation goes
+  through. Nothing else sends a request, so the rules stated on it — the body is encoded
+  once, the proof is fresh, and the retry policy below — hold for every operation the
+  contract will ever declare.
+- A typed error taxonomy: transport, auth, server, decoding, and a refusal for an
+  operation that does not belong on this path. Which one a refusal is depends on the
+  error code the contract declares, never on the HTTP status: a 401 an intermediary
+  wrote carries no envelope and lands in decoding, so it cannot provoke a re-handshake
+  against something that never refused a proof. The code-to-class mapping is an
+  exhaustive switch, so a code added to the contract fails the build until it is
+  classified.
+- Retry stays off, with one exception: an auth refusal re-opens the session and re-sends
+  the request exactly once, with a new nonce and a new proof over the same body bytes. A
+  transport failure is not retried, because this layer cannot tell a request that never
+  arrived from one whose answer was lost. A refused handshake is surfaced rather than
+  retried. The ceiling is the shape of the code — a straight line with no path back —
+  rather than a counter.
+- A refusal discards only the session the refused request presented. Concurrent calls
+  meeting one revocation therefore share a single re-handshake instead of each throwing
+  away the session the previous one just opened.
+- Cancellation between the two attempts costs no further request, and keeps the shape
+  each platform already uses for it: `SPFNTransportError.cancelled` on Swift,
+  `CancellationException` on Android.
+- Neither new failure type prints what the server wrote, on any default output path, and
+  each suite proves the two layers of redaction separately rather than as one.
+- `SPFNSession` gained three things the path above needs: a public `baseURL` so there is
+  one copy of it rather than two, an `invalidate` that only discards a named session, and
+  the HTTP status alongside a refused handshake's envelope.
+
 ### Added after Step 2 — session and proof issuance
 
 - `SPFNSession` (Swift) and `SpfnSession` (Android): holds the session a handshake
@@ -104,8 +135,9 @@ vertical slice end to end. Nothing is committed, tagged or published.
 ### Still deliberately absent
 
 An upstream-exported contract bundle (D17), an upstream-ratified wire header mapping
-(D23), the single execute path — typed server and auth errors, and a re-handshake
-retry driven by what the server answered — persistence, the hybrid bridge, key custody
+(D23), generated per-operation call descriptors — the execute path is generic, and the
+three operations are described by hand in the test suites until the generator emits
+them — any exchange with a real server, persistence, the hybrid bridge, key custody
 beyond the in-memory alpha provider, CODEOWNERS identities, signing identities,
 registry configuration, pinned CI action SHAs, and every `COMPATIBILITY.md` support
 row. See `docs/OPEN-DECISIONS.md`.

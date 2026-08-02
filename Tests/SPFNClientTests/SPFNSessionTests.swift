@@ -335,11 +335,14 @@ final class SPFNSessionTests: XCTestCase
         {
             XCTAssertEqual(
                 error as? SPFNSessionError,
-                .handshakeRejected(SPFNErrorEnvelope(
-                    code: "PROOF_INVALID",
-                    message: "test vector for PROOF_INVALID",
-                    requestID: "req-proof-invalid"
-                ))
+                .handshakeRejected(
+                    httpStatus: 401,
+                    envelope: SPFNErrorEnvelope(
+                        code: "PROOF_INVALID",
+                        message: "test vector for PROOF_INVALID",
+                        requestID: "req-proof-invalid"
+                    )
+                )
             )
         }
         let held = await subject.currentState
@@ -407,7 +410,7 @@ final class SPFNSessionTests: XCTestCase
         // Marker absence alone would pass even if this enum printed its envelope, because
         // the envelope redacts itself. These fix what the enum's own renderings are, so
         // the two layers of redaction are provable separately rather than as one.
-        let expected = "SPFNSessionError.handshakeRejected(envelope: redacted)"
+        let expected = "SPFNSessionError.handshakeRejected(httpStatus: 401, envelope: redacted)"
         XCTAssertEqual("\(failure)", expected)
         XCTAssertEqual(String(reflecting: failure), expected)
         XCTAssertTrue(Mirror(reflecting: failure).children.isEmpty)

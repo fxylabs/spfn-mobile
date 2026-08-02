@@ -41,7 +41,14 @@ class ScriptedNonceGenerator(nonces: List<String>) : SpfnNonceGenerator
  */
 class ScriptedTransport(
     outcomes: List<Outcome>,
-    private val holdMillis: Long = 0
+    private val holdMillis: Long = 0,
+    /**
+     * Runs after the request is recorded and before its answer is produced, with the
+     * 1-based call number. The execute suite uses it to make something happen at an exact
+     * point in a call — cancelling between two attempts, for instance — rather than racing
+     * a timer against the code under test.
+     */
+    private val onCall: (suspend (Int) -> Unit)? = null
 ) : SpfnTransport
 {
     sealed interface Outcome
@@ -61,7 +68,8 @@ class ScriptedTransport(
 
     override suspend fun execute(request: SpfnTransportRequest): SpfnTransportResponse
     {
-        synchronized(lock) { recorded.add(request) };
+        val call = synchronized(lock) { recorded.add(request); recorded.size };
+        onCall?.invoke(call);
         if (holdMillis > 0)
         {
             delay(holdMillis);

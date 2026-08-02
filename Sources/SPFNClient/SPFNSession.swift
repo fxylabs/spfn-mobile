@@ -53,17 +53,30 @@ public enum SPFNSessionError: Error, Equatable, Sendable
     /// The server refused the handshake and answered with a well-formed error envelope.
     ///
     /// The envelope is server-controlled text and never prints itself; read `rejection`
-    /// or match the case to classify on it.
-    case handshakeRejected(SPFNErrorEnvelope)
+    /// or match the case to classify on it. The status is carried alongside it because
+    /// it is the only layer that ever sees it: the execute path above classifies a
+    /// refusal on the envelope's code and reports the status the server actually chose,
+    /// which is not always the one the contract declares for that code.
+    case handshakeRejected(httpStatus: Int, envelope: SPFNErrorEnvelope)
 
     /// The response body was not what its status said it would be. The reason names the
     /// shape that was expected and never carries any part of the body.
     case malformedResponse(String)
 
+    /// The two shapes a handshake answer can fail to be.
+    ///
+    /// Public because the execute path above maps a malformed handshake onto its own
+    /// decoding vocabulary, and comparing against a re-spelled literal there would let
+    /// the two files disagree about which shape was expected without anything failing.
+    public static let notAHandshakeResponse = "response body is not a HandshakeResponse"
+
+    /// See `notAHandshakeResponse`.
+    public static let notAnErrorEnvelope = "response body is not an SPFN error envelope"
+
     /// The envelope a refused handshake carried, for a caller that classifies on it.
     public var rejection: SPFNErrorEnvelope?
     {
-        guard case .handshakeRejected(let envelope) = self
+        guard case .handshakeRejected(_, let envelope) = self
         else
         {
             return nil
@@ -84,8 +97,8 @@ extension SPFNSessionError: CustomStringConvertible, CustomDebugStringConvertibl
     {
         switch self
         {
-        case .handshakeRejected:
-            return "SPFNSessionError.handshakeRejected(envelope: redacted)"
+        case .handshakeRejected(let httpStatus, _):
+            return "SPFNSessionError.handshakeRejected(httpStatus: \(httpStatus), envelope: redacted)"
         case .malformedResponse(let reason):
             return "SPFNSessionError.malformedResponse(\(reason))"
         }
@@ -110,9 +123,16 @@ extension SPFNSessionError: CustomStringConvertible, CustomDebugStringConvertibl
 /// The in-flight handshake is therefore shared explicitly rather than implied.
 public actor SPFNSession
 {
+    /// The server every request goes to, without a trailing slash.
+    ///
+    /// Public and immutable so the execute path above reads the base URL from the session
+    /// that signs against it rather than holding a second copy of it. Two copies is one
+    /// too many: a request proved against one host and sent to another is a 401 nobody
+    /// can explain from the call site.
+    public let baseURL: String
+
     private let transport: any SPFNTransport
     private let keyProvider: any SPFNKeyProvider
-    private let baseURL: String
     private let clock: any SPFNClock
     private let nonceGenerator: any SPFNNonceGenerator
     private let timeoutMillis: Int64
@@ -258,6 +278,29 @@ public actor SPFNSession
         inFlight = nil
     }
 
+    /// Discards the held session only while it is still the one `staleSessionID` names.
+    ///
+    /// This is what a caller reacting to a refused request wants, and the unconditional
+    /// `invalidate()` is not. Several requests can be in flight against one session; when
+    /// the server revokes it they are all refused, and if each of them discarded whatever
+    /// the session happens to be holding by then, the first one to re-open a session would
+    /// have it thrown away by the second, which would re-open another, and so on. Matching
+    /// on the identifier the refused request actually presented means the first refusal
+    /// discards the session and the rest find it already gone and join the one handshake.
+    ///
+    /// Actor-isolated, so the comparison and the discard are one step. A caller doing the
+    /// same thing with `currentState` and `invalidate()` would have a suspension between
+    /// them, which is exactly where the session it checked can be replaced.
+    public func invalidate(staleSessionID: String)
+    {
+        guard state?.sessionID == staleSessionID
+        else
+        {
+            return
+        }
+        invalidate()
+    }
+
     // MARK: - Assembly
 
     private func proofHeaders(
@@ -313,9 +356,6 @@ public actor SPFNSession
 
     // MARK: - Reading the answer
 
-    private static let notAHandshakeResponse = "response body is not a HandshakeResponse"
-    private static let notAnErrorEnvelope = "response body is not an SPFN error envelope"
-
     /// Reads a handshake answer, or throws the reason it was not one.
     ///
     /// Both reasons are fixed strings. A reason built from the body would put whatever
@@ -323,7 +363,9 @@ public actor SPFNSession
     private static func readSession(from response: SPFNTransportResponse) throws -> SPFNSessionState
     {
         let opened = (200 ... 299).contains(response.statusCode)
-        let reason = opened ? notAHandshakeResponse : notAnErrorEnvelope
+        let reason = opened
+            ? SPFNSessionError.notAHandshakeResponse
+            : SPFNSessionError.notAnErrorEnvelope
 
         guard let parsed = try? SPFNCanonicalJSON.parse(response.body)
         else
@@ -339,7 +381,7 @@ public actor SPFNSession
             {
                 throw SPFNSessionError.malformedResponse(reason)
             }
-            throw SPFNSessionError.handshakeRejected(envelope)
+            throw SPFNSessionError.handshakeRejected(httpStatus: response.statusCode, envelope: envelope)
         }
 
         guard let decoded = try? SPFNHandshakeResponse(canonical: parsed)
