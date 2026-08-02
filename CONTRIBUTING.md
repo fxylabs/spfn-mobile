@@ -14,6 +14,12 @@ This repository operates under a strict change policy, decided 2026-08-01
   result envelope for every run.
 - The GitHub PR is the transport; the project state holds the gates. A green PR
   with no receipt does not merge.
+- **Every implementation brief cites the pitfall register.**
+  [docs/IMPLEMENTATION-PITFALLS.md](docs/IMPLEMENTATION-PITFALLS.md) routes the
+  surfaces a change touches to the traps this repository has already paid for. The
+  brief quotes the matching entries, the implementer answers each one, the reviewer
+  gets the same list, and anything the reviewer finds outside it becomes a new entry.
+  The target is one review round; the register is how the count gets there.
 
 The SDK itself is still in staged bootstrap — transport, persistence and the hybrid
 bridge are scaffold stubs (see `docs/SCAFFOLD-STATUS.md`). Strict process, early code.

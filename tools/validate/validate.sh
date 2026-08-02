@@ -174,7 +174,7 @@ for path in \
     tools/validate/validate.sh tools/validate/d11-forbidden.ere \
     tools/validate/d11-policy.lock.json tools/validate/probe-d11-guardrail.sh \
     tools/cocoapods-compat/generate-podspec.sh \
-    docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md \
+    docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md docs/IMPLEMENTATION-PITFALLS.md \
     .github/workflows/contract.yml .github/workflows/swift.yml \
     .github/workflows/android.yml .github/workflows/security.yml \
     .github/workflows/release-candidate.yml
@@ -937,6 +937,57 @@ contains docs/OPEN-DECISIONS.md 'Maven' 'open decisions record the Maven namespa
 # from upstream, since that is the claim every other provenance check depends on.
 contains docs/OPEN-DECISIONS.md 'Upstream contract export tooling | **RESOLVED' \
     'open decisions record D17 as resolved by a real upstream export'
+
+# The pitfall register is only a device if its trigger table reaches every entry. An
+# entry nothing routes to is never quoted into a brief, and a row pointing at an anchor
+# that does not exist is a dead link — both rot the moment somebody adds an entry and
+# forgets the table, which is the one failure mode this document has of its own.
+#
+# Counted, not merely searched: a run that reached no entries did not check the routing,
+# and reporting that as clean is the shape this repository has already been bitten by.
+REGISTER=docs/IMPLEMENTATION-PITFALLS.md
+awk '
+/^## 트리거 → 항목/ { table = 1; next }
+/^---$/            { table = 0 }
+table {
+    rest = $0
+    while (match(rest, /\(#p[0-9]+\)/))
+    {
+        routed[substr(rest, RSTART + 2, RLENGTH - 3)] = 1
+        rest = substr(rest, RSTART + RLENGTH)
+    }
+}
+/^## P[0-9]+\./ && match($0, /\{#p[0-9]+\}/) {
+    entries[substr($0, RSTART + 2, RLENGTH - 3)] = 1
+}
+END {
+    unrouted = ""; dead = ""
+    for (a in entries) { total++;  if (!(a in routed))  { unrouted = unrouted " " a } }
+    for (a in routed)  { routes++; if (!(a in entries)) { dead = dead " " a } }
+    printf "%d %d %s|%s\n", total + 0, routes + 0, unrouted, dead
+}
+' "$REGISTER" > "$TMP/register" 2>/dev/null || true
+
+REGISTER_ENTRIES=$(awk '{print $1}' "$TMP/register")
+REGISTER_ROUTES=$(awk '{print $2}' "$TMP/register")
+REGISTER_UNROUTED=$(sed 's/|.*//; s/^[0-9]* [0-9]* *//' "$TMP/register")
+REGISTER_DEAD=$(sed 's/^[^|]*|//; s/^ *//' "$TMP/register")
+
+if [ "${REGISTER_ENTRIES:-0}" -lt 10 ]
+then
+    fail "the pitfall register lists only ${REGISTER_ENTRIES:-0} entries; the routing check did not run"
+elif [ "${REGISTER_ROUTES:-0}" -lt 10 ]
+then
+    fail "the pitfall register's trigger table routes to only ${REGISTER_ROUTES:-0} entries; the routing check did not run"
+elif [ -n "$REGISTER_DEAD" ]
+then
+    fail "the pitfall register's trigger table points at entries that do not exist:$REGISTER_DEAD"
+elif [ -n "$REGISTER_UNROUTED" ]
+then
+    fail "these pitfall register entries are not reachable from the trigger table:$REGISTER_UNROUTED"
+else
+    pass "the pitfall register routes all $REGISTER_ENTRIES entries from its trigger table"
+fi
 # D11 decided that CocoaPods is not supported and deliberately recorded no activation
 # condition. Wording that names a route to turn it on makes "not supported" read as
 # "available on request", which is the one reading the decision exists to prevent.
