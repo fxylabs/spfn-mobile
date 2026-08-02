@@ -170,7 +170,8 @@ for path in \
     Contracts/auth-profiles/clientProofV1.schema.json Contracts/fixtures/MANIFEST.json \
     tools/module-graph.json tools/contract-codegen/README.md \
     tools/contract-codegen/build.gradle.kts \
-    tools/validate/validate.sh tools/cocoapods-compat/generate-podspec.sh \
+    tools/validate/validate.sh tools/validate/d11-forbidden.ere \
+    tools/validate/probe-d11-guardrail.sh tools/cocoapods-compat/generate-podspec.sh \
     docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md \
     .github/workflows/contract.yml .github/workflows/swift.yml \
     .github/workflows/android.yml .github/workflows/security.yml \
@@ -707,13 +708,26 @@ contains docs/OPEN-DECISIONS.md '| D11 | iOS distribution channel and the CocoaP
 # D11 decided that CocoaPods is not supported and deliberately recorded no activation
 # condition. Wording that reopens the tier as a proposal, or that names a route to turn
 # it on, makes "not supported" read as "available on request" — which is the one reading
-# the decision exists to prevent.
-if grep -qiE 'awaiting (human )?confirmation|proposal awaiting|private specs repository' \
-    tools/cocoapods-compat/README.md
+# the decision exists to prevent. The pattern lives in its own file so that
+# tools/validate/probe-d11-guardrail.sh can prove it against known sentences.
+D11_FORBIDDEN=$(grep -v '^#' tools/validate/d11-forbidden.ere | grep -v '^$')
+if [ -z "$D11_FORBIDDEN" ]
+then
+    fail 'tools/validate/d11-forbidden.ere carries no pattern'
+elif grep -qiE "$D11_FORBIDDEN" tools/cocoapods-compat/README.md
 then
     fail 'the CocoaPods fixture README reopens D11 with proposal or activation wording'
 else
     pass 'the CocoaPods fixture README states D11 as decided, with no activation condition'
+fi
+
+# A negative check earns its line only if it bites. The probe holds the pattern to both
+# sides — sentences it must catch, and the decided wording it must spare.
+if sh tools/validate/probe-d11-guardrail.sh > /dev/null 2>&1
+then
+    pass 'the D11 guardrail probe passes on both its positive and negative samples'
+else
+    fail 'tools/validate/probe-d11-guardrail.sh fails; the D11 guardrail no longer holds'
 fi
 
 # A build/parity baseline is not a support commitment. The compatibility matrix must not

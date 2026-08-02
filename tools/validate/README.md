@@ -22,7 +22,7 @@ check passed.
 | 8 | module graph coherence across `module-graph.json`, SwiftPM, Gradle settings, module directories and the podspec |
 | 9 | generated sources are traceable: every one declares itself generated and names the digest the lock pins |
 | 10 | the D5 toolchain baseline is declared explicitly rather than inherited |
-| 11 | ownership, license and every compatibility support row are still represented as unresolved |
+| 11 | ownership, license, resolved decisions and every compatibility support row are represented honestly |
 | 12 | the repository declares its own status, in docs and in both built libraries |
 
 ## What it does not check
@@ -49,6 +49,20 @@ false`, no 40-hex commit, and a `manifestSha256` that is the real digest of the 
 names. A lock claiming an upstream export must produce `Contracts/upstream-provenance.json`
 and a real source commit. No such file exists today, so that claim fails immediately —
 which is the point.
+
+## The D11 guardrail carries its own probe
+
+Check 11 includes a negative match: `tools/cocoapods-compat/README.md` must not acquire
+wording that reopens the CocoaPods decision — "awaiting confirmation", "supported paths
+are", "may be enabled after separate approval". A negative check silently stops biting
+the moment its pattern drifts, so the pattern lives in `d11-forbidden.ere` and
+`probe-d11-guardrail.sh` holds it to both sides: nine sentences it must catch, and seven
+lines of the README's real wording it must spare. The validator runs the probe, and the
+probe fails if the validator ever stops reading the pattern file.
+
+```sh
+sh tools/validate/probe-d11-guardrail.sh
+```
 
 ## Check 2 replaced a Step 1 prohibition
 

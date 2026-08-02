@@ -17,7 +17,9 @@ vertical slice end to end. Nothing is committed, tagged or published.
 - iOS distribution channel: Swift Package Manager only (decision D11, 2026-08-02).
   CocoaPods is not supported, the fixture under `tools/cocoapods-compat/` stays as
   proof that the Swift sources are single-sourced, and no activation condition is
-  recorded.
+  recorded. The validator now holds that shut: it asserts the resolved D11 row and
+  refuses reopening wording in the fixture README, with
+  `tools/validate/probe-d11-guardrail.sh` proving the pattern still bites.
 
 ### Added after Step 2 — the integration run against a server this repository did not write
 
