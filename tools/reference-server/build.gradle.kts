@@ -59,6 +59,17 @@ val integrationReceipts: Provider<String> =
     providers.gradleProperty("spfn.integrationReceipts")
         .orElse(layout.buildDirectory.dir("integration-receipts").map { it.asFile.absolutePath })
 
+/// Where the integration suite's server is, when it is not the one the suite starts.
+///
+/// Gradle properties for the same reason as the receipts directory: a long-lived daemon
+/// carries the environment it was started with, and a stale target there would point a run
+/// at a server nobody meant. Only `spfnIntegrationTest` receives them — the unit gate runs
+/// in process always, and a target leaking into it would make `./gradlew build` depend on
+/// something outside the repository.
+val integrationTargetUrl: Provider<String> = providers.gradleProperty("spfn.integrationTargetUrl")
+val integrationLaunchFile: Provider<String> = providers.gradleProperty("spfn.integrationLaunchFile")
+val integrationControlToken: Provider<String> = providers.gradleProperty("spfn.integrationControlToken")
+
 /// The default gate. Integration cases are excluded: they bind a socket and are run by
 /// `spfnIntegrationTest`, so `./gradlew build` stays a unit gate.
 tasks.named<Test>("test") {
@@ -71,7 +82,7 @@ tasks.named<Test>("test") {
 /// exchange still happens, and a cached "success" from a previous run proves nothing.
 tasks.register<Test>("spfnIntegrationTest") {
     group = "verification"
-    description = "Drives the Android SDK against the local reference server over real HTTP."
+    description = "Drives the Android SDK over real HTTP, against the local reference server or a named external one."
 
     testClassesDirs = sourceSets["test"].output.classesDirs
     classpath = sourceSets["test"].runtimeClasspath
@@ -79,6 +90,9 @@ tasks.register<Test>("spfnIntegrationTest") {
 
     systemProperty("spfn.integrationReceipts", integrationReceipts.get())
     systemProperty("spfn.repoRoot", rootDir.absolutePath)
+    integrationTargetUrl.orNull?.let { systemProperty("spfn.integrationTargetUrl", it) }
+    integrationLaunchFile.orNull?.let { systemProperty("spfn.integrationLaunchFile", it) }
+    integrationControlToken.orNull?.let { systemProperty("spfn.integrationControlToken", it) }
     outputs.upToDateWhen { false }
 
     // A suite that matched nothing is a suite that proved nothing.

@@ -15,6 +15,39 @@ vertical slice end to end. Nothing is committed, tagged or published.
 - First release-train version: `0.1.0-alpha.1` (decision D9, 2026-08-01), lockstep
   across the SwiftPM tag and Maven version; 1.0.0 waits on Step 5 evidence.
 
+### Added after Step 2 — the integration run against a server this repository did not write
+
+- `sh tools/reference-server/run-integration.sh` takes a target: give it
+  `SPFN_INTEGRATION_TARGET_URL` and `SPFN_INTEGRATION_CONTROL_TOKEN`, or
+  `SPFN_INTEGRATION_LAUNCH_FILE`, and it runs the same ten cases against a server it did
+  not start. The point is the canonical implementation. Everything the run proved until
+  now, it proved against this repository's own reference server, which is two ends built
+  from one reading of the contract; the SPFN primitives mobile contract surface is a
+  reading nobody here wrote.
+- In that mode the script starts nothing and stops nothing. It probes the target, checks
+  the control token before a suite runs rather than after five cases failed for a reason
+  that looks like a broken server, and ends by checking the target is still up — which is
+  what "no server left behind" means when the server was never this run's to leave. The
+  orphan sweep is skipped there on purpose: a target may be a reference server of its own,
+  and killing somebody else's process is the script reaching outside its own run.
+- A named target that cannot be used is a failure, never a quiet fall back to a local
+  server. A missing token, an unreadable launch file, a URL that is not absolute and a
+  token the target refuses each stop the run. A run that checked the local server while
+  reporting the external one would claim the strongest evidence this repository can
+  produce while producing none of it.
+- The Android suite reaches an external server the same way the Swift suite already did.
+  Every state a case arranges — dropping a session, revoking a key, holding a request —
+  now goes through one control surface, which is a method call in process and `/control`
+  over HTTP against a target, so the five case bodies are the same code in both modes and
+  record the same receipts.
+- Case (b) drops the session through the control surface instead of moving a test clock,
+  because an external server runs on a wall clock nothing can move. The rule the clock
+  covered — a session dies at the instant the server said it would — is now a reference
+  server unit test, where the clock is injected and a test moves it by hand.
+- The control token is never a command-line argument: `curl` reads it from a config file
+  and the Android suite reads it from a launch file, because arguments are readable by
+  every process on the machine.
+
 ### Added after Step 2 — the local reference server and the integration run
 
 - `tools/reference-server` (`:reference-server`): a local server implementing the pinned
@@ -103,8 +136,9 @@ vertical slice end to end. Nothing is committed, tagged or published.
   proof carries a fresh nonce — both assertable rather than assumed.
 - The pinned contract bundle gained a `wireMapping` section: which header each proof
   field rides in, the request content type, and the rule that only a `requiresSession`
-  operation carries a session header. The header names are a dev-bundle extension
-  awaiting upstream ratification (D23).
+  operation carries a session header. The header names were a dev-bundle extension when
+  this landed; SPFN primitives issue #46 has since adopted them unchanged and shipped
+  them in `@spfn/auth@0.2.0-beta.85`, which resolves D23.
 - `Contracts/fixtures/request/wire.json`: two fully assembled requests — exact header
   names, exact values including the proof, exact body bytes — derived by
   `Contracts/fixtures/derive-expected-values.py` rather than by either SDK. Both test
@@ -173,10 +207,13 @@ vertical slice end to end. Nothing is committed, tagged or published.
 
 ### Still deliberately absent
 
-An upstream-exported contract bundle (D17), an upstream-ratified wire header mapping
-(D23), generated per-operation call descriptors — the execute path is generic, and the
-three operations are described by hand in the test suites until the generator emits
-them — any exchange with a real server, persistence, the hybrid bridge, key custody
+An upstream-exported contract bundle (D17) — the wire header mapping it will carry is
+ratified (D23), but the bundle in `Contracts/` is still hand-authored — a client clock
+skew margin (D24), generated per-operation call descriptors — the execute path is
+generic, and the three operations are described by hand in the test suites until the
+generator emits them — a completed exchange with a real server, since the runner can now
+be pointed at one but no run in this repository has been, persistence, the hybrid bridge,
+key custody
 beyond the in-memory alpha provider, CODEOWNERS identities, signing identities,
 registry configuration, pinned CI action SHAs, and every `COMPATIBILITY.md` support
 row. See `docs/OPEN-DECISIONS.md`.

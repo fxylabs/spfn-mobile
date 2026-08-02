@@ -11,6 +11,45 @@ That one command is the gate. It starts the server, runs the Swift integration s
 one process and the Android integration suite in another, checks that every case really
 ran, stops the server, and fails if anything is left holding a port.
 
+## Against a server this repository did not write
+
+```sh
+SPFN_INTEGRATION_TARGET_URL=http://127.0.0.1:8791 \
+SPFN_INTEGRATION_CONTROL_TOKEN=... \
+    sh tools/reference-server/run-integration.sh
+
+SPFN_INTEGRATION_LAUNCH_FILE=/path/to/launch.json \
+    sh tools/reference-server/run-integration.sh
+```
+
+Same ten cases, same receipts, same exit rules. The target has to be running already and
+has to expose the `/control` routes below; the launch file is the object `SpfnReferenceMain`
+writes and the SPFN primitives mobile contract surface writes too, holding `baseUrl` and
+`controlToken`.
+
+Why bother: everything the run proves today it proves against the server in this
+directory, which is two ends built from one reading of the contract. A server nobody here
+wrote is a second reading, and the disagreements it finds are the ones a shared codebase
+cannot.
+
+In this mode the script starts nothing and stops nothing. It probes the target, checks the
+control token before a suite runs, and ends by checking the target is still up — the
+orphan sweep is skipped on purpose, because a target may be a reference server of its own
+and killing somebody else's process is the script reaching outside its own run.
+
+A named target that cannot be used stops the run. There is no fall back to a local server:
+a run that checked this server while reporting the other one would claim the strongest
+evidence here while producing none of it.
+
+The Android suite takes the same target directly, for a run without the script:
+
+```sh
+./gradlew :reference-server:spfnIntegrationTest \
+    -Pspfn.integrationReceipts=/tmp/receipts \
+    -Pspfn.integrationTargetUrl=http://127.0.0.1:8791 \
+    -Pspfn.integrationLaunchFile=/path/to/launch.json
+```
+
 ## This is a test fixture
 
 Not a deployment, not a mock service, and not an SPFN endpoint. It binds the loopback
@@ -107,11 +146,22 @@ unless all ten are on disk afterwards — because a skipped XCTest is reported a
 XCTest, and an integration suite that quietly skips is the most expensive kind of green
 there is.
 
+Every case arranges its state through one control surface, which is a method call when the
+server is in process and `/control` over HTTP when it is not, so the ten case bodies are
+the same code whichever server they run against. Two things a case cannot assert against
+an external server, because they are properties of the injected test clock rather than of
+the contract: the exact instant `echo.send` answers with, and a session dying at the
+expiry the server advertised. The first is asserted exactly in process and as "a real
+instant" otherwise; the second moved to `SpfnReferenceServerTest`, where the clock is
+injected and a test moves it by hand instead of sleeping through a TTL.
+
 ## What it does not prove
 
 Nothing here has spoken to a real SPFN server. The contract this server implements is the
 hand-authored development bundle in `Contracts/`, and the exchange proves the two SDKs and
-this server agree about it — not that any deployed service does.
+this server agree about it — not that any deployed service does. The runner can now be
+pointed at a server that is not this one, which is how that gap closes; being able to
+point at one is not the same as having done it.
 
 ## Logs
 

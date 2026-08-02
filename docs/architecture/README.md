@@ -77,6 +77,25 @@ using only the Python standard library. It is not part of any build, and its
 independence from both SDKs is precisely what makes the fixtures evidence rather than a
 restatement.
 
+## Where the independence in the integration run comes from
+
+The reference server shares source with the Android modules, so a round trip against it
+cannot be evidence that the two ends agree about the contract — they were built from one
+reading of it. Three things supply the independence instead, in ascending order of what
+they are worth:
+
+| Source | What it is independent of |
+| --- | --- |
+| `Contracts/fixtures/derive-expected-values.py` | both SDKs; it is a third implementation of the algorithms |
+| the Swift integration suite | the server's codebase; it crosses the same wire from another language and another process |
+| an external target given to `run-integration.sh` | this repository; the server is a reading of the contract nobody here wrote |
+
+The third is why the runner takes `SPFN_INTEGRATION_TARGET_URL`, or a launch file, and
+runs the same ten cases against a server it did not start. The one thing the mode must
+never do is fall back to the local server when the target cannot be used: the run would
+report the strongest evidence available here while producing the weakest. So every way of
+naming a target that cannot be reached is a failure, in the runner and in the suite alike.
+
 ## Where the algorithms live
 
 Canonical serialization (SPFN-CANON-JSON-1), digests and the proof input

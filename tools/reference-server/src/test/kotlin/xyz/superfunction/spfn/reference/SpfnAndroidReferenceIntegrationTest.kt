@@ -11,6 +11,10 @@
 //   (c) a revocation the client cannot fix surfaces as an auth failure
 //   (d) a request replayed byte for byte is refused
 //   (e) a timeout and a cancellation both work while a real server is holding the call
+//
+// The same five run against a server in another process when the run names one — see
+// `SpfnReferenceTarget.kt`. Every state a case arranges goes through the harness's control
+// surface, so these bodies are the same code in both modes and record the same receipts.
 
 package xyz.superfunction.spfn.reference
 
@@ -41,7 +45,7 @@ class SpfnAndroidReferenceIntegrationTest
             val echoed = harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("over the wire", 42));
             assertEquals("over the wire", echoed.message);
             assertEquals(42L, echoed.sequence);
-            assertEquals(SpfnReferenceTestClock.DEFAULT_START_MILLIS, echoed.serverTimeMillis);
+            assertServerTime(harness, echoed.serverTimeMillis);
 
             val first = harness.client.execute(SpfnReferenceCalls.listItems, SpfnListItemsRequest(limit = 2));
             assertEquals(listOf("item-0001", "item-0002"), first.items.map { it.id });
@@ -68,14 +72,16 @@ class SpfnAndroidReferenceIntegrationTest
     @Test
     fun `case b - an expired session is recovered with exactly one re-handshake`() = runBlocking<Unit>
     {
-        SpfnReferenceClientHarness(sessionTtlMillis = 1_000).use { harness ->
+        SpfnReferenceClientHarness().use { harness ->
             harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("before", 1));
             assertEquals(1, harness.stats().handshakeCount);
 
-            // The server moves past the expiry it advertised. The client's clock does not,
-            // so it presents the session it still believes in rather than pre-emptively
-            // opening a new one — which is the only way to reach the refusal path.
-            harness.server.clock.advance(1_500);
+            // The server drops the session without touching the expiry it advertised, so
+            // the client goes on believing in it and presents it rather than pre-emptively
+            // opening a new one — which is the only way to reach the refusal path. The
+            // clock is not touched: an external server runs on the wall clock, and a case
+            // that moved a test clock would only be runnable against the local one.
+            harness.control.expireSessions();
 
             val after = harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("after", 2));
             assertEquals("after", after.message);
@@ -95,7 +101,7 @@ class SpfnAndroidReferenceIntegrationTest
         SpfnReferenceClientHarness().use { harness ->
             harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("before", 1));
 
-            harness.server.server.state.revokeKey(SpfnReferenceTestKeys.KEY_ID);
+            harness.control.revokeKey(SpfnReferenceTestKeys.KEY_ID);
 
             val failure = runCatching {
                 harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("after", 2))
@@ -126,7 +132,7 @@ class SpfnAndroidReferenceIntegrationTest
             val headers = harness.session.proofHeaders(operation, body);
             val request = SpfnTransportRequest(
                 method = operation.method,
-                url = harness.server.baseUrl + operation.path,
+                url = harness.baseUrl + operation.path,
                 headers = headers,
                 body = body,
                 timeoutMillis = 5_000
@@ -152,7 +158,7 @@ class SpfnAndroidReferenceIntegrationTest
             runBlocking {
                 harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("warm up", 1));
 
-                harness.server.server.state.holdPath(SpfnGeneratedOperations.echoSend.path, HOLD_MILLIS, 1);
+                harness.control.hold(SpfnGeneratedOperations.echoSend.path, HOLD_MILLIS, 1);
                 val timedOut = runCatching {
                     harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("too slow", 2))
                 }.exceptionOrNull();
@@ -166,7 +172,7 @@ class SpfnAndroidReferenceIntegrationTest
             }
 
             runBlocking {
-                harness.server.server.state.holdPath(SpfnGeneratedOperations.echoSend.path, HOLD_MILLIS, 1);
+                harness.control.hold(SpfnGeneratedOperations.echoSend.path, HOLD_MILLIS, 1);
 
                 val startedAt = System.nanoTime();
                 val call = async {
@@ -186,6 +192,27 @@ class SpfnAndroidReferenceIntegrationTest
             }
 
             SpfnIntegrationReceipt.record("kotlin-e");
+        }
+    }
+
+    /**
+     * Checks the instant `echo.send` answered with, as closely as this run can.
+     *
+     * In process the server runs on a test clock this suite starts, so the value is exact.
+     * An external server runs on its own wall clock, and the only thing that stays checkable
+     * is that it answered with a real instant rather than a zero or an absent field decoded
+     * as one.
+     */
+    private fun assertServerTime(harness: SpfnReferenceClientHarness, serverTimeMillis: Long)
+    {
+        val expected = harness.expectedServerTimeMillis;
+        if (expected != null)
+        {
+            assertEquals(expected, serverTimeMillis);
+        }
+        else
+        {
+            assertTrue("serverTimeMillis was $serverTimeMillis", serverTimeMillis > 0);
         }
     }
 
