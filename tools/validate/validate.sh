@@ -503,11 +503,59 @@ contains "$BUNDLE" '"allowed": ["clientProofV1"]' 'bundle allowlists exactly cli
 # implemented twice. The decision table is shared so a rule that drifts on one platform
 # fails there; a table only one suite reads would let the other drift unobserved.
 VECTORS=tools/conformance/semver-range-vectors.json
-contains Tests/SPFNCoreTests/SPFNCoreTests.swift "$VECTORS" \
-    'the Swift suite runs the shared contract-range vectors'
-contains android/spfn-core/src/test/kotlin/xyz/superfunction/spfn/core/SpfnCoreTest.kt "$VECTORS" \
-    'the Kotlin suite runs the shared contract-range vectors'
-VECTOR_CASES=$(grep -c '"candidate"' "$VECTORS" || true)
+SWIFT_VECTOR_SUITE=Tests/SPFNCoreTests/SPFNCoreTests.swift
+KOTLIN_VECTOR_SUITE=android/spfn-core/src/test/kotlin/xyz/superfunction/spfn/core/SpfnCoreTest.kt
+
+contains "$SWIFT_VECTOR_SUITE" "$VECTORS" \
+    'the Swift suite reads the shared vector file'
+contains "$KOTLIN_VECTOR_SUITE" "$VECTORS" \
+    'the Kotlin suite reads the shared vector file'
+
+# Both tables have to be consumed, not just the file opened. The range table can pass
+# because the rule refused for the right reason or because the parse failed for the wrong
+# one; only the parser table tells the two apart, so a suite that quietly dropped its
+# parsing loop would keep a green build and lose the distinction.
+for ARRAY in cases parsing
+do
+    contains "$SWIFT_VECTOR_SUITE" "\"$ARRAY\"" \
+        "the Swift suite consumes the shared $ARRAY table"
+    contains "$KOTLIN_VECTOR_SUITE" "\"$ARRAY\"" \
+        "the Kotlin suite consumes the shared $ARRAY table"
+done
+
+# A table that transcribes the implementation proves nothing, so each suite carries a
+# probe that runs the rules this change set replaced and requires the tables to catch
+# them. This validator cannot run either suite — that is `swift test` and `./gradlew
+# build` — so what it holds is that the probe is still there to be run.
+contains "$SWIFT_VECTOR_SUITE" 'testTheSharedTablesRejectTheRulesTheyReplaced' \
+    'the Swift suite still probes the tables against the rules they replaced'
+contains "$KOTLIN_VECTOR_SUITE" 'theSharedTablesRejectTheRulesTheyReplaced' \
+    'the Kotlin suite still probes the tables against the rules they replaced'
+
+# Counted per entry rather than by grepping for a quoted word, because a `why` string is
+# prose and can contain any word the count would otherwise be inflated by. Every entry
+# must also carry the full field set the suites read.
+awk '
+/"cases": \[/   { array = "cases";   next }
+/"parsing": \[/ { array = "parsing"; next }
+/^  \]/         { array = "";        next }
+array != "" && $0 ~ /^[[:space:]]*\{/ {
+    if (array == "cases")
+    {
+        cases++
+        if ($0 !~ /"lower"/ || $0 !~ /"upper"/ || $0 !~ /"candidate"/ ||
+            $0 !~ /"supported"/ || $0 !~ /"why"/) { malformed++ }
+    }
+    else
+    {
+        parsing++
+        if ($0 !~ /"text"/ || $0 !~ /"valid"/ || $0 !~ /"why"/) { malformed++ }
+    }
+}
+END { printf "%d %d %d\n", cases + 0, parsing + 0, malformed + 0 }
+' "$VECTORS" > "$TMP/vectors"
+read -r VECTOR_CASES PARSER_CASES MALFORMED_ENTRIES < "$TMP/vectors"
+
 if [ "$VECTOR_CASES" -ge 40 ]
 then
     pass "the shared contract-range table carries $VECTOR_CASES cases"
@@ -515,15 +563,18 @@ else
     fail "the shared contract-range table carries only $VECTOR_CASES cases"
 fi
 
-# The range table can pass because the rule refused for the right reason or because the
-# parse failed for the wrong one. The parser table is what tells the two apart, so it is
-# required rather than optional.
-PARSER_CASES=$(grep -c '"valid"' "$VECTORS" || true)
 if [ "$PARSER_CASES" -ge 20 ]
 then
     pass "the shared parser table carries $PARSER_CASES cases"
 else
     fail "the shared parser table carries only $PARSER_CASES cases"
+fi
+
+if [ "$MALFORMED_ENTRIES" -eq 0 ]
+then
+    pass 'every shared vector entry carries the fields both suites read'
+else
+    fail "$MALFORMED_ENTRIES shared vector entries are missing a field both suites read"
 fi
 
 # ---------------------------------------------------------------------------

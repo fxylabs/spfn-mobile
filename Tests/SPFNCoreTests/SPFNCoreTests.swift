@@ -80,12 +80,57 @@ final class SPFNContractBindingTests: XCTestCase
         XCTAssertTrue(devBundle.supportedRange.hasSuffix("<\(devBundle.upperBound)"))
     }
 
+    /// `supportedRange` is the contract's claim; `admittedRange` is what this SDK will
+    /// accept. For a release pin they agree. For a pre-release pin the declared range
+    /// promises every core below the next breaking version and this SDK refuses all of
+    /// them, so a refusal that named the declared range would advertise a window it will
+    /// not honour.
+    func testAdmittedRangeStatesWhatIsEnforced() throws
+    {
+        XCTAssertEqual(preStable.admittedRange, preStable.supportedRange)
+        XCTAssertEqual(devBundle.admittedRange, "==1.0.0-dev.1")
+        XCTAssertNotEqual(devBundle.admittedRange, devBundle.supportedRange)
+
+        XCTAssertNoThrow(try devBundle.requireSupported(serverContractVersion: "1.0.0-dev.1"))
+
+        // Every one of these is inside the declared range and refused by the pin.
+        for version in ["1.0.0", "1.0.1", "1.9.9", "1.0.0-dev.2"]
+        {
+            XCTAssertThrowsError(try devBundle.requireSupported(serverContractVersion: version))
+            { error in
+                guard case SPFNDecodingError.unsupportedContractVersion(_, let range) = error
+                else
+                {
+                    return XCTFail("expected an upgrade error, got \(error)")
+                }
+                XCTAssertEqual(range, "==1.0.0-dev.1", "'\(version)' was refused against a range that admits it")
+            }
+        }
+    }
+
+    /// A pin this SDK cannot parse admits nothing, and says nothing rather than printing
+    /// a range derived from a version that does not exist.
+    func testAnUnparsablePinAdmitsNothing() throws
+    {
+        let broken = SPFNContractBinding(
+            importedVersion: "1.0",
+            importedManifestSha256: String(repeating: "d", count: 64),
+            supportedRange: ">=1.0 <2.0.0",
+            supportedMajor: 1,
+            supportedMinor: 0,
+            origin: "spfn-mobile-step2-dev-bundle"
+        )
+
+        XCTAssertTrue(broken.admittedRange.hasPrefix("<none:"))
+        XCTAssertThrowsError(try broken.requireSupported(serverContractVersion: "1.0.0"))
+        XCTAssertThrowsError(try broken.requireSupported(serverContractVersion: "1.0"))
+    }
+
     /// Every case in the shared table, which the Kotlin suite reads too. A rule that
     /// drifts on one platform fails there rather than against a real server.
     func testSharedRangeVectors() throws
     {
-        let url = RepoPaths.root.appendingPathComponent("tools/conformance/semver-range-vectors.json")
-        let root = try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any]
+        let root: [String: Any]? = try vectorRoot()
         let cases = try XCTUnwrap(root?["cases"] as? [[String: Any]])
         XCTAssertGreaterThanOrEqual(cases.count, 30, "the shared table lost cases")
 
@@ -118,6 +163,139 @@ final class SPFNContractBindingTests: XCTestCase
 
             XCTAssertEqual(SPFNSemVer.parse(text) != nil, valid, "'\(text)': \(why)")
         }
+    }
+
+    /// The tables are evidence only if a wrong rule fails them. These run the rules this
+    /// change set replaced and require each table to catch its own. A table that merely
+    /// transcribed the implementation would agree with the old rule too, and a future
+    /// change that reverted the rule and relaxed the table to match would fail here.
+    func testTheSharedTablesRejectTheRulesTheyReplaced() throws
+    {
+        let root: [String: Any]? = try vectorRoot()
+        let cases = try XCTUnwrap(root?["cases"] as? [[String: Any]])
+        let parsing = try XCTUnwrap(root?["parsing"] as? [[String: Any]])
+
+        var rangeMismatches = 0
+        for entry in cases
+        {
+            let expected = try XCTUnwrap(entry["supported"] as? Bool)
+            let legacy = legacySatisfies(
+                try XCTUnwrap(entry["candidate"] as? String),
+                try XCTUnwrap(entry["lower"] as? String),
+                try XCTUnwrap(entry["upper"] as? String)
+            )
+            if legacy != expected
+            {
+                rangeMismatches += 1
+            }
+        }
+        XCTAssertGreaterThan(rangeMismatches, 0, "the range table no longer discriminates the rule it replaced")
+
+        var parseMismatches = 0
+        for entry in parsing
+        {
+            let expected = try XCTUnwrap(entry["valid"] as? Bool)
+            if (legacyParse(try XCTUnwrap(entry["text"] as? String)) != nil) != expected
+            {
+                parseMismatches += 1
+            }
+        }
+        XCTAssertGreaterThan(parseMismatches, 0, "the parser table no longer discriminates the rule it replaced")
+    }
+
+    private func vectorRoot() throws -> [String: Any]
+    {
+        let url = RepoPaths.root.appendingPathComponent("tools/conformance/semver-range-vectors.json")
+        return try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any]
+        )
+    }
+
+    private struct LegacyVersion
+    {
+        let core: [String]
+        let preRelease: String?
+    }
+
+    /// The parser before this change set: identifiers were alphanumeric with no numeric
+    /// leading-zero rule, so `0.1.0-01` parsed.
+    private func legacyParse(_ text: String) -> LegacyVersion?
+    {
+        var body = Substring(text)
+
+        if let plus = body.firstIndex(of: "+")
+        {
+            guard legacyIdentifiers(body[body.index(after: plus)...])
+            else
+            {
+                return nil
+            }
+            body = body[..<plus]
+        }
+
+        var preRelease: String? = nil
+        if let dash = body.firstIndex(of: "-")
+        {
+            let tail = body[body.index(after: dash)...]
+            guard legacyIdentifiers(tail)
+            else
+            {
+                return nil
+            }
+            preRelease = String(tail)
+            body = body[..<dash]
+        }
+
+        let core = body.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        guard core.count == 3,
+              core.allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0.isASCII && $0.isNumber } }),
+              core.allSatisfy({ $0 == "0" || !$0.hasPrefix("0") })
+        else
+        {
+            return nil
+        }
+        return LegacyVersion(core: core, preRelease: preRelease)
+    }
+
+    private func legacyIdentifiers(_ text: Substring) -> Bool
+    {
+        let parts = text.split(separator: ".", omittingEmptySubsequences: false)
+        return !parts.isEmpty && parts.allSatisfy { part in
+            !part.isEmpty && part.allSatisfy { $0.isASCII && ($0.isNumber || $0.isLetter || $0 == "-") }
+        }
+    }
+
+    /// The range rule before this change set: the pre-release had to equal the lower
+    /// bound's, then the core was compared against both ends — which let a pinned
+    /// pre-release admit any later core.
+    private func legacySatisfies(_ candidate: String, _ lower: String, _ upper: String) -> Bool
+    {
+        guard let candidate = legacyParse(candidate),
+              let lower = legacyParse(lower),
+              let upper = legacyParse(upper),
+              candidate.preRelease == lower.preRelease
+        else
+        {
+            return false
+        }
+        return legacyCompareCore(candidate.core, lower.core) >= 0
+            && legacyCompareCore(candidate.core, upper.core) < 0
+    }
+
+    private func legacyCompareCore(_ left: [String], _ right: [String]) -> Int
+    {
+        for (one, other) in zip(left, right)
+        {
+            if one.count != other.count
+            {
+                return one.count < other.count ? -1 : 1
+            }
+            if one != other
+            {
+                return one < other ? -1 : 1
+            }
+        }
+        return 0
     }
 
     /// The same table driven through the public entry point, so the binding and the

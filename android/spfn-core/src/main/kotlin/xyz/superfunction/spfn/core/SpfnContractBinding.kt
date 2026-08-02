@@ -20,6 +20,11 @@ data class SpfnContractBinding(
      * `requireSupported` enforces this range; it does not parse this string, it derives
      * the same bounds from the pinned version, and the validator asserts the two agree.
      */
+    /**
+     * The SemVer range the pinned contract declares, verbatim from the bundle. It is what
+     * the contract says, not what this SDK will accept: [admittedRange] is the enforced
+     * window, and the two differ when the pin is a pre-release.
+     */
     val supportedRange: String,
 
     /** The contract major this SDK links against. */
@@ -71,7 +76,9 @@ data class SpfnContractBinding(
      *   SDK that decodes it is guessing.
      *
      * There is no fallback and no partial-compatibility mode: an unsupported contract
-     * surfaces as an upgrade error rather than as a decoding failure much later.
+     * surfaces as an upgrade error rather than as a decoding failure much later. The
+     * refusal reports [admittedRange], not [supportedRange], because those are the same
+     * string only for a release pin.
      */
     fun requireSupported(serverContractVersion: String)
     {
@@ -80,10 +87,27 @@ data class SpfnContractBinding(
         {
             throw SpfnDecodingException(
                 "CONTRACT_UNSUPPORTED",
-                "server contract '$serverContractVersion' is outside the supported range '$supportedRange'"
+                "server contract '$serverContractVersion' is outside the admitted range '$admittedRange'"
             );
         }
     }
+
+    /**
+     * The window [requireSupported] actually admits.
+     *
+     * For a release pin this is [supportedRange]. For a pre-release pin it is the pinned
+     * version alone: the declared range would promise every core below the next breaking
+     * version, this SDK refuses all of them, and printing that range would advertise a
+     * window it will not honour. A pin this SDK cannot parse admits nothing, and says so.
+     */
+    val admittedRange: String
+        get()
+        {
+            val pinned = SpfnSemVer.parse(importedVersion)
+                ?: return "<none: '$importedVersion' is not a version this SDK can parse>";
+            return if (pinned.preRelease != null) "==$importedVersion"
+                else ">=$importedVersion <$upperBound";
+        }
 }
 
 /**

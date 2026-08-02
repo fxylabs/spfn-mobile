@@ -154,11 +154,15 @@ class OperationConformanceTest
             try
             {
                 binding.requireSupported(version);
-                fail("'$version' is outside '${binding.supportedRange}' and must be refused");
+                fail("'$version' is outside '${binding.admittedRange}' and must be refused");
             }
             catch (failure: SpfnDecodingException)
             {
                 assertEquals("CONTRACT_UNSUPPORTED", failure.code);
+                assertTrue(
+                    "the refusal must name the admitted range, not the declared one",
+                    failure.message!!.contains(binding.admittedRange)
+                );
             }
         }
     }

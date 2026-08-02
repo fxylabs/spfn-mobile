@@ -34,6 +34,20 @@ vertical slice end to end. Nothing is committed, tagged or published.
   strings so a version longer than `Int` cannot overflow into acceptance.
   `tools/conformance/semver-range-vectors.json` holds 41 range cases and 24 parser cases;
   both platforms run both tables, so the rule cannot drift on one of them.
+- Enforcing the pin exactly made the *declared* range a false advertisement, in the
+  opposite direction to the bug above. `supportedRange` is contract data, copied from the
+  bundle; a pre-release pin declares `>=1.0.0-dev.1 <2.0.0` while this SDK admits only
+  `1.0.0-dev.1`, so a refusal that quoted the declared range named a window it would not
+  honour. `admittedRange` is the enforced window and is what the upgrade error carries —
+  the declared range for a release pin, the pinned version alone for a pre-release pin,
+  and nothing at all for a pin the SDK cannot parse.
+- The shared tables are held to being evidence rather than a transcript. Each suite runs
+  the range and parser rules this change set *replaced* and requires the tables to catch
+  them, so reverting the rule and relaxing the tables to match fails instead of passing
+  quietly. The validator counts table entries structurally rather than grepping for a
+  quoted word — prose in a `why` field can contain any word — checks every entry carries
+  the fields both suites read, and requires each suite to still consume both tables and
+  still carry the probe.
 - The validator's provenance gate turned around with the fact it guards. It used to
   refuse any upstream claim for want of evidence; it now checks the lock against
   `upstream-provenance.json` field by field, requires the bundle to label itself

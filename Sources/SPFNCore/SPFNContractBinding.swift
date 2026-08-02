@@ -14,9 +14,9 @@ public struct SPFNContractBinding: Equatable, Sendable
     /// SHA-256 of the vendored bundle the generator read.
     public let importedManifestSha256: String
 
-    /// The SemVer range this SDK declares support for, for display and diagnostics.
-    /// `requireSupported` enforces this range; it does not parse this string, it derives
-    /// the same bounds from the pinned version, and the validator asserts the two agree.
+    /// The SemVer range the pinned contract declares, verbatim from the bundle. It is
+    /// what the contract says, not what this SDK will accept: `admittedRange` is the
+    /// enforced window, and the two differ when the pin is a pre-release.
     public let supportedRange: String
 
     /// The contract major this SDK links against.
@@ -74,7 +74,9 @@ public struct SPFNContractBinding: Equatable, Sendable
     ///   SDK that decodes it is guessing.
     ///
     /// There is no fallback and no partial-compatibility mode: an unsupported contract
-    /// surfaces as an upgrade error rather than as a decoding failure much later.
+    /// surfaces as an upgrade error rather than as a decoding failure much later. The
+    /// refusal reports `admittedRange`, not `supportedRange`, because those are the same
+    /// string only for a release pin.
     public func requireSupported(serverContractVersion: String) throws
     {
         guard SPFNSemVer.satisfies(
@@ -86,9 +88,27 @@ public struct SPFNContractBinding: Equatable, Sendable
         {
             throw SPFNDecodingError.unsupportedContractVersion(
                 found: serverContractVersion,
-                supportedRange: supportedRange
+                admittedRange: admittedRange
             )
         }
+    }
+
+    /// The window `requireSupported` actually admits.
+    ///
+    /// For a release pin this is `supportedRange`. For a pre-release pin it is the pinned
+    /// version alone: the declared range would promise every core below the next breaking
+    /// version, this SDK refuses all of them, and printing that range would advertise a
+    /// window it will not honour. A pin this SDK cannot parse admits nothing, and says so.
+    public var admittedRange: String
+    {
+        guard let pinned = SPFNSemVer.parse(importedVersion)
+        else
+        {
+            return "<none: '\(importedVersion)' is not a version this SDK can parse>"
+        }
+        return pinned.preRelease != nil
+            ? "==\(importedVersion)"
+            : ">=\(importedVersion) <\(upperBound)"
     }
 
     /// The exclusive upper bound the declared range carries. Derived from the pinned

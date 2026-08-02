@@ -106,15 +106,78 @@ class SpfnContractBindingTest
     }
 
     /**
+     * [SpfnContractBinding.supportedRange] is the contract's claim; [SpfnContractBinding.admittedRange]
+     * is what this SDK will accept. For a release pin they agree. For a pre-release pin the
+     * declared range promises every core below the next breaking version and this SDK refuses
+     * all of them, so a refusal that named the declared range would advertise a window it
+     * will not honour.
+     */
+    @Test
+    fun admittedRangeStatesWhatIsEnforced()
+    {
+        assertEquals(preStable.supportedRange, preStable.admittedRange);
+        assertEquals("==1.0.0-dev.1", devBundle.admittedRange);
+        assertNotEquals(devBundle.supportedRange, devBundle.admittedRange);
+
+        devBundle.requireSupported("1.0.0-dev.1");
+
+        // Every one of these is inside the declared range and refused by the pin.
+        for (version in listOf("1.0.0", "1.0.1", "1.9.9", "1.0.0-dev.2"))
+        {
+            try
+            {
+                devBundle.requireSupported(version);
+                fail("'$version' must be refused by a pinned pre-release");
+            }
+            catch (failure: SpfnDecodingException)
+            {
+                assertTrue(
+                    "'$version' was refused against a range that admits it",
+                    failure.message!!.contains("==1.0.0-dev.1")
+                );
+            }
+        }
+    }
+
+    /**
+     * A pin this SDK cannot parse admits nothing, and says nothing rather than printing a
+     * range derived from a version that does not exist.
+     */
+    @Test
+    fun anUnparsablePinAdmitsNothing()
+    {
+        val broken = SpfnContractBinding(
+            importedVersion = "1.0",
+            importedManifestSha256 = "d".repeat(64),
+            supportedRange = ">=1.0 <2.0.0",
+            supportedMajor = 1,
+            supportedMinor = 0,
+            origin = "spfn-mobile-step2-dev-bundle"
+        );
+
+        assertTrue(broken.admittedRange.startsWith("<none:"));
+        for (version in listOf("1.0.0", "1.0"))
+        {
+            try
+            {
+                broken.requireSupported(version);
+                fail("'$version' must be refused by an unparsable pin");
+            }
+            catch (failure: SpfnDecodingException)
+            {
+                assertEquals("CONTRACT_UNSUPPORTED", failure.code);
+            }
+        }
+    }
+
+    /**
      * Every case in the shared table, which the Swift suite reads too. A rule that drifts
      * on one platform fails there rather than against a real server.
      */
     @Test
     fun sharedRangeVectors()
     {
-        val repoRoot = File(requireNotNull(System.getProperty("spfn.repoRoot")));
-        val text = File(repoRoot, "tools/conformance/semver-range-vectors.json").readText();
-        val root = SpfnCanonicalJson.parse(text.toByteArray()) as SpfnCanonicalValue.Obj;
+        val root = vectorRoot();
         val cases = (root.members["cases"] as SpfnCanonicalValue.Arr).elements
             .map { (it as SpfnCanonicalValue.Obj).members };
         assertTrue("the shared table lost cases", cases.size >= 30);
@@ -149,6 +212,128 @@ class SpfnContractBindingTest
 
             assertEquals("'$subject': $why", valid, SpfnSemVer.parse(subject) != null);
         }
+    }
+
+    /**
+     * The tables are evidence only if a wrong rule fails them. These run the rules this
+     * change set replaced and require each table to catch its own. A table that merely
+     * transcribed the implementation would agree with the old rule too, and a future change
+     * that reverted the rule and relaxed the table to match would fail here.
+     */
+    @Test
+    fun theSharedTablesRejectTheRulesTheyReplaced()
+    {
+        val root = vectorRoot();
+        val cases = (root.members["cases"] as SpfnCanonicalValue.Arr).elements
+            .map { (it as SpfnCanonicalValue.Obj).members };
+        val parsing = (root.members["parsing"] as SpfnCanonicalValue.Arr).elements
+            .map { (it as SpfnCanonicalValue.Obj).members };
+
+        val rangeMismatches = cases.count { entry ->
+            fun text(key: String) = (entry[key] as SpfnCanonicalValue.Text).value;
+            legacySatisfies(text("candidate"), text("lower"), text("upper")) !=
+                (entry["supported"] as SpfnCanonicalValue.Bool).value
+        };
+        assertTrue("the range table no longer discriminates the rule it replaced", rangeMismatches > 0);
+
+        val parseMismatches = parsing.count { entry ->
+            val subject = (entry["text"] as SpfnCanonicalValue.Text).value;
+            (legacyParse(subject) != null) != (entry["valid"] as SpfnCanonicalValue.Bool).value
+        };
+        assertTrue("the parser table no longer discriminates the rule it replaced", parseMismatches > 0);
+    }
+
+    private fun vectorRoot(): SpfnCanonicalValue.Obj
+    {
+        val repoRoot = File(requireNotNull(System.getProperty("spfn.repoRoot")));
+        val text = File(repoRoot, "tools/conformance/semver-range-vectors.json").readText();
+        return SpfnCanonicalJson.parse(text.toByteArray()) as SpfnCanonicalValue.Obj;
+    }
+
+    private data class LegacyVersion(val core: List<String>, val preRelease: String?)
+
+    /**
+     * The parser before this change set: identifiers were alphanumeric with no numeric
+     * leading-zero rule, so `0.1.0-01` parsed.
+     */
+    private fun legacyParse(text: String): LegacyVersion?
+    {
+        var body = text;
+
+        val plus = body.indexOf('+');
+        if (plus >= 0)
+        {
+            if (!legacyIdentifiers(body.substring(plus + 1)))
+            {
+                return null;
+            }
+            body = body.substring(0, plus);
+        }
+
+        var preRelease: String? = null;
+        val dash = body.indexOf('-');
+        if (dash >= 0)
+        {
+            val tail = body.substring(dash + 1);
+            if (!legacyIdentifiers(tail))
+            {
+                return null;
+            }
+            preRelease = tail;
+            body = body.substring(0, dash);
+        }
+
+        val core = body.split('.');
+        if (core.size != 3 ||
+            !core.all { part -> part.isNotEmpty() && part.all { it in '0'..'9' } } ||
+            !core.all { it == "0" || !it.startsWith("0") })
+        {
+            return null;
+        }
+        return LegacyVersion(core, preRelease);
+    }
+
+    private fun legacyIdentifiers(text: String): Boolean
+    {
+        val parts = text.split('.');
+        return parts.isNotEmpty() && parts.all { part ->
+            part.isNotEmpty() &&
+                part.all { it in '0'..'9' || it in 'a'..'z' || it in 'A'..'Z' || it == '-' }
+        };
+    }
+
+    /**
+     * The range rule before this change set: the pre-release had to equal the lower bound's,
+     * then the core was compared against both ends — which let a pinned pre-release admit
+     * any later core.
+     */
+    private fun legacySatisfies(candidate: String, lower: String, upper: String): Boolean
+    {
+        val parsedCandidate = legacyParse(candidate) ?: return false;
+        val parsedLower = legacyParse(lower) ?: return false;
+        val parsedUpper = legacyParse(upper) ?: return false;
+        if (parsedCandidate.preRelease != parsedLower.preRelease)
+        {
+            return false;
+        }
+        return legacyCompareCore(parsedCandidate.core, parsedLower.core) >= 0 &&
+            legacyCompareCore(parsedCandidate.core, parsedUpper.core) < 0;
+    }
+
+    private fun legacyCompareCore(left: List<String>, right: List<String>): Int
+    {
+        for ((one, other) in left.zip(right))
+        {
+            if (one.length != other.length)
+            {
+                return if (one.length < other.length) -1 else 1;
+            }
+            if (one != other)
+            {
+                return if (one < other) -1 else 1;
+            }
+        }
+        return 0;
     }
 
     /**

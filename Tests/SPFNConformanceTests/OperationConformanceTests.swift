@@ -142,7 +142,10 @@ final class OperationConformanceTests: XCTestCase
                     return XCTFail("expected an upgrade error, got \(error)")
                 }
                 XCTAssertEqual(found, version)
-                XCTAssertEqual(range, binding.supportedRange)
+                XCTAssertEqual(range, binding.admittedRange)
+                // This pin is a release, so the two agree here. The assertion is on the
+                // admitted range because that is what the refusal is obliged to name.
+                XCTAssertEqual(binding.admittedRange, binding.supportedRange)
             }
         }
     }
