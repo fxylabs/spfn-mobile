@@ -957,22 +957,30 @@ table {
         rest = substr(rest, RSTART + RLENGTH)
     }
 }
-/^## P[0-9]+\./ && match($0, /\{#p[0-9]+\}/) {
+# Headings are counted before the anchor is looked for, so an entry heading that carries
+# no anchor is seen rather than skipped. Counting them together hides exactly the entry a
+# reader would believe exists.
+/^## P[0-9]+\./ {
     headings++
-    entries[substr($0, RSTART + 2, RLENGTH - 3)] = 1
+    if (match($0, /\{#p[0-9]+\}/))
+    {
+        anchored++
+        entries[substr($0, RSTART + 2, RLENGTH - 3)] = 1
+    }
 }
 END {
     unrouted = ""; dead = ""
     for (a in entries) { total++;  if (!(a in routed))  { unrouted = unrouted " " a } }
     for (a in routed)  { routes++; if (!(a in entries)) { dead = dead " " a } }
-    printf "%d %d %d %s|%s\n", total + 0, routes + 0, headings + 0, unrouted, dead
+    printf "%d %d %d %d %s|%s\n", total + 0, routes + 0, headings + 0, anchored + 0, unrouted, dead
 }
 ' "$REGISTER" > "$TMP/register" 2>/dev/null || true
 
 REGISTER_ENTRIES=$(awk '{print $1}' "$TMP/register")
 REGISTER_ROUTES=$(awk '{print $2}' "$TMP/register")
 REGISTER_HEADINGS=$(awk '{print $3}' "$TMP/register")
-REGISTER_UNROUTED=$(sed 's/|.*//; s/^[0-9]* [0-9]* [0-9]* *//' "$TMP/register")
+REGISTER_ANCHORED=$(awk '{print $4}' "$TMP/register")
+REGISTER_UNROUTED=$(sed 's/|.*//; s/^[0-9]* [0-9]* [0-9]* [0-9]* *//' "$TMP/register")
 REGISTER_DEAD=$(sed 's/^[^|]*|//; s/^ *//' "$TMP/register")
 
 if [ "${REGISTER_ENTRIES:-0}" -lt 10 ]
@@ -981,14 +989,17 @@ then
 elif [ "${REGISTER_ROUTES:-0}" -lt 10 ]
 then
     fail "the pitfall register's trigger table yielded only ${REGISTER_ROUTES:-0} routed entries; the table is gone or the scan could not read it"
-elif [ "${REGISTER_HEADINGS:-0}" -ne "$REGISTER_ENTRIES" ]
+elif [ "${REGISTER_HEADINGS:-0}" -ne "${REGISTER_ANCHORED:-0}" ]
+then
+    fail "the pitfall register has ${REGISTER_HEADINGS:-0} entry headings but ${REGISTER_ANCHORED:-0} carry an anchor; an entry cannot be routed without one"
+elif [ "${REGISTER_ANCHORED:-0}" -ne "$REGISTER_ENTRIES" ]
 then
     # Anchors are collected as map keys, so two entries sharing one anchor collapse into
     # a single key and every reachability check below passes while one of them cannot be
-    # addressed. Counting headings separately is what sees it. The routes side gets no
-    # such rule on purpose: an entry routed from several trigger rows is correct, and P2
-    # is deliberately reachable from three.
-    fail "the pitfall register has ${REGISTER_HEADINGS:-0} entry headings but only $REGISTER_ENTRIES distinct anchors; an anchor is used twice"
+    # addressed. Counting anchored headings separately is what sees it. The routes side
+    # gets no such rule on purpose: an entry routed from several trigger rows is correct,
+    # and P2 is deliberately reachable from three.
+    fail "the pitfall register has ${REGISTER_ANCHORED:-0} anchored entries but only $REGISTER_ENTRIES distinct anchors; an anchor is used twice"
 elif [ -n "$REGISTER_DEAD" ]
 then
     fail "the pitfall register's trigger table points at entries that do not exist:$REGISTER_DEAD"
