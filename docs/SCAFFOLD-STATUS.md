@@ -14,15 +14,15 @@ the same fixture vectors.
 - Not an SDK. There is a transport boundary, a session and one execute path above them,
   and nothing above that: no persistence, no bridge, no key custody, and no generated
   per-operation call descriptors.
-- **Not verified against a real server.** Both SDKs now complete a real HTTP round trip,
-  but only against `tools/reference-server`, which lives in this repository and implements
-  the contract bundle that also lives in this repository. That proves the two clients and
-  one server agree about a contract written here. It does not prove any deployed service
-  behaves this way, and no deployed service has been contacted.
+- **Not verified against a deployed service.** Both SDKs complete a real HTTP round trip
+  against `tools/reference-server` and against the SPFN primitives `04-mobile-contract-dev`
+  server, both running the pinned upstream export. The second is the canonical
+  implementation rather than a second reading of the same text, which is stronger evidence
+  than this repository could produce alone — but it ran on localhost from a developer
+  checkout. No deployed service has been contacted.
 - Not released. No commit, no tag, no artifact, no registry entry, no account.
 - Not supported. No distribution channel — SwiftPM, Maven or CocoaPods — is promised.
 - Not reviewed. Step 3 is a fresh independent review; it has not happened.
-- **Not connected to a real server contract.** The pinned bundle was written here.
 
 ## What Step 2 added
 
@@ -31,7 +31,7 @@ the same fixture vectors.
 | Toolchain baseline (D5) | applied: Swift 6 language mode, iOS 16 / macOS 13, Gradle 9.5.1, AGP 9.2.1, Kotlin 2.4.10, JDK 21, minSdk 24 / compileSdk 36 |
 | Gradle wrapper | committed, distribution and jar pinned to checksums published by gradle.org |
 | Android modules | all compile, and three run unit tests |
-| Contract bundle | pinned by real SHA-256, with provenance recorded as locally authored |
+| Contract bundle | an SPFN primitives export, pinned by real SHA-256 at commit `d31aa9a1`, with the exporter's evidence vendored beside it |
 | Codegen | `tools/contract-codegen` generates both clients from the bundle, deterministically |
 | Conformance | shared fixtures under `Contracts/fixtures/`, consumed by both test suites |
 | Reference server | `tools/reference-server` implements the pinned contract locally; both SDKs complete a real HTTP round trip against it |

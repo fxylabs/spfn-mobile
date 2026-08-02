@@ -168,7 +168,8 @@ for path in \
     LICENSE CODEOWNERS README.md .gitignore \
     Contracts/upstream.lock.json Contracts/spfn-mobile-contract.json \
     Contracts/auth-profiles/clientProofV1.schema.json Contracts/fixtures/MANIFEST.json \
-    tools/module-graph.json tools/contract-codegen/README.md \
+    tools/module-graph.json tools/conformance/semver-range-vectors.json \
+    tools/contract-codegen/README.md \
     tools/contract-codegen/build.gradle.kts \
     tools/validate/validate.sh tools/validate/d11-forbidden.ere \
     tools/validate/d11-policy.lock.json tools/validate/probe-d11-guardrail.sh \
@@ -441,6 +442,12 @@ esac
 # Digest and fixture discipline is the same obligation whichever way the contract was
 # resolved. It used to live inside the dev-bundle branch only, so moving the lock to
 # RESOLVED_UPSTREAM would have silently dropped every fixture check.
+#
+# RESOLVED says which branch ran, not whether it passed, and that is deliberate: fail()
+# records a failure and keeps going, so one bad provenance field must not suppress the
+# digest and fixture checks and hide a second problem behind the first. A run reports
+# everything wrong with the lock at once. The only state that skips this block is
+# UNRESOLVED_PLACEHOLDER, where nothing is pinned and there is nothing to digest.
 if [ "${RESOLVED:-no}" = "yes" ]
 then
     if printf '%s' "$LOCK_DIGEST" | grep -qE '^[0-9a-f]{64}$'
@@ -491,6 +498,22 @@ fi
 contains "$LOCK" '"allowed": ["clientProofV1"]' 'lock allowlists exactly clientProofV1'
 contains "$LOCK" '"unknownProfilePolicy": "reject"' 'lock rejects unknown auth profiles (no fallback)'
 contains "$BUNDLE" '"allowed": ["clientProofV1"]' 'bundle allowlists exactly clientProofV1'
+
+# The contract range rule decides whether the SDK talks to a server at all, and it is
+# implemented twice. The decision table is shared so a rule that drifts on one platform
+# fails there; a table only one suite reads would let the other drift unobserved.
+VECTORS=tools/conformance/semver-range-vectors.json
+contains Tests/SPFNCoreTests/SPFNCoreTests.swift "$VECTORS" \
+    'the Swift suite runs the shared contract-range vectors'
+contains android/spfn-core/src/test/kotlin/xyz/superfunction/spfn/core/SpfnCoreTest.kt "$VECTORS" \
+    'the Kotlin suite runs the shared contract-range vectors'
+VECTOR_CASES=$(grep -c '"candidate"' "$VECTORS" || true)
+if [ "$VECTOR_CASES" -ge 30 ]
+then
+    pass "the shared contract-range table carries $VECTOR_CASES cases"
+else
+    fail "the shared contract-range table carries only $VECTOR_CASES cases"
+fi
 
 # ---------------------------------------------------------------------------
 section '6. forbidden interactive-browser auth surface'

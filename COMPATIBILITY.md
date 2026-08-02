@@ -11,7 +11,7 @@ on. Those are different claims, and only the second is one an integrator can rel
 | Field | Value to record per release | Gate | Current state |
 | --- | --- | --- | --- |
 | Mobile SDK | version, source commit, tag digest | `VERSION`, tag, changelog and Maven POM agree | UNRESOLVED — `0.1.0-alpha.1` decided (D9), no commit, no tag, no POM |
-| Contract | exact imported digest and supported SemVer range | a contract outside the range raises an explicit upgrade error; no unknown-profile fallback | partially enforced — `1.0.0-dev.1` is pinned by real digest and the range check is tested, but the bundle is locally authored, not exported by SPFN primitives (D17) |
+| Contract | exact imported digest and supported SemVer range | a contract outside the range raises an explicit upgrade error; no unknown-profile fallback | enforced — `0.1.0` is pinned by real digest from the SPFN primitives export (D17 resolved), and the range check is driven by a shared cross-platform vector table |
 | Auth | `allowed=[clientProofV1]`, default profile, mixing prohibited | any redirect-based auth symbol, endpoint or fixture in the public surface fails the build | **enforced** — the allowlist is exactly `clientProofV1` on both platforms and in the generated clients |
 | Server | minimum verified SPFN primitives release/commit and endpoint capability set | server fixtures and both SDK conformance suites pass | UNRESOLVED — no server has been contacted and no upstream contract exists |
 | iOS | Swift tools, Xcode, minimum iOS/macOS, tested device matrix | Linux Swift core + macOS Apple API + real-device release evidence | UNRESOLVED — *builds* with swift-tools 6.0 and Xcode 26.2 against iOS 16 and macOS 13; zero devices tested |

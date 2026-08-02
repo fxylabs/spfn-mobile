@@ -67,8 +67,9 @@ skipped rather than ran — see `tools/reference-server/README.md`.
 - **Never invent a value to fill a placeholder.** Digests, commits, provenance, owner
   handles, licenses and signing identities stay unresolved until a person decides them.
   This is the single rule that matters most here.
-- **Never claim provenance you do not have.** The pinned bundle is locally authored and
-  says so. A lock that claims an upstream export must produce upstream evidence.
+- **Never claim provenance you do not have.** The pinned bundle is an SPFN primitives
+  export and is never edited here. The lock's upstream claim is checked field by field
+  against `Contracts/upstream-provenance.json`, the file the exporter itself wrote.
 - **Never widen the auth surface.** `clientProofV1` is the only profile. Redirect-based
   browser auth vocabulary anywhere in the API surface fails the build.
 - **Never enable publication.** No registry, no credential block, no signing plugin, no

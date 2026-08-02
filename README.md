@@ -4,8 +4,9 @@
 >
 > There is no transport, no persistence, no bridge, no release, no package on any
 > registry, and **no public support** of any distribution channel is promised. Nothing
-> here has been committed, pushed or published. The pinned contract bundle was written
-> in this repository, not exported by SPFN primitives. Read
+> here has been committed, pushed or published. The pinned contract bundle is an SPFN
+> primitives export, and the round trip has been proved against a primitives dev server
+> on localhost — never against a deployed service. Read
 > [docs/SCAFFOLD-STATUS.md](docs/SCAFFOLD-STATUS.md) before assuming any capability
 > exists.
 
@@ -72,5 +73,5 @@ separate evidence, and the validator never infers or reports the result of the o
 The approved repository and release topology is the decision artifact
 `2026-07-27-spfn-mobile-sdk-repository-topology-decision.html`. Everything still open is
 listed in [docs/OPEN-DECISIONS.md](docs/OPEN-DECISIONS.md) — including the Maven
-namespace, ownership, signing, the license, and D17, the missing upstream contract
-export tooling that has to replace the local bundle before any release.
+namespace, ownership and signing. D17 is resolved: the contract is exported by SPFN
+primitives and pinned here at an exact commit.

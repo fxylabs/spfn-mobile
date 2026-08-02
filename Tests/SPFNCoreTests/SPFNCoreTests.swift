@@ -46,17 +46,6 @@ final class SPFNScaffoldTests: XCTestCase
 
 final class SPFNContractBindingTests: XCTestCase
 {
-    private let stable = SPFNContractBinding(
-        importedVersion: "1.0.0",
-        importedManifestSha256: String(repeating: "a", count: 64),
-        supportedRange: ">=1.0.0 <2.0.0",
-        supportedMajor: 1,
-        supportedMinor: 0,
-        origin: "spfn-primitives-ci-export"
-    )
-
-    /// The shape the repository actually ships: a 0.x contract, where the minor is the
-    /// breaking axis rather than an additive one.
     private let preStable = SPFNContractBinding(
         importedVersion: "0.1.0",
         importedManifestSha256: String(repeating: "b", count: 64),
@@ -78,64 +67,57 @@ final class SPFNContractBindingTests: XCTestCase
     func testADevBundleIsNeverReportedAsAnUpstreamExport() throws
     {
         XCTAssertFalse(devBundle.isUpstreamExport)
-    }
-
-    func testAnExportedBundleIsReportedAsUpstream() throws
-    {
         XCTAssertTrue(preStable.isUpstreamExport)
     }
 
-    func testAStableContractAcceptsAnyMinorOnItsMajor() throws
+    /// The upper bound is derived, never parsed out of the printed range, so the two
+    /// cannot disagree about what the SDK accepts.
+    func testUpperBoundFollowsTheBreakingAxis() throws
     {
-        XCTAssertNoThrow(try stable.requireSupported(serverContractVersion: "1.7.3"))
-        XCTAssertNoThrow(try stable.requireSupported(serverContractVersion: "1.0.0"))
+        XCTAssertEqual(preStable.upperBound, "0.2.0")
+        XCTAssertEqual(devBundle.upperBound, "2.0.0")
+        XCTAssertTrue(preStable.supportedRange.hasSuffix("<\(preStable.upperBound)"))
+        XCTAssertTrue(devBundle.supportedRange.hasSuffix("<\(devBundle.upperBound)"))
     }
 
-    func testAStableContractRejectsOtherMajors() throws
+    /// Every case in the shared table, which the Kotlin suite reads too. A rule that
+    /// drifts on one platform fails there rather than against a real server.
+    func testSharedRangeVectors() throws
     {
-        for version in ["2.0.0", "0.9.0", "not-a-version"]
+        let url = RepoPaths.root.appendingPathComponent("tools/conformance/semver-range-vectors.json")
+        let root = try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any]
+        let cases = try XCTUnwrap(root?["cases"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(cases.count, 30, "the shared table lost cases")
+
+        for entry in cases
         {
-            XCTAssertThrowsError(try stable.requireSupported(serverContractVersion: version))
+            let lower = try XCTUnwrap(entry["lower"] as? String)
+            let upper = try XCTUnwrap(entry["upper"] as? String)
+            let candidate = try XCTUnwrap(entry["candidate"] as? String)
+            let expected = try XCTUnwrap(entry["supported"] as? Bool)
+            let why = try XCTUnwrap(entry["why"] as? String)
+
+            XCTAssertEqual(
+                SPFNSemVer.satisfies(candidate: candidate, atOrAbove: lower, below: upper),
+                expected,
+                "'\(candidate)' against [\(lower), \(upper)): \(why)"
+            )
+        }
+    }
+
+    /// The same table driven through the public entry point, so the binding and the
+    /// comparator cannot pass separately while disagreeing with each other.
+    func testTheBindingRefusesWhatTheTableRefuses() throws
+    {
+        for candidate in ["0.2.0", "0.1.0-rc.1", "0.1", "0.01.0", "", "1.0.0"]
+        {
+            XCTAssertThrowsError(try preStable.requireSupported(serverContractVersion: candidate))
             { error in
                 XCTAssertEqual((error as? SPFNDecodingError)?.code, "CONTRACT_UNSUPPORTED")
             }
         }
-    }
-
-    func testAPreStableContractAcceptsOnlyItsOwnMinor() throws
-    {
         XCTAssertNoThrow(try preStable.requireSupported(serverContractVersion: "0.1.0"))
         XCTAssertNoThrow(try preStable.requireSupported(serverContractVersion: "0.1.9"))
-    }
-
-    /// The case that made this rule necessary. Comparing majors alone admits 0.2.0,
-    /// which the declared range excludes, and the SDK would decode a contract it does
-    /// not implement rather than reporting an upgrade.
-    func testAPreStableContractRejectsANeighbouringMinor() throws
-    {
-        for version in ["0.2.0", "0.0.9", "1.0.0", "0", "0.x.0", ""]
-        {
-            XCTAssertThrowsError(try preStable.requireSupported(serverContractVersion: version))
-            { error in
-                XCTAssertEqual((error as? SPFNDecodingError)?.code, "CONTRACT_UNSUPPORTED")
-            }
-        }
-    }
-
-    func testPreReleaseAndBuildMetadataDoNotChangeTheDecision() throws
-    {
-        XCTAssertNoThrow(try preStable.requireSupported(serverContractVersion: "0.1.0-rc.1"))
-        XCTAssertNoThrow(try preStable.requireSupported(serverContractVersion: "0.1.0+build.7"))
-        XCTAssertThrowsError(try preStable.requireSupported(serverContractVersion: "0.2.0-rc.1"))
-    }
-
-    func testMajorMinorParsing() throws
-    {
-        XCTAssertEqual(SPFNContractBinding.majorMinor(of: "0.1.0")?.minor, 1)
-        XCTAssertEqual(SPFNContractBinding.majorMinor(of: "12.34.56")?.major, 12)
-        XCTAssertEqual(SPFNContractBinding.majorMinor(of: "3")?.minor, 0)
-        XCTAssertNil(SPFNContractBinding.majorMinor(of: "v1.0.0"))
-        XCTAssertNil(SPFNContractBinding.majorMinor(of: ""))
     }
 }
 

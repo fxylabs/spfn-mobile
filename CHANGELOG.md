@@ -14,11 +14,17 @@ vertical slice end to end. Nothing is committed, tagged or published.
   byte from `contracts/mobile/` at commit `d31aa9a1` and pinned at digest `96c48f9c…`.
   It replaces the bundle Step 2 hand-authored here, which resolves D17 and clears the
   Step 5 blocker. The exporter's own `Contracts/upstream-provenance.json` sits beside it.
-- The contract facts did not change. Operations, wire mapping, canonical JSON, auth
-  profiles, error envelope, types and proof input are byte-identical to what the dev
+- Nothing an implementation depends on changed. Operations, wire mapping, canonical JSON,
+  auth profiles, error envelope, types and proof input are byte-identical to what the dev
   bundle carried, and every conformance vector reproduced unchanged — only the digest
-  references moved. Upstream added `typeGrammar`, `clientProofV1.admissionOrder` and
-  `nonceRule`, each stating behaviour both sides already implemented.
+  references moved. Two prose fields were rewritten by upstream and are worth naming
+  rather than folding into "unchanged": the `CONTRACT_UNSUPPORTED` summary now reads
+  "the request is not the shape this contract describes" instead of describing a version
+  mismatch, and `clientProofV1.revocationRule` now says revocation is *not inferable*
+  from a proof failure where it used to say the two are *distinguishable* — the same
+  rule, stated from the attacker's side. Upstream also added `typeGrammar`,
+  `clientProofV1.admissionOrder` and `nonceRule`, each stating behaviour both sides
+  already implemented.
 - The contract line restarts at `0.1.0`, and that changed a rule rather than a number.
   Below 1.0.0 SemVer puts breaking changes in the minor, so the SDK now compares major
   **and** minor: `requireSupported` used to compare majors alone, which on a 0.x line

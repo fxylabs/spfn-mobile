@@ -67,16 +67,6 @@ class SpfnDigestTest
 
 class SpfnContractBindingTest
 {
-    private val stable = SpfnContractBinding(
-        importedVersion = "1.0.0",
-        importedManifestSha256 = "a".repeat(64),
-        supportedRange = ">=1.0.0 <2.0.0",
-        supportedMajor = 1,
-        supportedMinor = 0,
-        origin = "spfn-primitives-ci-export"
-    )
-
-    /** The shape the repository actually ships: a 0.x contract, where the minor breaks. */
     private val preStable = SpfnContractBinding(
         importedVersion = "0.1.0",
         importedManifestSha256 = "b".repeat(64),
@@ -95,84 +85,77 @@ class SpfnContractBindingTest
         origin = "spfn-mobile-step2-dev-bundle"
     )
 
-    private fun refuses(binding: SpfnContractBinding, version: String)
-    {
-        try
-        {
-            binding.requireSupported(version);
-            fail("'$version' must be refused");
-        }
-        catch (failure: SpfnDecodingException)
-        {
-            assertEquals("CONTRACT_UNSUPPORTED", failure.code);
-        }
-    }
-
     @Test
     fun aDevBundleIsNeverReportedAsAnUpstreamExport()
     {
         assertFalse(devBundle.isUpstreamExport);
-    }
-
-    @Test
-    fun anExportedBundleIsReportedAsUpstream()
-    {
         assertTrue(preStable.isUpstreamExport);
     }
 
+    /**
+     * The upper bound is derived, never parsed out of the printed range, so the two
+     * cannot disagree about what the SDK accepts.
+     */
     @Test
-    fun aStableContractAcceptsAnyMinorOnItsMajor()
+    fun upperBoundFollowsTheBreakingAxis()
     {
-        stable.requireSupported("1.7.3");
-        stable.requireSupported("1.0.0");
-    }
-
-    @Test
-    fun aStableContractRejectsOtherMajors()
-    {
-        for (version in listOf("2.0.0", "0.9.0", "not-a-version"))
-        {
-            refuses(stable, version);
-        }
-    }
-
-    @Test
-    fun aPreStableContractAcceptsOnlyItsOwnMinor()
-    {
-        preStable.requireSupported("0.1.0");
-        preStable.requireSupported("0.1.9");
+        assertEquals("0.2.0", preStable.upperBound);
+        assertEquals("2.0.0", devBundle.upperBound);
+        assertTrue(preStable.supportedRange.endsWith("<${preStable.upperBound}"));
+        assertTrue(devBundle.supportedRange.endsWith("<${devBundle.upperBound}"));
     }
 
     /**
-     * The case that made this rule necessary. Comparing majors alone admits 0.2.0, which
-     * the declared range excludes, and the SDK would decode a contract it does not
-     * implement rather than reporting an upgrade.
+     * Every case in the shared table, which the Swift suite reads too. A rule that drifts
+     * on one platform fails there rather than against a real server.
      */
     @Test
-    fun aPreStableContractRejectsANeighbouringMinor()
+    fun sharedRangeVectors()
     {
-        for (version in listOf("0.2.0", "0.0.9", "1.0.0", "0", "0.x.0", ""))
+        val repoRoot = File(requireNotNull(System.getProperty("spfn.repoRoot")));
+        val text = File(repoRoot, "tools/conformance/semver-range-vectors.json").readText();
+        val root = SpfnCanonicalJson.parse(text.toByteArray()) as SpfnCanonicalValue.Obj;
+        val cases = (root.members["cases"] as SpfnCanonicalValue.Arr).elements
+            .map { (it as SpfnCanonicalValue.Obj).members };
+        assertTrue("the shared table lost cases", cases.size >= 30);
+
+        for (entry in cases)
         {
-            refuses(preStable, version);
+            fun text(key: String) = (entry[key] as SpfnCanonicalValue.Text).value;
+            val candidate = text("candidate");
+            val lower = text("lower");
+            val upper = text("upper");
+            val expected = (entry["supported"] as SpfnCanonicalValue.Bool).value;
+
+            assertEquals(
+                "'$candidate' against [$lower, $upper): ${text("why")}",
+                expected,
+                SpfnSemVer.satisfies(candidate, lower, upper)
+            );
         }
     }
 
+    /**
+     * The same table driven through the public entry point, so the binding and the
+     * comparator cannot pass separately while disagreeing with each other.
+     */
     @Test
-    fun preReleaseAndBuildMetadataDoNotChangeTheDecision()
+    fun theBindingRefusesWhatTheTableRefuses()
     {
-        preStable.requireSupported("0.1.0-rc.1");
-        preStable.requireSupported("0.1.0+build.7");
-        refuses(preStable, "0.2.0-rc.1");
-    }
-
-    @Test
-    fun majorMinorParsing()
-    {
-        assertEquals(0 to 1, SpfnContractBinding.majorMinorOf("0.1.0"));
-        assertEquals(12 to 34, SpfnContractBinding.majorMinorOf("12.34.56"));
-        assertEquals(3 to 0, SpfnContractBinding.majorMinorOf("3"));
-        assertNull(SpfnContractBinding.majorMinorOf("v1.0.0"));
-        assertNull(SpfnContractBinding.majorMinorOf(""));
+        for (candidate in listOf("0.2.0", "0.1.0-rc.1", "0.1", "0.01.0", "", "1.0.0"))
+        {
+            try
+            {
+                preStable.requireSupported(candidate);
+                fail("'$candidate' must be refused");
+            }
+            catch (failure: SpfnDecodingException)
+            {
+                assertEquals("CONTRACT_UNSUPPORTED", failure.code);
+            }
+        }
+        preStable.requireSupported("0.1.0");
+        preStable.requireSupported("0.1.9");
     }
 }
 
