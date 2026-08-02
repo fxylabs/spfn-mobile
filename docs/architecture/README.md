@@ -81,3 +81,22 @@ generated: the generator emits types and operations, and a session has to name a
 header at compile time. `SPFNWireHeaders`/`SpfnWireHeaders` holds that table, and both
 conformance suites read `wireMapping` out of the pinned bundle and fail if the table
 drifts from it — so the restatement is checked rather than trusted.
+
+## Three layers in the client module
+
+| Layer | Knows | Does not know |
+| --- | --- | --- |
+| transport | how to send one HTTP request | what a 401 means, whether to retry |
+| session | how to open a session and prove a request | what a server answer to an operation means |
+| execute | what an answer means and what a refusal is worth retrying | how either of the two below works |
+
+Each layer refuses the vocabulary of the one above it, and that is what makes the rules
+checkable. The transport cannot retry, so an attempt count is exactly the number of calls
+the layers above chose to make. The session does not classify, so every refusal is
+classified in one place. And because `execute` is the only way to send a request, a rule
+it states holds for every operation rather than for the ones somebody remembered.
+
+Retry lives at the top for the same reason. Re-sending needs two things no lower layer
+has: knowing that the request was refused rather than lost, and knowing what changed
+since. An auth refusal is the only case where both are true, so it is the only case that
+is retried, and it is retried once.
