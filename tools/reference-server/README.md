@@ -157,11 +157,16 @@ injected and a test moves it by hand instead of sleeping through a TTL.
 
 ## What it does not prove
 
-Nothing here has spoken to a real SPFN server. The contract this server implements is the
-hand-authored development bundle in `Contracts/`, and the exchange proves the two SDKs and
-this server agree about it — not that any deployed service does. The runner can now be
-pointed at a server that is not this one, which is how that gap closes; being able to
-point at one is not the same as having done it.
+This server is not a real SPFN server, and a passing local run proves only that the two
+SDKs and this server agree about the contract. That contract is no longer one this
+repository invented — it is the SPFN primitives export pinned in `Contracts/` — but
+implementing the same bundle correctly twice is still not evidence about a deployed
+service.
+
+The gap closes through external-target mode, and it has been closed once: the full matrix
+passes against the primitives `04-mobile-contract-dev` server, which is the canonical
+implementation rather than a second reading of the same text. Against a deployed service
+it remains untested.
 
 ## Logs
 

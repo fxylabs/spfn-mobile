@@ -1,26 +1,31 @@
 {
   "lockVersion": 2,
-  "status": "RESOLVED_DEV_BUNDLE",
+  "status": "RESOLVED_UPSTREAM",
   "provenance": {
-    "origin": "spfn-mobile-step2-dev-bundle",
-    "exportedByUpstreamCI": false,
-    "statement": "Contracts/spfn-mobile-contract.v1.json was hand-authored inside spfn-mobile during Step 2. It was NOT exported by SPFN primitives CI, and no SPFN primitives commit is referenced, because the mobile contract export tooling does not exist yet.",
-    "whyThisIsNotAnUpstreamPin": "Pinning a digest is only meaningful if it names something an independent party produced. This digest names a file this repository wrote, so it proves the generator and both SDKs read the same bytes, and it proves nothing about SPFN primitives.",
-    "replacementRule": "When upstream export tooling exists, the exported bundle REPLACES this file, status becomes RESOLVED_UPSTREAM, and source.repository / source.commit / source.exporterVersion carry real values. Editing this bundle to look upstream-exported is the specific failure tools/validate/validate.sh section 4 exists to catch.",
+    "origin": "spfn-primitives-ci-export",
+    "exportedByUpstreamCI": true,
+    "statement": "Contracts/spfn-mobile-contract.json is a byte copy of contracts/mobile/spfn-mobile-contract.json as published by SPFN primitives at the commit named below. It is generated there from packages/auth/src/server/client-proof by packages/auth/scripts/export-mobile-contract.ts, and it is not edited here.",
+    "whyThisIsAnUpstreamPin": "A digest is only worth pinning when it names a file an independent party produced. This digest names a file SPFN primitives generated from its own route and contract definitions, so it is evidence about the server. The dev bundle it replaces proved only that this repository's generator and both SDKs read the same local bytes, which is self-verification.",
+    "evidence": "Contracts/upstream-provenance.json, copied unmodified from the same upstream commit. tools/validate/validate.sh section 5 checks this lock against that file rather than taking the lock's word for it.",
+    "editRule": "This bundle is never edited here. A contract change is made in SPFN primitives, re-exported there, and re-pinned here as a new commit and a new digest.",
     "trackedAs": "docs/OPEN-DECISIONS.md D17"
   },
   "source": {
-    "repository": "spfn-mobile (this repository)",
-    "commit": "UNCOMMITTED",
-    "exporterVersion": "spfn-mobile/tools/contract-codegen@0.1.0-dev"
+    "repository": "git.superfunction.xyz/superfunction/primitives",
+    "commit": "d31aa9a10295978089bddfb305e5934a68abfe54",
+    "upstreamBundlePath": "contracts/mobile/spfn-mobile-contract.json",
+    "exporterVersion": "@spfn/auth/contract-bundle@1.0.0",
+    "keyNamingRule": "This is not called bundlePath on purpose. The readers of this file match a key name at any depth, so two keys with the same name in different objects would resolve to whichever appears first, and the validator would digest the upstream path instead of the vendored one."
   },
   "contract": {
     "name": "spfn-mobile-contract",
-    "version": "1.0.0-dev.1",
-    "major": 1,
-    "bundlePath": "Contracts/spfn-mobile-contract.v1.json",
-    "manifestSha256": "07fd82683576e3343753b590e00b5bf9725b2e598e1e5e6282f251e73a433e45",
-    "supportedRange": ">=1.0.0-dev.1 <2.0.0"
+    "version": "0.1.0",
+    "major": 0,
+    "minor": 1,
+    "bundlePath": "Contracts/spfn-mobile-contract.json",
+    "manifestSha256": "96c48f9c01fb92817d86cad0ddddbe788018e886b1db92f8132ad5ef64a9b12c",
+    "supportedRange": ">=0.1.0 <0.2.0",
+    "rangeRule": "The contract line is 0.x, so the breaking axis is the minor rather than the major. A server contract is supported only when its major AND minor both match this pin. Comparing majors alone would admit 0.2.0, which this range excludes, and the SDK would then decode a contract it does not implement."
   },
   "authProfiles": {
     "allowed": ["clientProofV1"],
@@ -28,8 +33,8 @@
     "mixingWithinSession": "prohibited"
   },
   "digestDiscipline": {
-    "rule": "manifestSha256 must be the real SHA-256 of the file named by contract.bundlePath. tools/validate/validate.sh recomputes it, and tools/contract-codegen refuses to generate when it does not match, so a tampered bundle fails on both paths rather than producing plausible clients.",
-    "verify": "shasum -a 256 Contracts/spfn-mobile-contract.v1.json",
+    "rule": "manifestSha256 must be the real SHA-256 of the file named by contract.bundlePath, and must equal the digest the upstream evidence records for the same bundle. tools/validate/validate.sh recomputes it, and tools/contract-codegen refuses to generate when it does not match, so a tampered bundle fails on both paths rather than producing plausible clients.",
+    "verify": "shasum -a 256 Contracts/spfn-mobile-contract.json",
     "enforcedBy": [
       "tools/validate/validate.sh",
       "tools/contract-codegen",
@@ -37,7 +42,7 @@
     ]
   },
   "notes": [
-    "Floating branches or URLs are prohibited as a lock source; only an exact path plus digest, or an exact repository, commit SHA and exporter version, are acceptable.",
+    "Floating branches or URLs are prohibited as a lock source; only an exact repository, commit SHA and exporter version, together with the digest of the file read at that commit.",
     "A published contract version and digest are never modified. A mistake becomes a new version.",
     "The bundle carries no secret and no real private key."
   ]

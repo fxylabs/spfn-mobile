@@ -38,6 +38,7 @@ data class ErrorDefinition(
 data class Bundle(
     val contractVersion: String,
     val contractMajor: Int,
+    val contractMinor: Int,
     val supportedRange: String,
     val origin: String,
     val sha256: String,
@@ -54,7 +55,13 @@ data class Bundle(
 
     companion object
     {
-        fun read(bundleText: String, sha256: String, supportedRange: String, contractMajor: Int): Bundle
+        fun read(
+            bundleText: String,
+            sha256: String,
+            supportedRange: String,
+            contractMajor: Int,
+            contractMinor: Int
+        ): Bundle
         {
             val root = Json.parse(bundleText).obj();
             val proof = root.required("clientProofV1").obj();
@@ -63,6 +70,7 @@ data class Bundle(
             return Bundle(
                 contractVersion = root.required("contractVersion").text(),
                 contractMajor = contractMajor,
+                contractMinor = contractMinor,
                 supportedRange = supportedRange,
                 origin = root.required("origin").text(),
                 sha256 = sha256,

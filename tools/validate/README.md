@@ -43,12 +43,21 @@ A placeholder lock can only fail by inventing a value. A **resolved** lock can f
 inventing provenance, which is worse: a fabricated "exported by upstream CI" record
 reads exactly like a real one.
 
-So the rules are asymmetric on purpose. A locally authored bundle may be pinned, as
-long as it says so: `origin: spfn-mobile-step2-dev-bundle`, `exportedByUpstreamCI:
-false`, no 40-hex commit, and a `manifestSha256` that is the real digest of the file it
-names. A lock claiming an upstream export must produce `Contracts/upstream-provenance.json`
-and a real source commit. No such file exists today, so that claim fails immediately —
-which is the point.
+So the rules are asymmetric on purpose. A locally authored bundle may be pinned as long
+as it says so: `origin: spfn-mobile-step2-dev-bundle`, `exportedByUpstreamCI: false`, no
+40-hex commit, and a `manifestSha256` that is the real digest of the file it names.
+
+An upstream claim is held to more. Until 2026-08-02 there was no export to make, so the
+rule was simply to refuse a claim with no evidence beside it. Now that the lock is
+`RESOLVED_UPSTREAM`, the check turned around: the claim is compared against
+`Contracts/upstream-provenance.json`, the file the exporter itself wrote — same origin,
+same digest, same exporter version, same repository, same version and range — plus an
+exact 40-hex commit and a bundle that labels itself `UPSTREAM_EXPORT`. Evidence naming
+this repository as the source fails, because that is what a dev bundle dressed up as an
+export looks like. A lock that agrees only with itself is not evidence of anything.
+
+The digest and fixture checks are shared by both resolved states rather than living
+inside the dev-bundle branch, so moving the lock upstream cannot quietly drop them.
 
 ## Check 11 pins a decision rather than blocklisting its opposite
 

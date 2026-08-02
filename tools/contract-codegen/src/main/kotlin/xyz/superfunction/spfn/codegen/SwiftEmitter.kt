@@ -34,6 +34,7 @@ object SwiftEmitter
         appendLine("        importedManifestSha256: \"${bundle.sha256}\",");
         appendLine("        supportedRange: \"${bundle.supportedRange}\",");
         appendLine("        supportedMajor: ${bundle.contractMajor},");
+        appendLine("        supportedMinor: ${bundle.contractMinor},");
         appendLine("        origin: \"${bundle.origin}\"");
         appendLine("    )");
         appendLine();

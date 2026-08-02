@@ -1,16 +1,13 @@
 {
-  "bundleKind": "DEV_BUNDLE",
-  "origin": "spfn-mobile-step2-dev-bundle",
-  "originStatement": "Hand-authored inside spfn-mobile during Step 2. NOT exported by SPFN primitives CI. Upstream export tooling does not exist yet; when it does, it replaces this file wholesale and this bundle is deleted rather than edited.",
+  "bundleKind": "UPSTREAM_EXPORT",
+  "origin": "spfn-primitives-ci-export",
+  "originStatement": "Generated from the route and contract definitions in SPFN primitives (packages/auth/src/server/client-proof) and published from that repository. This file is generated output: edit the source modules and re-export, never this file.",
   "contractName": "spfn-mobile-contract",
-  "contractMajor": 1,
-  "contractVersion": "1.0.0-dev.1",
-  "supportedRange": ">=1.0.0-dev.1 <2.0.0",
-  "authProfiles": {
-    "allowed": ["clientProofV1"],
-    "unknownProfilePolicy": "reject",
-    "mixingWithinSession": "prohibited"
-  },
+  "contractMajor": 0,
+  "contractVersion": "0.1.0",
+  "supportedRange": ">=0.1.0 <0.2.0",
+  "exporterVersion": "@spfn/auth/contract-bundle@1.0.0",
+  "authProfiles": { "allowed": ["clientProofV1"], "unknownProfilePolicy": "reject", "mixingWithinSession": "prohibited" },
   "canonicalJson": {
     "algorithm": "SPFN-CANON-JSON-1",
     "objectKeyOrder": "ascending by UTF-8 byte sequence",
@@ -24,16 +21,7 @@
     "proofInput": {
       "algorithm": "SPFN-PROOF-INPUT-1",
       "separator": "\n",
-      "fields": [
-        "profile",
-        "method",
-        "path",
-        "clientId",
-        "keyId",
-        "nonce",
-        "issuedAtMillis",
-        "bodySha256"
-      ],
+      "fields": ["profile", "method", "path", "clientId", "keyId", "nonce", "issuedAtMillis", "bodySha256"],
       "fieldRules": "no field value may contain a C0 control character; a value that does is a proof-input error, because the separator would otherwise be ambiguous",
       "bodySha256": "lowercase base16 SHA-256 of the canonical JSON request body; the literal string of 64 zero characters when an operation has no body"
     },
@@ -42,7 +30,9 @@
     "proofEncoding": "base16-lower",
     "replayWindowMillis": 300000,
     "replayRule": "a (clientId, nonce) pair is accepted at most once inside the replay window; a repeat is PROOF_REPLAYED",
-    "revocationRule": "a revoked keyId is rejected before the proof is verified; the outcome is SESSION_REVOKED and never PROOF_INVALID, so revocation is distinguishable from a bad proof"
+    "revocationRule": "a revoked keyId is rejected before the proof is verified; the outcome is SESSION_REVOKED and never PROOF_INVALID, so revocation is not inferable from a proof failure",
+    "admissionOrder": ["revocation", "session", "expiry", "replay", "proof"],
+    "nonceRule": "a nonce is spent only when the request is admitted; a refused request leaves it unused"
   },
   "wireMapping": {
     "requestContentType": "application/json",
@@ -55,17 +45,15 @@
       "proof": "x-spfn-proof",
       "session": "x-spfn-session"
     },
-    "headerOrder": [
-      "profile",
-      "clientId",
-      "keyId",
-      "nonce",
-      "issuedAtMillis",
-      "proof",
-      "session"
-    ],
+    "headerOrder": ["profile", "clientId", "keyId", "nonce", "issuedAtMillis", "proof", "session"],
     "contentTypeRule": "the content-type header is present exactly when the request carries a body, and the body is always the canonical JSON of the request type",
     "sessionRule": "requiresSession operations carry x-spfn-session; the handshake never does"
+  },
+  "typeGrammar": {
+    "scalars": ["string", "integer"],
+    "array": "array<T>, where T is itself a field type. This is the only array spelling.",
+    "named": "any other value names one of the types below",
+    "rule": "a field type outside this grammar is a contract error, not something to guess at: a consumer that does not recognise an array spelling reads it as a type name and fails at compile time"
   },
   "types": [
     {
@@ -160,16 +148,46 @@
     "unknownCodeRule": "a code outside this list is never mapped to a neighbouring code; it surfaces as an unknown-code failure carrying the raw string"
   },
   "errors": [
-    { "code": "PROOF_INVALID", "httpStatus": 401, "retryable": false, "summary": "the client proof did not verify" },
-    { "code": "PROOF_REPLAYED", "httpStatus": 401, "retryable": false, "summary": "the nonce was already used inside the replay window" },
-    { "code": "PROOF_EXPIRED", "httpStatus": 401, "retryable": false, "summary": "issuedAtMillis falls outside the replay window" },
-    { "code": "SESSION_REVOKED", "httpStatus": 401, "retryable": false, "summary": "the key or session was revoked" },
-    { "code": "PROFILE_REJECTED", "httpStatus": 400, "retryable": false, "summary": "an auth profile outside the allowlist was named" },
-    { "code": "CONTRACT_UNSUPPORTED", "httpStatus": 409, "retryable": false, "summary": "the server contract version is outside the range this SDK declares support for" }
+    {
+      "code": "PROOF_INVALID",
+      "httpStatus": 401,
+      "retryable": false,
+      "summary": "the client proof did not verify"
+    },
+    {
+      "code": "PROOF_REPLAYED",
+      "httpStatus": 401,
+      "retryable": false,
+      "summary": "the nonce was already used inside the replay window"
+    },
+    {
+      "code": "PROOF_EXPIRED",
+      "httpStatus": 401,
+      "retryable": false,
+      "summary": "issuedAtMillis falls outside the replay window"
+    },
+    {
+      "code": "SESSION_REVOKED",
+      "httpStatus": 401,
+      "retryable": false,
+      "summary": "the key or session was revoked"
+    },
+    {
+      "code": "PROFILE_REJECTED",
+      "httpStatus": 400,
+      "retryable": false,
+      "summary": "an auth profile outside the allowlist was named"
+    },
+    {
+      "code": "CONTRACT_UNSUPPORTED",
+      "httpStatus": 409,
+      "retryable": false,
+      "summary": "the request is not the shape this contract describes"
+    }
   ],
   "notes": [
     "This bundle contains no secret, no real key and no production endpoint. Paths are shapes, not deployed routes.",
-    "It exists so Step 2 can prove a real vertical slice: one pinned digest, one generator, two platforms, one set of fixtures.",
-    "The single authority for the production contract remains SPFN primitives. This file is a development stand-in with an honest provenance record in Contracts/upstream.lock.json."
+    "It is generated output. Edit packages/auth/src/server/client-proof and re-run the export; never edit this file.",
+    "The single authority for this contract is SPFN primitives."
   ]
 }

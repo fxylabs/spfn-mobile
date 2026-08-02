@@ -46,33 +46,207 @@ final class SPFNScaffoldTests: XCTestCase
 
 final class SPFNContractBindingTests: XCTestCase
 {
-    private let binding = SPFNContractBinding(
+    private let preStable = SPFNContractBinding(
+        importedVersion: "0.1.0",
+        importedManifestSha256: String(repeating: "b", count: 64),
+        supportedRange: ">=0.1.0 <0.2.0",
+        supportedMajor: 0,
+        supportedMinor: 1,
+        origin: "spfn-primitives-ci-export"
+    )
+
+    private let devBundle = SPFNContractBinding(
         importedVersion: "1.0.0-dev.1",
-        importedManifestSha256: String(repeating: "a", count: 64),
+        importedManifestSha256: String(repeating: "c", count: 64),
         supportedRange: ">=1.0.0-dev.1 <2.0.0",
         supportedMajor: 1,
+        supportedMinor: 0,
         origin: "spfn-mobile-step2-dev-bundle"
     )
 
     func testADevBundleIsNeverReportedAsAnUpstreamExport() throws
     {
-        XCTAssertFalse(binding.isUpstreamExport)
+        XCTAssertFalse(devBundle.isUpstreamExport)
+        XCTAssertTrue(preStable.isUpstreamExport)
     }
 
-    func testSupportedMajorIsAccepted() throws
+    /// The upper bound is derived, never parsed out of the printed range, so the two
+    /// cannot disagree about what the SDK accepts.
+    func testUpperBoundFollowsTheBreakingAxis() throws
     {
-        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "1.7.3"))
+        XCTAssertEqual(preStable.upperBound, "0.2.0")
+        XCTAssertEqual(devBundle.upperBound, "2.0.0")
+        XCTAssertTrue(preStable.supportedRange.hasSuffix("<\(preStable.upperBound)"))
+        XCTAssertTrue(devBundle.supportedRange.hasSuffix("<\(devBundle.upperBound)"))
     }
 
-    func testOtherMajorsRaiseAnUpgradeError() throws
+    /// `supportedRange` is the contract's claim; `admittedRange` is what this SDK will
+    /// accept. For a release pin they agree. For a pre-release pin the declared range
+    /// promises every core below the next breaking version and this SDK refuses all of
+    /// them, so a refusal that named the declared range would advertise a window it will
+    /// not honour.
+    func testAdmittedRangeStatesWhatIsEnforced() throws
     {
-        for version in ["2.0.0", "0.9.0", "not-a-version"]
+        XCTAssertEqual(preStable.admittedRange, preStable.supportedRange)
+        XCTAssertEqual(devBundle.admittedRange, "==1.0.0-dev.1")
+        XCTAssertNotEqual(devBundle.admittedRange, devBundle.supportedRange)
+
+        XCTAssertNoThrow(try devBundle.requireSupported(serverContractVersion: "1.0.0-dev.1"))
+
+        // Every one of these is inside the declared range and refused by the pin.
+        for version in ["1.0.0", "1.0.1", "1.9.9", "1.0.0-dev.2"]
         {
-            XCTAssertThrowsError(try binding.requireSupported(serverContractVersion: version))
+            XCTAssertThrowsError(try devBundle.requireSupported(serverContractVersion: version))
+            { error in
+                guard case SPFNDecodingError.unsupportedContractVersion(_, let range) = error
+                else
+                {
+                    return XCTFail("expected an upgrade error, got \(error)")
+                }
+                XCTAssertEqual(range, "==1.0.0-dev.1", "'\(version)' was refused against a range that admits it")
+            }
+        }
+    }
+
+    /// A pin this SDK cannot parse admits nothing, and says nothing rather than printing
+    /// a range derived from a version that does not exist.
+    func testAnUnparsablePinAdmitsNothing() throws
+    {
+        let broken = SPFNContractBinding(
+            importedVersion: "1.0",
+            importedManifestSha256: String(repeating: "d", count: 64),
+            supportedRange: ">=1.0 <2.0.0",
+            supportedMajor: 1,
+            supportedMinor: 0,
+            origin: "spfn-mobile-step2-dev-bundle"
+        )
+
+        XCTAssertTrue(broken.admittedRange.hasPrefix("<none:"))
+        XCTAssertThrowsError(try broken.requireSupported(serverContractVersion: "1.0.0"))
+        XCTAssertThrowsError(try broken.requireSupported(serverContractVersion: "1.0"))
+    }
+
+    /// Every case in the shared table, which the Kotlin suite reads too. A rule that
+    /// drifts on one platform fails there rather than against a real server.
+    func testSharedRangeVectors() throws
+    {
+        let root: [String: Any]? = try vectorRoot()
+        let cases = try XCTUnwrap(root?["cases"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(cases.count, 30, "the shared table lost cases")
+
+        for entry in cases
+        {
+            let lower = try XCTUnwrap(entry["lower"] as? String)
+            let upper = try XCTUnwrap(entry["upper"] as? String)
+            let candidate = try XCTUnwrap(entry["candidate"] as? String)
+            let expected = try XCTUnwrap(entry["supported"] as? Bool)
+            let why = try XCTUnwrap(entry["why"] as? String)
+
+            XCTAssertEqual(
+                SPFNSemVer.satisfies(candidate: candidate, atOrAbove: lower, below: upper),
+                expected,
+                "'\(candidate)' against [\(lower), \(upper)): \(why)"
+            )
+        }
+
+        // The parser is asserted directly too. A range case can pass because the rule
+        // refused for the right reason or because the parse failed for the wrong one,
+        // and only these say which.
+        let parsing = try XCTUnwrap(root?["parsing"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(parsing.count, 20, "the shared parser table lost cases")
+
+        for entry in parsing
+        {
+            let text = try XCTUnwrap(entry["text"] as? String)
+            let valid = try XCTUnwrap(entry["valid"] as? Bool)
+            let why = try XCTUnwrap(entry["why"] as? String)
+
+            XCTAssertEqual(SPFNSemVer.parse(text) != nil, valid, "'\(text)': \(why)")
+        }
+    }
+
+    /// The tables are evidence only if a wrong rule fails them. These run the rule this
+    /// change set replaced — the one at the base commit, not a reconstruction — and
+    /// require each table to catch it. A table that merely transcribed the implementation
+    /// would agree with the old rule too, and a future change that reverted the rule and
+    /// relaxed the tables to match would fail here.
+    func testTheSharedTablesRejectTheRuleTheyReplaced() throws
+    {
+        let root: [String: Any]? = try vectorRoot()
+        let cases = try XCTUnwrap(root?["cases"] as? [[String: Any]])
+        let parsing = try XCTUnwrap(root?["parsing"] as? [[String: Any]])
+
+        var rangeMismatches = 0
+        for entry in cases
+        {
+            let expected = try XCTUnwrap(entry["supported"] as? Bool)
+            let legacy = legacySatisfies(
+                try XCTUnwrap(entry["candidate"] as? String),
+                try XCTUnwrap(entry["lower"] as? String)
+            )
+            if legacy != expected
+            {
+                rangeMismatches += 1
+            }
+        }
+        XCTAssertGreaterThan(rangeMismatches, 0, "the range table no longer discriminates the rule it replaced")
+
+        var parseMismatches = 0
+        for entry in parsing
+        {
+            let expected = try XCTUnwrap(entry["valid"] as? Bool)
+            if (legacyMajor(of: try XCTUnwrap(entry["text"] as? String)) != nil) != expected
+            {
+                parseMismatches += 1
+            }
+        }
+        XCTAssertGreaterThan(parseMismatches, 0, "the parser table no longer discriminates the rule it replaced")
+    }
+
+    private func vectorRoot() throws -> [String: Any]
+    {
+        let url = RepoPaths.root.appendingPathComponent("tools/conformance/semver-range-vectors.json")
+        return try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any]
+        )
+    }
+
+    /// The rule this change set replaced, copied from the base commit rather than
+    /// reconstructed: `requireSupported` took a leading run of digits as the major and
+    /// compared it to the pinned one. There was no parser and no upper bound, so a
+    /// version was readable exactly when it began with a digit, and everything sharing
+    /// the pinned major was accepted.
+    private func legacyMajor(of version: String) -> Int?
+    {
+        let head = version.prefix { $0.isNumber }
+        return head.isEmpty ? nil : Int(head)
+    }
+
+    /// The table's `lower` is the pinned version, so its major is the `supportedMajor`
+    /// the base commit compared against.
+    private func legacySatisfies(_ candidate: String, _ lower: String) -> Bool
+    {
+        guard let major = legacyMajor(of: candidate), let pinned = legacyMajor(of: lower)
+        else
+        {
+            return false
+        }
+        return major == pinned
+    }
+
+    /// The same table driven through the public entry point, so the binding and the
+    /// comparator cannot pass separately while disagreeing with each other.
+    func testTheBindingRefusesWhatTheTableRefuses() throws
+    {
+        for candidate in ["0.2.0", "0.1.0-rc.1", "0.1", "0.01.0", "", "1.0.0"]
+        {
+            XCTAssertThrowsError(try preStable.requireSupported(serverContractVersion: candidate))
             { error in
                 XCTAssertEqual((error as? SPFNDecodingError)?.code, "CONTRACT_UNSUPPORTED")
             }
         }
+        XCTAssertNoThrow(try preStable.requireSupported(serverContractVersion: "0.1.0"))
+        XCTAssertNoThrow(try preStable.requireSupported(serverContractVersion: "0.1.9"))
     }
 }
 

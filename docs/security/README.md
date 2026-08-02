@@ -65,9 +65,13 @@ platforms can implement differently, and a divergence there is a forgeable proof
 A fabricated contract digest reads exactly like a verified one, and a fabricated
 provenance record reads exactly like a real one. The validator therefore recomputes the
 pinned digest from the file it names, and refuses any lock claiming an upstream CI
-export unless upstream evidence is present on disk. No such evidence exists today, so
-the claim fails immediately.
+export unless upstream evidence is present on disk. That evidence now exists, so the
+rule turned around: the claim is checked against `Contracts/upstream-provenance.json`
+field by field — origin, digest, exporter version, repository, version and range — and
+evidence naming this repository as the source fails, because that is what a locally
+authored bundle dressed up as an export looks like.
 
-The pinned bundle was authored in this repository and says so in three places: its own
-text, the lock, and the header of every generated source file. This is a supply-chain
-control, not bookkeeping.
+The bundle's origin is stated in three places: its own text, the lock, and the header of
+every generated source file. This is a supply-chain control, not bookkeeping. What it
+does not do is prove the pinned commit exists upstream; that check needs a runner able to
+reach the primitives repository, and nothing here claims otherwise.

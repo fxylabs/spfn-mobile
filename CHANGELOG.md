@@ -8,6 +8,57 @@ software.
 Step 1 laid out the repository. Step 2 made it compile on both platforms and proved one
 vertical slice end to end. Nothing is committed, tagged or published.
 
+### The contract moved upstream
+
+- `Contracts/spfn-mobile-contract.json` is now an SPFN primitives export, copied byte for
+  byte from `contracts/mobile/` at commit `d31aa9a1` and pinned at digest `96c48f9c…`.
+  It replaces the bundle Step 2 hand-authored here, which resolves D17 and clears the
+  Step 5 blocker. The exporter's own `Contracts/upstream-provenance.json` sits beside it.
+- Nothing an implementation depends on changed. Operations, wire mapping, canonical JSON,
+  auth profiles, error envelope, types and proof input are byte-identical to what the dev
+  bundle carried, and every conformance vector reproduced unchanged — only the digest
+  references moved. Two prose fields were rewritten by upstream and are worth naming
+  rather than folding into "unchanged": the `CONTRACT_UNSUPPORTED` summary now reads
+  "the request is not the shape this contract describes" instead of describing a version
+  mismatch, and `clientProofV1.revocationRule` now says revocation is *not inferable*
+  from a proof failure where it used to say the two are *distinguishable* — the same
+  rule, stated from the attacker's side. Upstream also added `typeGrammar`,
+  `clientProofV1.admissionOrder` and `nonceRule`, each stating behaviour both sides
+  already implemented.
+- The contract line restarts at `0.1.0`, and that changed a rule rather than a number.
+  `requireSupported` compared majors alone, which on a 0.x line accepts a `0.2.0` server
+  the declared range `>=0.1.0 <0.2.0` excludes — a check weaker than the string it prints.
+  It now parses strict SemVer and enforces both bounds: a malformed version refuses, a
+  version below the pin refuses, a pre-release other than the pinned one refuses, a
+  *pinned* pre-release admits only its own core, and numeric components compare as digit
+  strings so a version longer than `Int` cannot overflow into acceptance.
+  `tools/conformance/semver-range-vectors.json` holds 41 range cases and 24 parser cases;
+  both platforms run both tables, so the rule cannot drift on one of them.
+- Enforcing the pin exactly made the *declared* range a false advertisement, in the
+  opposite direction to the bug above. `supportedRange` is contract data, copied from the
+  bundle; a pre-release pin declares `>=1.0.0-dev.1 <2.0.0` while this SDK admits only
+  `1.0.0-dev.1`, so a refusal that quoted the declared range named a window it would not
+  honour. `admittedRange` is the enforced window and is what the upgrade error carries —
+  the declared range for a release pin, the pinned version alone for a pre-release pin,
+  and nothing at all for a pin the SDK cannot parse.
+- The shared tables are held to being evidence rather than a transcript. Each suite runs
+  the range and parser rules this change set *replaced* and requires the tables to catch
+  them, so reverting the rule and relaxing the tables to match fails instead of passing
+  quietly. The validator counts table entries structurally rather than grepping for a
+  quoted word — prose in a `why` field can contain any word — checks every entry carries
+  the fields both suites read, and requires each suite to still consume both tables and
+  still carry the probe.
+- The validator's provenance gate turned around with the fact it guards. It used to
+  refuse any upstream claim for want of evidence; it now checks the lock against
+  `upstream-provenance.json` field by field, requires the bundle to label itself
+  `UPSTREAM_EXPORT`, refuses evidence naming this repository as the source, and derives
+  the expected range from the pinned version so a pin cannot quietly widen what the SDK
+  accepts. Digest and fixture checks moved out of the dev-bundle branch so moving the
+  lock upstream could not silently drop them.
+- Both platform suites pass, and the two-platform integration matrix passes in
+  external-target mode against the primitives `04-mobile-contract-dev` server — ten
+  receipts against an implementation nobody here wrote.
+
 ### Decided in Step 4 preparation
 
 - License: MIT, Copyright FXY Inc. (decision D8, 2026-08-01), matching the upstream
@@ -216,13 +267,10 @@ vertical slice end to end. Nothing is committed, tagged or published.
 
 ### Still deliberately absent
 
-An upstream-exported contract bundle (D17) — the wire header mapping it will carry is
-ratified (D23), but the bundle in `Contracts/` is still hand-authored — a client clock
-skew margin (D24), generated per-operation call descriptors — the execute path is
-generic, and the three operations are described by hand in the test suites until the
-generator emits them — a completed exchange with a real server, since the runner can now
-be pointed at one but no run in this repository has been, persistence, the hybrid bridge,
-key custody
-beyond the in-memory alpha provider, CODEOWNERS identities, signing identities,
-registry configuration, pinned CI action SHAs, and every `COMPATIBILITY.md` support
-row. See `docs/OPEN-DECISIONS.md`.
+A client clock skew margin (D24), generated per-operation call descriptors — the execute
+path is generic, and the three operations are described by hand in the test suites until
+the generator emits them — an exchange with a *deployed* SPFN service, since the matrix
+has now run against the primitives dev server but never against a real deployment,
+persistence, the hybrid bridge, key custody beyond the in-memory alpha provider,
+CODEOWNERS identities, signing identities, registry configuration, pinned CI action SHAs,
+and every `COMPATIBILITY.md` support row. See `docs/OPEN-DECISIONS.md`.

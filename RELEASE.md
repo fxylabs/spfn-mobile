@@ -44,10 +44,14 @@ is verified by source commit, contract digest and artifact hash.
 
 ## What blocks a release today, beyond the approvals
 
-The pinned contract bundle was authored in this repository, not exported by SPFN
-primitives (open decision D17). Releasing an SDK generated from a locally invented
-contract would ship a client for a server nobody agreed to, so upstream export tooling
-has to exist and replace the dev bundle first.
+D17 no longer blocks a release. The pinned bundle is generated and published by SPFN
+primitives and copied here at commit `d31aa9a1`; both platform suites and the integration
+matrix pass against a primitives server running that contract, so the SDK is no longer a
+client for a contract this repository invented.
+
+What remains are the approvals themselves and the decisions Step 5 has to settle: registry
+staging (D3), signing and provenance for published artifacts (D7), and the release
+candidate evidence a person has to accept before anything is published.
 
 ## Current state of the machinery
 

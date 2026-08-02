@@ -11,8 +11,9 @@
 #   ./gradlew :spfn-auth:testDebugUnitTest
 #
 # Still missing before this can gate anything:
-#   - an upstream-exported contract bundle to verify against (D17)
 #   - a breaking-contract diff report against the previous contract version
+#   - a runner able to reach the SPFN primitives repository to re-verify the pinned
+#     export commit, which nothing in this repository does today
 name: contract
 
 on:
@@ -28,5 +29,5 @@ jobs:
       - name: State repository status
         run: |
           echo "STEP2-SCAFFOLD: contract validation runs locally, not here."
-          echo "The bundle pinned in Contracts/upstream.lock.json was authored in this"
-          echo "repository and has NOT been exported by SPFN primitives."
+          echo "The bundle pinned in Contracts/upstream.lock.json is an SPFN primitives"
+          echo "export, verified offline against Contracts/upstream-provenance.json."

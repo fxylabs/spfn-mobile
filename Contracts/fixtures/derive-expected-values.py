@@ -10,7 +10,7 @@ would prove only that one copied the other.
 
 So this file is a third, independent implementation of SPFN-CANON-JSON-1 and
 SPFN-PROOF-INPUT-1, written against the contract text in
-Contracts/spfn-mobile-contract.v1.json and using nothing but the Python standard
+Contracts/spfn-mobile-contract.json and using nothing but the Python standard
 library. It is a development aid: no build step, test or validator runs it.
 
 Usage
@@ -38,7 +38,8 @@ PROFILE = "clientProofV1"
 ABSENT_BODY_DIGEST = "0" * 64
 REPLAY_WINDOW_MILLIS = 300000
 
-BUNDLE_PATH = os.path.join(HERE, "..", "spfn-mobile-contract.v1.json")
+BUNDLE_PATH = os.path.join(HERE, "..", "spfn-mobile-contract.json")
+LOCK_PATH = os.path.join(HERE, "..", "upstream.lock.json")
 
 
 def load_bundle() -> dict:
@@ -726,9 +727,10 @@ def main() -> int:
                         "bytes": len(body.encode("utf-8"))})
         print("wrote %s" % relative)
 
+    lock = load_lock()
     manifest = {
-        "status": "RESOLVED_DEV_BUNDLE",
-        "contractVersion": "1.0.0-dev.1",
+        "status": lock["status"],
+        "contractVersion": lock["contract"]["version"],
         "bundleSha256": bundle_digest(),
         "fixtureCount": len(written),
         "derivedBy": "Contracts/fixtures/derive-expected-values.py",
@@ -746,6 +748,16 @@ def main() -> int:
 def bundle_digest() -> str:
     with open(BUNDLE_PATH, "rb") as handle:
         return hashlib.sha256(handle.read()).hexdigest()
+
+
+def load_lock() -> dict:
+    """Status and contract version come from the lock, never from a constant here.
+
+    They were written out by hand until the contract moved upstream, and a hand-written
+    copy of a fact recorded elsewhere is a copy that goes stale without saying so.
+    """
+    with open(LOCK_PATH, "r", encoding="utf-8") as handle:
+        return json.load(handle)
 
 
 if __name__ == "__main__":

@@ -1,12 +1,12 @@
 // GENERATED FILE — DO NOT EDIT.
 //
 // generator:       spfn-contract-codegen 0.1.0-dev
-// bundle:          Contracts/spfn-mobile-contract.v1.json
-// bundleSha256:    07fd82683576e3343753b590e00b5bf9725b2e598e1e5e6282f251e73a433e45
-// contractVersion: 1.0.0-dev.1
-// origin:          spfn-mobile-step2-dev-bundle
+// bundle:          Contracts/spfn-mobile-contract.json
+// bundleSha256:    96c48f9c01fb92817d86cad0ddddbe788018e886b1db92f8132ad5ef64a9b12c
+// contractVersion: 0.1.0
+// origin:          spfn-primitives-ci-export
 //
-// The bundle was hand-authored in this repository and was NOT exported by SPFN primitives CI.
+// Bundle origin: spfn-primitives-ci-export.
 //
 // Regenerate with: ./gradlew :contract-codegen:spfnGenerateClients
 // Verified by:     ./gradlew :contract-codegen:spfnCodegenVerify

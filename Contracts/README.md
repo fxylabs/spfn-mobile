@@ -1,20 +1,22 @@
 # Contracts
 
-**One bundle is pinned here, and it was written here.** SPFN primitives has no mobile
-contract export tooling yet, so Step 2 authored a minimal `clientProofV1` development
-bundle inside this repository, computed its real SHA-256, and recorded exactly that in
-`upstream.lock.json`.
+**One bundle is pinned here, and SPFN primitives wrote it.** It is generated there from
+`packages/auth/src/server/client-proof` and published at an exact commit; this directory
+holds a byte copy, its digest, and the evidence file the exporter produced alongside it.
 
-That distinction is the whole point of this directory. A pinned digest proves the
-generator and both SDKs read the same bytes. It does not prove those bytes came from
-the server team, and nothing here pretends otherwise.
+Until 2026-08-02 the opposite was true: Step 2 authored a development bundle here because
+upstream had no export, and the lock said so in as many words. That bundle proved the
+generator and both SDKs read the same local bytes — self-verification, and nothing about
+the server. The distinction is still the whole point of this directory; it is simply on
+the other side of it now.
 
 | File | Purpose | Current state |
 | --- | --- | --- |
-| `upstream.lock.json` | what is pinned, and where it came from | `RESOLVED_DEV_BUNDLE`, `origin: spfn-mobile-step2-dev-bundle`, `exportedByUpstreamCI: false` |
-| `spfn-mobile-contract.v1.json` | the vendored bundle | 3 operations, 7 types, 6 error codes, the canonical JSON and proof-input algorithms |
-| `auth-profiles/clientProofV1.schema.json` | profile schema | shape placeholder; the authoritative schema arrives with the upstream bundle |
-| `fixtures/` | deterministic conformance vectors | 8 files, consumed unchanged by both SDK test suites |
+| `upstream.lock.json` | what is pinned, and where it came from | `RESOLVED_UPSTREAM`, `origin: spfn-primitives-ci-export`, commit `d31aa9a1`, contract `0.1.0` |
+| `spfn-mobile-contract.json` | the vendored bundle, copied not edited | 3 operations, 7 types, 6 error codes, the canonical JSON and proof-input algorithms |
+| `upstream-provenance.json` | the exporter's own evidence, copied unmodified | names the repository, exporter version and bundle digest the lock is checked against |
+| `auth-profiles/clientProofV1.schema.json` | profile schema | shape placeholder |
+| `fixtures/` | deterministic conformance vectors | 9 files, consumed unchanged by both SDK test suites |
 
 ## Lock states
 
@@ -22,19 +24,36 @@ the server team, and nothing here pretends otherwise.
 | --- | --- | --- |
 | `UNRESOLVED_PLACEHOLDER` | nothing is pinned | no digest-shaped string anywhere, no fixture vectors |
 | `RESOLVED_DEV_BUNDLE` | a locally authored bundle is pinned | `origin` is the dev-bundle name, `exportedByUpstreamCI` is false, no 40-hex commit, `manifestSha256` is the real digest of the file, fixtures exist and match `MANIFEST.json` |
-| `RESOLVED_UPSTREAM` | an SPFN primitives export is pinned | `exportedByUpstreamCI` is true, a 40-hex source commit, and `Contracts/upstream-provenance.json` present on disk |
+| `RESOLVED_UPSTREAM` | an SPFN primitives export is pinned | `exportedByUpstreamCI` is true, a 40-hex source commit, the bundle labels itself `UPSTREAM_EXPORT`, and every claim agrees with `Contracts/upstream-provenance.json` — origin, digest, exporter version, repository, version and range |
 
-The third row is the one that matters. A lock cannot claim an upstream export without
-upstream evidence, because a fabricated provenance record reads exactly like a real one
-to every downstream reader. No such evidence exists today, so a lock that claimed it
-would fail immediately.
+The third row is the state this repository is in, and it changed shape when it started
+being used. While no export existed the rule was "refuse a claim that carries no
+evidence". Now the rule is "check the claim against the evidence": a lock that agrees
+only with itself proves nothing, because a fabricated provenance record reads exactly
+like a real one to every downstream reader. The validator also refuses evidence that
+names this repository as the source, which is what a dev bundle dressed up as an export
+would look like.
 
-## Replacing the dev bundle
+## Re-pinning a new export
 
-Open decision D17: upstream export tooling must exist and replace this bundle before
-Step 5. When it does, the exported bundle replaces `spfn-mobile-contract.v1.json`
-wholesale, the lock moves to `RESOLVED_UPSTREAM`, and the clients are regenerated. The
-dev bundle is deleted, not edited into looking upstream-exported.
+A contract change is made in SPFN primitives, re-exported there, and re-pinned here.
+Nothing in this directory is edited to make a change appear upstream.
+
+1. Copy `contracts/mobile/spfn-mobile-contract.json` and `contracts/mobile/upstream-provenance.json`
+   from the primitives commit you intend to pin.
+2. Update `upstream.lock.json`: `source.commit`, `contract.version`, `major`, `minor`,
+   `supportedRange` and `manifestSha256`.
+3. `./gradlew :contract-codegen:spfnGenerateClients` then `:contract-codegen:spfnCodegenVerify`.
+4. `python3 Contracts/fixtures/derive-expected-values.py --write`.
+5. `sh tools/validate/validate.sh`, both platform suites, then the integration matrix in
+   external-target mode against a primitives dev server.
+
+## The supported range is not the major alone
+
+The contract line is `0.x`, where SemVer puts breaking changes in the minor. A server on
+`0.2.0` is as incompatible with `0.1.0` as `2.0.0` is with `1.0.0`, so the SDK compares
+major **and** minor while the major is 0. Comparing majors alone would accept a contract
+the declared range excludes, and the check would be weaker than the range it prints.
 
 ## Rules that survive every step
 
@@ -47,7 +66,7 @@ dev bundle is deleted, not edited into looking upstream-exported.
 ## Verifying by hand
 
 ```sh
-shasum -a 256 Contracts/spfn-mobile-contract.v1.json
+shasum -a 256 Contracts/spfn-mobile-contract.json
 grep manifestSha256 Contracts/upstream.lock.json
 ```
 

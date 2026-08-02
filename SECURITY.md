@@ -24,7 +24,7 @@ already use with the SPFN maintainers.
 | Revocation is decided before verification | `SPFNProofAcceptance` and `SpfnProofAcceptance` check revocation first, so a revoked key never reports `PROOF_INVALID`; pinned by `Contracts/fixtures/revoke/` |
 | A nonce is spendable once per window | replay state is keyed on `(clientId, nonce)`; pinned by `Contracts/fixtures/replay/` |
 | Proof input cannot be forged by separator injection | a C0 control character in any proof field is refused rather than escaped |
-| No fabricated contract digest or provenance | the lock's digest is recomputed from the file it names, and an upstream-export claim requires upstream evidence that does not exist |
+| No fabricated contract digest or provenance | the lock's digest is recomputed from the file it names, and an upstream-export claim is checked field by field against the exporter's own `Contracts/upstream-provenance.json` — including a claim that this repository is the source, which fails. The offline validator does not reach primitives, so it establishes that the lock and the evidence agree on an exact commit, not that the commit exists there |
 | Generated code is traceable | every generated file names the bundle digest it was produced from, and the validator checks that against the lock |
 | No credentials, keystores or signing identities in the tree | the validator scans for credential-shaped files and private key material |
 | Publication disabled | `spfn.publishing.enabled=false`, no registry declared, no publication block, no trunk publication command |
@@ -47,6 +47,8 @@ The pinned bundle carries canonical proof, request, error, replay and revoke fix
 and **never** carries secrets or real private keys. The proof fixtures use a synthetic
 key string that authenticates nothing.
 
-The bundle itself was authored in this repository and has not been exported by SPFN
-primitives (open decision D17). It fixes the shape of the slice; it is not an agreement
-with any server.
+The bundle itself is generated and published by SPFN primitives and copied here at an
+exact commit (D17, resolved 2026-08-02). The lock's upstream claim is checked against the
+exporter's own evidence file rather than taken at its word. What that does not establish
+is that the pinned commit exists upstream: nothing here reaches the primitives
+repository, so the digest proves which bytes were read, not who published them.

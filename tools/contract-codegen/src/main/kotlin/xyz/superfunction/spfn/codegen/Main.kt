@@ -22,7 +22,7 @@ object Header
         "GENERATED FILE — DO NOT EDIT.",
         "",
         "generator:       $GENERATOR",
-        "bundle:          Contracts/spfn-mobile-contract.v1.json",
+        "bundle:          Contracts/spfn-mobile-contract.json",
         "bundleSha256:    ${bundle.sha256}",
         "contractVersion: ${bundle.contractVersion}",
         "origin:          ${bundle.origin}",
@@ -120,7 +120,8 @@ private fun loadBundle(repoRoot: File): Bundle
         bundleText = String(bytes, Charsets.UTF_8),
         sha256 = actualDigest,
         supportedRange = contract.required("supportedRange").text(),
-        contractMajor = contract.required("major").number().toInt()
+        contractMajor = contract.required("major").number().toInt(),
+        contractMinor = contract.required("minor").number().toInt()
     );
 }
 

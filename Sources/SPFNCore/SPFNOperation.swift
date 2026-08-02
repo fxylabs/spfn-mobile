@@ -104,7 +104,10 @@ public enum SPFNDecodingError: Error, Equatable, Sendable
     case missingField(path: String)
     case typeMismatch(path: String, expected: String)
     case unknownErrorCode(String)
-    case unsupportedContractVersion(found: String, supportedRange: String)
+    /// `admittedRange` is what the SDK will accept, which is the contract's declared
+    /// range only when the pin is a release. Reporting the declared range instead would
+    /// name a window a pre-release-pinned client refuses.
+    case unsupportedContractVersion(found: String, admittedRange: String)
 
     public var code: String
     {

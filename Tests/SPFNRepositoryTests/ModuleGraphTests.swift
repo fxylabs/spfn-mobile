@@ -116,7 +116,7 @@ final class ContractLockTests: XCTestCase
     func testLockIsPinnedToARealDigest() throws
     {
         let lock = try lock()
-        XCTAssertEqual(lock["status"] as? String, "RESOLVED_DEV_BUNDLE")
+        XCTAssertEqual(lock["status"] as? String, "RESOLVED_UPSTREAM")
 
         let contract = try XCTUnwrap(lock["contract"] as? [String: Any])
         let digest = try XCTUnwrap(contract["manifestSha256"] as? String)
@@ -134,14 +134,62 @@ final class ContractLockTests: XCTestCase
         )
     }
 
-    func testProvenanceDoesNotClaimAnUpstreamExport() throws
+    /// An upstream claim now has to be true rather than absent. The evidence file is
+    /// copied unmodified from the same upstream commit, so the lock is checked against
+    /// something the exporter wrote instead of against itself.
+    func testProvenanceClaimIsBackedByUpstreamEvidence() throws
     {
         let provenance = try XCTUnwrap(try lock()["provenance"] as? [String: Any])
-        XCTAssertEqual(provenance["origin"] as? String, "spfn-mobile-step2-dev-bundle")
+        XCTAssertEqual(provenance["origin"] as? String, "spfn-primitives-ci-export")
+        XCTAssertEqual(provenance["exportedByUpstreamCI"] as? Bool, true)
+
+        let evidence = try RepoPaths.json(at: "Contracts/upstream-provenance.json")
+        XCTAssertEqual(evidence["origin"] as? String, "spfn-primitives-ci-export")
         XCTAssertEqual(
-            provenance["exportedByUpstreamCI"] as? Bool, false,
-            "no SPFN primitives export exists; claiming one is the specific failure this field prevents"
+            evidence["exportedByUpstreamCI"] as? Bool, true,
+            "the lock may claim an upstream export only when the exporter's own evidence says so"
         )
+
+        let contract = try XCTUnwrap(try lock()["contract"] as? [String: Any])
+        let evidenceContract = try XCTUnwrap(evidence["contract"] as? [String: Any])
+        XCTAssertEqual(
+            contract["manifestSha256"] as? String,
+            evidenceContract["bundleSha256"] as? String,
+            "the lock pins a digest the upstream evidence does not record"
+        )
+
+        let source = try XCTUnwrap(try lock()["source"] as? [String: Any])
+        let commit = try XCTUnwrap(source["commit"] as? String)
+        XCTAssertEqual(commit.count, 40)
+        XCTAssertTrue(
+            commit.allSatisfy { $0.isHexDigit && !$0.isUppercase },
+            "an upstream pin names an exact commit, never a branch or a tag"
+        )
+        XCTAssertFalse(
+            (try XCTUnwrap(source["repository"] as? String)).contains("spfn-mobile"),
+            "a bundle this repository wrote is not an upstream export"
+        )
+    }
+
+    /// Below 1.0.0 the breaking axis is the minor, so the range the lock prints must be
+    /// bounded by the next minor. A range bounded by the next major would say the SDK
+    /// supports contracts it has never seen.
+    func testPreStableLockRangeIsBoundedByTheNextMinor() throws
+    {
+        let contract = try XCTUnwrap(try lock()["contract"] as? [String: Any])
+        let major = try XCTUnwrap(contract["major"] as? Int)
+        let minor = try XCTUnwrap(contract["minor"] as? Int)
+        let version = try XCTUnwrap(contract["version"] as? String)
+
+        XCTAssertTrue(version.hasPrefix("\(major).\(minor)."))
+        if major == 0
+        {
+            XCTAssertEqual(contract["supportedRange"] as? String, ">=\(version) <0.\(minor + 1).0")
+        }
+        else
+        {
+            XCTAssertEqual(contract["supportedRange"] as? String, ">=\(version) <\(major + 1).0.0")
+        }
     }
 
     func testLockAllowlistMatchesTheSwiftAllowlist() throws

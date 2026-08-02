@@ -44,7 +44,7 @@ enum WireFixtures
     /// compiles against can be checked against the contract rather than against a copy.
     static func bundleWireMapping() throws -> [String: SPFNCanonicalValue]
     {
-        try load("Contracts/spfn-mobile-contract.v1.json").object()["wireMapping"]
+        try load("Contracts/spfn-mobile-contract.json").object()["wireMapping"]
             .orFail("wireMapping")
             .object()
     }

@@ -61,7 +61,7 @@ class ProofConformanceTest
     fun proofFieldOrderMatchesTheContract()
     {
         val bundle = SpfnCanonicalJson
-            .parse(Fixtures.bytes("Contracts/spfn-mobile-contract.v1.json"))
+            .parse(Fixtures.bytes("Contracts/spfn-mobile-contract.json"))
             .members();
         val declared = bundle.obj("clientProofV1").obj("proofInput").list("fields").map { it.text() };
 
