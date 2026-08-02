@@ -437,23 +437,57 @@ case "$STATUS" in
         # true under RESOLVED_DEV_BUNDLE and false the moment the lock moves upstream, and
         # a reader has no way to tell which state a stale sentence was written for.
         # This is a list of exact claims, not a vocabulary ban — prose describing the
-        # dev-bundle branch, or scoped to Step 2, stays legal because it stays true.
-        find . -type f \( -name '*.md' -o -name '*.yml' -o -name '*.yaml' \) \
-            -not -path './.git/*' -not -path '*/build/*' -not -path './.build/*' \
-            -exec grep -lF \
-                -e 'evidence that does not exist' \
-                -e 'no upstream evidence' \
-                -e 'export does not exist' \
-                -e 'no upstream contract exists' \
-                -e 'has not been exported' \
-                -e 'not exported by SPFN primitives' \
-                {} + > "$TMP/stale-provenance" 2>/dev/null || true
+        # dev-bundle branch, or scoped to Step 2, stays legal because it stays true. What
+        # it therefore does not catch: a paraphrase, a case variant, a claim in a code
+        # comment, or one in a file type outside the three globs below. It closes the
+        # wordings that were actually written here, and nothing wider.
+        # Enumerated and scanned in two steps, one file at a time. A single `find -exec
+        # grep +` cannot tell "nothing matched" from "the scan could not run": both leave
+        # an empty result and a non-zero status, and a check that passes when it could not
+        # run is worse than no check. Here an enumeration that finds implausibly few
+        # documents fails, an unreadable file fails, and only a completed scan with no hit
+        # passes.
+        STALE_DOCS=''
+        STALE_UNREADABLE=0
+        STALE_SCANNED=0
 
-        if [ -s "$TMP/stale-provenance" ]
+        if find . -type f \( -name '*.md' -o -name '*.yml' -o -name '*.yaml' \) \
+            -not -path './.git/*' -not -path '*/build/*' -not -path './.build/*' \
+            > "$TMP/provenance-docs" 2>/dev/null
         then
-            fail "these documents still say the upstream export is missing: $(tr '\n' ' ' < "$TMP/stale-provenance")"
+            while IFS= read -r DOC
+            do
+                STALE_SCANNED=$((STALE_SCANNED + 1))
+                if grep -qF \
+                    -e 'evidence that does not exist' \
+                    -e 'no upstream evidence' \
+                    -e 'export does not exist' \
+                    -e 'no upstream contract exists' \
+                    -e 'has not been exported' \
+                    -e 'not exported by SPFN primitives' \
+                    -- "$DOC"
+                then
+                    STALE_DOCS="$STALE_DOCS $DOC"
+                elif [ $? -gt 1 ]
+                then
+                    STALE_UNREADABLE=$((STALE_UNREADABLE + 1))
+                fi
+            done < "$TMP/provenance-docs"
+        fi
+
+        # This repository has carried more than twenty such documents since Step 2. A
+        # count near zero means the enumeration failed, not that the documents went away.
+        if [ "$STALE_SCANNED" -lt 20 ]
+        then
+            fail "the stale-provenance scan reached only $STALE_SCANNED documents; it did not run"
+        elif [ "$STALE_UNREADABLE" -ne 0 ]
+        then
+            fail "the stale-provenance scan could not read $STALE_UNREADABLE of $STALE_SCANNED documents"
+        elif [ -n "$STALE_DOCS" ]
+        then
+            fail "these documents still say the upstream export is missing:$STALE_DOCS"
         else
-            pass 'no document contradicts the resolved upstream provenance'
+            pass "no document contradicts the resolved upstream provenance ($STALE_SCANNED scanned)"
         fi
 
         RESOLVED=yes
