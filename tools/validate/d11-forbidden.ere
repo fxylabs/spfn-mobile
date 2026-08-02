@@ -1,0 +1,19 @@
+# Extended regular expression, case-insensitive, matched against
+# tools/cocoapods-compat/README.md by tools/validate/validate.sh.
+#
+# D11 (resolved 2026-08-02) settled that CocoaPods is not supported and deliberately
+# recorded no activation condition, because a condition written on the page reads as a
+# route a consumer can ask for.
+#
+# THIS IS THE SECOND NET, NOT THE GATE. The policy statement itself is pinned by digest
+# in tools/validate/d11-policy.lock, which refuses every edit rather than the phrasings
+# someone happened to enumerate. A blocklist over free prose cannot be complete — a
+# policy can be reopened in unbounded ways — so this pattern covers the rest of the file,
+# where prose is legitimate and a digest would be too rigid, and it is judged on whether
+# it catches the formulations seen in review, not on being exhaustive.
+#
+# It is data, not prose: everything after this comment block is one single-line ERE.
+#
+# tools/validate/probe-d11-guardrail.sh proves the pattern against sentences that must
+# match and against wording that must not. Change the pattern and the probe together.
+awaiting (human )?confirmation|proposal awaiting|private specs repository|git-tag podspec|separate approval|(may|can|could|will|would|shall) be (enabled|activated|supported|published|available)|(will|would|shall) (publish|enable|activate|support)|(enabled|activated|supported|published) (only )?(after|once|upon|if)|supported paths?( are| is)|opt in|(may|might|can|could|will|would) become available|(can|could|may|might|will|would) offer|(could|may|might|will|would) return as|consider (publishing|enabling|supporting|activating|adding)|(may|can|could) request

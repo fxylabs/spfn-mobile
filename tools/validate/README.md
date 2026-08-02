@@ -22,7 +22,7 @@ check passed.
 | 8 | module graph coherence across `module-graph.json`, SwiftPM, Gradle settings, module directories and the podspec |
 | 9 | generated sources are traceable: every one declares itself generated and names the digest the lock pins |
 | 10 | the D5 toolchain baseline is declared explicitly rather than inherited |
-| 11 | ownership, license and every compatibility support row are still represented as unresolved |
+| 11 | ownership, license, resolved decisions and every compatibility support row are represented honestly |
 | 12 | the repository declares its own status, in docs and in both built libraries |
 
 ## What it does not check
@@ -49,6 +49,38 @@ false`, no 40-hex commit, and a `manifestSha256` that is the real digest of the 
 names. A lock claiming an upstream export must produce `Contracts/upstream-provenance.json`
 and a real source commit. No such file exists today, so that claim fails immediately —
 which is the point.
+
+## Check 11 pins a decision rather than blocklisting its opposite
+
+D11 settled that CocoaPods is not supported and recorded no activation condition on
+purpose. The first attempt to hold that shut was a list of forbidden phrasings, and
+review took it apart twice: "may be enabled after a separate approval", then "could
+return as an optional distribution channel". A policy sentence can be reopened in
+unbounded ways, so no enumeration converges.
+
+The gate is therefore a digest. `d11-policy.lock.json` pins the exact text of the
+decision in both places it is written down — the policy section of
+`tools/cocoapods-compat/README.md` and the D11 row of `docs/OPEN-DECISIONS.md` — and any
+edit to either fails the build until somebody updates the lock. Reopening the decision
+becomes a visible act instead of a sentence nobody noticed. The row is pinned whole
+because the check that preceded it read only the row's first three cells: review showed
+a row could keep the word RESOLVED and say "CocoaPods is supported through an approved
+release path" in the cells after it. `d11-forbidden.ere` survives as a second,
+best-effort net over the rest of the fixture README, where prose is legitimate and a
+digest would be too rigid.
+
+`probe-d11-guardrail.sh` holds all of it to its claims: each pinned digest must move on
+the smallest edit that reverses its meaning, the section extraction must stop at the
+next heading rather than swallowing the document, exactly one D11 row may exist,
+fourteen reopening sentences must be caught, twelve descriptive ones must be spared, the
+validator must read both files instead of carrying its own copy, and every file the
+guardrail depends on must be tracked by git. The validator runs the probe as part of
+check 11.
+
+```sh
+sh tools/validate/probe-d11-guardrail.sh                  # prove the guardrail
+sh tools/validate/probe-d11-guardrail.sh --print-digest   # after an approved edit
+```
 
 ## Check 2 replaced a Step 1 prohibition
 

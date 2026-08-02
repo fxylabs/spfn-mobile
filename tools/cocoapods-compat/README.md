@@ -15,12 +15,17 @@ fails the build if anyone tries to introduce one by hand-editing the generated f
 
 ## Status of the underlying policy
 
-The CocoaPods compatibility tier is a **proposal awaiting human confirmation**, not a
-confirmed decision. Upstream CocoaPods trunk is in maintenance mode with a stated
-read-only target date, so trunk is never treated as a long-term channel. If a real
-customer requirement appears, the supported paths are a Git-tag podspec or a private
-specs repository — activated only after separate approval, and only if the result
-passes the same version, API, conformance, security and release gates as SwiftPM.
+**RESOLVED 2026-08-02** (decision `01kz0r31ya`, recorded as D11 in
+`docs/OPEN-DECISIONS.md`): Swift Package Manager is the only iOS distribution channel
+for SPFN Mobile v1 and CocoaPods is not supported. This directory exists to prove the
+single-source claim above; it is not preparation for a publication path. Upstream
+CocoaPods trunk is in maintenance mode with a stated read-only target date, so trunk
+could not be a long-term channel in any case.
+
+No activation condition is written down here, and that omission is deliberate. A
+condition on the page would read as a route anyone could ask for, which is the opposite
+of what "not supported" means. If a real requirement ever appears, it is judged as a
+separate decision at that time.
 
 ## Files
 

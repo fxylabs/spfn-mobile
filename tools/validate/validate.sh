@@ -170,7 +170,9 @@ for path in \
     Contracts/auth-profiles/clientProofV1.schema.json Contracts/fixtures/MANIFEST.json \
     tools/module-graph.json tools/contract-codegen/README.md \
     tools/contract-codegen/build.gradle.kts \
-    tools/validate/validate.sh tools/cocoapods-compat/generate-podspec.sh \
+    tools/validate/validate.sh tools/validate/d11-forbidden.ere \
+    tools/validate/d11-policy.lock.json tools/validate/probe-d11-guardrail.sh \
+    tools/cocoapods-compat/generate-podspec.sh \
     docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md \
     .github/workflows/contract.yml .github/workflows/swift.yml \
     .github/workflows/android.yml .github/workflows/security.yml \
@@ -701,6 +703,62 @@ contains docs/OPEN-DECISIONS.md 'OS/toolchain baseline' 'open decisions still re
 contains docs/OPEN-DECISIONS.md 'Maven' 'open decisions record the Maven namespace question'
 contains docs/OPEN-DECISIONS.md 'upstream export tooling' \
     'open decisions record that upstream contract export tooling must replace the dev bundle'
+# D11 decided that CocoaPods is not supported and deliberately recorded no activation
+# condition. Wording that names a route to turn it on makes "not supported" read as
+# "available on request", which is the one reading the decision exists to prevent.
+#
+# The gate is the digest, not a blocklist. A blocklist can only refuse the phrasings
+# somebody thought of, and a policy sentence can be rewritten in unbounded ways; pinning
+# the text means any edit fails until the lock is updated on purpose. The blocklist
+# further down stays as a second, best-effort net over the REST of the fixture README,
+# where free prose is legitimate and a digest would be too rigid.
+D11_LOCK=tools/validate/d11-policy.lock.json
+D11_SECTION=$(json_string "$D11_LOCK" section)
+D11_PINNED=$(json_string "$D11_LOCK" sha256)
+D11_ROW_PREFIX=$(json_string "$D11_LOCK" rowPrefix)
+D11_ROW_PINNED=$(json_string "$D11_LOCK" rowSha256)
+
+# The decision is written in two places and both are pinned whole. A substring check on
+# the row's state cell would pass while the rest of the row said the opposite.
+grep "^$D11_ROW_PREFIX" docs/OPEN-DECISIONS.md > "$TMP/d11-row.txt"
+D11_ROW_COUNT=$(grep -c "^$D11_ROW_PREFIX" docs/OPEN-DECISIONS.md)
+if [ "$D11_ROW_COUNT" != "1" ]
+then
+    fail "docs/OPEN-DECISIONS.md carries $D11_ROW_COUNT rows starting '$D11_ROW_PREFIX', expected exactly 1"
+else
+    equals "$(sha256_of "$TMP/d11-row.txt")" "$D11_ROW_PINNED" \
+        'the whole D11 decision row is byte-identical to the row pinned in d11-policy.lock.json'
+fi
+awk -v heading="$D11_SECTION" \
+    '$0 == heading {f = 1; print; next} f && /^## / {f = 0} f {print}' \
+    tools/cocoapods-compat/README.md > "$TMP/d11-section.txt"
+if [ ! -s "$TMP/d11-section.txt" ]
+then
+    fail "the D11 policy section '$D11_SECTION' is missing from the CocoaPods fixture README"
+else
+    equals "$(sha256_of "$TMP/d11-section.txt")" "$D11_PINNED" \
+        'the D11 policy statement is byte-identical to the text pinned in d11-policy.lock.json'
+fi
+
+D11_FORBIDDEN=$(grep -v '^#' tools/validate/d11-forbidden.ere | grep -v '^$')
+if [ -z "$D11_FORBIDDEN" ]
+then
+    fail 'tools/validate/d11-forbidden.ere carries no pattern'
+elif grep -qiE "$D11_FORBIDDEN" tools/cocoapods-compat/README.md
+then
+    fail 'the CocoaPods fixture README reopens D11 with proposal or activation wording'
+else
+    pass 'the CocoaPods fixture README states D11 as decided, with no activation condition'
+fi
+
+# A negative check earns its line only if it bites. The probe holds the pinned section
+# and the blocklist to both sides — what each must catch, and what each must spare.
+if sh tools/validate/probe-d11-guardrail.sh > /dev/null 2>&1
+then
+    pass 'the D11 guardrail probe passes on both its positive and negative samples'
+else
+    fail 'tools/validate/probe-d11-guardrail.sh fails; the D11 guardrail no longer holds'
+fi
 
 # A build/parity baseline is not a support commitment. The compatibility matrix must not
 # quietly acquire one just because the toolchain was pinned.
