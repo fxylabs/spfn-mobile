@@ -599,12 +599,11 @@ do
 done
 
 # A table that transcribes the implementation proves nothing, so each suite carries a
-# probe that runs the rules this change set replaced and requires the tables to catch
-# them. This validator cannot run either suite — that is `swift test` and `./gradlew
+# probe that runs the rule at the base commit and requires the tables to catch it. This validator cannot run either suite — that is `swift test` and `./gradlew
 # build` — so what it holds is that the probe is still there to be run.
-contains "$SWIFT_VECTOR_SUITE" 'testTheSharedTablesRejectTheRulesTheyReplaced' \
+contains "$SWIFT_VECTOR_SUITE" 'testTheSharedTablesRejectTheRuleTheyReplaced' \
     'the Swift suite still probes the tables against the rules they replaced'
-contains "$KOTLIN_VECTOR_SUITE" 'theSharedTablesRejectTheRulesTheyReplaced' \
+contains "$KOTLIN_VECTOR_SUITE" 'theSharedTablesRejectTheRuleTheyReplaced' \
     'the Kotlin suite still probes the tables against the rules they replaced'
 
 # Counted per entry rather than by grepping for a quoted word, because a `why` string is

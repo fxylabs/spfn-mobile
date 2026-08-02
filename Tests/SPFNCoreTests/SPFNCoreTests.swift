@@ -165,11 +165,12 @@ final class SPFNContractBindingTests: XCTestCase
         }
     }
 
-    /// The tables are evidence only if a wrong rule fails them. These run the rules this
-    /// change set replaced and require each table to catch its own. A table that merely
-    /// transcribed the implementation would agree with the old rule too, and a future
-    /// change that reverted the rule and relaxed the table to match would fail here.
-    func testTheSharedTablesRejectTheRulesTheyReplaced() throws
+    /// The tables are evidence only if a wrong rule fails them. These run the rule this
+    /// change set replaced — the one at the base commit, not a reconstruction — and
+    /// require each table to catch it. A table that merely transcribed the implementation
+    /// would agree with the old rule too, and a future change that reverted the rule and
+    /// relaxed the tables to match would fail here.
+    func testTheSharedTablesRejectTheRuleTheyReplaced() throws
     {
         let root: [String: Any]? = try vectorRoot()
         let cases = try XCTUnwrap(root?["cases"] as? [[String: Any]])
@@ -181,8 +182,7 @@ final class SPFNContractBindingTests: XCTestCase
             let expected = try XCTUnwrap(entry["supported"] as? Bool)
             let legacy = legacySatisfies(
                 try XCTUnwrap(entry["candidate"] as? String),
-                try XCTUnwrap(entry["lower"] as? String),
-                try XCTUnwrap(entry["upper"] as? String)
+                try XCTUnwrap(entry["lower"] as? String)
             )
             if legacy != expected
             {
@@ -195,7 +195,7 @@ final class SPFNContractBindingTests: XCTestCase
         for entry in parsing
         {
             let expected = try XCTUnwrap(entry["valid"] as? Bool)
-            if (legacyParse(try XCTUnwrap(entry["text"] as? String)) != nil) != expected
+            if (legacyMajor(of: try XCTUnwrap(entry["text"] as? String)) != nil) != expected
             {
                 parseMismatches += 1
             }
@@ -211,91 +211,27 @@ final class SPFNContractBindingTests: XCTestCase
         )
     }
 
-    private struct LegacyVersion
+    /// The rule this change set replaced, copied from the base commit rather than
+    /// reconstructed: `requireSupported` took a leading run of digits as the major and
+    /// compared it to the pinned one. There was no parser and no upper bound, so a
+    /// version was readable exactly when it began with a digit, and everything sharing
+    /// the pinned major was accepted.
+    private func legacyMajor(of version: String) -> Int?
     {
-        let core: [String]
-        let preRelease: String?
+        let head = version.prefix { $0.isNumber }
+        return head.isEmpty ? nil : Int(head)
     }
 
-    /// The parser before this change set: identifiers were alphanumeric with no numeric
-    /// leading-zero rule, so `0.1.0-01` parsed.
-    private func legacyParse(_ text: String) -> LegacyVersion?
+    /// The table's `lower` is the pinned version, so its major is the `supportedMajor`
+    /// the base commit compared against.
+    private func legacySatisfies(_ candidate: String, _ lower: String) -> Bool
     {
-        var body = Substring(text)
-
-        if let plus = body.firstIndex(of: "+")
-        {
-            guard legacyIdentifiers(body[body.index(after: plus)...])
-            else
-            {
-                return nil
-            }
-            body = body[..<plus]
-        }
-
-        var preRelease: String? = nil
-        if let dash = body.firstIndex(of: "-")
-        {
-            let tail = body[body.index(after: dash)...]
-            guard legacyIdentifiers(tail)
-            else
-            {
-                return nil
-            }
-            preRelease = String(tail)
-            body = body[..<dash]
-        }
-
-        let core = body.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
-        guard core.count == 3,
-              core.allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0.isASCII && $0.isNumber } }),
-              core.allSatisfy({ $0 == "0" || !$0.hasPrefix("0") })
-        else
-        {
-            return nil
-        }
-        return LegacyVersion(core: core, preRelease: preRelease)
-    }
-
-    private func legacyIdentifiers(_ text: Substring) -> Bool
-    {
-        let parts = text.split(separator: ".", omittingEmptySubsequences: false)
-        return !parts.isEmpty && parts.allSatisfy { part in
-            !part.isEmpty && part.allSatisfy { $0.isASCII && ($0.isNumber || $0.isLetter || $0 == "-") }
-        }
-    }
-
-    /// The range rule before this change set: the pre-release had to equal the lower
-    /// bound's, then the core was compared against both ends — which let a pinned
-    /// pre-release admit any later core.
-    private func legacySatisfies(_ candidate: String, _ lower: String, _ upper: String) -> Bool
-    {
-        guard let candidate = legacyParse(candidate),
-              let lower = legacyParse(lower),
-              let upper = legacyParse(upper),
-              candidate.preRelease == lower.preRelease
+        guard let major = legacyMajor(of: candidate), let pinned = legacyMajor(of: lower)
         else
         {
             return false
         }
-        return legacyCompareCore(candidate.core, lower.core) >= 0
-            && legacyCompareCore(candidate.core, upper.core) < 0
-    }
-
-    private func legacyCompareCore(_ left: [String], _ right: [String]) -> Int
-    {
-        for (one, other) in zip(left, right)
-        {
-            if one.count != other.count
-            {
-                return one.count < other.count ? -1 : 1
-            }
-            if one != other
-            {
-                return one < other ? -1 : 1
-            }
-        }
-        return 0
+        return major == pinned
     }
 
     /// The same table driven through the public entry point, so the binding and the

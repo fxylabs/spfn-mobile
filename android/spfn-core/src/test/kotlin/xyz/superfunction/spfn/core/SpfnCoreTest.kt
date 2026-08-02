@@ -215,13 +215,14 @@ class SpfnContractBindingTest
     }
 
     /**
-     * The tables are evidence only if a wrong rule fails them. These run the rules this
-     * change set replaced and require each table to catch its own. A table that merely
-     * transcribed the implementation would agree with the old rule too, and a future change
-     * that reverted the rule and relaxed the table to match would fail here.
+     * The tables are evidence only if a wrong rule fails them. These run the rule this
+     * change set replaced — the one at the base commit, not a reconstruction — and require
+     * each table to catch it. A table that merely transcribed the implementation would
+     * agree with the old rule too, and a future change that reverted the rule and relaxed
+     * the tables to match would fail here.
      */
     @Test
-    fun theSharedTablesRejectTheRulesTheyReplaced()
+    fun theSharedTablesRejectTheRuleTheyReplaced()
     {
         val root = vectorRoot();
         val cases = (root.members["cases"] as SpfnCanonicalValue.Arr).elements
@@ -231,14 +232,14 @@ class SpfnContractBindingTest
 
         val rangeMismatches = cases.count { entry ->
             fun text(key: String) = (entry[key] as SpfnCanonicalValue.Text).value;
-            legacySatisfies(text("candidate"), text("lower"), text("upper")) !=
+            legacySatisfies(text("candidate"), text("lower")) !=
                 (entry["supported"] as SpfnCanonicalValue.Bool).value
         };
         assertTrue("the range table no longer discriminates the rule it replaced", rangeMismatches > 0);
 
         val parseMismatches = parsing.count { entry ->
             val subject = (entry["text"] as SpfnCanonicalValue.Text).value;
-            (legacyParse(subject) != null) != (entry["valid"] as SpfnCanonicalValue.Bool).value
+            (legacyMajorOf(subject) != null) != (entry["valid"] as SpfnCanonicalValue.Bool).value
         };
         assertTrue("the parser table no longer discriminates the rule it replaced", parseMismatches > 0);
     }
@@ -250,90 +251,28 @@ class SpfnContractBindingTest
         return SpfnCanonicalJson.parse(text.toByteArray()) as SpfnCanonicalValue.Obj;
     }
 
-    private data class LegacyVersion(val core: List<String>, val preRelease: String?)
-
     /**
-     * The parser before this change set: identifiers were alphanumeric with no numeric
-     * leading-zero rule, so `0.1.0-01` parsed.
+     * The rule this change set replaced, copied from the base commit rather than
+     * reconstructed: `requireSupported` took a leading run of digits as the major and
+     * compared it to the pinned one. There was no parser and no upper bound, so a version
+     * was readable exactly when it began with a digit, and everything sharing the pinned
+     * major was accepted.
      */
-    private fun legacyParse(text: String): LegacyVersion?
+    private fun legacyMajorOf(version: String): Int?
     {
-        var body = text;
-
-        val plus = body.indexOf('+');
-        if (plus >= 0)
-        {
-            if (!legacyIdentifiers(body.substring(plus + 1)))
-            {
-                return null;
-            }
-            body = body.substring(0, plus);
-        }
-
-        var preRelease: String? = null;
-        val dash = body.indexOf('-');
-        if (dash >= 0)
-        {
-            val tail = body.substring(dash + 1);
-            if (!legacyIdentifiers(tail))
-            {
-                return null;
-            }
-            preRelease = tail;
-            body = body.substring(0, dash);
-        }
-
-        val core = body.split('.');
-        if (core.size != 3 ||
-            !core.all { part -> part.isNotEmpty() && part.all { it in '0'..'9' } } ||
-            !core.all { it == "0" || !it.startsWith("0") })
-        {
-            return null;
-        }
-        return LegacyVersion(core, preRelease);
-    }
-
-    private fun legacyIdentifiers(text: String): Boolean
-    {
-        val parts = text.split('.');
-        return parts.isNotEmpty() && parts.all { part ->
-            part.isNotEmpty() &&
-                part.all { it in '0'..'9' || it in 'a'..'z' || it in 'A'..'Z' || it == '-' }
-        };
+        val head = version.takeWhile { it.isDigit() };
+        return if (head.isEmpty()) null else head.toIntOrNull();
     }
 
     /**
-     * The range rule before this change set: the pre-release had to equal the lower bound's,
-     * then the core was compared against both ends — which let a pinned pre-release admit
-     * any later core.
+     * The table's `lower` is the pinned version, so its major is the `supportedMajor` the
+     * base commit compared against.
      */
-    private fun legacySatisfies(candidate: String, lower: String, upper: String): Boolean
+    private fun legacySatisfies(candidate: String, lower: String): Boolean
     {
-        val parsedCandidate = legacyParse(candidate) ?: return false;
-        val parsedLower = legacyParse(lower) ?: return false;
-        val parsedUpper = legacyParse(upper) ?: return false;
-        if (parsedCandidate.preRelease != parsedLower.preRelease)
-        {
-            return false;
-        }
-        return legacyCompareCore(parsedCandidate.core, parsedLower.core) >= 0 &&
-            legacyCompareCore(parsedCandidate.core, parsedUpper.core) < 0;
-    }
-
-    private fun legacyCompareCore(left: List<String>, right: List<String>): Int
-    {
-        for ((one, other) in left.zip(right))
-        {
-            if (one.length != other.length)
-            {
-                return if (one.length < other.length) -1 else 1;
-            }
-            if (one != other)
-            {
-                return if (one < other) -1 else 1;
-            }
-        }
-        return 0;
+        val major = legacyMajorOf(candidate) ?: return false;
+        val pinned = legacyMajorOf(lower) ?: return false;
+        return major == pinned;
     }
 
     /**
