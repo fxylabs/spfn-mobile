@@ -670,7 +670,10 @@ contains gradle/libs.versions.toml 'jdk-toolchain = ' 'version catalogue pins th
 contains gradle/libs.versions.toml 'min-sdk = ' 'version catalogue pins minSdk'
 contains gradle/libs.versions.toml 'compile-sdk = ' 'version catalogue pins compileSdk'
 
-for module in spfn-core spfn-generated spfn-auth spfn-sync spfn-hybrid
+# Read from the module graph rather than restated here. A hand-written list silently
+# stops covering a module the moment someone adds one, which is the failure mode this
+# whole section exists to prevent.
+for module in $(sed -n 's/.*"androidModule": "\([^"]*\)".*/\1/p' "$GRAPH")
 do
     script="android/$module/build.gradle.kts"
     contains "$script" 'jvmToolchain(libs.versions.jdk.toolchain.get().toInt())' \

@@ -58,6 +58,13 @@ awaiting human confirmation. **RESOLVED** — a person confirmed it, with the da
 | D19 | Conformance fixture authorship | PROPOSED | expected values are derived by `Contracts/fixtures/derive-expected-values.py`, a third implementation independent of both SDKs | whether an independently authored derivation is acceptable evidence long term, or whether fixtures must come from SPFN primitives with the bundle (which is the D17 path) |
 | D20 | Repository ownership of the Android SDK location | OPEN | the Android SDK is found through `ANDROID_HOME`; no `local.properties` is committed | how CI provides an Android SDK, and which SDK components are pinned |
 
+## Raised by the transport change set
+
+| # | Decision | State | What exists | What a person must decide |
+| --- | --- | --- | --- | --- |
+| D21 | Cleartext (`http://`) policy for the transport | OPEN | the transport accepts any absolute URL, `http://` included, because the reference server the SDK is verified against runs locally over cleartext | whether the shipped SDK refuses `http://` outright, allows it only for loopback, or leaves it to the host app's network security configuration. Refusing it here today would block the integration work that has to prove the client against a real server first |
+| D22 | Response header fidelity on iOS | OPEN | `HTTPURLResponse.allHeaderFields` is a dictionary, so wire order and repeated response headers are already lost before the adapter sees them; the adapter sorts by lowercased name so the result is at least deterministic. OkHttp preserves both | whether anything above the transport is allowed to depend on response header order or repetition. If it ever is, iOS needs a different response reader, not a different adapter |
+
 ## Rule
 
 If a later step needs one of these answered, it stops and asks. It does not pick one

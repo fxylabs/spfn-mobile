@@ -11,7 +11,9 @@ the same fixture vectors.
 
 ## What it is not
 
-- Not an SDK. There is no transport, no persistence, no bridge, no key custody.
+- Not an SDK. There is a transport boundary and its two platform adapters, and nothing
+  above them: no session, no single execute path, no persistence, no bridge, no key
+  custody. No code here has ever spoken to a server.
 - Not released. No commit, no tag, no artifact, no registry entry, no account.
 - Not supported. No distribution channel — SwiftPM, Maven or CocoaPods — is promised.
 - Not reviewed. Step 3 is a fresh independent review; it has not happened.
@@ -23,7 +25,7 @@ the same fixture vectors.
 | --- | --- |
 | Toolchain baseline (D5) | applied: Swift 6 language mode, iOS 16 / macOS 13, Gradle 9.5.1, AGP 9.2.1, Kotlin 2.4.10, JDK 21, minSdk 24 / compileSdk 36 |
 | Gradle wrapper | committed, distribution and jar pinned to checksums published by gradle.org |
-| Android modules | all five compile, and two run unit tests |
+| Android modules | all compile, and three run unit tests |
 | Contract bundle | pinned by real SHA-256, with provenance recorded as locally authored |
 | Codegen | `tools/contract-codegen` generates both clients from the bundle, deterministically |
 | Conformance | shared fixtures under `Contracts/fixtures/`, consumed by both test suites |

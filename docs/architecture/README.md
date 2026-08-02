@@ -21,6 +21,7 @@ agree with it, and the validator checks all four:
 | `SPFNCore` | `spfn-core` | — |
 | `SPFNGenerated` | `spfn-generated` | core |
 | `SPFNAuth` | `spfn-auth` | core |
+| `SPFNClient` | `spfn-client` | core |
 | `SPFNPersistence` | `spfn-sync` | core |
 | `SPFNHybrid` | `spfn-hybrid` | core, auth |
 
