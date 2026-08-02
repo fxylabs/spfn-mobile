@@ -171,7 +171,8 @@ for path in \
     tools/module-graph.json tools/contract-codegen/README.md \
     tools/contract-codegen/build.gradle.kts \
     tools/validate/validate.sh tools/validate/d11-forbidden.ere \
-    tools/validate/probe-d11-guardrail.sh tools/cocoapods-compat/generate-podspec.sh \
+    tools/validate/d11-policy.lock.json tools/validate/probe-d11-guardrail.sh \
+    tools/cocoapods-compat/generate-podspec.sh \
     docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md \
     .github/workflows/contract.yml .github/workflows/swift.yml \
     .github/workflows/android.yml .github/workflows/security.yml \
@@ -706,10 +707,28 @@ contains docs/OPEN-DECISIONS.md '| D11 | iOS distribution channel and the CocoaP
     'open decisions record D11 as resolved: SwiftPM is the only iOS distribution channel'
 
 # D11 decided that CocoaPods is not supported and deliberately recorded no activation
-# condition. Wording that reopens the tier as a proposal, or that names a route to turn
-# it on, makes "not supported" read as "available on request" — which is the one reading
-# the decision exists to prevent. The pattern lives in its own file so that
-# tools/validate/probe-d11-guardrail.sh can prove it against known sentences.
+# condition. Wording that names a route to turn it on makes "not supported" read as
+# "available on request", which is the one reading the decision exists to prevent.
+#
+# The gate is the digest, not a blocklist. A blocklist can only refuse the phrasings
+# somebody thought of, and a policy sentence can be rewritten in unbounded ways; pinning
+# the section means any edit fails until the lock is updated on purpose. The blocklist
+# below stays as a second, best-effort net over the REST of the file, where free prose is
+# legitimate and a digest would be too rigid.
+D11_LOCK=tools/validate/d11-policy.lock.json
+D11_SECTION=$(json_string "$D11_LOCK" section)
+D11_PINNED=$(json_string "$D11_LOCK" sha256)
+awk -v heading="$D11_SECTION" \
+    '$0 == heading {f = 1; print; next} f && /^## / {f = 0} f {print}' \
+    tools/cocoapods-compat/README.md > "$TMP/d11-section.txt"
+if [ ! -s "$TMP/d11-section.txt" ]
+then
+    fail "the D11 policy section '$D11_SECTION' is missing from the CocoaPods fixture README"
+else
+    equals "$(sha256_of "$TMP/d11-section.txt")" "$D11_PINNED" \
+        'the D11 policy statement is byte-identical to the text pinned in d11-policy.lock.json'
+fi
+
 D11_FORBIDDEN=$(grep -v '^#' tools/validate/d11-forbidden.ere | grep -v '^$')
 if [ -z "$D11_FORBIDDEN" ]
 then
@@ -721,8 +740,8 @@ else
     pass 'the CocoaPods fixture README states D11 as decided, with no activation condition'
 fi
 
-# A negative check earns its line only if it bites. The probe holds the pattern to both
-# sides — sentences it must catch, and the decided wording it must spare.
+# A negative check earns its line only if it bites. The probe holds the pinned section
+# and the blocklist to both sides — what each must catch, and what each must spare.
 if sh tools/validate/probe-d11-guardrail.sh > /dev/null 2>&1
 then
     pass 'the D11 guardrail probe passes on both its positive and negative samples'

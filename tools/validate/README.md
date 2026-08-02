@@ -50,18 +50,30 @@ names. A lock claiming an upstream export must produce `Contracts/upstream-prove
 and a real source commit. No such file exists today, so that claim fails immediately —
 which is the point.
 
-## The D11 guardrail carries its own probe
+## Check 11 pins a decision rather than blocklisting its opposite
 
-Check 11 includes a negative match: `tools/cocoapods-compat/README.md` must not acquire
-wording that reopens the CocoaPods decision — "awaiting confirmation", "supported paths
-are", "may be enabled after separate approval". A negative check silently stops biting
-the moment its pattern drifts, so the pattern lives in `d11-forbidden.ere` and
-`probe-d11-guardrail.sh` holds it to both sides: nine sentences it must catch, and seven
-lines of the README's real wording it must spare. The validator runs the probe, and the
-probe fails if the validator ever stops reading the pattern file.
+D11 settled that CocoaPods is not supported and recorded no activation condition on
+purpose. The first attempt to hold that shut was a list of forbidden phrasings, and
+review took it apart twice: "may be enabled after a separate approval", then "could
+return as an optional distribution channel". A policy sentence can be reopened in
+unbounded ways, so no enumeration converges.
+
+The gate is therefore a digest. `d11-policy.lock.json` pins the exact text of the
+policy section in `tools/cocoapods-compat/README.md`, and any edit to it fails the build
+until somebody updates the lock — which makes reopening the decision a visible act
+instead of a sentence nobody noticed. `d11-forbidden.ere` survives as a second,
+best-effort net over the rest of that file, where prose is legitimate and a digest would
+be too rigid.
+
+`probe-d11-guardrail.sh` holds both to their claims: the pinned digest must move on a
+one-word rewording, the extraction must stop at the next heading rather than swallowing
+the document, fourteen reopening sentences must be caught, twelve descriptive ones must
+be spared, and the validator must still read both files instead of carrying its own
+copy. The validator runs the probe as part of check 11.
 
 ```sh
-sh tools/validate/probe-d11-guardrail.sh
+sh tools/validate/probe-d11-guardrail.sh                  # prove the guardrail
+sh tools/validate/probe-d11-guardrail.sh --print-digest   # after an approved edit
 ```
 
 ## Check 2 replaced a Step 1 prohibition
