@@ -16,7 +16,7 @@ public protocol SPFNClock: Sendable
 /// The system wall clock.
 ///
 /// Deliberately not corrected for server skew. The alpha has no skew margin at all —
-/// expiry is judged against this clock as the server reported it (D23).
+/// expiry is judged against this clock as the server reported it (D24).
 public struct SPFNSystemClock: SPFNClock
 {
     public init() {}

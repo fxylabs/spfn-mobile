@@ -234,6 +234,27 @@ class SpfnReferenceServerTest
         }
     }
 
+    /**
+     * The expiry the server advertised, judged against the server's own clock.
+     *
+     * The integration suite cannot ask this question: it has to run against an external
+     * server too, and an external server runs on a wall clock nothing can move. So the rule
+     * that a session dies at the instant it was said to die is checked here, where the clock
+     * is injected and a test moves it by hand instead of sleeping through a TTL.
+     */
+    @Test
+    fun `a session past the expiry the server advertised is refused as revoked`()
+    {
+        SpfnReferenceHarness(sessionTtlMillis = 1_000).use { harness ->
+            val session = harness.openSession();
+            assertEquals(200, echo(harness, session, "before", 1).statusCode);
+
+            harness.clock.advance(1_500);
+
+            assertEquals("SESSION_REVOKED", echo(harness, session, "after", 2).errorCode());
+        }
+    }
+
     @Test
     fun `a tampered proof is refused as invalid`()
     {
