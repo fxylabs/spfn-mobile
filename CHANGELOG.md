@@ -8,6 +8,33 @@ software.
 Step 1 laid out the repository. Step 2 made it compile on both platforms and proved one
 vertical slice end to end. Nothing is committed, tagged or published.
 
+### The contract moved upstream
+
+- `Contracts/spfn-mobile-contract.json` is now an SPFN primitives export, copied byte for
+  byte from `contracts/mobile/` at commit `d31aa9a1` and pinned at digest `96c48f9c…`.
+  It replaces the bundle Step 2 hand-authored here, which resolves D17 and clears the
+  Step 5 blocker. The exporter's own `Contracts/upstream-provenance.json` sits beside it.
+- The contract facts did not change. Operations, wire mapping, canonical JSON, auth
+  profiles, error envelope, types and proof input are byte-identical to what the dev
+  bundle carried, and every conformance vector reproduced unchanged — only the digest
+  references moved. Upstream added `typeGrammar`, `clientProofV1.admissionOrder` and
+  `nonceRule`, each stating behaviour both sides already implemented.
+- The contract line restarts at `0.1.0`, and that changed a rule rather than a number.
+  Below 1.0.0 SemVer puts breaking changes in the minor, so the SDK now compares major
+  **and** minor: `requireSupported` used to compare majors alone, which on a 0.x line
+  would have accepted a `0.2.0` server that the declared range `>=0.1.0 <0.2.0` excludes.
+  The check would have been weaker than the range it printed.
+- The validator's provenance gate turned around with the fact it guards. It used to
+  refuse any upstream claim for want of evidence; it now checks the lock against
+  `upstream-provenance.json` field by field, requires the bundle to label itself
+  `UPSTREAM_EXPORT`, refuses evidence naming this repository as the source, and derives
+  the expected range from the pinned version so a pin cannot quietly widen what the SDK
+  accepts. Digest and fixture checks moved out of the dev-bundle branch so moving the
+  lock upstream could not silently drop them.
+- Both platform suites pass, and the two-platform integration matrix passes in
+  external-target mode against the primitives `04-mobile-contract-dev` server — ten
+  receipts against an implementation nobody here wrote.
+
 ### Decided in Step 4 preparation
 
 - License: MIT, Copyright FXY Inc. (decision D8, 2026-08-01), matching the upstream
@@ -216,13 +243,10 @@ vertical slice end to end. Nothing is committed, tagged or published.
 
 ### Still deliberately absent
 
-An upstream-exported contract bundle (D17) — the wire header mapping it will carry is
-ratified (D23), but the bundle in `Contracts/` is still hand-authored — a client clock
-skew margin (D24), generated per-operation call descriptors — the execute path is
-generic, and the three operations are described by hand in the test suites until the
-generator emits them — a completed exchange with a real server, since the runner can now
-be pointed at one but no run in this repository has been, persistence, the hybrid bridge,
-key custody
-beyond the in-memory alpha provider, CODEOWNERS identities, signing identities,
-registry configuration, pinned CI action SHAs, and every `COMPATIBILITY.md` support
-row. See `docs/OPEN-DECISIONS.md`.
+A client clock skew margin (D24), generated per-operation call descriptors — the execute
+path is generic, and the three operations are described by hand in the test suites until
+the generator emits them — an exchange with a *deployed* SPFN service, since the matrix
+has now run against the primitives dev server but never against a real deployment,
+persistence, the hybrid bridge, key custody beyond the in-memory alpha provider,
+CODEOWNERS identities, signing identities, registry configuration, pinned CI action SHAs,
+and every `COMPATIBILITY.md` support row. See `docs/OPEN-DECISIONS.md`.

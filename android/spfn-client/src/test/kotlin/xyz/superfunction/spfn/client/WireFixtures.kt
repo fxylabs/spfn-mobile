@@ -40,7 +40,7 @@ object WireFixtures
      * compiles against can be checked against the contract rather than against a copy.
      */
     fun bundleWireMapping(): Map<String, SpfnCanonicalValue> =
-        load("Contracts/spfn-mobile-contract.v1.json").members().obj("wireMapping")
+        load("Contracts/spfn-mobile-contract.json").members().obj("wireMapping")
 }
 
 fun SpfnCanonicalValue.members(): Map<String, SpfnCanonicalValue> =

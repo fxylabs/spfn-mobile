@@ -147,7 +147,7 @@ VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || printf 'MISSING')
 PODSPEC=tools/cocoapods-compat/generated/SPFNMobileCompatFixture.podspec
 GRAPH=tools/module-graph.json
 LOCK=Contracts/upstream.lock.json
-BUNDLE=Contracts/spfn-mobile-contract.v1.json
+BUNDLE=Contracts/spfn-mobile-contract.json
 PINS=gradle/wrapper/WRAPPER-PINS.json
 SWIFT_GENERATED=Sources/SPFNGenerated/Generated
 KOTLIN_GENERATED=android/spfn-generated/src/main/kotlin/xyz/superfunction/spfn/generated
@@ -166,7 +166,7 @@ for path in \
     gradle/wrapper/gradle-wrapper.properties gradle/wrapper/WRAPPER-PINS.json \
     VERSION COMPATIBILITY.md CHANGELOG.md RELEASE.md SECURITY.md CONTRIBUTING.md \
     LICENSE CODEOWNERS README.md .gitignore \
-    Contracts/upstream.lock.json Contracts/spfn-mobile-contract.v1.json \
+    Contracts/upstream.lock.json Contracts/spfn-mobile-contract.json \
     Contracts/auth-profiles/clientProofV1.schema.json Contracts/fixtures/MANIFEST.json \
     tools/module-graph.json tools/contract-codegen/README.md \
     tools/contract-codegen/build.gradle.kts \
@@ -350,48 +350,17 @@ case "$STATUS" in
             fail "manifestSha256 '$LOCK_DIGEST' is not a SHA-256 digest"
         fi
 
-        equals "$(sha256_of "$BUNDLE_PATH")" "$LOCK_DIGEST" \
-            "the pinned digest is the real SHA-256 of $BUNDLE_PATH"
-
-        FIXTURE_FILES=$(find Contracts/fixtures -type f -name '*.json' ! -name 'MANIFEST.json' 2>/dev/null || true)
-        if [ -n "$FIXTURE_FILES" ]
-        then
-            pass 'a resolved contract carries conformance vectors'
-        else
-            fail 'a resolved contract must carry conformance vectors'
-        fi
-
-        FIXTURE_COUNT=$(json_number Contracts/fixtures/MANIFEST.json fixtureCount)
-        ACTUAL_FIXTURES=$(printf '%s\n' "$FIXTURE_FILES" | grep -c . || true)
-        equals "$ACTUAL_FIXTURES" "$FIXTURE_COUNT" \
-            'fixture MANIFEST.json count matches the files on disk'
-        contains Contracts/fixtures/MANIFEST.json "\"bundleSha256\": \"$LOCK_DIGEST\"" \
-            'fixture MANIFEST.json pins the same bundle digest as the lock'
-
-        # Every fixture digest recorded in the manifest must be the real one.
-        DRIFTED=''
-        for fixture in $FIXTURE_FILES
-        do
-            recorded=$(grep -A2 "\"path\": \"$fixture\"" Contracts/fixtures/MANIFEST.json \
-                | sed -n 's/.*"sha256": "\([0-9a-f]*\)".*/\1/p' | head -1)
-            actual=$(sha256_of "$fixture")
-            if [ "$recorded" != "$actual" ]
-            then
-                DRIFTED="$DRIFTED $fixture"
-            fi
-        done
-        if [ -z "$DRIFTED" ]
-        then
-            pass 'every fixture digest in MANIFEST.json matches the file on disk'
-        else
-            fail "fixture digests drifted for:$DRIFTED"
-        fi
+        RESOLVED=yes
         ;;
 
     RESOLVED_UPSTREAM)
         pass 'lock status is RESOLVED_UPSTREAM'
         equals "$LOCK_ORIGIN" "$UPSTREAM_ORIGIN" 'an upstream lock names the upstream exporter'
         equals "$LOCK_EXPORTED" 'true' 'an upstream lock records that upstream CI exported it'
+        contains "$BUNDLE" '"origin": "spfn-primitives-ci-export"' \
+            'the bundle itself states the same origin as the lock'
+        contains "$BUNDLE" '"bundleKind": "UPSTREAM_EXPORT"' \
+            'the bundle is labelled an upstream export in its own text'
 
         if printf '%s' "$LOCK_COMMIT" | grep -qE '^[0-9a-f]{40}$'
         then
@@ -400,21 +369,124 @@ case "$STATUS" in
             fail "an upstream lock must carry a 40-hex source commit, got '$LOCK_COMMIT'"
         fi
 
+        # Until this change set the rule was "refuse an upstream claim that carries no
+        # evidence". Now that a real export exists the rule turns around: the claim must
+        # be checked against the evidence rather than merely accompanied by it. A lock
+        # that agrees with itself proves nothing; a lock that agrees with a file the
+        # exporter wrote is the whole point of pinning.
         if [ -f "$UPSTREAM_EVIDENCE" ]
         then
             pass "upstream provenance evidence exists at $UPSTREAM_EVIDENCE"
+
+            EV_ORIGIN=$(json_string "$UPSTREAM_EVIDENCE" origin)
+            EV_EXPORTED=$(json_bool "$UPSTREAM_EVIDENCE" exportedByUpstreamCI)
+            EV_DIGEST=$(json_string "$UPSTREAM_EVIDENCE" bundleSha256)
+            EV_EXPORTER=$(json_string "$UPSTREAM_EVIDENCE" exporterVersion)
+            EV_REPOSITORY=$(json_string "$UPSTREAM_EVIDENCE" repository)
+            EV_VERSION=$(json_string "$UPSTREAM_EVIDENCE" version)
+            EV_RANGE=$(json_string "$UPSTREAM_EVIDENCE" supportedRange)
+            LOCK_EXPORTER=$(json_string "$LOCK" exporterVersion)
+            LOCK_REPOSITORY=$(json_string "$LOCK" repository)
+            LOCK_VERSION=$(json_string "$LOCK" version)
+            LOCK_RANGE=$(json_string "$LOCK" supportedRange)
+
+            equals "$EV_ORIGIN" "$UPSTREAM_ORIGIN" 'the evidence names the same exporter as the lock'
+            equals "$EV_EXPORTED" 'true' 'the evidence itself records an upstream CI export'
+            equals "$EV_DIGEST" "$LOCK_DIGEST" \
+                'the evidence records the same bundle digest the lock pins'
+            equals "$LOCK_EXPORTER" "$EV_EXPORTER" 'lock and evidence name the same exporter version'
+            equals "$LOCK_REPOSITORY" "$EV_REPOSITORY" 'lock and evidence name the same source repository'
+            equals "$LOCK_VERSION" "$EV_VERSION" 'lock and evidence name the same contract version'
+            equals "$LOCK_RANGE" "$EV_RANGE" 'lock and evidence declare the same supported range'
+
+            if printf '%s' "$EV_REPOSITORY" | grep -qi 'spfn-mobile'
+            then
+                fail "the evidence names '$EV_REPOSITORY' as the source; a bundle this repository wrote is not an upstream export"
+            else
+                pass 'the evidence names a source repository other than this one'
+            fi
         else
             fail "an upstream-export claim requires $UPSTREAM_EVIDENCE; none exists, so the claim is unsupported"
         fi
 
-        equals "$(sha256_of "$BUNDLE_PATH")" "$LOCK_DIGEST" \
-            "the pinned digest is the real SHA-256 of $BUNDLE_PATH"
+        # The lock's range must be the one its own version implies, so a pin cannot
+        # quietly widen what the SDK accepts. Below 1.0.0 the breaking axis is the minor.
+        LOCK_MAJOR=$(json_number "$LOCK" major)
+        LOCK_MINOR=$(json_number "$LOCK" minor)
+        if [ "$LOCK_MAJOR" = "0" ]
+        then
+            equals "$LOCK_RANGE" ">=$LOCK_VERSION <0.$((LOCK_MINOR + 1)).0" \
+                'a 0.x lock declares a range bounded by the next minor, not the next major'
+        else
+            equals "$LOCK_RANGE" ">=$LOCK_VERSION <$((LOCK_MAJOR + 1)).0.0" \
+                'a stable lock declares a range bounded by the next major'
+        fi
+        case "$LOCK_VERSION" in
+            "$LOCK_MAJOR.$LOCK_MINOR."*)
+                pass 'the lock version agrees with the major and minor recorded beside it'
+                ;;
+            *)
+                fail "lock version '$LOCK_VERSION' does not start with its own major.minor ($LOCK_MAJOR.$LOCK_MINOR)"
+                ;;
+        esac
+
+        RESOLVED=yes
         ;;
 
     *)
         fail "lock status '$STATUS' is not one of UNRESOLVED_PLACEHOLDER, RESOLVED_DEV_BUNDLE, RESOLVED_UPSTREAM"
         ;;
 esac
+
+# Digest and fixture discipline is the same obligation whichever way the contract was
+# resolved. It used to live inside the dev-bundle branch only, so moving the lock to
+# RESOLVED_UPSTREAM would have silently dropped every fixture check.
+if [ "${RESOLVED:-no}" = "yes" ]
+then
+    if printf '%s' "$LOCK_DIGEST" | grep -qE '^[0-9a-f]{64}$'
+    then
+        pass 'manifestSha256 is 64 lowercase hex characters'
+    else
+        fail "manifestSha256 '$LOCK_DIGEST' is not a SHA-256 digest"
+    fi
+
+    equals "$(sha256_of "$BUNDLE_PATH")" "$LOCK_DIGEST" \
+        "the pinned digest is the real SHA-256 of $BUNDLE_PATH"
+
+    FIXTURE_FILES=$(find Contracts/fixtures -type f -name '*.json' ! -name 'MANIFEST.json' 2>/dev/null || true)
+    if [ -n "$FIXTURE_FILES" ]
+    then
+        pass 'a resolved contract carries conformance vectors'
+    else
+        fail 'a resolved contract must carry conformance vectors'
+    fi
+
+    FIXTURE_COUNT=$(json_number Contracts/fixtures/MANIFEST.json fixtureCount)
+    ACTUAL_FIXTURES=$(printf '%s\n' "$FIXTURE_FILES" | grep -c . || true)
+    equals "$ACTUAL_FIXTURES" "$FIXTURE_COUNT" \
+        'fixture MANIFEST.json count matches the files on disk'
+    contains Contracts/fixtures/MANIFEST.json "\"bundleSha256\": \"$LOCK_DIGEST\"" \
+        'fixture MANIFEST.json pins the same bundle digest as the lock'
+
+    # Every fixture digest recorded in the manifest must be the real one.
+    DRIFTED=''
+    for fixture in $FIXTURE_FILES
+    do
+        recorded=$(grep -A2 "\"path\": \"$fixture\"" Contracts/fixtures/MANIFEST.json \
+            | sed -n 's/.*"sha256": "\([0-9a-f]*\)".*/\1/p' | head -1)
+        actual=$(sha256_of "$fixture")
+        if [ "$recorded" != "$actual" ]
+        then
+            DRIFTED="$DRIFTED $fixture"
+        fi
+    done
+    if [ -z "$DRIFTED" ]
+    then
+        pass 'every fixture digest in MANIFEST.json matches the file on disk'
+    else
+        fail "fixture digests drifted for:$DRIFTED"
+    fi
+fi
 
 contains "$LOCK" '"allowed": ["clientProofV1"]' 'lock allowlists exactly clientProofV1'
 contains "$LOCK" '"unknownProfilePolicy": "reject"' 'lock rejects unknown auth profiles (no fallback)'
@@ -701,8 +773,11 @@ contains LICENSE 'FXY Inc.' 'LICENSE names the decided copyright holder'
 contains COMPATIBILITY.md 'UNRESOLVED' 'compatibility matrix still marks unresolved support rows'
 contains docs/OPEN-DECISIONS.md 'OS/toolchain baseline' 'open decisions still record the OS/toolchain baseline entry'
 contains docs/OPEN-DECISIONS.md 'Maven' 'open decisions record the Maven namespace question'
-contains docs/OPEN-DECISIONS.md 'upstream export tooling' \
-    'open decisions record that upstream contract export tooling must replace the dev bundle'
+# D17 asked for an upstream export and now has one. The assertion follows the decision
+# rather than being deleted with it: what has to stay recorded is that the contract comes
+# from upstream, since that is the claim every other provenance check depends on.
+contains docs/OPEN-DECISIONS.md 'Upstream contract export tooling | **RESOLVED' \
+    'open decisions record D17 as resolved by a real upstream export'
 # D11 decided that CocoaPods is not supported and deliberately recorded no activation
 # condition. Wording that names a route to turn it on makes "not supported" read as
 # "available on request", which is the one reading the decision exists to prevent.

@@ -64,7 +64,7 @@ final class ProofConformanceTests: XCTestCase
     func testProofFieldOrderMatchesTheContract() throws
     {
         let bundle = try SPFNCanonicalJSON.parse(
-            [UInt8](try Data(contentsOf: Fixtures.repoRoot.appendingPathComponent("Contracts/spfn-mobile-contract.v1.json")))
+            [UInt8](try Data(contentsOf: Fixtures.repoRoot.appendingPathComponent("Contracts/spfn-mobile-contract.json")))
         ).members()
         let declared = try bundle["clientProofV1"]!.members()["proofInput"]!.members().list("fields")
             .map { try $0.text() }

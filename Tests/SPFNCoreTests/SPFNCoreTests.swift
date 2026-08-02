@@ -46,33 +46,96 @@ final class SPFNScaffoldTests: XCTestCase
 
 final class SPFNContractBindingTests: XCTestCase
 {
-    private let binding = SPFNContractBinding(
-        importedVersion: "1.0.0-dev.1",
+    private let stable = SPFNContractBinding(
+        importedVersion: "1.0.0",
         importedManifestSha256: String(repeating: "a", count: 64),
+        supportedRange: ">=1.0.0 <2.0.0",
+        supportedMajor: 1,
+        supportedMinor: 0,
+        origin: "spfn-primitives-ci-export"
+    )
+
+    /// The shape the repository actually ships: a 0.x contract, where the minor is the
+    /// breaking axis rather than an additive one.
+    private let preStable = SPFNContractBinding(
+        importedVersion: "0.1.0",
+        importedManifestSha256: String(repeating: "b", count: 64),
+        supportedRange: ">=0.1.0 <0.2.0",
+        supportedMajor: 0,
+        supportedMinor: 1,
+        origin: "spfn-primitives-ci-export"
+    )
+
+    private let devBundle = SPFNContractBinding(
+        importedVersion: "1.0.0-dev.1",
+        importedManifestSha256: String(repeating: "c", count: 64),
         supportedRange: ">=1.0.0-dev.1 <2.0.0",
         supportedMajor: 1,
+        supportedMinor: 0,
         origin: "spfn-mobile-step2-dev-bundle"
     )
 
     func testADevBundleIsNeverReportedAsAnUpstreamExport() throws
     {
-        XCTAssertFalse(binding.isUpstreamExport)
+        XCTAssertFalse(devBundle.isUpstreamExport)
     }
 
-    func testSupportedMajorIsAccepted() throws
+    func testAnExportedBundleIsReportedAsUpstream() throws
     {
-        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "1.7.3"))
+        XCTAssertTrue(preStable.isUpstreamExport)
     }
 
-    func testOtherMajorsRaiseAnUpgradeError() throws
+    func testAStableContractAcceptsAnyMinorOnItsMajor() throws
+    {
+        XCTAssertNoThrow(try stable.requireSupported(serverContractVersion: "1.7.3"))
+        XCTAssertNoThrow(try stable.requireSupported(serverContractVersion: "1.0.0"))
+    }
+
+    func testAStableContractRejectsOtherMajors() throws
     {
         for version in ["2.0.0", "0.9.0", "not-a-version"]
         {
-            XCTAssertThrowsError(try binding.requireSupported(serverContractVersion: version))
+            XCTAssertThrowsError(try stable.requireSupported(serverContractVersion: version))
             { error in
                 XCTAssertEqual((error as? SPFNDecodingError)?.code, "CONTRACT_UNSUPPORTED")
             }
         }
+    }
+
+    func testAPreStableContractAcceptsOnlyItsOwnMinor() throws
+    {
+        XCTAssertNoThrow(try preStable.requireSupported(serverContractVersion: "0.1.0"))
+        XCTAssertNoThrow(try preStable.requireSupported(serverContractVersion: "0.1.9"))
+    }
+
+    /// The case that made this rule necessary. Comparing majors alone admits 0.2.0,
+    /// which the declared range excludes, and the SDK would decode a contract it does
+    /// not implement rather than reporting an upgrade.
+    func testAPreStableContractRejectsANeighbouringMinor() throws
+    {
+        for version in ["0.2.0", "0.0.9", "1.0.0", "0", "0.x.0", ""]
+        {
+            XCTAssertThrowsError(try preStable.requireSupported(serverContractVersion: version))
+            { error in
+                XCTAssertEqual((error as? SPFNDecodingError)?.code, "CONTRACT_UNSUPPORTED")
+            }
+        }
+    }
+
+    func testPreReleaseAndBuildMetadataDoNotChangeTheDecision() throws
+    {
+        XCTAssertNoThrow(try preStable.requireSupported(serverContractVersion: "0.1.0-rc.1"))
+        XCTAssertNoThrow(try preStable.requireSupported(serverContractVersion: "0.1.0+build.7"))
+        XCTAssertThrowsError(try preStable.requireSupported(serverContractVersion: "0.2.0-rc.1"))
+    }
+
+    func testMajorMinorParsing() throws
+    {
+        XCTAssertEqual(SPFNContractBinding.majorMinor(of: "0.1.0")?.minor, 1)
+        XCTAssertEqual(SPFNContractBinding.majorMinor(of: "12.34.56")?.major, 12)
+        XCTAssertEqual(SPFNContractBinding.majorMinor(of: "3")?.minor, 0)
+        XCTAssertNil(SPFNContractBinding.majorMinor(of: "v1.0.0"))
+        XCTAssertNil(SPFNContractBinding.majorMinor(of: ""))
     }
 }
 

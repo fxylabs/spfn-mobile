@@ -78,14 +78,28 @@ skipped rather than ran — see `tools/reference-server/README.md`.
 
 ## Changing the contract
 
-1. Edit `Contracts/spfn-mobile-contract.v1.json`.
-2. Re-pin: `shasum -a 256 Contracts/spfn-mobile-contract.v1.json`, then update
-   `manifestSha256` in `Contracts/upstream.lock.json`. Until you do, the generator
-   refuses to run — that ordering is the gate, not an obstacle.
-3. Regenerate: `./gradlew :contract-codegen:spfnGenerateClients`.
-4. Regenerate the fixtures if the algorithms changed:
-   `python3 Contracts/fixtures/derive-expected-values.py --write`.
-5. Run both conformance suites and the validator.
+**Not here.** `Contracts/spfn-mobile-contract.json` is a byte copy of an SPFN primitives
+export, and editing it is the one thing the lock, the validator and both conformance
+suites exist to catch. The contract is changed in primitives
+(`packages/auth/src/server/client-proof`), re-exported there, and re-pinned here.
+
+To pin a new export:
+
+1. Copy `contracts/mobile/spfn-mobile-contract.json` and
+   `contracts/mobile/upstream-provenance.json` from the primitives commit you intend to
+   pin. Copy them, do not adapt them.
+2. Update `Contracts/upstream.lock.json`: `source.commit`, `contract.version`, `major`,
+   `minor`, `supportedRange`, and `manifestSha256` from
+   `shasum -a 256 Contracts/spfn-mobile-contract.json`. Until the digest matches, the
+   generator refuses to run — that ordering is the gate, not an obstacle.
+3. Regenerate: `./gradlew :contract-codegen:spfnGenerateClients`, then
+   `:contract-codegen:spfnCodegenVerify` to prove the output is deterministic.
+4. Refresh the fixtures: `python3 Contracts/fixtures/derive-expected-values.py --write`.
+   If only the digest moves, the contract facts did not change.
+5. Run the validator, both conformance suites, and the integration matrix in
+   external-target mode against a primitives dev server.
+
+`Contracts/README.md` carries the same list with the reasoning behind each step.
 
 ## Adding a module
 

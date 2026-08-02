@@ -44,8 +44,7 @@ Each of these is missing because supplying it would mean inventing an approval.
 
 | Absent | Why |
 | --- | --- |
-| An upstream-exported contract | SPFN primitives has no mobile contract export tooling yet. The bundle here is hand-authored, says so in its own text, and is tracked as open decision D17 |
-| Any exchange with a real server | the round trip is proved against `tools/reference-server`, which implements a contract bundle written in this repository. Pointing either SDK at a deployed SPFN service is separate work, and is blocked on the same upstream export decision (D17) |
+| Any exchange with a deployed service | the round trip is proved against `tools/reference-server` and against the SPFN primitives `04-mobile-contract-dev` server, both running the pinned upstream export. Pointing either SDK at a deployed SPFN service is separate work |
 | Generated per-operation call descriptors | the execute path is generic over request and response. The three operations are described by hand in the test suites, so what the generator will own stays visible instead of being pre-empted here |
 | Real CODEOWNERS handles | teams and required-review enforcement are undecided |
 | A license | not selected |
@@ -84,4 +83,4 @@ as a failure rather than as a pass.
 | 2 | first pinned contract bundle, `clientProofV1` vertical slice, dual codegen, conformance | **this** |
 | 3 | fresh independent review and fix iterations | not started |
 | 4 | first commit and push, after a person approves the exact diff and evidence | not started |
-| 5 | release candidate validation and distribution, under separate approval. **Blocked on D17**: upstream export tooling must replace the dev bundle first | not started |
+| 5 | release candidate validation and distribution, under separate approval. D17 is resolved: the bundle is an SPFN primitives export pinned at `d31aa9a1` | not started |

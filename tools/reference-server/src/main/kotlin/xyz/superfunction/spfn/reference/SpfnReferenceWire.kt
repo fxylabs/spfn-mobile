@@ -7,7 +7,7 @@
 // only that the client agrees with itself.
 //
 // The restatement is not trusted. SpfnReferenceWireConformanceTest reads
-// `Contracts/spfn-mobile-contract.v1.json` and fails if any name here drifts from the
+// `Contracts/spfn-mobile-contract.json` and fails if any name here drifts from the
 // bundle's `wireMapping` section.
 
 package xyz.superfunction.spfn.reference

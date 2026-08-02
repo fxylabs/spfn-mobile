@@ -20,7 +20,7 @@ model cannot drift apart between them.
 | --- | --- |
 | Swift module graph | 6 targets, building in Swift 6 language mode |
 | Android module graph | 6 modules, compiling as AAR libraries |
-| Contract | one bundle pinned by real SHA-256 — **hand-authored here**, not an upstream export |
+| Contract | one bundle pinned by real SHA-256 — **exported by SPFN primitives**, copied here at an exact commit |
 | Codegen | `tools/contract-codegen` produces both clients from that bundle, deterministically |
 | `clientProofV1` | canonical proof input, SHA-256 digest, HMAC proof, replay and revocation rules |
 | Canonical JSON | SPFN-CANON-JSON-1, implemented independently on both platforms |

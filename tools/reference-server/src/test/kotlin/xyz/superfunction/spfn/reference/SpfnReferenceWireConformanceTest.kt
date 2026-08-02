@@ -56,7 +56,7 @@ class SpfnReferenceWireConformanceTest
     private fun bundle(): Map<String, SpfnCanonicalValue>
     {
         val root = System.getProperty("spfn.repoRoot") ?: error("spfn.repoRoot is not set");
-        val file = File(root, "Contracts/spfn-mobile-contract.v1.json");
+        val file = File(root, "Contracts/spfn-mobile-contract.json");
         return (SpfnCanonicalJson.parse(file.readBytes()) as SpfnCanonicalValue.Obj).members;
     }
 

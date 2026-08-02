@@ -5,6 +5,7 @@ package xyz.superfunction.spfn.core
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -66,41 +67,112 @@ class SpfnDigestTest
 
 class SpfnContractBindingTest
 {
-    private val binding = SpfnContractBinding(
-        importedVersion = "1.0.0-dev.1",
+    private val stable = SpfnContractBinding(
+        importedVersion = "1.0.0",
         importedManifestSha256 = "a".repeat(64),
+        supportedRange = ">=1.0.0 <2.0.0",
+        supportedMajor = 1,
+        supportedMinor = 0,
+        origin = "spfn-primitives-ci-export"
+    )
+
+    /** The shape the repository actually ships: a 0.x contract, where the minor breaks. */
+    private val preStable = SpfnContractBinding(
+        importedVersion = "0.1.0",
+        importedManifestSha256 = "b".repeat(64),
+        supportedRange = ">=0.1.0 <0.2.0",
+        supportedMajor = 0,
+        supportedMinor = 1,
+        origin = "spfn-primitives-ci-export"
+    )
+
+    private val devBundle = SpfnContractBinding(
+        importedVersion = "1.0.0-dev.1",
+        importedManifestSha256 = "c".repeat(64),
         supportedRange = ">=1.0.0-dev.1 <2.0.0",
         supportedMajor = 1,
+        supportedMinor = 0,
         origin = "spfn-mobile-step2-dev-bundle"
     )
+
+    private fun refuses(binding: SpfnContractBinding, version: String)
+    {
+        try
+        {
+            binding.requireSupported(version);
+            fail("'$version' must be refused");
+        }
+        catch (failure: SpfnDecodingException)
+        {
+            assertEquals("CONTRACT_UNSUPPORTED", failure.code);
+        }
+    }
 
     @Test
     fun aDevBundleIsNeverReportedAsAnUpstreamExport()
     {
-        assertFalse(binding.isUpstreamExport);
+        assertFalse(devBundle.isUpstreamExport);
     }
 
     @Test
-    fun supportedMajorIsAccepted()
+    fun anExportedBundleIsReportedAsUpstream()
     {
-        binding.requireSupported("1.7.3");
+        assertTrue(preStable.isUpstreamExport);
     }
 
     @Test
-    fun otherMajorsRaiseAnUpgradeError()
+    fun aStableContractAcceptsAnyMinorOnItsMajor()
+    {
+        stable.requireSupported("1.7.3");
+        stable.requireSupported("1.0.0");
+    }
+
+    @Test
+    fun aStableContractRejectsOtherMajors()
     {
         for (version in listOf("2.0.0", "0.9.0", "not-a-version"))
         {
-            try
-            {
-                binding.requireSupported(version);
-                fail("'$version' must be refused");
-            }
-            catch (failure: SpfnDecodingException)
-            {
-                assertEquals("CONTRACT_UNSUPPORTED", failure.code);
-            }
+            refuses(stable, version);
         }
+    }
+
+    @Test
+    fun aPreStableContractAcceptsOnlyItsOwnMinor()
+    {
+        preStable.requireSupported("0.1.0");
+        preStable.requireSupported("0.1.9");
+    }
+
+    /**
+     * The case that made this rule necessary. Comparing majors alone admits 0.2.0, which
+     * the declared range excludes, and the SDK would decode a contract it does not
+     * implement rather than reporting an upgrade.
+     */
+    @Test
+    fun aPreStableContractRejectsANeighbouringMinor()
+    {
+        for (version in listOf("0.2.0", "0.0.9", "1.0.0", "0", "0.x.0", ""))
+        {
+            refuses(preStable, version);
+        }
+    }
+
+    @Test
+    fun preReleaseAndBuildMetadataDoNotChangeTheDecision()
+    {
+        preStable.requireSupported("0.1.0-rc.1");
+        preStable.requireSupported("0.1.0+build.7");
+        refuses(preStable, "0.2.0-rc.1");
+    }
+
+    @Test
+    fun majorMinorParsing()
+    {
+        assertEquals(0 to 1, SpfnContractBinding.majorMinorOf("0.1.0"));
+        assertEquals(12 to 34, SpfnContractBinding.majorMinorOf("12.34.56"));
+        assertEquals(3 to 0, SpfnContractBinding.majorMinorOf("3"));
+        assertNull(SpfnContractBinding.majorMinorOf("v1.0.0"));
+        assertNull(SpfnContractBinding.majorMinorOf(""));
     }
 }
 
