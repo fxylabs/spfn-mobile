@@ -65,6 +65,12 @@ awaiting human confirmation. **RESOLVED** — a person confirmed it, with the da
 | D21 | Cleartext (`http://`) policy for the transport | OPEN | the transport accepts any absolute URL, `http://` included, because the reference server the SDK is verified against runs locally over cleartext | whether the shipped SDK refuses `http://` outright, allows it only for loopback, or leaves it to the host app's network security configuration. Refusing it here today would block the integration work that has to prove the client against a real server first |
 | D22 | Response header fidelity on iOS | OPEN | `HTTPURLResponse.allHeaderFields` is a dictionary, so wire order and repeated response headers are already lost before the adapter sees them; the adapter sorts by lowercased name so the result is at least deterministic. OkHttp preserves both | whether anything above the transport is allowed to depend on response header order or repetition. If it ever is, iOS needs a different response reader, not a different adapter |
 
+## Raised by the session change set
+
+| # | Decision | State | What exists | What a person must decide |
+| --- | --- | --- | --- | --- |
+| D23 | Wire header mapping for clientProofV1, and client clock skew | OPEN | the pinned bundle gained a `wireMapping` section naming `x-spfn-auth-profile`, `x-spfn-client-id`, `x-spfn-key-id`, `x-spfn-nonce`, `x-spfn-issued-at`, `x-spfn-proof` and `x-spfn-session`, plus `application/json` as the request content type and the rule that only a `requiresSession` operation carries a session header. `Contracts/fixtures/request/wire.json` pins the exact bytes and both SDKs assert their constants against the bundle | **these names are a dev-bundle extension, not an upstream ratification.** SPFN primitives has to confirm or replace them when the export tooling of D17 lands; until then a real server could name any of them differently. Separately, the session judges expiry against the injected client clock with **no skew margin at all**: a client whose clock runs ahead reopens a session early and one that runs behind presents an expired one. Whether the shipped SDK carries a margin, reads a server date header, or refuses to guess is undecided |
+
 ## Rule
 
 If a later step needs one of these answered, it stops and asks. It does not pick one

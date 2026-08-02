@@ -44,6 +44,29 @@
     "replayRule": "a (clientId, nonce) pair is accepted at most once inside the replay window; a repeat is PROOF_REPLAYED",
     "revocationRule": "a revoked keyId is rejected before the proof is verified; the outcome is SESSION_REVOKED and never PROOF_INVALID, so revocation is distinguishable from a bad proof"
   },
+  "wireMapping": {
+    "requestContentType": "application/json",
+    "headers": {
+      "profile": "x-spfn-auth-profile",
+      "clientId": "x-spfn-client-id",
+      "keyId": "x-spfn-key-id",
+      "nonce": "x-spfn-nonce",
+      "issuedAtMillis": "x-spfn-issued-at",
+      "proof": "x-spfn-proof",
+      "session": "x-spfn-session"
+    },
+    "headerOrder": [
+      "profile",
+      "clientId",
+      "keyId",
+      "nonce",
+      "issuedAtMillis",
+      "proof",
+      "session"
+    ],
+    "contentTypeRule": "the content-type header is present exactly when the request carries a body, and the body is always the canonical JSON of the request type",
+    "sessionRule": "requiresSession operations carry x-spfn-session; the handshake never does"
+  },
   "types": [
     {
       "name": "HandshakeRequest",

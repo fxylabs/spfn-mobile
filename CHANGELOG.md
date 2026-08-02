@@ -15,6 +15,34 @@ vertical slice end to end. Nothing is committed, tagged or published.
 - First release-train version: `0.1.0-alpha.1` (decision D9, 2026-08-01), lockstep
   across the SwiftPM tag and Maven version; 1.0.0 waits on Step 5 evidence.
 
+### Added after Step 2 — session and proof issuance
+
+- `SPFNSession` (Swift) and `SpfnSession` (Android): holds the session a handshake
+  opened, opens one when there is none or it has expired, and issues the headers a
+  request carries. It does not retry, does not re-handshake on a server answer and does
+  not classify transport failures; those belong to the single execute path above it.
+- Many concurrent callers open at most one session. The in-flight handshake is shared
+  explicitly rather than left to actor isolation, which admits other calls while a call
+  is suspended on the network.
+- The handshake body is encoded once and the same bytes are both signed and sent, so the
+  proof cannot cover a different value from the one on the wire.
+- `SPFNKeyProvider` / `SpfnKeyProvider` applies the key to one message instead of
+  returning it, and the in-memory alpha implementation prints `redacted`. A session
+  identifier is redacted the same way.
+- Injected clock and nonce generator, so expiry is judged at an exact instant and every
+  proof carries a fresh nonce — both assertable rather than assumed.
+- The pinned contract bundle gained a `wireMapping` section: which header each proof
+  field rides in, the request content type, and the rule that only a `requiresSession`
+  operation carries a session header. The header names are a dev-bundle extension
+  awaiting upstream ratification (D23).
+- `Contracts/fixtures/request/wire.json`: two fully assembled requests — exact header
+  names, exact values including the proof, exact body bytes — derived by
+  `Contracts/fixtures/derive-expected-values.py` rather than by either SDK. Both test
+  suites reproduce them and both assert their header constants against the bundle itself.
+- The client module now depends on auth and generated on both platforms, recorded in
+  `tools/module-graph.json` and mirrored by the SwiftPM manifest, the Gradle module and
+  the CocoaPods fixture.
+
 ### Added after Step 2 — transport boundary
 
 - `SPFNClient` (Swift) and `spfn-client` (Android): a transport that sends exactly one
@@ -75,8 +103,9 @@ vertical slice end to end. Nothing is committed, tagged or published.
 
 ### Still deliberately absent
 
-An upstream-exported contract bundle (D17), everything above the transport — session,
-handshake, proof attachment, a single execute path — persistence, the hybrid bridge,
-key custody, CODEOWNERS identities, signing identities, registry configuration,
-pinned CI action SHAs, and every `COMPATIBILITY.md` support row. See
-`docs/OPEN-DECISIONS.md`.
+An upstream-exported contract bundle (D17), an upstream-ratified wire header mapping
+(D23), the single execute path — typed server and auth errors, and a re-handshake
+retry driven by what the server answered — persistence, the hybrid bridge, key custody
+beyond the in-memory alpha provider, CODEOWNERS identities, signing identities,
+registry configuration, pinned CI action SHAs, and every `COMPATIBILITY.md` support
+row. See `docs/OPEN-DECISIONS.md`.

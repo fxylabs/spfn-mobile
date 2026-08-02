@@ -38,6 +38,19 @@ PROFILE = "clientProofV1"
 ABSENT_BODY_DIGEST = "0" * 64
 REPLAY_WINDOW_MILLIS = 300000
 
+BUNDLE_PATH = os.path.join(HERE, "..", "spfn-mobile-contract.v1.json")
+
+
+def load_bundle() -> dict:
+    """The contract text these vectors are derived from.
+
+    The wire vectors below read their header names from here rather than restating
+    them, so a header renamed in the bundle changes the fixture instead of quietly
+    disagreeing with it.
+    """
+    with open(BUNDLE_PATH, encoding="utf-8") as handle:
+        return json.load(handle)
+
 
 # --------------------------------------------------------------------------
 # SPFN-CANON-JSON-1, implemented from the contract text.
@@ -271,6 +284,42 @@ REQUEST_VECTORS = [
         "operationId": "items.list",
         "type": "ListItemsRequest",
         "value": {"limit": 25, "cursor": "cursor-000000000010"},
+    },
+]
+
+# Each entry is one fully assembled outbound request: the exact header names, the exact
+# header values and the exact body bytes an SDK must put on the wire. `sessionId` is the
+# session an earlier handshake returned; a vector without one is a request that must
+# carry no session header at all.
+WIRE_VECTORS = [
+    {
+        "name": "handshake",
+        "operationId": "auth.clientProof.handshake",
+        "why": "the handshake carries every proof header and no session header, and its "
+               "body is digested like any other body rather than treated as absent",
+        "clientId": "client-test-0001",
+        "keyId": "key-test-0001",
+        "nonce": "nonce-000000000001",
+        "issuedAtMillis": 1750000000000,
+        "sessionId": None,
+        "body": {
+            "clientId": "client-test-0001",
+            "keyId": "key-test-0001",
+            "nonce": "nonce-000000000001",
+            "issuedAtMillis": 1750000000000,
+        },
+    },
+    {
+        "name": "echo-with-session",
+        "operationId": "echo.send",
+        "why": "a requiresSession operation carries the session header last; every other "
+               "header is assembled exactly as it is for the handshake",
+        "clientId": "client-test-0001",
+        "keyId": "key-test-0001",
+        "nonce": "nonce-000000000002",
+        "issuedAtMillis": 1750000000000,
+        "sessionId": "session-test-0001",
+        "body": {"message": "hello", "sequence": 7},
     },
 ]
 
@@ -527,6 +576,71 @@ def build_requests():
     }
 
 
+def build_wire():
+    bundle = load_bundle()
+    mapping = bundle["wireMapping"]
+    names = mapping["headers"]
+    operations = {operation["id"]: operation for operation in bundle["operations"]}
+
+    vectors = []
+    for vector in WIRE_VECTORS:
+        operation = operations[vector["operationId"]]
+        canonical_body = canonical(vector["body"])
+        body_sha256 = sha256_hex(canonical_body)
+        proof = proof_hmac({
+            "method": operation["method"],
+            "path": operation["path"],
+            "clientId": vector["clientId"],
+            "keyId": vector["keyId"],
+            "nonce": vector["nonce"],
+            "issuedAtMillis": vector["issuedAtMillis"],
+            "bodySha256": body_sha256,
+        })
+
+        headers = [["content-type", mapping["requestContentType"]]]
+        values = {
+            "profile": PROFILE,
+            "clientId": vector["clientId"],
+            "keyId": vector["keyId"],
+            "nonce": vector["nonce"],
+            "issuedAtMillis": str(vector["issuedAtMillis"]),
+            "proof": proof,
+            "session": vector["sessionId"],
+        }
+        for field in mapping["headerOrder"]:
+            if values[field] is not None:
+                headers.append([names[field], values[field]])
+
+        if operation["requiresSession"] != (vector["sessionId"] is not None):
+            raise ValueError("vector %s disagrees with the bundle about requiresSession" % vector["name"])
+
+        vectors.append({
+            "name": vector["name"],
+            "why": vector["why"],
+            "operationId": operation["id"],
+            "method": operation["method"],
+            "path": operation["path"],
+            "requiresSession": operation["requiresSession"],
+            "sessionId": vector["sessionId"],
+            "body": vector["body"],
+            "canonicalBody": canonical_body,
+            "bodySha256": body_sha256,
+            "proof": proof,
+            "headers": headers,
+        })
+
+    return {
+        "note": NOTE,
+        "profile": PROFILE,
+        "syntheticKey": {"note": SECRET_NOTE, "keyUtf8": TEST_KEY_UTF8},
+        "requestContentType": mapping["requestContentType"],
+        "headerNames": names,
+        "headerOrder": mapping["headerOrder"],
+        "sessionRule": mapping["sessionRule"],
+        "vectors": vectors,
+    }
+
+
 def build_errors():
     known = []
     for code, status, retryable in ERROR_VECTORS:
@@ -583,6 +697,7 @@ FILES = {
     "proof/proof-input.json": build_proof,
     "proof/rejects.json": build_proof_rejects,
     "request/operations.json": build_requests,
+    "request/wire.json": build_wire,
     "error/envelopes.json": build_errors,
     "replay/replay.json": build_replay,
     "revoke/revoke.json": build_revoke,
@@ -629,8 +744,7 @@ def main() -> int:
 
 
 def bundle_digest() -> str:
-    bundle = os.path.join(HERE, "..", "spfn-mobile-contract.v1.json")
-    with open(bundle, "rb") as handle:
+    with open(BUNDLE_PATH, "rb") as handle:
         return hashlib.sha256(handle.read()).hexdigest()
 
 
