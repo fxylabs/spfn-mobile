@@ -431,6 +431,31 @@ case "$STATUS" in
                 ;;
         esac
 
+        # Documents outlive the state they describe. Three review rounds each found a
+        # surviving sentence saying the export does not exist, in wording the previous
+        # round's grep did not cover, so the claims are listed here instead: each one is
+        # true under RESOLVED_DEV_BUNDLE and false the moment the lock moves upstream, and
+        # a reader has no way to tell which state a stale sentence was written for.
+        # This is a list of exact claims, not a vocabulary ban — prose describing the
+        # dev-bundle branch, or scoped to Step 2, stays legal because it stays true.
+        find . -type f \( -name '*.md' -o -name '*.yml' -o -name '*.yaml' \) \
+            -not -path './.git/*' -not -path '*/build/*' -not -path './.build/*' \
+            -exec grep -lF \
+                -e 'evidence that does not exist' \
+                -e 'no upstream evidence' \
+                -e 'export does not exist' \
+                -e 'no upstream contract exists' \
+                -e 'has not been exported' \
+                -e 'not exported by SPFN primitives' \
+                {} + > "$TMP/stale-provenance" 2>/dev/null || true
+
+        if [ -s "$TMP/stale-provenance" ]
+        then
+            fail "these documents still say the upstream export is missing: $(tr '\n' ' ' < "$TMP/stale-provenance")"
+        else
+            pass 'no document contradicts the resolved upstream provenance'
+        fi
+
         RESOLVED=yes
         ;;
 
