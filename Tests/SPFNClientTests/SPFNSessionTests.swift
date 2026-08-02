@@ -346,6 +346,85 @@ final class SPFNSessionTests: XCTestCase
         XCTAssertNil(held)
     }
 
+    /// A server writes `message` and `requestId`, so it can put a session identifier in
+    /// either and this SDK would be the one printing it. Overriding `description` alone
+    /// is not enough: `String(reflecting:)` and `dump` reach an enum's associated value
+    /// through the mirror, so every default rendering is checked here, on both the error
+    /// and the envelope it carries.
+    func testARejectedHandshakeNeverPrintsTheServerEnvelope() async throws
+    {
+        let markers = ["MARKER_CODE_7f31", "session-marker-message-a4c2", "req-marker-b8e5"]
+        let body = #"{"error":{"code":"MARKER_CODE_7f31","message":"session-marker-message-a4c2","requestId":"req-marker-b8e5"}}"#
+        let transport = ScriptedTransport([.success(.json(401, body))])
+        let subject = session(
+            transport: transport,
+            clock: FakeClock(SessionFixtureValues.issuedAtMillis),
+            nonces: ["n1"]
+        )
+
+        var thrown: SPFNSessionError?
+        do
+        {
+            _ = try await subject.handshake()
+        }
+        catch let failure as SPFNSessionError
+        {
+            thrown = failure
+        }
+        let failure = try XCTUnwrap(thrown)
+
+        // Classification still works: the fields are readable, they just do not print.
+        let envelope = try XCTUnwrap(failure.rejection)
+        XCTAssertEqual(envelope.code, "MARKER_CODE_7f31")
+        XCTAssertEqual(envelope.message, "session-marker-message-a4c2")
+        XCTAssertEqual(envelope.requestID, "req-marker-b8e5")
+
+        var dumpedFailure = ""
+        dump(failure, to: &dumpedFailure)
+        var dumpedEnvelope = ""
+        dump(envelope, to: &dumpedEnvelope)
+
+        let renderings: [(String, String)] = [
+            ("error interpolation", "\(failure)"),
+            ("error String(describing:)", String(describing: failure)),
+            ("error String(reflecting:)", String(reflecting: failure)),
+            ("error localizedDescription", failure.localizedDescription),
+            ("error dump", dumpedFailure),
+            ("error mirror children", "\(Mirror(reflecting: failure).children.map { "\($0.value)" })"),
+            ("envelope interpolation", "\(envelope)"),
+            ("envelope String(reflecting:)", String(reflecting: envelope)),
+            ("envelope dump", dumpedEnvelope),
+        ]
+
+        for (path, rendering) in renderings
+        {
+            for marker in markers
+            {
+                XCTAssertFalse(rendering.contains(marker), "\(path) exposed server-controlled text")
+            }
+        }
+
+        // Marker absence alone would pass even if this enum printed its envelope, because
+        // the envelope redacts itself. These fix what the enum's own renderings are, so
+        // the two layers of redaction are provable separately rather than as one.
+        let expected = "SPFNSessionError.handshakeRejected(envelope: redacted)"
+        XCTAssertEqual("\(failure)", expected)
+        XCTAssertEqual(String(reflecting: failure), expected)
+        XCTAssertTrue(Mirror(reflecting: failure).children.isEmpty)
+    }
+
+    /// The reason of a malformed response is this file's own constant, so it stays
+    /// visible — a redaction that hid it would cost debuggability for nothing.
+    func testAMalformedResponseStillNamesTheShapeItExpected()
+    {
+        let failure = SPFNSessionError.malformedResponse("response body is not a HandshakeResponse")
+
+        XCTAssertEqual(
+            "\(failure)",
+            "SPFNSessionError.malformedResponse(response body is not a HandshakeResponse)"
+        )
+    }
+
     func testASuccessBodyThatIsNotAHandshakeResponseIsMalformed() async throws
     {
         for body in [#"{"sessionId":"s"}"#, #"{"nope":1}"#, "not json at all", ""]
@@ -402,23 +481,35 @@ final class SPFNSessionTests: XCTestCase
     /// cannot get that body copied into an error and from there into a log.
     func testAMalformedReasonQuotesNothingFromTheBody() async throws
     {
-        let body = #"{"leak":"super-secret-value-9f2a"}"#
-        let transport = ScriptedTransport([.success(.json(200, body))])
-        let subject = session(
-            transport: transport,
-            clock: FakeClock(SessionFixtureValues.issuedAtMillis),
-            nonces: ["n1"]
-        )
+        let marker = "super-secret-value-9f2a"
+        let bodies = [
+            // Parses, but is not a HandshakeResponse: the decoder is what refuses it.
+            #"{"leak":"\#(marker)"}"#,
+            // Does not parse at all. `SPFNCanonicalError.duplicateKey` carries the
+            // offending key, so a reason built from the parse failure would republish it.
+            #"{"\#(marker)":1,"\#(marker)":2}"#,
+        ]
 
-        do
+        for body in bodies
         {
-            _ = try await subject.handshake()
-            XCTFail("expected a refusal")
-        }
-        catch let failure as SPFNSessionError
-        {
-            XCTAssertFalse("\(failure)".contains("super-secret-value-9f2a"))
-            XCTAssertFalse("\(failure)".contains("leak"))
+            let transport = ScriptedTransport([.success(.json(200, body))])
+            let subject = session(
+                transport: transport,
+                clock: FakeClock(SessionFixtureValues.issuedAtMillis),
+                nonces: ["n1"]
+            )
+
+            do
+            {
+                _ = try await subject.handshake()
+                XCTFail("expected a refusal")
+            }
+            catch let failure as SPFNSessionError
+            {
+                XCTAssertFalse("\(failure)".contains(marker))
+                XCTAssertFalse(String(reflecting: failure).contains(marker))
+                XCTAssertFalse("\(failure)".contains("leak"))
+            }
         }
     }
 

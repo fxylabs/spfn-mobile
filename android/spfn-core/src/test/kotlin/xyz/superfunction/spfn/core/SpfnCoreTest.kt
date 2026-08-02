@@ -103,3 +103,63 @@ class SpfnContractBindingTest
         }
     }
 }
+
+/**
+ * An envelope's three fields are text a server wrote, so none of them may reach a log
+ * through a default rendering — and the redaction that stops that must not disturb what
+ * the rest of the SDK reads the envelope for. Counterpart of `SPFNErrorEnvelopeTests`.
+ */
+class SpfnErrorEnvelopeTest
+{
+    // Markers a real server would never send, so a hit is unambiguous.
+    private val code = "MARKER_CODE_7f31"
+    private val message = "session-marker-message-a4c2"
+    private val requestId = "req-marker-b8e5"
+
+    private fun envelope(): SpfnErrorEnvelope = SpfnErrorEnvelope(code, message, requestId)
+
+    @Test
+    fun toStringCarriesNoServerText()
+    {
+        val rendered = envelope().toString();
+
+        for (marker in listOf(code, message, requestId))
+        {
+            assertFalse("toString exposed server-controlled text", rendered.contains(marker));
+        }
+
+        // Exact, so a rendering cannot start naming fields again in some other wording.
+        assertEquals("SpfnErrorEnvelope(code=redacted, message=redacted, requestId=redacted)", rendered);
+    }
+
+    /**
+     * The fields stay readable, because classifying an error is the whole point of having
+     * them. Only printing one by accident is blocked.
+     */
+    @Test
+    fun fieldsRemainReadable()
+    {
+        val subject = envelope();
+
+        assertEquals(code, subject.code);
+        assertEquals(message, subject.message);
+        assertEquals(requestId, subject.requestId);
+    }
+
+    /**
+     * `equals` and `hashCode` are hand-written now that this is no longer a data class,
+     * so they are checked rather than assumed — including the canonical form, which the
+     * conformance suite round-trips.
+     */
+    @Test
+    fun equalityAndCanonicalFormAreUnchanged()
+    {
+        assertEquals(envelope(), envelope());
+        assertEquals(envelope().hashCode(), envelope().hashCode());
+        assertNotEquals(envelope(), SpfnErrorEnvelope(code, message, "req-other"));
+        assertEquals(
+            """{"error":{"code":"MARKER_CODE_7f31","message":"session-marker-message-a4c2","requestId":"req-marker-b8e5"}}""",
+            SpfnCanonicalJson.encodeToString(envelope().canonicalValue())
+        );
+    }
+}

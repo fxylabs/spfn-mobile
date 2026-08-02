@@ -20,6 +20,8 @@ import xyz.superfunction.spfn.auth.SpfnAuthException
 import xyz.superfunction.spfn.auth.SpfnClientProof
 import xyz.superfunction.spfn.auth.SpfnProofInput
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
+import java.io.PrintWriter
+import java.io.StringWriter
 
 private const val TEST_KEY = "spfn-test-key-not-a-secret-0001"
 
@@ -276,6 +278,68 @@ class SpfnSessionTest
         assertNull(subject.currentState())
     }
 
+    /**
+     * A server writes `message` and `requestId`, so it can put a session identifier in
+     * either and this SDK would be the one printing it. A `Throwable` publishes its
+     * message through `toString` and through every stack trace, so all of those paths
+     * are checked here, on both the failure and the envelope it carries.
+     */
+    @Test
+    fun aRejectedHandshakeNeverPrintsTheServerEnvelope() = runBlocking {
+        val markers = listOf("MARKER_CODE_7f31", "session-marker-message-a4c2", "req-marker-b8e5")
+        val body = """{"error":{"code":"MARKER_CODE_7f31","message":"session-marker-message-a4c2","requestId":"req-marker-b8e5"}}"""
+        val transport = ScriptedTransport(listOf(ScriptedTransport.Outcome.Answer(jsonResponse(401, body))))
+        val subject = session(transport, FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS), listOf("n1"))
+
+        val failure = assertThrowsSession { subject.handshake() } as SpfnSessionError.HandshakeRejected
+
+        // Classification still works: the fields are readable, they just do not print.
+        assertEquals("MARKER_CODE_7f31", failure.envelope.code)
+        assertEquals("session-marker-message-a4c2", failure.envelope.message)
+        assertEquals("req-marker-b8e5", failure.envelope.requestId)
+
+        val stackTrace = StringWriter().also { failure.printStackTrace(PrintWriter(it)) }.toString()
+        val renderings = listOf(
+            "failure.toString()" to failure.toString(),
+            "failure.message" to failure.message.orEmpty(),
+            "failure.localizedMessage" to failure.localizedMessage.orEmpty(),
+            "failure stack trace" to stackTrace,
+            "envelope.toString()" to failure.envelope.toString()
+        )
+
+        for ((path, rendered) in renderings)
+        {
+            for (marker in markers)
+            {
+                assertFalse("$path exposed server-controlled text", rendered.contains(marker))
+            }
+        }
+
+        // Marker absence alone would pass even if this failure named its envelope's code,
+        // because the envelope redacts itself. These fix what the failure's own message
+        // and the envelope's own toString are, so the two layers are provable separately.
+        assertEquals("the server refused the handshake", failure.message)
+        assertEquals(
+            "SpfnErrorEnvelope(code=redacted, message=redacted, requestId=redacted)",
+            failure.envelope.toString()
+        )
+    }
+
+    /**
+     * The reason of a malformed response is this module's own constant, so it stays
+     * visible — a redaction that hid it would cost debuggability for nothing.
+     */
+    @Test
+    fun aMalformedResponseStillNamesTheShapeItExpected()
+    {
+        val failure = SpfnSessionError.MalformedResponse("response body is not a HandshakeResponse");
+
+        assertEquals(
+            "malformed handshake response: response body is not a HandshakeResponse",
+            failure.message
+        );
+    }
+
     @Test
     fun aSuccessBodyThatIsNotAHandshakeResponseIsMalformed() = runBlocking {
         for (body in listOf("""{"sessionId":"s"}""", """{"nope":1}""", "not json at all", ""))
@@ -316,14 +380,29 @@ class SpfnSessionTest
      */
     @Test
     fun aMalformedReasonQuotesNothingFromTheBody() = runBlocking {
-        val body = """{"leak":"super-secret-value-9f2a"}"""
-        val transport = ScriptedTransport(listOf(ScriptedTransport.Outcome.Answer(jsonResponse(200, body))))
-        val subject = session(transport, FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS), listOf("n1"))
+        val marker = "super-secret-value-9f2a"
+        val bodies = listOf(
+            // Parses, but is not a HandshakeResponse: the decoder is what refuses it.
+            """{"leak":"$marker"}""",
+            // Does not parse at all. The parser's own exception quotes the offending key
+            // — `duplicate key '<key>'` — so a cause attached here would put the body
+            // back into every stack trace by the back door.
+            """{"$marker":1,"$marker":2}"""
+        )
 
-        val failure = assertThrowsSession { subject.handshake() }
+        for (body in bodies)
+        {
+            val transport = ScriptedTransport(listOf(ScriptedTransport.Outcome.Answer(jsonResponse(200, body))))
+            val subject = session(transport, FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS), listOf("n1"))
 
-        assertFalse(failure.toString().contains("super-secret-value-9f2a"))
-        assertFalse(failure.toString().contains("leak"))
+            val failure = assertThrowsSession { subject.handshake() }
+            val stackTrace = StringWriter().also { failure.printStackTrace(PrintWriter(it)) }.toString()
+
+            assertNull("a cause would republish the body", failure.cause)
+            assertFalse(failure.toString().contains(marker))
+            assertFalse(failure.toString().contains("leak"))
+            assertFalse("the stack trace exposed the body", stackTrace.contains(marker))
+        }
     }
 
     @Test

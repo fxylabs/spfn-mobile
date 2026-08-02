@@ -53,9 +53,16 @@ class SpfnSessionState(
  */
 sealed class SpfnSessionError(message: String) : IllegalStateException(message)
 {
-    /** The server refused the handshake and answered with a well-formed error envelope. */
+    /**
+     * The server refused the handshake and answered with a well-formed error envelope.
+     *
+     * The message is fixed. A `Throwable`'s message is printed by `toString` and by
+     * every stack trace, and [envelope] is text the server wrote, so putting even its
+     * code in the message would publish server-chosen text into any log. Read
+     * [envelope] to classify on it.
+     */
     class HandshakeRejected(val envelope: SpfnErrorEnvelope) :
-        SpfnSessionError("handshake rejected with ${envelope.code}")
+        SpfnSessionError("the server refused the handshake")
 
     /**
      * The response body was not what its status said it would be. [reason] names the

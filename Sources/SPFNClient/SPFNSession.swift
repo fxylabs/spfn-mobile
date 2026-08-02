@@ -51,11 +51,55 @@ extension SPFNSessionState: CustomStringConvertible, CustomDebugStringConvertibl
 public enum SPFNSessionError: Error, Equatable, Sendable
 {
     /// The server refused the handshake and answered with a well-formed error envelope.
+    ///
+    /// The envelope is server-controlled text and never prints itself; read `rejection`
+    /// or match the case to classify on it.
     case handshakeRejected(SPFNErrorEnvelope)
 
     /// The response body was not what its status said it would be. The reason names the
     /// shape that was expected and never carries any part of the body.
     case malformedResponse(String)
+
+    /// The envelope a refused handshake carried, for a caller that classifies on it.
+    public var rejection: SPFNErrorEnvelope?
+    {
+        guard case .handshakeRejected(let envelope) = self
+        else
+        {
+            return nil
+        }
+        return envelope
+    }
+}
+
+// A refusal is the one case here whose payload the server wrote, so no default output
+// path may carry it. `description` alone is not enough: `String(reflecting:)` and `dump`
+// walk an enum's associated values through the mirror, so the mirror is emptied too.
+//
+// `malformedResponse` keeps its reason. That string is one of two constants this file
+// owns and never comes from a response.
+extension SPFNSessionError: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable
+{
+    public var description: String
+    {
+        switch self
+        {
+        case .handshakeRejected:
+            return "SPFNSessionError.handshakeRejected(envelope: redacted)"
+        case .malformedResponse(let reason):
+            return "SPFNSessionError.malformedResponse(\(reason))"
+        }
+    }
+
+    public var debugDescription: String
+    {
+        description
+    }
+
+    public var customMirror: Mirror
+    {
+        Mirror(self, unlabeledChildren: [Any]())
+    }
 }
 
 /// Holds the session and issues proof headers.
