@@ -15,6 +15,45 @@ vertical slice end to end. Nothing is committed, tagged or published.
 - First release-train version: `0.1.0-alpha.1` (decision D9, 2026-08-01), lockstep
   across the SwiftPM tag and Maven version; 1.0.0 waits on Step 5 evidence.
 
+### Added after Step 2 — the local reference server and the integration run
+
+- `tools/reference-server` (`:reference-server`): a local server implementing the pinned
+  contract — three operations, clientProofV1 verification in the contract's check order,
+  the contract's error envelope, and nothing else. A test fixture, not a deployment: it
+  binds the loopback interface, keeps nothing on disk, and the only key it verifies a
+  proof against is the synthetic conformance vector, marked TEST VECTOR ONLY.
+- Both SDKs now complete a real HTTP round trip. Before this, every claim rested on
+  fixtures and stand-in transports; the exchange itself had never happened.
+- The server refuses a body whose bytes are not the canonical form of the value they
+  encode, even when the proof over those bytes verifies. `bodySha256` is taken over the
+  bytes that arrived, never over a re-encoding of them: digesting what the server produced
+  would make the digest agree with itself no matter what the client sent.
+- Shape failures — an unroutable path, a repeated header field, a non-canonical body, a
+  session header in the wrong place — answer `CONTRACT_UNSUPPORTED`. The contract declares
+  six codes and forbids inventing a seventh, and none of the four auth-family codes may
+  carry a malformed request: the SDK re-handshakes exactly once on those, and it would be
+  re-sending the same malformed bytes. `PROFILE_REJECTED` is used for exactly the one
+  thing it names.
+- The server has its own replay ledger, bounded: an entry is dropped once the window has
+  passed it, and not one moment earlier, since a nonce dropped early becomes spendable
+  again while a proof carrying it would still be accepted. Its check order is not a second
+  opinion — `SpfnReferenceCheckOrderTest` presents every combination of the four refusal
+  grounds to both it and the SDK's `SpfnProofAcceptance` and fails if they ever disagree.
+- `sh tools/reference-server/run-integration.sh`: one command that starts the server, runs
+  the Swift suite in one process and the Android suite in another, and stops the server.
+  Both run the same five cases — round trip, session expiry recovered by exactly one
+  re-handshake, a revocation that survives the re-handshake, a byte-for-byte replay, and a
+  timeout and a cancellation against a server holding the call open.
+- The run fails when a suite skipped rather than ran. A skipped XCTest is reported as a
+  passing XCTest, so each case writes a receipt file and the runner fails unless all ten
+  are on disk. The Swift suite also announces its skip on standard output when
+  `SPFN_REFERENCE_SERVER_URL` is unset.
+- Integration cases are excluded from `./gradlew build` by name, so the unit gates stay
+  fast; the runner always runs all of them.
+- Nothing a request carried reaches the server's log. One line per request names the
+  method, the path and the status, and a test runs a full exchange and fails if any header
+  value, session identifier or body fragment turns up in it.
+
 ### Added after Step 2 — the single execute path
 
 - `SPFNClient` (Swift) and `SpfnClient` (Android): one function every operation goes

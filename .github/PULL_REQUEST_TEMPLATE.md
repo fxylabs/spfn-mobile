@@ -13,6 +13,7 @@
 - [ ] `bash tools/validate/validate.sh` — RESULT: PASS
 - [ ] `swift build && swift test` — pass
 - [ ] `./gradlew build` — pass (needs `ANDROID_HOME`)
+- [ ] `sh tools/reference-server/run-integration.sh` — RESULT: PASS
 
 A green checklist is necessary, not sufficient: merge happens only after the owner's
 approval recorded in the project state. Squash merge only.

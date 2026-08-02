@@ -55,5 +55,14 @@ let package = Package(
             name: "SPFNConformanceTests",
             dependencies: ["SPFNCore", "SPFNGenerated", "SPFNAuth"]
         ),
+
+        // Skips itself unless SPFN_REFERENCE_SERVER_URL names a running
+        // tools/reference-server. `sh tools/reference-server/run-integration.sh` starts
+        // one, exports the variable and fails the run when the suite left no receipt
+        // behind — because a skipped XCTest is reported as a passing XCTest.
+        .testTarget(
+            name: "SPFNIntegrationTests",
+            dependencies: ["SPFNClient", "SPFNCore", "SPFNAuth", "SPFNGenerated"]
+        ),
     ]
 )

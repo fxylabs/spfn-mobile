@@ -13,8 +13,12 @@ the same fixture vectors.
 
 - Not an SDK. There is a transport boundary, a session and one execute path above them,
   and nothing above that: no persistence, no bridge, no key custody, and no generated
-  per-operation call descriptors. **No code here has ever spoken to a server** — every
-  claim below rests on fixtures and stand-ins, not on a round trip.
+  per-operation call descriptors.
+- **Not verified against a real server.** Both SDKs now complete a real HTTP round trip,
+  but only against `tools/reference-server`, which lives in this repository and implements
+  the contract bundle that also lives in this repository. That proves the two clients and
+  one server agree about a contract written here. It does not prove any deployed service
+  behaves this way, and no deployed service has been contacted.
 - Not released. No commit, no tag, no artifact, no registry entry, no account.
 - Not supported. No distribution channel — SwiftPM, Maven or CocoaPods — is promised.
 - Not reviewed. Step 3 is a fresh independent review; it has not happened.
@@ -30,6 +34,8 @@ the same fixture vectors.
 | Contract bundle | pinned by real SHA-256, with provenance recorded as locally authored |
 | Codegen | `tools/contract-codegen` generates both clients from the bundle, deterministically |
 | Conformance | shared fixtures under `Contracts/fixtures/`, consumed by both test suites |
+| Reference server | `tools/reference-server` implements the pinned contract locally; both SDKs complete a real HTTP round trip against it |
+| Integration gate | `sh tools/reference-server/run-integration.sh` runs the same five-case matrix on both platforms and fails when a suite skipped instead of running |
 | Dependency verification | 2400+ lines of real, network-fetched SHA-256 checksums |
 
 ## Deliberate absences
@@ -39,7 +45,7 @@ Each of these is missing because supplying it would mean inventing an approval.
 | Absent | Why |
 | --- | --- |
 | An upstream-exported contract | SPFN primitives has no mobile contract export tooling yet. The bundle here is hand-authored, says so in its own text, and is tracked as open decision D17 |
-| Any exchange with a real server | the execute path is proved against fixtures and stand-in transports only; a reference-server round trip is separate work |
+| Any exchange with a real server | the round trip is proved against `tools/reference-server`, which implements a contract bundle written in this repository. Pointing either SDK at a deployed SPFN service is separate work, and is blocked on the same upstream export decision (D17) |
 | Generated per-operation call descriptors | the execute path is generic over request and response. The three operations are described by hand in the test suites, so what the generator will own stays visible instead of being pre-empted here |
 | Real CODEOWNERS handles | teams and required-review enforcement are undecided |
 | A license | not selected |
@@ -64,6 +70,10 @@ Each of these is missing because supplying it would mean inventing an approval.
 - the Swift targets, Android modules and podspec subspecs disagree with `tools/module-graph.json`
 - an iOS or Android compatibility row claims support
 - CODEOWNERS gains an invented owner, or a binary appears that is not the verified wrapper jar
+
+`sh tools/reference-server/run-integration.sh` adds one more, which the validator cannot
+reach because it needs a socket: an integration suite that skipped every case is reported
+as a failure rather than as a pass.
 
 ## Step boundaries
 

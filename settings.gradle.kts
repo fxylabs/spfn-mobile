@@ -42,7 +42,8 @@ include(
     ":spfn-client",
     ":spfn-sync",
     ":spfn-hybrid",
-    ":contract-codegen"
+    ":contract-codegen",
+    ":reference-server"
 )
 
 project(":spfn-core").projectDir = file("android/spfn-core")
@@ -56,3 +57,8 @@ project(":spfn-hybrid").projectDir = file("android/spfn-hybrid")
 // lives inside the JDK/Gradle toolchain Android already requires, so the repository
 // does not acquire a second toolchain (docs/architecture/README.md).
 project(":contract-codegen").projectDir = file("tools/contract-codegen")
+
+// Also not an SDK module and never published. The reference server implements the
+// pinned contract so both SDKs can be exercised over real HTTP on a developer machine.
+// It is a test fixture, not a deployment: nothing here is a real endpoint.
+project(":reference-server").projectDir = file("tools/reference-server")

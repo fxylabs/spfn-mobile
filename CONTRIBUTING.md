@@ -42,12 +42,18 @@ swift build && swift test                            # Swift targets and conform
 ./gradlew build                                      # Android modules and conformance
 ./gradlew :contract-codegen:spfnCodegenVerify        # generated sources are up to date
 pod ipc spec tools/cocoapods-compat/generated/SPFNMobileCompatFixture.podspec
+sh tools/reference-server/run-integration.sh         # both SDKs against a local server
 ```
 
 The validator needs no network, no package manager and no credentials. The Gradle
 commands need an Android SDK; point `ANDROID_HOME` at it. Gradle itself comes from the
 committed wrapper, whose distribution and jar are pinned to checksums published by
 gradle.org.
+
+The integration run needs `curl` and binds a loopback port. It is the only check that
+sends anything over a socket, and it is deliberately not wired into `./gradlew build`:
+the unit gates stay fast, and this one is run on its own. It fails when either suite
+skipped rather than ran — see `tools/reference-server/README.md`.
 
 ## Rules that the validator enforces
 
