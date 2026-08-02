@@ -1,8 +1,8 @@
 {
   "status": "RESOLVED_DEV_BUNDLE",
   "contractVersion": "1.0.0-dev.1",
-  "bundleSha256": "c696d9ff3b71fbae5a427de090693d014351e047013043e7ca21b75a90de68ac",
-  "fixtureCount": 8,
+  "bundleSha256": "07fd82683576e3343753b590e00b5bf9725b2e598e1e5e6282f251e73a433e45",
+  "fixtureCount": 9,
   "derivedBy": "Contracts/fixtures/derive-expected-values.py",
   "note": "Expected values were derived by Contracts/fixtures/derive-expected-values.py, a third implementation independent of both SDKs. Two SDKs agreeing with each other would prove nothing; agreeing with an outside implementation is the actual evidence.",
   "secrets": "TEST VECTOR ONLY. keyUtf8 is a synthetic string, not a credential. It authenticates nothing, was never issued by anything, and must never be presented to a real endpoint.",
@@ -41,6 +41,11 @@
       "path": "Contracts/fixtures/request/operations.json",
       "sha256": "8a1c39f5848de2532955d2a977d2f41af2b415412f0774e43026083accaf2b61",
       "bytes": 3855
+    },
+    {
+      "path": "Contracts/fixtures/request/wire.json",
+      "sha256": "97b30bb3a93c8204d890556dfe6af4f16324aeb89b4b78916fbb1517cccc1643",
+      "bytes": 3947
     },
     {
       "path": "Contracts/fixtures/revoke/revoke.json",

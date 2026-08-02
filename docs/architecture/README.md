@@ -21,15 +21,17 @@ agree with it, and the validator checks all four:
 | `SPFNCore` | `spfn-core` | — |
 | `SPFNGenerated` | `spfn-generated` | core |
 | `SPFNAuth` | `spfn-auth` | core |
-| `SPFNClient` | `spfn-client` | core |
+| `SPFNClient` | `spfn-client` | core, auth, generated |
 | `SPFNPersistence` | `spfn-sync` | core |
 | `SPFNHybrid` | `spfn-hybrid` | core, auth |
 
 The `SPFNPersistence` / `spfn-sync` name asymmetry comes from the approved layout and is
-an open decision (D10), not an oversight. The dependency edges survived the Step 2
-vertical slice unchanged, so D13 stands as proposed rather than revised. The conformance
-suite needs the generated client from inside the auth module, but only at test time; the
-main edges are still exactly what `tools/module-graph.json` declares.
+an open decision (D10), not an oversight. One edge moved since Step 2: the client module
+gained auth and generated when the session arrived, because a session signs a
+`clientProofV1` proof over a generated operation and its generated request type. That is
+the revision D13 left room for. The conformance suite needs the generated client from
+inside the auth module, but only at test time; every main edge is still exactly what
+`tools/module-graph.json` declares.
 
 ## Contract import model
 
@@ -73,3 +75,9 @@ Canonical serialization (SPFN-CANON-JSON-1), digests and the proof input
 `SPFNAuth`/`spfn-auth`. Generated code is a listing of the contract — types, operations,
 error codes — and contains no logic. Reviewing a contract change is reading a diff of
 names and types; reviewing an algorithm change is reading four files that rarely move.
+
+The wire mapping is the one place a contract detail is restated by hand rather than
+generated: the generator emits types and operations, and a session has to name an HTTP
+header at compile time. `SPFNWireHeaders`/`SpfnWireHeaders` holds that table, and both
+conformance suites read `wireMapping` out of the pinned bundle and fail if the table
+drifts from it — so the restatement is checked rather than trusted.

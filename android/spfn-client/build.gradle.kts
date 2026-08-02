@@ -1,11 +1,12 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
-// SPFN Mobile — Android transport module.
+// SPFN Mobile — Android client module.
 //
-// Hosts the transport boundary and its OkHttp adapter. This is the module that makes the
-// repository's dependency count non-zero on the Android side, and OkHttp is the whole of
-// it: every artifact it drags in carries a network-fetched checksum in
+// Hosts the transport boundary, its OkHttp adapter and the session that assembles
+// clientProofV1 requests over it. This is the module that makes the repository's
+// dependency count non-zero on the Android side, and OkHttp is the whole of it: every
+// artifact it drags in carries a network-fetched checksum in
 // gradle/verification-metadata.xml.
 
 plugins {
@@ -13,9 +14,9 @@ plugins {
     alias(libs.plugins.android.library)
 }
 
-description = "SPFN Android transport: the one-call transport boundary and its OkHttp adapter."
+description = "SPFN Android client: the one-call transport boundary, its OkHttp adapter and the clientProofV1 session."
 
-extra["spfnModuleDependsOn"] = listOf("spfn-core")
+extra["spfnModuleDependsOn"] = listOf("spfn-core", "spfn-auth", "spfn-generated")
 extra["spfnSwiftCounterpart"] = "SPFNClient"
 
 android {
@@ -58,6 +59,10 @@ kotlin {
 
 dependencies {
     api(project(":spfn-core"))
+    // The session assembles a clientProofV1 proof over a generated operation, and hands
+    // both types back to callers, so neither edge can be `implementation`.
+    api(project(":spfn-auth"))
+    api(project(":spfn-generated"))
     // `api`, not `implementation`: the constructor accepts a caller-supplied OkHttpClient
     // so an app can share one connection pool instead of running two.
     api(libs.okhttp)

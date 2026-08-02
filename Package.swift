@@ -37,13 +37,16 @@ let package = Package(
         .target(name: "SPFNCore"),
         .target(name: "SPFNGenerated", dependencies: ["SPFNCore"]),
         .target(name: "SPFNAuth", dependencies: ["SPFNCore"]),
-        .target(name: "SPFNClient", dependencies: ["SPFNCore"]),
+        .target(name: "SPFNClient", dependencies: ["SPFNCore", "SPFNAuth", "SPFNGenerated"]),
         .target(name: "SPFNPersistence", dependencies: ["SPFNCore"]),
         .target(name: "SPFNHybrid", dependencies: ["SPFNCore", "SPFNAuth"]),
 
         .testTarget(name: "SPFNCoreTests", dependencies: ["SPFNCore"]),
         .testTarget(name: "SPFNAuthTests", dependencies: ["SPFNAuth", "SPFNCore"]),
-        .testTarget(name: "SPFNClientTests", dependencies: ["SPFNClient", "SPFNCore"]),
+        .testTarget(
+            name: "SPFNClientTests",
+            dependencies: ["SPFNClient", "SPFNCore", "SPFNAuth", "SPFNGenerated"]
+        ),
         .testTarget(
             name: "SPFNRepositoryTests",
             dependencies: ["SPFNCore", "SPFNGenerated", "SPFNAuth", "SPFNClient", "SPFNPersistence", "SPFNHybrid"]

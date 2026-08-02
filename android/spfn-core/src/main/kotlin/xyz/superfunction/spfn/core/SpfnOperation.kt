@@ -18,13 +18,34 @@ data class SpfnOperation(
 /** Decoding failures shared by generated response types. */
 class SpfnDecodingException(val code: String, message: String) : IllegalArgumentException(message)
 
-/** The canonical error envelope every SPFN endpoint answers with. */
-data class SpfnErrorEnvelope(
+/**
+ * The canonical error envelope every SPFN endpoint answers with.
+ *
+ * Every field is text a server chose. A server can put anything in [message] or
+ * [requestId] — including a session identifier it echoed back — so none of them may
+ * reach a log by default.
+ *
+ * Deliberately not a `data class`: the generated `toString` would print all three, and
+ * a `Throwable` carrying one prints its message into every stack trace. `equals` and
+ * `hashCode` are written out by hand so nothing else changes, and the fields stay
+ * ordinary public properties, so classifying an error is unaffected.
+ */
+class SpfnErrorEnvelope(
     val code: String,
     val message: String,
     val requestId: String
 )
 {
+    override fun equals(other: Any?): Boolean =
+        other is SpfnErrorEnvelope &&
+            other.code == code &&
+            other.message == message &&
+            other.requestId == requestId
+
+    override fun hashCode(): Int = (31 * (31 * code.hashCode() + message.hashCode())) + requestId.hashCode()
+
+    override fun toString(): String = "SpfnErrorEnvelope(code=redacted, message=redacted, requestId=redacted)"
+
     /** The canonical form of this envelope, so a client can assert on exact bytes. */
     fun canonicalValue(): SpfnCanonicalValue = SpfnCanonicalValue.Obj(
         mapOf(

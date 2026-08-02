@@ -24,6 +24,11 @@ public struct SPFNOperation: Equatable, Sendable
 }
 
 /// The canonical error envelope every SPFN endpoint answers with.
+///
+/// Every field is text a server chose. A server can put anything in `message` or
+/// `requestId` — including a session identifier it echoed back — so none of them may
+/// reach a log by default. The redaction at the bottom of this file is what makes that
+/// true; a caller that wants a field reads the property and decides for itself.
 public struct SPFNErrorEnvelope: Equatable, Sendable
 {
     public let code: String
@@ -65,6 +70,31 @@ public struct SPFNErrorEnvelope: Equatable, Sendable
                 "requestId": .string(requestID),
             ]),
         ])
+    }
+}
+
+// The default description of a struct prints every stored property, and `dump` and
+// `String(reflecting:)` reach the same values through the synthesized mirror even when
+// only `description` is overridden. All three doors are closed here rather than one:
+// the payload is server-controlled text, and closing one door would just move the leak.
+//
+// `code`, `message` and `requestID` stay ordinary public properties, so classifying an
+// error is unaffected. Only printing one by accident is.
+extension SPFNErrorEnvelope: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable
+{
+    public var description: String
+    {
+        "SPFNErrorEnvelope(code: redacted, message: redacted, requestID: redacted)"
+    }
+
+    public var debugDescription: String
+    {
+        description
+    }
+
+    public var customMirror: Mirror
+    {
+        Mirror(self, unlabeledChildren: [Any]())
     }
 }
 
