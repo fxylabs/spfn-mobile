@@ -193,6 +193,29 @@ then
         exit 1
     fi
 
+    # Checked here, where every way of naming a token has already been resolved into one
+    # variable — an environment variable, a launch file, or a launch file overridden by an
+    # environment variable. Checking it at the place each one is written instead is how a
+    # rule ends up holding for one door and not the others.
+    #
+    # The set is narrow on purpose. The token is written into a header field value, and a
+    # colon, a space or a line break there is not a bad token but a second header field,
+    # which is a request nobody wrote. Every token this repository generates is hex.
+    # `SpfnReferenceTarget.kt` and `SPFNIntegrationEnvironment.swift` enforce the same set,
+    # because both suites can be run without this script. Change it in all three or in none.
+    # Counted in bytes with `tr` rather than matched with a `case` glob. A negated bracket
+    # expression is locale-dependent: under a UTF-8 locale `[!A-Za-z0-9._-]` reads a
+    # multi-byte character as one character that some shells decline to call a non-match, so
+    # a non-ASCII token walked straight through it. `LC_ALL=C tr` deletes the allowed bytes
+    # and counts what is left, which cannot be talked out of noticing a byte.
+    LEFTOVER_BYTES=$(printf '%s' "$CONTROL_TOKEN" | LC_ALL=C tr -d 'A-Za-z0-9._-' | wc -c | tr -d ' ')
+    if [ "$LEFTOVER_BYTES" -ne 0 ]
+    then
+        fail 'the control token holds characters that cannot be carried in an HTTP header field value'
+        fail 'allowed: A-Z a-z 0-9 . _ -'
+        exit 1
+    fi
+
     if ! wait_for_health "$BASE_URL"
     then
         fail "nothing answered $BASE_URL/control/health within 30 seconds"
@@ -214,14 +237,8 @@ then
     if [ -z "$KOTLIN_LAUNCH_FILE" ]
     then
         # The Android suite is given a file rather than a property, for the same reason as
-        # the curl config above.
-        case "$CONTROL_TOKEN" in
-            *[!A-Za-z0-9._-]*)
-                fail 'the control token holds characters this script will not write into a launch file'
-                fail 'point SPFN_INTEGRATION_LAUNCH_FILE at the file the server wrote instead'
-                exit 1
-                ;;
-        esac
+        # the curl config above. The token is already known to be free of anything that
+        # would need escaping on the way into this JSON: the charset check above ran first.
         KOTLIN_LAUNCH_FILE="$WORK/target.json"
         printf '{"baseUrl":"%s","controlToken":"%s"}' "$BASE_URL" "$CONTROL_TOKEN" > "$KOTLIN_LAUNCH_FILE"
     fi

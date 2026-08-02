@@ -27,9 +27,27 @@ import xyz.superfunction.spfn.core.SpfnCanonicalValue
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-/** An external server the suite was pointed at, and the token its `/control` needs. */
+/**
+ * An external server the suite was pointed at, and the token its `/control` needs.
+ *
+ * The token is checked here rather than at each place that uses one, because there is more
+ * than one way in — a property, a launch file, and a launch file the runner wrote from an
+ * environment variable — and a rule enforced on some of them is a rule that holds until
+ * somebody uses the other door.
+ */
 class SpfnIntegrationTarget(val baseUrl: String, val controlToken: String)
 {
+    init
+    {
+        if (!TOKEN_CHARSET.matches(controlToken))
+        {
+            refuse(
+                "the control token holds characters that cannot be carried in an HTTP header " +
+                    "field value; allowed: $TOKEN_CHARSET_DESCRIPTION"
+            );
+        }
+    }
+
     companion object
     {
         /** Set either of these and the suite stops starting a server of its own. */
@@ -38,6 +56,23 @@ class SpfnIntegrationTarget(val baseUrl: String, val controlToken: String)
         const val LAUNCH_FILE_PROPERTY: String = "spfn.integrationLaunchFile"
 
         const val TOKEN_PROPERTY: String = "spfn.integrationControlToken"
+
+        /**
+         * What a control token is allowed to be made of.
+         *
+         * Every token this repository generates is hex, so the set is wider than anything
+         * that has to pass it. It is narrow on purpose: the token is written into a header
+         * field value, and a colon, a space or a line break there is not a bad token but a
+         * second header field, which is a request nobody wrote. Non-ASCII is refused for
+         * the same reason — a header field value has no encoding to declare it in.
+         *
+         * `tools/reference-server/run-integration.sh` enforces the same set before it runs
+         * anything, and `Tests/SPFNIntegrationTests/SPFNIntegrationEnvironment.swift` does
+         * for the Swift suite. Three enforcers, one set: change it in all three or in none.
+         */
+        val TOKEN_CHARSET: Regex = Regex("[A-Za-z0-9._-]+")
+
+        const val TOKEN_CHARSET_DESCRIPTION: String = "A-Z a-z 0-9 . _ -"
 
         /** The target the run named, or null when it named none and one is started locally. */
         fun resolve(): SpfnIntegrationTarget?
@@ -49,7 +84,7 @@ class SpfnIntegrationTarget(val baseUrl: String, val controlToken: String)
                 return null;
             }
 
-            val launched = launchFilePath?.let { readLaunchFile(File(it)) };
+            val launched = launchFilePath?.let { fromLaunchFile(File(it)) };
             val baseUrl = url ?: launched?.baseUrl
                 ?: refuse("$launchFilePath has no baseUrl, and $URL_PROPERTY was not set either");
             val token = property(TOKEN_PROPERTY) ?: launched?.controlToken
@@ -58,7 +93,8 @@ class SpfnIntegrationTarget(val baseUrl: String, val controlToken: String)
             return SpfnIntegrationTarget(normalise(baseUrl), token);
         }
 
-        private fun readLaunchFile(file: File): SpfnIntegrationTarget
+        /** The `{"baseUrl","controlToken"}` object a launched server writes. */
+        fun fromLaunchFile(file: File): SpfnIntegrationTarget
         {
             if (!file.isFile)
             {

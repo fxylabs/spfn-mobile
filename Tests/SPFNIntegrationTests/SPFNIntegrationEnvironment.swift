@@ -51,6 +51,8 @@ struct SPFNIntegrationEnvironment: Sendable
             throw SPFNIntegrationFailure.missing(controlTokenVariable)
         }
 
+        try validateControlToken(controlToken)
+
         guard let receipts = environment[receiptsVariable], !receipts.isEmpty
         else
         {
@@ -62,6 +64,37 @@ struct SPFNIntegrationEnvironment: Sendable
             controlToken: controlToken,
             receiptsDirectory: receipts
         )
+    }
+
+    /// What a control token is allowed to be made of.
+    ///
+    /// Every token this repository generates is hex, so the set is wider than anything that
+    /// has to pass it. It is narrow on purpose: the token is written into a header field
+    /// value, and a colon, a space or a line break there is not a bad token but a second
+    /// header field, which is a request nobody wrote. Non-ASCII is refused for the same
+    /// reason — a header field value has no encoding to declare it in.
+    ///
+    /// `tools/reference-server/run-integration.sh` enforces the same set before it runs
+    /// anything, and `SpfnReferenceTarget.kt` does for the Android suite. Three enforcers,
+    /// one set: change it in all three or in none.
+    static let tokenCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        .union(CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz"))
+        .union(CharacterSet(charactersIn: "0123456789._-"))
+
+    static let tokenCharactersDescription = "A-Z a-z 0-9 . _ -"
+
+    /// Refuses a token this suite cannot put in a header field without changing the request.
+    ///
+    /// The variable is read here rather than only in the runner because `swift test` takes
+    /// the same environment directly, and a rule the runner enforces alone is a rule that
+    /// holds until somebody runs the suite the other way.
+    static func validateControlToken(_ token: String) throws
+    {
+        guard token.unicodeScalars.allSatisfy({ tokenCharacters.contains($0) })
+        else
+        {
+            throw SPFNIntegrationFailure.malformedToken(controlTokenVariable)
+        }
     }
 
     /// Records that one case really ran. See the file comment for why this exists.
@@ -80,6 +113,7 @@ struct SPFNIntegrationEnvironment: Sendable
 enum SPFNIntegrationFailure: Error, CustomStringConvertible
 {
     case missing(String)
+    case malformedToken(String)
     case control(String)
 
     var description: String
@@ -88,6 +122,9 @@ enum SPFNIntegrationFailure: Error, CustomStringConvertible
         {
         case .missing(let variable):
             return "\(variable) is not set, and the integration suite refuses to run half of itself"
+        case .malformedToken(let variable):
+            return "\(variable) holds characters that cannot be carried in an HTTP header field "
+                + "value; allowed: \(SPFNIntegrationEnvironment.tokenCharactersDescription)"
         case .control(let reason):
             return "the reference server's control surface refused: \(reason)"
         }
