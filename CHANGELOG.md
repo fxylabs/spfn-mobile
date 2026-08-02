@@ -26,10 +26,14 @@ vertical slice end to end. Nothing is committed, tagged or published.
   `clientProofV1.admissionOrder` and `nonceRule`, each stating behaviour both sides
   already implemented.
 - The contract line restarts at `0.1.0`, and that changed a rule rather than a number.
-  Below 1.0.0 SemVer puts breaking changes in the minor, so the SDK now compares major
-  **and** minor: `requireSupported` used to compare majors alone, which on a 0.x line
-  would have accepted a `0.2.0` server that the declared range `>=0.1.0 <0.2.0` excludes.
-  The check would have been weaker than the range it printed.
+  `requireSupported` compared majors alone, which on a 0.x line accepts a `0.2.0` server
+  the declared range `>=0.1.0 <0.2.0` excludes — a check weaker than the string it prints.
+  It now parses strict SemVer and enforces both bounds: a malformed version refuses, a
+  version below the pin refuses, a pre-release other than the pinned one refuses, a
+  *pinned* pre-release admits only its own core, and numeric components compare as digit
+  strings so a version longer than `Int` cannot overflow into acceptance.
+  `tools/conformance/semver-range-vectors.json` holds 41 range cases and 24 parser cases;
+  both platforms run both tables, so the rule cannot drift on one of them.
 - The validator's provenance gate turned around with the fact it guards. It used to
   refuse any upstream claim for want of evidence; it now checks the lock against
   `upstream-provenance.json` field by field, requires the bundle to label itself

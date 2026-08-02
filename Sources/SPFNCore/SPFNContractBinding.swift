@@ -68,7 +68,10 @@ public struct SPFNContractBinding: Equatable, Sendable
     ///   with `1.0.0`;
     /// - a pre-release is accepted only when it is exactly the pinned pre-release.
     ///   `0.1.0-rc.1` precedes `0.1.0` in SemVer precedence, so it is below the lower
-    ///   bound, and a pre-release of any other version is a contract nobody has pinned.
+    ///   bound. When the pin itself is a pre-release, it accepts that exact version and
+    ///   nothing else: `0.1.1-rc.1` sorts above `0.1.0-rc.1` and inside the range by
+    ///   SemVer arithmetic, but it is a pre-release of a version nobody pinned, and an
+    ///   SDK that decodes it is guessing.
     ///
     /// There is no fallback and no partial-compatibility mode: an unsupported contract
     /// surfaces as an upgrade error rather than as a decoding failure much later.
@@ -132,7 +135,9 @@ public enum SPFNSemVer
         if let plus = body.firstIndex(of: "+")
         {
             let metadata = body[body.index(after: plus)...]
-            guard isIdentifierSequence(metadata)
+            // Build metadata identifiers are alphanumeric; SemVer places no numeric
+            // constraint on them, so 1.0.0+001 is valid where 1.0.0-001 is not.
+            guard isIdentifierSequence(metadata, numericIdentifiersAreStrict: false)
             else
             {
                 return nil
@@ -144,7 +149,7 @@ public enum SPFNSemVer
         if let dash = body.firstIndex(of: "-")
         {
             let tail = body[body.index(after: dash)...]
-            guard isIdentifierSequence(tail)
+            guard isIdentifierSequence(tail, numericIdentifiersAreStrict: true)
             else
             {
                 return nil
@@ -181,6 +186,14 @@ public enum SPFNSemVer
             return false
         }
 
+        // A pinned pre-release names one version, not a window. Range arithmetic would
+        // put 0.1.1-rc.1 inside [0.1.0-rc.1, 0.2.0), but that is a pre-release of a
+        // version this SDK was never generated from.
+        if lower.preRelease != nil
+        {
+            return compareCore(candidate.core, lower.core) == 0
+        }
+
         return compareCore(candidate.core, lower.core) >= 0
             && compareCore(candidate.core, upper.core) < 0
     }
@@ -215,8 +228,14 @@ public enum SPFNSemVer
         return text == "0" || !text.hasPrefix("0")
     }
 
-    /// Dot-separated identifiers of `[0-9A-Za-z-]`, each non-empty.
-    private static func isIdentifierSequence(_ text: Substring) -> Bool
+    /// Dot-separated identifiers of `[0-9A-Za-z-]`, each non-empty. When
+    /// `numericIdentifiersAreStrict` is set — which is the pre-release case — an
+    /// all-digit identifier may not carry a leading zero, because SemVer compares those
+    /// numerically and `01` has no numeric meaning.
+    private static func isIdentifierSequence(
+        _ text: Substring,
+        numericIdentifiersAreStrict: Bool
+    ) -> Bool
     {
         let parts = text.split(separator: ".", omittingEmptySubsequences: false)
         guard !parts.isEmpty
@@ -225,7 +244,18 @@ public enum SPFNSemVer
             return false
         }
         return parts.allSatisfy { part in
-            !part.isEmpty && part.allSatisfy { $0.isASCII && ($0.isNumber || $0.isLetter || $0 == "-") }
+            guard !part.isEmpty,
+                  part.allSatisfy({ $0.isASCII && ($0.isNumber || $0.isLetter || $0 == "-") })
+            else
+            {
+                return false
+            }
+            guard numericIdentifiersAreStrict, part.allSatisfy({ $0.isNumber })
+            else
+            {
+                return true
+            }
+            return part == "0" || !part.hasPrefix("0")
         }
     }
 }

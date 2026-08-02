@@ -39,11 +39,12 @@ SPFN primitives owns the canonical route DSL, schemas and the `clientProofV1` se
 invariant. It exports an immutable, digest-pinned bundle. This repository imports that
 bundle and generates Swift and Kotlin clients from it in one run.
 
-**That export does not exist yet.** Step 2 needed something to generate from, so it
-authored a development bundle inside this repository and pinned its real digest. The
-mechanism is complete and exercised end to end; only the producer is missing. Open
-decision D17 tracks the replacement, and `tools/validate/validate.sh` refuses any lock
-that claims an upstream export without upstream evidence on disk.
+**That export exists as of 2026-08-02.** Step 2 needed something to generate from, so it
+authored a development bundle here and pinned its real digest; SPFN primitives has since
+built the exporter, and the bundle is now a byte copy taken at an exact commit (D17,
+resolved). `tools/validate/validate.sh` no longer refuses upstream claims — it checks them
+against `Contracts/upstream-provenance.json`, the file the exporter wrote, field by
+field, and refuses evidence naming this repository as the source.
 
 There is deliberately no cross-repository atomic commit. The model is two-phase: the
 producer releases an immutable compatible contract first, then the consumer imports it

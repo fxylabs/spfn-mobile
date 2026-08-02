@@ -47,6 +47,8 @@ The pinned bundle carries canonical proof, request, error, replay and revoke fix
 and **never** carries secrets or real private keys. The proof fixtures use a synthetic
 key string that authenticates nothing.
 
-The bundle itself was authored in this repository and has not been exported by SPFN
-primitives (open decision D17). It fixes the shape of the slice; it is not an agreement
-with any server.
+The bundle itself is generated and published by SPFN primitives and copied here at an
+exact commit (D17, resolved 2026-08-02). The lock's upstream claim is checked against the
+exporter's own evidence file rather than taken at its word. What that does not establish
+is that the pinned commit exists upstream: nothing here reaches the primitives
+repository, so the digest proves which bytes were read, not who published them.

@@ -65,7 +65,10 @@ data class SpfnContractBinding(
      *   `1.0.0`;
      * - a pre-release is accepted only when it is exactly the pinned pre-release.
      *   `0.1.0-rc.1` precedes `0.1.0` in SemVer precedence, so it is below the lower
-     *   bound, and a pre-release of any other version is a contract nobody has pinned.
+     *   bound. When the pin itself is a pre-release, it accepts that exact version and
+     *   nothing else: `0.1.1-rc.1` sorts above `0.1.0-rc.1` and inside the range by
+     *   SemVer arithmetic, but it is a pre-release of a version nobody pinned, and an
+     *   SDK that decodes it is guessing.
      *
      * There is no fallback and no partial-compatibility mode: an unsupported contract
      * surfaces as an upgrade error rather than as a decoding failure much later.
@@ -119,7 +122,9 @@ object SpfnSemVer
         val plus = body.indexOf('+');
         if (plus >= 0)
         {
-            if (!isIdentifierSequence(body.substring(plus + 1)))
+            // Build metadata identifiers are alphanumeric; SemVer places no numeric
+            // constraint on them, so 1.0.0+001 is valid where 1.0.0-001 is not.
+            if (!isIdentifierSequence(body.substring(plus + 1), numericIdentifiersAreStrict = false))
             {
                 return null;
             }
@@ -131,7 +136,7 @@ object SpfnSemVer
         if (dash >= 0)
         {
             val tail = body.substring(dash + 1);
-            if (!isIdentifierSequence(tail))
+            if (!isIdentifierSequence(tail, numericIdentifiersAreStrict = true))
             {
                 return null;
             }
@@ -161,6 +166,14 @@ object SpfnSemVer
         if (parsedCandidate.preRelease != parsedLower.preRelease)
         {
             return false;
+        }
+
+        // A pinned pre-release names one version, not a window. Range arithmetic would
+        // put 0.1.1-rc.1 inside [0.1.0-rc.1, 0.2.0), but that is a pre-release of a
+        // version this SDK was never generated from.
+        if (parsedLower.preRelease != null)
+        {
+            return compareCore(parsedCandidate.core, parsedLower.core) == 0;
         }
 
         return compareCore(parsedCandidate.core, parsedLower.core) >= 0 &&
@@ -202,12 +215,29 @@ object SpfnSemVer
         return text == "0" || !text.startsWith("0");
     }
 
-    /** Dot-separated identifiers of `[0-9A-Za-z-]`, each non-empty. */
-    private fun isIdentifierSequence(text: String): Boolean
+    /**
+     * Dot-separated identifiers of `[0-9A-Za-z-]`, each non-empty. When
+     * [numericIdentifiersAreStrict] is set — which is the pre-release case — an all-digit
+     * identifier may not carry a leading zero, because SemVer compares those numerically
+     * and `01` has no numeric meaning.
+     */
+    private fun isIdentifierSequence(text: String, numericIdentifiersAreStrict: Boolean): Boolean
     {
         val parts = text.split('.');
         return parts.isNotEmpty() && parts.all { part ->
-            part.isNotEmpty() && part.all { it in '0'..'9' || it in 'a'..'z' || it in 'A'..'Z' || it == '-' }
+            if (part.isEmpty() ||
+                !part.all { it in '0'..'9' || it in 'a'..'z' || it in 'A'..'Z' || it == '-' })
+            {
+                false
+            }
+            else if (!numericIdentifiersAreStrict || !part.all { it in '0'..'9' })
+            {
+                true
+            }
+            else
+            {
+                part == "0" || !part.startsWith("0")
+            }
         };
     }
 }

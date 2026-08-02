@@ -508,11 +508,22 @@ contains Tests/SPFNCoreTests/SPFNCoreTests.swift "$VECTORS" \
 contains android/spfn-core/src/test/kotlin/xyz/superfunction/spfn/core/SpfnCoreTest.kt "$VECTORS" \
     'the Kotlin suite runs the shared contract-range vectors'
 VECTOR_CASES=$(grep -c '"candidate"' "$VECTORS" || true)
-if [ "$VECTOR_CASES" -ge 30 ]
+if [ "$VECTOR_CASES" -ge 40 ]
 then
     pass "the shared contract-range table carries $VECTOR_CASES cases"
 else
     fail "the shared contract-range table carries only $VECTOR_CASES cases"
+fi
+
+# The range table can pass because the rule refused for the right reason or because the
+# parse failed for the wrong one. The parser table is what tells the two apart, so it is
+# required rather than optional.
+PARSER_CASES=$(grep -c '"valid"' "$VECTORS" || true)
+if [ "$PARSER_CASES" -ge 20 ]
+then
+    pass "the shared parser table carries $PARSER_CASES cases"
+else
+    fail "the shared parser table carries only $PARSER_CASES cases"
 fi
 
 # ---------------------------------------------------------------------------

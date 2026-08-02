@@ -12,10 +12,9 @@
 #   - retention and immutability policy
 #   - the exact source commit, tag, contract digest and artifact hashes being approved
 #
-# One blocker is not a decision but a missing capability: the pinned contract bundle was
-# authored in this repository, not exported by SPFN primitives (D17). Releasing an SDK
-# generated from a locally invented contract would ship a client for a server nobody
-# agreed to.
+# The blocker that was a missing capability is gone: the pinned contract bundle is an
+# SPFN primitives export, taken at an exact commit (D17, resolved 2026-08-02). What
+# remains is decisions and approvals, not machinery.
 #
 # Gates it must then implement:
 #   - tag / VERSION / contract digest agreement

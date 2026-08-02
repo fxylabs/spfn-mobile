@@ -103,6 +103,21 @@ final class SPFNContractBindingTests: XCTestCase
                 "'\(candidate)' against [\(lower), \(upper)): \(why)"
             )
         }
+
+        // The parser is asserted directly too. A range case can pass because the rule
+        // refused for the right reason or because the parse failed for the wrong one,
+        // and only these say which.
+        let parsing = try XCTUnwrap(root?["parsing"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(parsing.count, 20, "the shared parser table lost cases")
+
+        for entry in parsing
+        {
+            let text = try XCTUnwrap(entry["text"] as? String)
+            let valid = try XCTUnwrap(entry["valid"] as? Bool)
+            let why = try XCTUnwrap(entry["why"] as? String)
+
+            XCTAssertEqual(SPFNSemVer.parse(text) != nil, valid, "'\(text)': \(why)")
+        }
     }
 
     /// The same table driven through the public entry point, so the binding and the

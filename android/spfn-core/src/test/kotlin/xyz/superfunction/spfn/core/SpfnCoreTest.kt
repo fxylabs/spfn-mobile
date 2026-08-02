@@ -133,6 +133,22 @@ class SpfnContractBindingTest
                 SpfnSemVer.satisfies(candidate, lower, upper)
             );
         }
+
+        // The parser is asserted directly too. A range case can pass because the rule
+        // refused for the right reason or because the parse failed for the wrong one, and
+        // only these say which.
+        val parsing = (root.members["parsing"] as SpfnCanonicalValue.Arr).elements
+            .map { (it as SpfnCanonicalValue.Obj).members };
+        assertTrue("the shared parser table lost cases", parsing.size >= 20);
+
+        for (entry in parsing)
+        {
+            val subject = (entry["text"] as SpfnCanonicalValue.Text).value;
+            val valid = (entry["valid"] as SpfnCanonicalValue.Bool).value;
+            val why = (entry["why"] as SpfnCanonicalValue.Text).value;
+
+            assertEquals("'$subject': $why", valid, SpfnSemVer.parse(subject) != null);
+        }
     }
 
     /**
