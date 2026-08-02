@@ -42,6 +42,7 @@
 | 공유 conformance 표·fixture 수정 | [P10](#p10) [P2](#p2) |
 | 게이트·통합 매트릭스 실행 | [P11](#p11) [P12](#p12) |
 | 버전 범위·호환성 규칙 수정 | [P3](#p3) [P13](#p13) |
+| 이 문서 자체 수정, 등록부 라우팅 검사 수정 | [P14](#p14) [P7](#p7) |
 
 ---
 
@@ -62,23 +63,31 @@
 광고했다. 번들 필드라 못 고쳐 `admittedRange`를 도입했다.
 범용: [declared-constraint-vs-enforced-rule](https://git.superfunction.xyz/spfn-core-projects/coding-context/src/branch/main/reliability/declared-constraint-vs-enforced-rule.md)
 
-## P2. digest는 세 곳에 고정된다 {#p2}
+## P2. digest는 11개 파일에 있고 역할이 셋으로 갈린다 {#p2}
 
 **증상.** 번들을 교체했는데 어딘가가 옛 digest를 들고 있어 빌드나 검증이 깨진다.
 또는 더 나쁘게, 한 곳만 갱신되어 검사끼리 서로 다른 파일을 가리킨다.
 
-**탐지.** 번들 digest는 세 자리에 있다.
+**탐지.** `git grep -l <digest>`로 세는 것이 유일하게 정확하다. 오늘 기준 11개다.
+개수를 외우지 말고 **역할**을 기억한다 — 셋은 서로 다르게 갱신된다.
 
-| 자리 | 필드 |
-| --- | --- |
-| `Contracts/upstream.lock.json` | `contract.manifestSha256` |
-| `Contracts/fixtures/MANIFEST.json` | `bundleSha256` |
-| 생성 파일 8개 헤더 | 각 파일이 자기가 파생된 digest를 담는다 |
+| 역할 | 파일 | 어떻게 갱신되나 |
+| --- | --- | --- |
+| 우리가 고정한다 | `Contracts/upstream.lock.json`(`contract.manifestSha256`), `Contracts/fixtures/MANIFEST.json`(`bundleSha256`) | 손으로 갱신 |
+| 생성기가 찍는다 | 생성 파일 8개 헤더 (Swift 4 + Kotlin 4) | codegen 재생성. **손으로 고치지 않는다** |
+| upstream이 준다 | `Contracts/upstream-provenance.json`(`bundleSha256`) | 새 번들과 함께 도착한다. 갱신 대상이 아니라 **대조 대상**이다 — validator 5절이 lock과 필드 단위로 맞춰 본다 |
 
-**처방.** 번들 교체는 항상 이 세 자리 + `derive-expected-values.py` 재실행 +
-codegen 재생성 + 결정성 확인이 한 묶음이다. 생성 파일은 손으로 고치지 말고 재생성한다.
+**처방.** 번들 교체는 앞의 두 역할(직접 고정 2곳 + codegen 재생성) +
+`derive-expected-values.py` 재실행 + 결정성 확인이 한 묶음이다. 세 번째 역할을
+"우리가 갱신할 것"으로 착각하면 evidence를 lock에 맞춰 편집하게 되는데, 그것은
+provenance 게이트가 정확히 잡으려는 행위다([P1](#p1)).
 
-**나온 곳.** cs-6jcny — dev bundle → upstream export 전환.
+**검증.** `git grep -l <digest> | wc -l`이 11이고, 그중 `upstream-provenance.json`이
+포함돼 있으며 그 값이 lock과 같은지 본다. 개수가 늘었다면 새 소비처가 생긴 것이니
+어느 역할인지 판정해 이 표에 추가한다.
+
+**나온 곳.** cs-6jcny — dev bundle → upstream export 전환. 항목 자체는 cs-mzv14 r1이
+"세 곳"이 틀렸다고 잡아 고쳤다 — `upstream-provenance.json`이 빠져 있었다.
 
 ## P3. 0.x 계약 라인에서 파괴 축은 minor다 {#p3}
 
@@ -242,6 +251,25 @@ range 문자열, 에러 메시지, doc comment, COMPATIBILITY.md 행, 생성 코
 
 **나온 곳.** cs-6jcny r1 → r3.
 
+## P14. 앵커를 키로 세면 중복이 사라진다 {#p14}
+
+**증상.** 등록부의 라우팅 검사가 항목 앵커를 awk 배열의 **키**로 모은다. 두 항목이
+같은 `{#pN}`을 쓰면 두 키가 아니라 한 키가 되어, 개수·미라우팅·죽은 링크 검사를
+전부 통과한다. 문서에는 항목이 둘인데 검사는 하나로 보고, 둘 중 하나는 트리거 표에서
+유일하게 도달할 수 없는데도 초록이다.
+
+**탐지.** 검사가 집합·맵의 **키 개수**를 세는가, 아니면 **출현 횟수**를 세는가.
+둘이 달라야 정상인 경우(중복이 정당)와 같아야 정상인 경우(중복이 결함)를 구분한다.
+이 등록부에서는 **항목 앵커는 유일해야 하고, 트리거 표의 참조는 중복이 정당하다** —
+[P2](#p2)는 트리거 행 3개에서 정당하게 참조된다. 그래서 항목 쪽만 유일성을 강제한다.
+
+**처방.** 헤딩 출현 횟수와 유일 앵커 수를 따로 세고 둘이 다르면 실패시킨다. 중복이
+정당한 쪽에는 같은 규칙을 적용하지 않는다 — 정당한 중복을 막는 검사는 문서를
+왜곡한다.
+
+**나온 곳.** cs-mzv14 r1. 등록부를 도입한 change set의 첫 리뷰가 등록부의 빈틈으로
+찾아냈다 — 새 convention이 의도한 형태 그대로다.
+
 ---
 
 ## 원장
@@ -252,6 +280,15 @@ change set마다 라운드 수와, 그 라운드의 finding 중 **이 문서에 
 | change set | 라운드 | finding | 이미 등록부에 있던 것 | 이 사이클에서 추가된 항목 |
 | --- | --- | --- | --- | --- |
 | cs-6jcny (w-hfc9g) | 8 (cold 3) | 8 | — (등록부 이전) | P1–P13 전부 |
+| cs-mzv14 (w-0r0ya) | 2 (cold 1) | 2 | 0 / 2 | P14 |
+
+**cs-mzv14 읽는 법.** 등록부를 도입한 change set 자신이다. 브리프에 인용된 항목은
+[P4](#p4)–[P7](#p7)이었고 리뷰가 그 넷을 전부 적용됐다고 확인했다 — 즉 **인용된 항목을
+놓쳐서 나온 finding은 0건**이다. finding 2건은 둘 다 등록부가 아직 다루지 못하던
+것이었다. 하나는 [P2](#p2)의 내용이 틀렸다는 것(세 곳이 아니라 11개 파일, 그중
+`upstream-provenance.json`이 누락)이고, 하나는 라우팅 검사 자체의 빈틈([P14](#p14))이다.
+전자는 "틀린 항목이 없는 항목보다 나쁘다"의 실례이고, 후자는 새 convention의 2단계가
+의도한 그대로 리뷰어가 빈틈을 항목 제안으로 돌려준 것이다.
 
 **cs-6jcny 읽는 법.** 등록부가 없던 상태의 기준선이다. 8라운드 중 4라운드가 계약·
 codegen·wire를 통과시킨 뒤의 SDK 자체 정직성 문제였고, 그중 3라운드는 리뷰 finding을

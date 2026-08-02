@@ -958,27 +958,37 @@ table {
     }
 }
 /^## P[0-9]+\./ && match($0, /\{#p[0-9]+\}/) {
+    headings++
     entries[substr($0, RSTART + 2, RLENGTH - 3)] = 1
 }
 END {
     unrouted = ""; dead = ""
     for (a in entries) { total++;  if (!(a in routed))  { unrouted = unrouted " " a } }
     for (a in routed)  { routes++; if (!(a in entries)) { dead = dead " " a } }
-    printf "%d %d %s|%s\n", total + 0, routes + 0, unrouted, dead
+    printf "%d %d %d %s|%s\n", total + 0, routes + 0, headings + 0, unrouted, dead
 }
 ' "$REGISTER" > "$TMP/register" 2>/dev/null || true
 
 REGISTER_ENTRIES=$(awk '{print $1}' "$TMP/register")
 REGISTER_ROUTES=$(awk '{print $2}' "$TMP/register")
-REGISTER_UNROUTED=$(sed 's/|.*//; s/^[0-9]* [0-9]* *//' "$TMP/register")
+REGISTER_HEADINGS=$(awk '{print $3}' "$TMP/register")
+REGISTER_UNROUTED=$(sed 's/|.*//; s/^[0-9]* [0-9]* [0-9]* *//' "$TMP/register")
 REGISTER_DEAD=$(sed 's/^[^|]*|//; s/^ *//' "$TMP/register")
 
 if [ "${REGISTER_ENTRIES:-0}" -lt 10 ]
 then
-    fail "the pitfall register lists only ${REGISTER_ENTRIES:-0} entries; the routing check did not run"
+    fail "the pitfall register yielded only ${REGISTER_ENTRIES:-0} entries; it lost its entries or the scan could not read it"
 elif [ "${REGISTER_ROUTES:-0}" -lt 10 ]
 then
-    fail "the pitfall register's trigger table routes to only ${REGISTER_ROUTES:-0} entries; the routing check did not run"
+    fail "the pitfall register's trigger table yielded only ${REGISTER_ROUTES:-0} routed entries; the table is gone or the scan could not read it"
+elif [ "${REGISTER_HEADINGS:-0}" -ne "$REGISTER_ENTRIES" ]
+then
+    # Anchors are collected as map keys, so two entries sharing one anchor collapse into
+    # a single key and every reachability check below passes while one of them cannot be
+    # addressed. Counting headings separately is what sees it. The routes side gets no
+    # such rule on purpose: an entry routed from several trigger rows is correct, and P2
+    # is deliberately reachable from three.
+    fail "the pitfall register has ${REGISTER_HEADINGS:-0} entry headings but only $REGISTER_ENTRIES distinct anchors; an anchor is used twice"
 elif [ -n "$REGISTER_DEAD" ]
 then
     fail "the pitfall register's trigger table points at entries that do not exist:$REGISTER_DEAD"
