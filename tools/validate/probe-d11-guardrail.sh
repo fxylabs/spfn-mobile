@@ -40,7 +40,6 @@ PATTERN_FILE=tools/validate/d11-forbidden.ere
 LOCK=tools/validate/d11-policy.lock.json
 README=tools/cocoapods-compat/README.md
 DECISIONS=docs/OPEN-DECISIONS.md
-D11_ROW='| D11 | iOS distribution channel and the CocoaPods fixture | **RESOLVED 2026-08-02** |'
 
 for path in "$PATTERN_FILE" "$LOCK" "$README" "$DECISIONS"
 do
@@ -74,6 +73,8 @@ sha256_of()
 SECTION=$(json_string "$LOCK" section)
 PINNED=$(json_string "$LOCK" sha256)
 PINNED_LINES=$(json_number "$LOCK" lines)
+ROW_PREFIX=$(json_string "$LOCK" rowPrefix)
+ROW_PINNED=$(json_string "$LOCK" rowSha256)
 
 # Same extraction the validator performs, kept identical on purpose: the probe must
 # measure the text the build measures, not a second reading of the document.
@@ -88,10 +89,13 @@ mkdir -p "$WORK" || exit 2
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
 extract_section "$README" > "$WORK/section.txt"
+grep "^$ROW_PREFIX" "$DECISIONS" > "$WORK/row.txt"
 
 if [ "${1:-}" = "--print-digest" ]
 then
-    printf '%s  %s lines\n' "$(sha256_of "$WORK/section.txt")" "$(wc -l < "$WORK/section.txt" | tr -d ' ')"
+    printf 'section  %s  %s lines\n' \
+        "$(sha256_of "$WORK/section.txt")" "$(wc -l < "$WORK/section.txt" | tr -d ' ')"
+    printf 'row      %s\n' "$(sha256_of "$WORK/row.txt")"
     exit 0
 fi
 
@@ -143,6 +147,35 @@ then
     fail 'a reworded policy statement produces the pinned digest'
 else
     pass 'a one-word rewording of the policy statement breaks the pinned digest'
+fi
+
+printf '\nthe pinned decision row\n'
+
+ROW_COUNT=$(grep -c "^$ROW_PREFIX" "$DECISIONS")
+if [ "$ROW_COUNT" = "1" ]
+then
+    pass "$DECISIONS carries exactly one row starting '$ROW_PREFIX'"
+else
+    fail "$DECISIONS carries $ROW_COUNT rows starting '$ROW_PREFIX', expected exactly 1"
+fi
+
+if [ "$(sha256_of "$WORK/row.txt")" = "$ROW_PINNED" ]
+then
+    pass 'the D11 decision row matches the pinned digest'
+else
+    fail 'the D11 decision row no longer matches the pinned digest'
+fi
+
+# Review found the original check reading only the row's first three cells, so a row
+# could keep the word RESOLVED and say the opposite of the decision in the cells after
+# it. The pin covers the whole line; prove it by rewriting only the tail.
+awk -F'|' 'BEGIN {OFS = "|"} {$5 = " CocoaPods is supported through an approved release path "; print}' \
+    "$WORK/row.txt" > "$WORK/row-tail.txt"
+if [ "$(sha256_of "$WORK/row-tail.txt")" = "$ROW_PINNED" ]
+then
+    fail 'rewriting the D11 row after its state cell produces the pinned digest'
+else
+    pass 'rewriting the D11 row after its state cell breaks the pinned digest'
 fi
 
 # Sentences that reopen D11. Each must match, or the second net has a hole. The first
@@ -233,13 +266,6 @@ then
     fail "$README currently matches the blocklist"
 else
     pass "$README currently carries no reopening wording"
-fi
-
-if grep -qF -- "$D11_ROW" "$DECISIONS"
-then
-    pass "$DECISIONS carries the resolved D11 row the validator asserts"
-else
-    fail "$DECISIONS no longer carries the exact D11 row the validator asserts"
 fi
 
 # The validator must read both the lock and the pattern file rather than carry its own

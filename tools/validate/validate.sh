@@ -703,21 +703,32 @@ contains docs/OPEN-DECISIONS.md 'OS/toolchain baseline' 'open decisions still re
 contains docs/OPEN-DECISIONS.md 'Maven' 'open decisions record the Maven namespace question'
 contains docs/OPEN-DECISIONS.md 'upstream export tooling' \
     'open decisions record that upstream contract export tooling must replace the dev bundle'
-contains docs/OPEN-DECISIONS.md '| D11 | iOS distribution channel and the CocoaPods fixture | **RESOLVED 2026-08-02** |' \
-    'open decisions record D11 as resolved: SwiftPM is the only iOS distribution channel'
-
 # D11 decided that CocoaPods is not supported and deliberately recorded no activation
 # condition. Wording that names a route to turn it on makes "not supported" read as
 # "available on request", which is the one reading the decision exists to prevent.
 #
 # The gate is the digest, not a blocklist. A blocklist can only refuse the phrasings
 # somebody thought of, and a policy sentence can be rewritten in unbounded ways; pinning
-# the section means any edit fails until the lock is updated on purpose. The blocklist
-# below stays as a second, best-effort net over the REST of the file, where free prose is
-# legitimate and a digest would be too rigid.
+# the text means any edit fails until the lock is updated on purpose. The blocklist
+# further down stays as a second, best-effort net over the REST of the fixture README,
+# where free prose is legitimate and a digest would be too rigid.
 D11_LOCK=tools/validate/d11-policy.lock.json
 D11_SECTION=$(json_string "$D11_LOCK" section)
 D11_PINNED=$(json_string "$D11_LOCK" sha256)
+D11_ROW_PREFIX=$(json_string "$D11_LOCK" rowPrefix)
+D11_ROW_PINNED=$(json_string "$D11_LOCK" rowSha256)
+
+# The decision is written in two places and both are pinned whole. A substring check on
+# the row's state cell would pass while the rest of the row said the opposite.
+grep "^$D11_ROW_PREFIX" docs/OPEN-DECISIONS.md > "$TMP/d11-row.txt"
+D11_ROW_COUNT=$(grep -c "^$D11_ROW_PREFIX" docs/OPEN-DECISIONS.md)
+if [ "$D11_ROW_COUNT" != "1" ]
+then
+    fail "docs/OPEN-DECISIONS.md carries $D11_ROW_COUNT rows starting '$D11_ROW_PREFIX', expected exactly 1"
+else
+    equals "$(sha256_of "$TMP/d11-row.txt")" "$D11_ROW_PINNED" \
+        'the whole D11 decision row is byte-identical to the row pinned in d11-policy.lock.json'
+fi
 awk -v heading="$D11_SECTION" \
     '$0 == heading {f = 1; print; next} f && /^## / {f = 0} f {print}' \
     tools/cocoapods-compat/README.md > "$TMP/d11-section.txt"

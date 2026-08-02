@@ -59,17 +59,23 @@ return as an optional distribution channel". A policy sentence can be reopened i
 unbounded ways, so no enumeration converges.
 
 The gate is therefore a digest. `d11-policy.lock.json` pins the exact text of the
-policy section in `tools/cocoapods-compat/README.md`, and any edit to it fails the build
-until somebody updates the lock — which makes reopening the decision a visible act
-instead of a sentence nobody noticed. `d11-forbidden.ere` survives as a second,
-best-effort net over the rest of that file, where prose is legitimate and a digest would
-be too rigid.
+decision in both places it is written down — the policy section of
+`tools/cocoapods-compat/README.md` and the D11 row of `docs/OPEN-DECISIONS.md` — and any
+edit to either fails the build until somebody updates the lock. Reopening the decision
+becomes a visible act instead of a sentence nobody noticed. The row is pinned whole
+because the check that preceded it read only the row's first three cells: review showed
+a row could keep the word RESOLVED and say "CocoaPods is supported through an approved
+release path" in the cells after it. `d11-forbidden.ere` survives as a second,
+best-effort net over the rest of the fixture README, where prose is legitimate and a
+digest would be too rigid.
 
-`probe-d11-guardrail.sh` holds both to their claims: the pinned digest must move on a
-one-word rewording, the extraction must stop at the next heading rather than swallowing
-the document, fourteen reopening sentences must be caught, twelve descriptive ones must
-be spared, and the validator must still read both files instead of carrying its own
-copy. The validator runs the probe as part of check 11.
+`probe-d11-guardrail.sh` holds all of it to its claims: each pinned digest must move on
+the smallest edit that reverses its meaning, the section extraction must stop at the
+next heading rather than swallowing the document, exactly one D11 row may exist,
+fourteen reopening sentences must be caught, twelve descriptive ones must be spared, the
+validator must read both files instead of carrying its own copy, and every file the
+guardrail depends on must be tracked by git. The validator runs the probe as part of
+check 11.
 
 ```sh
 sh tools/validate/probe-d11-guardrail.sh                  # prove the guardrail

@@ -17,12 +17,12 @@ vertical slice end to end. Nothing is committed, tagged or published.
 - iOS distribution channel: Swift Package Manager only (decision D11, 2026-08-02).
   CocoaPods is not supported, the fixture under `tools/cocoapods-compat/` stays as
   proof that the Swift sources are single-sourced, and no activation condition is
-  recorded. The validator now holds that shut: it asserts the resolved D11 row and pins
-  the policy statement in the fixture README by digest
-  (`tools/validate/d11-policy.lock.json`), so reopening the decision has to be a
-  deliberate edit to the lock rather than a sentence nobody noticed. A phrase blocklist
-  covers the rest of that file as a second net, and
-  `tools/validate/probe-d11-guardrail.sh` proves both still bite.
+  recorded. The validator now holds that shut: `tools/validate/d11-policy.lock.json`
+  pins by digest both places the decision is written down — the D11 row and the policy
+  statement in the fixture README — so reopening it has to be a deliberate edit to the
+  lock rather than a sentence nobody noticed. A phrase blocklist covers the rest of that
+  file as a second net, and `tools/validate/probe-d11-guardrail.sh` proves both still
+  bite.
 
 ### Added after Step 2 — the integration run against a server this repository did not write
 

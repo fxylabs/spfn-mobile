@@ -1,9 +1,12 @@
 {
-  "comment": "Pins the exact text of the D11 policy statement in tools/cocoapods-compat/README.md. The section runs from the heading below to the next level-2 heading. A phrase blocklist can only refuse the reopening wording someone thought of; this refuses every edit, so reopening the decision has to be a deliberate, visible act that updates this lock. Regenerate with: sh tools/validate/probe-d11-guardrail.sh --print-digest",
+  "comment": "Pins the exact text of decision D11 in the two places it is written down. A phrase blocklist can only refuse the reopening wording someone thought of; a digest refuses every edit, so reopening the decision has to be a deliberate, visible act that updates this lock. Regenerate both digests with: sh tools/validate/probe-d11-guardrail.sh --print-digest",
+  "decision": "01kz0r31ya",
+  "resolved": "2026-08-02",
   "file": "tools/cocoapods-compat/README.md",
   "section": "## Status of the underlying policy",
   "sha256": "a98b48277861c4149cf64fe84622c31200044cfce097cdd5796eb002ba15b95e",
   "lines": 14,
-  "decision": "01kz0r31ya",
-  "resolved": "2026-08-02"
+  "decisionsFile": "docs/OPEN-DECISIONS.md",
+  "rowPrefix": "| D11 |",
+  "rowSha256": "44e7526fc6640d2c9ba91162a1c6d6cb8c8e4946547847cc9a97939c7c3ee6d7"
 }
