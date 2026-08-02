@@ -949,7 +949,10 @@ REGISTER=docs/IMPLEMENTATION-PITFALLS.md
 awk '
 /^## 트리거 → 항목/ { table = 1; next }
 /^---$/            { table = 0 }
-table {
+# Table ROWS, not the region between the heading and the rule. Scanning the region lets
+# a link in an explanatory paragraph stand in for a row that is gone: the table would no
+# longer route the entry and the check would still say it does.
+table && /^[[:space:]]*\|/ {
     rest = $0
     while (match(rest, /\(#p[0-9]+\)/))
     {
