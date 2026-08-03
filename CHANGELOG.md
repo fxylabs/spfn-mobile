@@ -8,6 +8,33 @@ software.
 Step 1 laid out the repository. Step 2 made it compile on both platforms and proved one
 vertical slice end to end. Nothing is committed, tagged or published.
 
+### RC failure observability — evidence leaves the runner, secrets do not
+
+- Central dispatch 30795139768 failed inside the RC harness and the logs died with
+  the runner. `publish-central.yml` now surfaces failure evidence: on the failure
+  path only, the tail of every log under the harness output directory is printed and
+  the `rc-out/logs` directory is uploaded as an artifact. Observability is confined
+  to that directory on purpose — the harness's swift/gradle/manifest logs never
+  carry the in-memory key, its passphrase or the Central token, and GitHub's secret
+  masking is treated as a second net, not the mechanism.
+- The upload uses the repository's first third-party action,
+  `actions/upload-artifact`, pinned by commit SHA. The validator's no-actions rule
+  became an allow-list with exactly that entry for exactly that workflow: a
+  tag-pinned form of the same action, any other action, or any action at all in any
+  other workflow still fails, and each refusal is a probe case. D14 stays open for
+  the general action set.
+- The workflow clone is `--no-tags`: the candidate tag exists on the remote now, and
+  the harness creates its own. The existing tag-removal line stays as the second
+  layer; the CI failure was not the tag either way, since the SwiftPM stage had
+  already passed.
+- `tools/rc-verify/local-signed-run.sh`: the manual reproduction that cleared the
+  key and signing path, automated — fresh `--no-tags` clone under a directory named
+  exactly `spfn-mobile` (the basename is the SwiftPM package identity the consumer
+  resolves), exact-commit checkout, passphrase read with `stty -echo` (portable
+  where shell read flags are not), armored key exported into process memory only,
+  and a trap that removes the clone on every exit path. Key material is never
+  echoed, logged or written to disk.
+
 ### The publication transition — a Central path that fails closed
 
 - D4 resolved (2026-08-03): the `xyz.superfunction` namespace is domain-verified on

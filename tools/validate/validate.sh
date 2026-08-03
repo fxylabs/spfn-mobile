@@ -176,7 +176,7 @@ for path in \
     tools/validate/probe-publishing-gate.sh \
     tools/validate/probe-publication-rules.sh \
     tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
-    tools/rc-verify/probe-trap-exit.sh \
+    tools/rc-verify/probe-trap-exit.sh tools/rc-verify/local-signed-run.sh \
     tools/cocoapods-compat/generate-podspec.sh \
     docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md docs/IMPLEMENTATION-PITFALLS.md \
     .github/workflows/contract.yml .github/workflows/swift.yml \
@@ -872,7 +872,29 @@ for workflow in .github/workflows/*.yml
 do
     [ -f "$workflow" ] || continue
 
-    lacks_active "$workflow" 'uses:' "$workflow uses no third-party action, so there is nothing to pin"
+    # Actions allow-list. publish-central.yml may use exactly one action — the
+    # SHA-pinned log-artifact uploader that carries failure evidence out of the
+    # runner — and a tag- or branch-pinned form of even that one fails, because a
+    # movable ref is how an unreviewed action enters a workflow. Every other
+    # workflow still uses none.
+    if [ "$workflow" = "$PUBLISH_WORKFLOW" ]
+    then
+        # Non-anchored on purpose: `uses:` can open a step (`- uses:`) or ride in a
+        # flow-style map, and an anchored extraction reads right past both. Only
+        # full-line comments are exempt; the admitted shape allows the list-item
+        # dash and nothing else.
+        UNEXPECTED_USES=$(grep -E 'uses:' "$workflow" \
+            | grep -vE '^[[:space:]]*#' \
+            | grep -vE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*actions/upload-artifact@[0-9a-f]{40}([[:space:]]+#.*)?$' || true)
+        if [ -z "$UNEXPECTED_USES" ]
+        then
+            pass "$workflow uses only the commit-SHA-pinned upload-artifact action"
+        else
+            fail "$workflow uses an action outside the SHA-pinned allowlist: $UNEXPECTED_USES"
+        fi
+    else
+        lacks_active "$workflow" 'uses:' "$workflow uses no third-party action, so there is nothing to pin"
+    fi
 
     TRIGGERS=$(awk '
         /^on:/ {
@@ -1024,6 +1046,10 @@ contains "$PUBLISH_WORKFLOW" '*[!0-9a-f]*' \
     'the commit input is refused unless it is lowercase hex'
 contains "$PUBLISH_WORKFLOW" '-ne 40' \
     'the commit input is refused unless it is exactly 40 characters'
+contains "$PUBLISH_WORKFLOW" 'if: failure()' \
+    'log surfacing and the log artifact exist only on the failure path'
+contains "$PUBLISH_WORKFLOW" 'rc-out/logs' \
+    'observability is confined to the rc-out/logs directory'
 
 # ---------------------------------------------------------------------------
 section '8. module graph coherence'
