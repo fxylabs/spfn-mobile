@@ -82,8 +82,8 @@ fi
 COMMIT=$(git rev-parse HEAD)
 CONTRACT_DIGEST=$(sed -n 's/.*"manifestSha256": *"\([0-9a-f]\{64\}\)".*/\1/p' Contracts/upstream.lock.json | head -1)
 [ -n "$CONTRACT_DIGEST" ] || die 'could not read manifestSha256 from Contracts/upstream.lock.json'
-MAVEN_GROUP=$(sed -n 's/^spfn.maven.group.proposed=\(.*\)$/\1/p' gradle.properties)
-[ -n "$MAVEN_GROUP" ] || die 'could not read spfn.maven.group.proposed from gradle.properties'
+MAVEN_GROUP=$(sed -n 's/^spfn.maven.group=\(.*\)$/\1/p' gradle.properties)
+[ -n "$MAVEN_GROUP" ] || die 'could not read spfn.maven.group from gradle.properties'
 AGP_VERSION=$(sed -n 's/^agp = "\(.*\)"$/\1/p' gradle/libs.versions.toml)
 KOTLIN_VERSION=$(sed -n 's/^kotlin = "\(.*\)"$/\1/p' gradle/libs.versions.toml)
 COMPILE_SDK=$(sed -n 's/^compile-sdk = "\(.*\)"$/\1/p' gradle/libs.versions.toml)
@@ -93,8 +93,51 @@ MIN_SDK=$(sed -n 's/^min-sdk = "\(.*\)"$/\1/p' gradle/libs.versions.toml)
 
 # --- workspace ---------------------------------------------------------------------
 
-# OUT survives the run: it is the candidate evidence. WORK never does.
-OUT=$(mktemp -d "${TMPDIR:-/tmp}/spfn-rc-${VERSION}.XXXXXX")
+# OUT survives the run: it is the candidate evidence. WORK never does. SPFN_RC_OUT
+# lets a caller (the publish workflow) name the evidence directory. It is held to the
+# same rule the Gradle staging gate enforces for spfn.staging.dir — absolute, and
+# canonically OUTSIDE this repository, so a symlink pointing back into the tree is
+# refused too — and it must be empty, so one run can never mix its artifacts into
+# another's.
+if [ -n "${SPFN_RC_OUT:-}" ]
+then
+    case "$SPFN_RC_OUT" in
+        /*) ;;
+        *) die "SPFN_RC_OUT '$SPFN_RC_OUT' is not an absolute path" ;;
+    esac
+    # Checked twice on purpose: on the literal path before anything is created, and
+    # canonically (pwd -P) after, so a symlink that points back into the tree is
+    # refused as well. A directory this refusal itself created is removed again.
+    case "$SPFN_RC_OUT" in
+        "$ROOT" | "$ROOT"/*)
+            die "SPFN_RC_OUT '$SPFN_RC_OUT' is inside the repository; evidence never enters the tree"
+            ;;
+    esac
+    OUT_CREATED=0
+    if [ ! -d "$SPFN_RC_OUT" ]
+    then
+        OUT_CREATED=1
+    fi
+    mkdir -p "$SPFN_RC_OUT"
+    OUT=$(CDPATH= cd -- "$SPFN_RC_OUT" 2>/dev/null && pwd -P) \
+        || die "SPFN_RC_OUT '$SPFN_RC_OUT' cannot be resolved"
+    ROOT_REAL=$(CDPATH= cd -- "$ROOT" && pwd -P)
+    case "$OUT" in
+        "$ROOT_REAL" | "$ROOT_REAL"/*)
+            if [ "$OUT_CREATED" = "1" ]
+            then
+                rmdir "$SPFN_RC_OUT" 2>/dev/null || true
+            fi
+            die "SPFN_RC_OUT '$SPFN_RC_OUT' resolves inside the repository; evidence never enters the tree"
+            ;;
+    esac
+    if [ -n "$(find "$OUT" -mindepth 1 -print -quit)" ]
+    then
+        die "SPFN_RC_OUT '$OUT' is not empty; refusing to mix candidate evidence"
+    fi
+else
+    OUT=$(mktemp -d "${TMPDIR:-/tmp}/spfn-rc-${VERSION}.XXXXXX")
+fi
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/spfn-rc-work.XXXXXX")
 STAGING="$OUT/staging"
 SBOM_DIR="$OUT/sbom"
@@ -248,10 +291,34 @@ do
         || die "$module POM does not carry groupId $MAVEN_GROUP"
     grep -q "<version>$VERSION</version>" "$BASE.pom" \
         || die "$module POM does not carry version $VERSION"
-    grep -q 'PROPOSED Maven group' "$BASE.pom" \
-        || die "$module POM does not state that the group is proposed and unverified (D4)"
+    # Central refuses a bundle whose POMs miss any of these; catch it at staging time
+    # rather than at upload time.
+    for element in '<name>' '<description>' '<url>' '<license>' '<developer>' '<scm>'
+    do
+        grep -q "$element" "$BASE.pom" \
+            || die "$module POM misses Central-required element $element"
+    done
+    grep -q 'github.com/fxylabs/spfn-mobile' "$BASE.pom" \
+        || die "$module POM does not name the public repository github.com/fxylabs/spfn-mobile"
+    if grep -q 'PROPOSED' "$BASE.pom"
+    then
+        die "$module POM still calls the group proposed; D4 resolved it on 2026-08-03"
+    fi
+    # Signing is per-run and optional locally (D7): when this run carries an in-memory
+    # key, every staged artifact must have its detached signature; when it does not,
+    # none may — a stray .asc would be a signature nobody injected.
+    for artifact in "$BASE.aar" "$BASE.pom" "$BASE-sources.jar"
+    do
+        if [ -n "${ORG_GRADLE_PROJECT_spfnSigningInMemoryKey:-}" ]
+        then
+            [ -f "$artifact.asc" ] || die "signing key was injected but $artifact.asc is missing"
+        elif [ -f "$artifact.asc" ]
+        then
+            die "$artifact.asc exists but no signing key was injected this run"
+        fi
+    done
 done
-printf '  staged 6 modules (AAR + POM + sources), POMs carry the D4 caveat\n'
+printf '  staged 6 modules (AAR + POM + sources), POMs carry the full Central metadata set\n'
 
 ANDROID_CONSUMER="$WORK/android-consumer"
 mkdir -p "$ANDROID_CONSUMER/src/main/kotlin/xyz/superfunction/spfn/rcconsumer"
@@ -382,7 +449,7 @@ step 'candidate manifest: SHA256SUMS and manifest.json'
 (
     cd "$OUT"
     find staging sbom -type f \
-        \( -name '*.aar' -o -name '*.pom' -o -name '*.jar' -o -name '*.module' -o -name '*.cdx.json' -o -name '*.cdx.xml' \) \
+        \( -name '*.aar' -o -name '*.pom' -o -name '*.jar' -o -name '*.module' -o -name '*.asc' -o -name '*.cdx.json' -o -name '*.cdx.xml' \) \
         -print | sort > .rc-artifacts
     : > SHA256SUMS
     while IFS= read -r artifact
@@ -408,7 +475,7 @@ step 'candidate manifest: SHA256SUMS and manifest.json'
     printf '  },\n'
     printf '  "maven": {\n'
     printf '    "group": "%s",\n' "$MAVEN_GROUP"
-    printf '    "groupStatus": "PROPOSED, unverified (docs/OPEN-DECISIONS.md D4)",\n'
+    printf '    "groupStatus": "Central Portal domain-verified (docs/OPEN-DECISIONS.md D4, resolved 2026-08-03)",\n'
     printf '    "modules": ["spfn-core", "spfn-generated", "spfn-auth", "spfn-client", "spfn-sync", "spfn-hybrid"]\n'
     printf '  },\n'
     printf '  "artifacts": [\n'

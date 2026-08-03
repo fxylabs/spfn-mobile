@@ -246,6 +246,18 @@ wire 경로를 건드리지 않은 change set에서는 재실행이 선택이다
   꼴이면 의심. 처방: 신호는 전용 핸들러에서 `trap '' EXIT INT TERM`으로 먼저 무장해제하고
   128+N(INT 130, TERM 143)으로 직접 exit. 증거: `tools/rc-verify/probe-trap-exit.sh`가
   태그 생성 후 kill을 실측한다.
+- **서명 실행의 .asc 잔존을 Gradle 데몬 탓으로 오진하지 말 것.** Gradle 9.5.1의
+  `providers.gradleProperty`는 호출별 클라이언트 env를 읽고, 데몬은 키를 붙잡지
+  않는다 — 통제 재현: 키 주입 publish(staging .asc 24) 직후 같은 데몬(PID 집합 동일,
+  로그에 "Starting a Gradle Daemon" 0회)에서 키 없는 publish → staging .asc 0.
+  실제로 남는 함정은 두 가지다. (1) 서명 실행이 `android/*/build/` 아래 .asc 24개를
+  남기고 이후 무서명 실행에서도 그대로 잔존한다(staging으로는 안 간다). (2)
+  `ORG_GRADLE_PROJECT_*`가 셸에 남아 있으면 무서명이라 믿은 실행이 실제로는 서명된다.
+  확인 명령: `env | grep -c ORG_GRADLE_PROJECT`(무서명 실행 전 0 확인),
+  `find android -path '*/build/*' -name '*.asc' | wc -l`(서명 실행 뒤 잔존 확인),
+  `./gradlew --status`와 실행 로그의 "Starting a Gradle Daemon" 카운트(데몬 동일성).
+  처방: 키 주입 실행 뒤 build/ 아래 .asc를 지운다. rc-verify는 키 없는 실행의
+  staging에 .asc가 있으면 FAIL로 잡는다.
 
 ## P13. 규칙을 조이면 그 규칙을 광고하는 문자열도 본다 {#p13}
 
@@ -271,6 +283,7 @@ change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서
 | cs-6jcny (w-hfc9g) | 8 | 8 | — (등록부 이전) |
 | cs-mzv14 (w-0r0ya) | 5 | 10 | 0 |
 | PR #11 (w-6s7yg) | 2 | 4 | 0 |
+| PR #12 (w-9phsb) | 2 | 8 | 0 |
 
 **cs-mzv14 읽는 법.** 등록부를 도입한 change set 자신이다. 브리프에 인용한 항목은
 [P4](#p4)–[P7](#p7)이었고 리뷰가 넷 다 지켜졌다고 확인했다. finding 10건 중 9건은

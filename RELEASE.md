@@ -62,12 +62,27 @@ a person's work under a separate approval that no candidate run implies.
 
 ## Current state of the machinery
 
-`.github/workflows/release-candidate.yml` exists but is inert and manual-only. It
-performs no build, holds no credential and reads no secret. `spfn.publishing.enabled`
-is `false` in `gradle.properties` and the root build script reads that committed value
-from the file itself: a tree committed with `true` fails every build, and a per-run CLI
-override may target only an absolute staging directory outside the repository —
-`tools/validate/probe-publishing-gate.sh` proves each refusal. `tools/validate/validate.sh`
-fails if the committed flag flips, a publication block appears outside the gated root
-script, a repository outside the approved three appears, a credential block shows up,
-or a CocoaPods trunk publication command is added anywhere.
+A manual path to Maven Central now exists, and everything about it fails closed.
+`.github/workflows/publish-central.yml` is `workflow_dispatch` only — no push trigger,
+no tag trigger — re-runs the RC verification against a person-named commit, signs with
+an in-memory PGP key injected from GitHub Actions secrets, and uploads the staged
+bundle to the Central Portal as `USER_MANAGED`, where it is held until a person
+confirms it in the Portal UI. None of the secrets (`CENTRAL_PORTAL_TOKEN`,
+`SIGNING_IN_MEMORY_KEY`, `SIGNING_IN_MEMORY_KEY_PASSWORD`) is registered, so every
+dispatch fails today; that is the designed state until a person registers them under
+their own approval. `.github/workflows/release-candidate.yml` stays inert.
+
+Gradle itself never reaches Central. `spfn.publishing.enabled` is `false` in
+`gradle.properties` and the root build script reads that committed value from the file
+itself: a tree committed with `true` fails every build, and a per-run CLI override may
+target only an absolute staging directory outside the repository —
+`tools/validate/probe-publishing-gate.sh` proves each refusal.
+`tools/validate/validate.sh` fails if the committed flag flips, a publication or
+signing block appears outside the gated root script, a credential value or
+credential-shaped property is committed, a key file enters the tree, a repository
+outside the approved three appears, any workflow's parsed trigger set contains
+anything but `workflow_dispatch` (flow-style and block-style alike, unknown trigger
+kinds included), the publish workflow names an unlisted secret, addresses a host other
+than the Central Portal with or without a URL scheme, interpolates an input into run
+text, or a CocoaPods trunk publication command is added anywhere —
+`tools/validate/probe-publication-rules.sh` proves each of those refusals bites.

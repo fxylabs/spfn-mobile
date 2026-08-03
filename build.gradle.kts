@@ -92,10 +92,15 @@ val stagingDir: File? =
         null
     }
 
-require(!mavenGroupVerified)
+// D4 (resolved 2026-08-03): the xyz.superfunction namespace is domain-verified on the
+// Central Portal, and `spfn.maven.group.verified=true` is the committed record of that.
+// The require holds in both directions now — un-verifying the group, or overriding the
+// flag per-run, is a decision to be made in this file, not a property flip.
+require(mavenGroupVerified)
 {
-    "spfn.maven.group.verified must stay false until control of the reverse-domain " +
-        "namespace is actually verified."
+    "spfn.maven.group.verified is false, but D4 resolved the Central-verified group " +
+        "on 2026-08-03. Reverting the verification claim is a decision (see " +
+        "docs/OPEN-DECISIONS.md D4), not a property edit."
 }
 
 /// The five SDK modules. `:contract-codegen` is a build tool, not an SDK module, so it
@@ -111,15 +116,24 @@ val sdkModules: List<Project>
 // dead code — no maven-publish plugin is applied, no publishing task exists, and
 // `./gradlew build` is byte-identical to what it was before this block.
 //
-// Coordinates are `xyz.superfunction.spfn:<module>:<version>`. That group is the D4
-// PROPOSED value and D4 is NOT resolved: gradle.properties records
-// `spfn.maven.group.verified=false`, the gate above requires it to stay false, and the
-// POM description of every staged artifact restates it. Staged artifacts are candidate
-// evidence, never publishable artifacts.
+// Coordinates are `xyz.superfunction.spfn:<module>:<version>` — the D4-verified group
+// (resolved 2026-08-03). Gradle still publishes ONLY to the local staging directory
+// the gate proved: the Central Portal upload is a separate bundle upload performed by
+// `.github/workflows/publish-central.yml`, manually dispatched, against the staged
+// output. No remote repository exists in this build in any configuration.
+//
+// Signing (D7): Central requires PGP signatures, so the staging publication signs
+// when — and only when — an in-memory key arrives from the per-run environment as
+// ORG_GRADLE_PROJECT_spfnSigningInMemoryKey / ...KeyPassword. No key identity, key
+// file or keyring path is ever configured here, and a local unsigned RC run stays
+// exactly what it was.
 if (publishingEnabled)
 {
-    val proposedGroup: String = providers.gradleProperty("spfn.maven.group.proposed").get()
+    val spfnMavenGroup: String = providers.gradleProperty("spfn.maven.group").get()
     val stagingUri = stagingDir!!.toURI()
+    val signingKey: String? = providers.gradleProperty("spfnSigningInMemoryKey").orNull
+    val signingKeyPassword: String =
+        providers.gradleProperty("spfnSigningInMemoryKeyPassword").orNull ?: ""
 
     sdkModules.forEach { module ->
         module.pluginManager.apply("maven-publish")
@@ -156,34 +170,60 @@ if (publishingEnabled)
                 publications {
                     create("spfnRcStaging", org.gradle.api.publish.maven.MavenPublication::class.java) {
                         from(releaseComponent)
-                        groupId = proposedGroup
+                        groupId = spfnMavenGroup
                         artifactId = module.name
                         version = spfnVersion
+                        // The complete Central-required metadata set: name, description,
+                        // url, license, developers and scm. tools/rc-verify/rc-verify.sh
+                        // asserts every one of these on the staged POMs.
                         pom {
                             name.set(module.name)
-                            description.set(
-                                (module.description ?: module.name) +
-                                    " | groupId '$proposedGroup' is the PROPOSED Maven group " +
-                                    "(docs/OPEN-DECISIONS.md D4, namespace control NOT verified); " +
-                                    "this artifact is a local release-candidate staging output " +
-                                    "and is not published to any registry."
-                            )
+                            description.set(module.description ?: module.name)
+                            url.set("https://github.com/fxylabs/spfn-mobile")
                             licenses {
                                 license {
                                     name.set("MIT License")
                                     url.set("https://opensource.org/license/mit/")
                                 }
                             }
+                            developers {
+                                developer {
+                                    id.set("superfunction")
+                                    name.set("FXY Inc.")
+                                    organization.set("FXY Inc.")
+                                    organizationUrl.set("https://superfunction.xyz")
+                                }
+                            }
+                            scm {
+                                connection.set("scm:git:https://github.com/fxylabs/spfn-mobile.git")
+                                developerConnection.set("scm:git:https://github.com/fxylabs/spfn-mobile.git")
+                                url.set("https://github.com/fxylabs/spfn-mobile")
+                            }
                         }
                     }
                 }
                 repositories {
-                    // The ONLY publication target that can exist: the per-run local
-                    // staging directory the gate already proved is outside the tree.
+                    // The ONLY publication target that can exist in Gradle: the per-run
+                    // local staging directory the gate already proved is outside the
+                    // tree. Central is reached by uploading the staged bundle through
+                    // the manual workflow, never by a repository declared here.
                     maven {
                         name = "spfnRcStaging"
                         url = stagingUri
                     }
+                }
+            }
+
+            // Signing is lookup-only: an in-memory PGP key injected for this run, or
+            // nothing. `useInMemoryPgpKeys` is the only admission path the validator
+            // allows — a keyId, a keyring file or a literal key in the tree fails.
+            if (signingKey != null)
+            {
+                module.pluginManager.apply("signing")
+                module.extensions.configure(org.gradle.plugins.signing.SigningExtension::class.java) {
+                    useInMemoryPgpKeys(signingKey, signingKeyPassword)
+                    sign(module.extensions.getByType(org.gradle.api.publish.PublishingExtension::class.java)
+                        .publications.getByName("spfnRcStaging"))
                 }
             }
         }
