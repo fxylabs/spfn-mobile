@@ -7,7 +7,7 @@ package xyz.superfunction.spfn.core
 /** Mirror of the Swift `SPFNVersion`. Must equal the repository VERSION file. */
 object SpfnVersion
 {
-    const val CURRENT: String = "0.1.0-alpha.1"
+    const val CURRENT: String = "0.1.0-alpha.2"
 }
 
 /** Mirror of the Swift `SPFNScaffoldError.notImplementedInScaffold`. */

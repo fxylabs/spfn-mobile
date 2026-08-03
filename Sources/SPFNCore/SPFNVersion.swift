@@ -8,5 +8,5 @@ public enum SPFNVersion
 {
     /// Release-train start version per decision D9 (2026-08-01). Pre-release:
     /// nothing has been tagged or published, and 1.0.0 waits on Step 5 evidence.
-    public static let current: String = "0.1.0-alpha.1"
+    public static let current: String = "0.1.0-alpha.2"
 }
