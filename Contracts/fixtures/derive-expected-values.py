@@ -170,6 +170,11 @@ def sha256_hex(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def spki_sha256_hex(spki_b64: str) -> str:
+    """The contract's key fingerprint: lowercase base16 SHA-256 of the SPKI DER bytes."""
+    return hashlib.sha256(base64.b64decode(spki_b64)).hexdigest()
+
+
 # --------------------------------------------------------------------------
 # P-256 ECDSA, pure standard library.
 #
@@ -549,6 +554,24 @@ WIRE_VECTORS = [
         "issuedAtMillis": 1750000000000,
         "sessionId": "session-test-0001",
         "body": {"message": "hello", "sequence": 7},
+    },
+    {
+        "name": "rotate-key",
+        "operationId": "auth.keys.rotate",
+        "why": "a proven session-free operation carries every proof header and no session "
+               "header; the proof is the OLD key's while the body registers the replacement "
+               "(here the second fixture keypair)",
+        "clientId": "client-test-0001",
+        "keyId": "key-test-0001",
+        "nonce": "nonce-000000000003",
+        "issuedAtMillis": 1750000000000,
+        "sessionId": None,
+        "body": {
+            "publicKey": WRONG_PUBLIC_KEY_SPKI_B64,
+            "keyId": WRONG_KEY_ID,
+            "fingerprint": spki_sha256_hex(WRONG_PUBLIC_KEY_SPKI_B64),
+            "algorithm": "ES256",
+        },
     },
 ]
 
@@ -955,6 +978,52 @@ def build_wire():
     }
 
 
+def build_enrollment():
+    """The enrollment surface: the fingerprint rule and the exact unproven wire shape.
+
+    Hand-derived from the contract's `restOperations` and `clientProofV1` sections and
+    the fixed test keypairs (P10): nothing here was produced by either SDK. The idToken
+    follows the reference server's fixed test rule — see its `SpfnReferenceRestOps` —
+    so the same bytes drive the unit suites and the integration matrix.
+    """
+    bundle = load_bundle()
+    operations = {operation["id"]: operation for operation in bundle["operations"]}
+    oauth = operations["auth.enroll.oauthNative"]
+    provider = "google"
+    body = {
+        "idToken": "spfn-test-idtoken.google.user-test-0001.nonce-enroll-0001",
+        "nonce": "nonce-enroll-0001",
+        "publicKey": TEST_PUBLIC_KEY_SPKI_B64,
+        "keyId": TEST_KEY_ID,
+        "fingerprint": spki_sha256_hex(TEST_PUBLIC_KEY_SPKI_B64),
+        "algorithm": "ES256",
+    }
+    canonical_body = canonical(body)
+    return {
+        "note": NOTE,
+        "why": "both SDK enrollment flows must reproduce these bytes exactly: the body is "
+               "the contract's OauthNativeRequest over the fixed test keypair, and the only "
+               "header an unproven request carries is the content type",
+        "testKeyPair": test_keypair_block(),
+        "fingerprints": {
+            "rule": "lowercase base16 SHA-256 of the SPKI DER — the same bytes publicKey "
+                    "carries base64-encoded. Both platforms must agree byte for byte.",
+            "testKeySpkiSha256Hex": spki_sha256_hex(TEST_PUBLIC_KEY_SPKI_B64),
+            "wrongKeySpkiSha256Hex": spki_sha256_hex(WRONG_PUBLIC_KEY_SPKI_B64),
+        },
+        "oauthNative": {
+            "operationId": oauth["id"],
+            "pathTemplate": oauth["path"],
+            "provider": provider,
+            "path": oauth["path"].replace("{provider}", provider),
+            "headers": [["content-type", bundle["wireMapping"]["requestContentType"]]],
+            "value": body,
+            "canonical": canonical_body,
+            "sha256": sha256_hex(canonical_body),
+        },
+    }
+
+
 def build_errors():
     known = []
     for code, status, retryable in ERROR_VECTORS:
@@ -1010,6 +1079,7 @@ def build_revoke():
 FILES = {
     "canonical/serialization.json": build_canonical,
     "canonical/rejects.json": build_canonical_rejects,
+    "enrollment/enrollment.json": build_enrollment,
     "proof/proof-input.json": build_proof,
     "proof/rejects.json": build_proof_rejects,
     "request/operations.json": build_requests,

@@ -136,7 +136,7 @@ public struct SPFNCustodyKey: Sendable
     /// For enclave custody the blob is the sealed representation only this device's
     /// enclave can use; for software custody it is the private key's DER, which is why
     /// the record type redacts itself and the store applies device-only accessibility.
-    public func record(clientID: String?) -> SPFNStoredKey
+    public func record(clientID: String?, createdAtMillis: Int64) -> SPFNStoredKey
     {
         let blob: [UInt8]
         switch backend
@@ -146,7 +146,27 @@ public struct SPFNCustodyKey: Sendable
         case .software(let key):
             blob = [UInt8](key.derRepresentation)
         }
-        return SPFNStoredKey(keyID: keyID, clientID: clientID, custody: custody, keyBlob: blob)
+        return SPFNStoredKey(
+            keyID: keyID,
+            clientID: clientID,
+            custody: custody,
+            createdAtMillis: createdAtMillis,
+            keyBlob: blob
+        )
+    }
+
+    /// A key over a fixed software keypair, as the conformance fixtures pin one.
+    ///
+    /// For tests and the reference integration, exactly like the software provider's
+    /// fixed initializer: the fixture private half is published on purpose and
+    /// authenticates nothing.
+    public static func software(keyID: String, privateKeyDer: [UInt8]) throws -> SPFNCustodyKey
+    {
+        SPFNCustodyKey(
+            keyID: keyID,
+            custody: .softwareKeychain,
+            backend: .software(try P256.Signing.PrivateKey(derRepresentation: Data(privateKeyDer)))
+        )
     }
 }
 

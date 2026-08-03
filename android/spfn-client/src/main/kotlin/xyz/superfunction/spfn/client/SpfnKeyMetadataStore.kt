@@ -47,6 +47,12 @@ class SpfnStoredKeyMetadata(
      */
     val clientId: String?,
     val custody: SpfnKeyCustody,
+    /**
+     * When the key was generated, in epoch milliseconds. The TTL judgment reads this:
+     * `keyPolicy.ttlDays` counts from registration, and generation is the client-side
+     * moment closest to it that survives a restart.
+     */
+    val createdAtMillis: Long,
     /** The Keystore alias the private key lives under. */
     val alias: String
 )
@@ -56,13 +62,16 @@ class SpfnStoredKeyMetadata(
             other.keyId == keyId &&
             other.clientId == clientId &&
             other.custody == custody &&
+            other.createdAtMillis == createdAtMillis &&
             other.alias == alias
 
     override fun hashCode(): Int =
-        ((31 * keyId.hashCode() + (clientId?.hashCode() ?: 0)) * 31 + custody.hashCode()) * 31 + alias.hashCode()
+        (((31 * keyId.hashCode() + (clientId?.hashCode() ?: 0)) * 31 + custody.hashCode()) * 31 +
+            createdAtMillis.hashCode()) * 31 + alias.hashCode()
 
     override fun toString(): String =
-        "SpfnStoredKeyMetadata(keyId=$keyId, clientId=$clientId, custody=${custody.wireName}, alias=$alias)"
+        "SpfnStoredKeyMetadata(keyId=$keyId, clientId=$clientId, custody=${custody.wireName}, " +
+            "createdAtMillis=$createdAtMillis, alias=$alias)"
 }
 
 /**
@@ -100,10 +109,15 @@ class SpfnSharedPreferencesKeyMetadataStore(
         val custodyName = preferences.getString(key(slot, "custody"), null) ?: return null;
         val custody = SpfnKeyCustody.of(custodyName) ?: return null;
         val alias = preferences.getString(key(slot, "alias"), null) ?: return null;
+        if (!preferences.contains(key(slot, "createdAtMillis")))
+        {
+            return null;
+        }
         return SpfnStoredKeyMetadata(
             keyId = keyId,
             clientId = preferences.getString(key(slot, "clientId"), null),
             custody = custody,
+            createdAtMillis = preferences.getLong(key(slot, "createdAtMillis"), 0),
             alias = alias
         );
     }
@@ -113,6 +127,7 @@ class SpfnSharedPreferencesKeyMetadataStore(
         val editor = preferences.edit()
             .putString(key(slot, "keyId"), metadata.keyId)
             .putString(key(slot, "custody"), metadata.custody.wireName)
+            .putLong(key(slot, "createdAtMillis"), metadata.createdAtMillis)
             .putString(key(slot, "alias"), metadata.alias);
         if (metadata.clientId != null)
         {
@@ -131,6 +146,7 @@ class SpfnSharedPreferencesKeyMetadataStore(
             .remove(key(slot, "keyId"))
             .remove(key(slot, "clientId"))
             .remove(key(slot, "custody"))
+            .remove(key(slot, "createdAtMillis"))
             .remove(key(slot, "alias"))
             .apply();
     }

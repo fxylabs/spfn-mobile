@@ -74,7 +74,7 @@ final class SPFNCustodyKeyTests: XCTestCase
     {
         let store = InMemoryKeyStore()
         let key = SPFNCustodyKey.generate(keyID: "key-custody-0004", preferSecureEnclave: false)
-        try store.save(key.record(clientID: "user-test-0001"), slot: slot)
+        try store.save(key.record(clientID: "user-test-0001", createdAtMillis: 1_750_000_000_000), slot: slot)
 
         // A second process: nothing shared but the store.
         let reloaded = try XCTUnwrap(SPFNSecureEnclaveKeyProvider.load(from: store, slot: slot))
@@ -95,7 +95,7 @@ final class SPFNCustodyKeyTests: XCTestCase
     {
         let store = InMemoryKeyStore()
         let key = SPFNCustodyKey.generate(keyID: "key-custody-0005", preferSecureEnclave: false)
-        try store.save(key.record(clientID: nil), slot: slot)
+        try store.save(key.record(clientID: nil, createdAtMillis: 1_750_000_000_000), slot: slot)
 
         XCTAssertNil(
             try SPFNSecureEnclaveKeyProvider.load(from: store, slot: slot),
@@ -109,7 +109,7 @@ final class SPFNCustodyKeyTests: XCTestCase
     {
         let store = InMemoryKeyStore()
         let key = SPFNCustodyKey.generate(keyID: "key-custody-0006", preferSecureEnclave: false)
-        try store.save(key.record(clientID: "user-test-0001"), slot: slot)
+        try store.save(key.record(clientID: "user-test-0001", createdAtMillis: 1_750_000_000_000), slot: slot)
 
         try store.delete(slot: slot)
 
@@ -125,7 +125,7 @@ final class SPFNCustodyKeyTests: XCTestCase
     func testNoDefaultOutputPathPrintsKeyMaterial() throws
     {
         let key = SPFNCustodyKey.generate(keyID: "key-custody-0007", preferSecureEnclave: false)
-        let record = key.record(clientID: "user-test-0001")
+        let record = key.record(clientID: "user-test-0001", createdAtMillis: 1_750_000_000_000)
         let provider = SPFNSecureEnclaveKeyProvider(clientID: "user-test-0001", key: key)
 
         XCTAssertEqual(
@@ -139,7 +139,8 @@ final class SPFNCustodyKeyTests: XCTestCase
         )
         XCTAssertEqual(
             "\(record)",
-            "SPFNStoredKey(keyID: key-custody-0007, clientID: user-test-0001, custody: softwareKeychain, keyBlob: redacted)"
+            "SPFNStoredKey(keyID: key-custody-0007, clientID: user-test-0001, custody: softwareKeychain, "
+                + "createdAtMillis: 1750000000000, keyBlob: redacted)"
         )
 
         // The blob is the private key under software custody, so the mirror is closed
@@ -161,14 +162,14 @@ final class SPFNCustodyKeyTests: XCTestCase
     func testTheKeychainRecordFormatRoundTripsAndRefusesForeignBytes() throws
     {
         let key = SPFNCustodyKey.generate(keyID: "key-custody-0008", preferSecureEnclave: false)
-        let record = key.record(clientID: "user-test-0001")
+        let record = key.record(clientID: "user-test-0001", createdAtMillis: 1_750_000_000_000)
 
         let decoded = try SPFNKeychainKeyStore.decode(Data(SPFNKeychainKeyStore.encode(record)))
         XCTAssertEqual(decoded, record)
 
         XCTAssertThrowsError(try SPFNKeychainKeyStore.decode(Data("not a record".utf8)))
         XCTAssertThrowsError(
-            try SPFNKeychainKeyStore.decode(Data("{\"keyId\":\"k\",\"custody\":\"postIt\",\"keyBlobBase64\":\"\"}".utf8)),
+            try SPFNKeychainKeyStore.decode(Data("{\"createdAtMillis\":1,\"custody\":\"postIt\",\"keyBlobBase64\":\"\",\"keyId\":\"k\"}".utf8)),
             "an unknown custody name is refused, never defaulted"
         )
     }

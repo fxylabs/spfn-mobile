@@ -94,7 +94,7 @@ class SpfnKeystoreKeyProviderTest
         val engine = FakeKeystoreEngine(hasStrongBox = true);
         val store = InMemoryKeyMetadataStore();
         val key = SpfnKeystoreCustodyKey.generate("key-custody-0004", engine);
-        store.save(slot, key.metadata(clientId = "user-test-0001"));
+        store.save(slot, key.metadata(clientId = "user-test-0001", createdAtMillis = 1_750_000_000_000));
 
         // A second process: nothing shared but the store and the platform keystore.
         val reloaded = SpfnKeystoreKeyProvider.load(store, slot, engine);
@@ -116,7 +116,7 @@ class SpfnKeystoreKeyProviderTest
         val engine = FakeKeystoreEngine(hasStrongBox = true);
         val store = InMemoryKeyMetadataStore();
         val key = SpfnKeystoreCustodyKey.generate("key-custody-0005", engine);
-        store.save(slot, key.metadata(clientId = null));
+        store.save(slot, key.metadata(clientId = null, createdAtMillis = 1_750_000_000_000));
 
         assertNull(
             "a key that was never enrolled names no client and can prove nothing",
@@ -132,7 +132,7 @@ class SpfnKeystoreKeyProviderTest
         val engine = FakeKeystoreEngine(hasStrongBox = true);
         val store = InMemoryKeyMetadataStore();
         val key = SpfnKeystoreCustodyKey.generate("key-custody-0006", engine);
-        store.save(slot, key.metadata(clientId = "user-test-0001"));
+        store.save(slot, key.metadata(clientId = "user-test-0001", createdAtMillis = 1_750_000_000_000));
 
         key.destroy();
         store.delete(slot);
@@ -152,7 +152,7 @@ class SpfnKeystoreKeyProviderTest
         val engine = FakeKeystoreEngine(hasStrongBox = true);
         val store = InMemoryKeyMetadataStore();
         val key = SpfnKeystoreCustodyKey.generate("key-custody-0007", engine);
-        store.save(slot, key.metadata(clientId = "user-test-0001"));
+        store.save(slot, key.metadata(clientId = "user-test-0001", createdAtMillis = 1_750_000_000_000));
 
         engine.delete(key.alias);
 
