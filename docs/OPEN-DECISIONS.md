@@ -13,11 +13,11 @@ awaiting human confirmation. **RESOLVED** — a person confirmed it, with the da
 | --- | --- | --- | --- | --- |
 | D1 | Repository visibility and public source disclosure | OPEN | keep current visibility; disclose only under separate approval | the repository existing is not approval to publish its source |
 | D2 | CI runner strategy | OPEN | hosted Linux + macOS, release environment with a required reviewer | macOS cost, device farm and attestation plan limits are unknown |
-| D3 | Registry staging | OPEN | no-publish candidate first, then private alpha, then public under separate approval | no authority to create or use accounts, namespaces or signing identities |
+| D3 | Registry staging | **RESOLVED 2026-08-03** | RC verification goes exactly as far as a no-publish candidate: a local tag plus a local `$TMPDIR` staging directory, produced by `tools/rc-verify/rc-verify.sh` through the publication gate in the root build script | resolved only to that boundary: registry accounts and a private alpha are a person's work under a separate approval, as a follow-up track. Nothing in this repository creates or uses an account, namespace or signing identity |
 | D4 | Maven group | PROPOSED | `xyz.superfunction.spfn` | control of the `superfunction.xyz` namespace and Central verification eligibility are unconfirmed; recorded in `gradle.properties` as `spfn.maven.group.proposed` with `verified=false` |
 | D5 | OS/toolchain baseline (Swift tools, Xcode, min iOS/macOS, Kotlin, AGP, Gradle, JDK, min/target/compile SDK) | **RESOLVED 2026-08-01** | see the table below | confirmed as a **build and parity baseline only**; it is not a support commitment, and `COMPATIBILITY.md` support rows stay UNRESOLVED until real-device evidence exists |
 | D6 | Real CODEOWNERS subjects | OPEN | split contract / iOS / Android / security / release roles | actual teams, handles and required-review enforcement are undetermined |
-| D7 | Contract bundle signing | OPEN | commit + SHA-256 always; provenance and signature added for public releases | attestation availability and long-term key custody policy are undetermined |
+| D7 | Contract bundle signing | **RESOLVED 2026-08-03** | alpha candidates are unsigned: candidate identity is the source commit plus `SHA256SUMS` plus the candidate manifest, with CycloneDX SBOMs for both platforms — the Gradle plugin on Android, static generation on iOS where the external dependency set is empty by design | signature and provenance attestation are added for public releases; long-term key custody stays undecided until a signing identity exists, and none does |
 
 ### D5 as confirmed
 
