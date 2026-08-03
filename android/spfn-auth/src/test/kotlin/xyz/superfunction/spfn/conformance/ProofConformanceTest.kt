@@ -10,6 +10,7 @@
 package xyz.superfunction.spfn.conformance
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -99,27 +100,95 @@ class ProofConformanceTest
     }
 
     /**
-     * A signature over one input must fail over any other: the discriminance half of
-     * the vector above, without which every green would also be green for a verifier
-     * that accepts everything.
+     * A signature over one input must fail when any single field differs — one case
+     * per proof-input field (A1–A8), because a verifier that ignored one line of the
+     * canonical form would stay green under a single-field probe of any other line.
+     *
+     * Each tampered value avoids C0 controls (so the failure is the verification
+     * path, never the proof-input error path), `issuedAtMillis` changes as a number,
+     * and the tampered `bodySha256` stays 64 lowercase hex (so it reaches signature
+     * verification rather than any format gate). Every case first asserts the
+     * canonical bytes really changed, so a vacuous tamper cannot pass.
      */
     @Test
-    fun aFixtureSignatureFailsOverATamperedInput()
+    fun eachProofInputFieldTamperedIndividuallyFailsVerification()
     {
         val fixture = Fixtures.load("proof/proof-input.json").members();
+        val publicKey = ProofTestKeyPair.publicKeySpkiDer();
         val entry = fixture.list("vectors").first().members();
         val input = proofInput(entry.obj("input"));
-        val tampered = input.copy(nonce = input.nonce + "-tampered");
+        val recorded = entry.text("signatureRsHex");
+        val originalBytes = SpfnClientProof.canonicalBytes(input);
 
+        // A2–A8: the seven fields the input type carries.
+        val cases = listOf(
+            "A2-method" to input.copy(method = "PUT"),
+            "A3-path" to input.copy(path = input.path + "-x"),
+            "A4-clientId" to input.copy(clientId = input.clientId + "-x"),
+            "A5-keyId" to input.copy(keyId = input.keyId + "-x"),
+            "A6-nonce" to input.copy(nonce = input.nonce + "-x"),
+            "A7-issuedAtMillis" to input.copy(issuedAtMillis = input.issuedAtMillis + 1),
+            "A8-bodySha256" to input.copy(bodySha256 = tamperedHexDigest(input.bodySha256))
+        );
+
+        for ((field, tampered) in cases)
+        {
+            assertFalse(
+                "'$field' tampering did not change the canonical bytes; the case is vacuous",
+                SpfnClientProof.canonicalBytes(tampered).contentEquals(originalBytes)
+            );
+            try
+            {
+                SpfnClientProof.verify(recorded, tampered, publicKey);
+                fail("'$field' tampering was accepted");
+            }
+            catch (failure: SpfnAuthException)
+            {
+                assertEquals("'$field' refused with the wrong error", "PROOF_INVALID", failure.code);
+            }
+        }
+
+        // A1: the profile is a constant the input type cannot carry, so the tamper
+        // runs the other way — a signature over bytes whose profile line differs must
+        // fail against the real input. The verify call here is the same code path as
+        // above; only the signed message is different. This never touches profile
+        // *policy* (unknownProfilePolicy is a contract refusal), only the signature.
+        val originalString = String(originalBytes, Charsets.UTF_8);
+        assertTrue("the first proof-input line is the profile", originalString.startsWith("clientProofV1\n"));
+        val profileTamperedBytes = ("clientProofX" + originalString.removePrefix("clientProofV1"))
+            .toByteArray(Charsets.UTF_8);
+        assertFalse("'A1-profile' tampering is vacuous", profileTamperedBytes.contentEquals(originalBytes));
+
+        val overTamperedProfile = hexLower(ProofTestKeyPair.sign(profileTamperedBytes));
         try
         {
-            SpfnClientProof.verify(entry.text("signatureRsHex"), tampered, ProofTestKeyPair.publicKeySpkiDer());
-            fail("a tampered input was accepted");
+            SpfnClientProof.verify(overTamperedProfile, input, publicKey);
+            fail("'A1-profile' tampering was accepted");
         }
         catch (failure: SpfnAuthException)
         {
-            assertEquals("PROOF_INVALID", failure.code);
+            assertEquals("'A1-profile' refused with the wrong error", "PROOF_INVALID", failure.code);
         }
+    }
+
+    /**
+     * A different 64-character lowercase hex digest: still valid in form, so the
+     * refusal it provokes is the signature check and never a format gate.
+     */
+    private fun tamperedHexDigest(digest: String): String =
+        digest.dropLast(1) + if (digest.last() == '0') "f" else "0"
+
+    private fun hexLower(bytes: ByteArray): String
+    {
+        val digits = "0123456789abcdef";
+        val out = StringBuilder(bytes.size * 2);
+        for (byte in bytes)
+        {
+            val value = byte.toInt() and 0xFF;
+            out.append(digits[value shr 4]);
+            out.append(digits[value and 0x0F]);
+        }
+        return out.toString();
     }
 
     /**

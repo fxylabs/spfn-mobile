@@ -589,6 +589,39 @@ final class SPFNSessionTests: XCTestCase
         XCTAssertEqual(calls, 2)
     }
 
+    // MARK: - A failing signer
+
+    /// A provider whose key went away — a hardware keystore losing its entry is the
+    /// real-world shape — must surface its own error from the session, unwrapped and
+    /// unswallowed, and nothing may be sent: a request without a proof is not a
+    /// request this contract has.
+    func testASignerFailurePropagatesAndNothingIsSent() async throws
+    {
+        let transport = ScriptedTransport([handshakeAnswer()])
+        let subject = SPFNSession(
+            transport: transport,
+            keyProvider: ThrowingKeyProvider(),
+            baseURL: baseURL,
+            clock: FakeClock(SessionFixtureValues.issuedAtMillis),
+            nonceGenerator: ScriptedNonceGenerator(["nonce-000000000001"])
+        )
+
+        do
+        {
+            _ = try await subject.handshake()
+            XCTFail("a handshake with a failing signer must not succeed")
+        }
+        catch let error as SignerFailure
+        {
+            XCTAssertEqual(error, .keyUnavailable, "the signer's own error must arrive unwrapped")
+        }
+
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 0, "nothing may be sent once the signer failed")
+        let held = await subject.currentState
+        XCTAssertNil(held, "no session may be installed by a failed handshake")
+    }
+
     // MARK: - Nothing secret reaches a description
 
     func testDescriptionsCarryNoKeyAndNoSessionIdentifier()

@@ -484,6 +484,35 @@ class SpfnSessionTest
         assertEquals(2, transport.callCount)
     }
 
+    // ---- a failing signer --------------------------------------------------
+
+    /**
+     * A provider whose key went away — a hardware keystore losing its entry is the
+     * real-world shape — must surface its own error from the session, unwrapped and
+     * unswallowed, and nothing may be sent: a request without a proof is not a request
+     * this contract has.
+     */
+    @Test
+    fun aSignerFailurePropagatesAndNothingIsSent() = runBlocking {
+        val transport = ScriptedTransport(listOf(handshakeAnswer()))
+        val subject = SpfnSession(
+            transport = transport,
+            keyProvider = ThrowingKeyProvider(),
+            baseUrl = baseUrl,
+            clock = FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS),
+            nonceGenerator = ScriptedNonceGenerator(listOf("nonce-000000000001"))
+        )
+
+        val thrown = runCatching { subject.handshake() }.exceptionOrNull()
+
+        assertTrue(
+            "the signer's own error must arrive unwrapped, got $thrown",
+            thrown is SignerFailure
+        )
+        assertEquals("nothing may be sent once the signer failed", 0, transport.callCount)
+        assertNull("no session may be installed by a failed handshake", subject.currentState())
+    }
+
     // ---- nothing secret reaches a toString ---------------------------------
 
     @Test

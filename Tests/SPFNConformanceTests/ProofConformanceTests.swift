@@ -95,36 +95,123 @@ final class ProofConformanceTests: XCTestCase
         }
     }
 
-    /// A signature over one input must fail over any other: the discriminance half of
-    /// the vector above, without which every green would also be green for a verifier
-    /// that accepts everything.
-    func testAFixtureSignatureFailsOverATamperedInput() throws
+    /// A signature over one input must fail when any single field differs — one case
+    /// per proof-input field (A1–A8), because a verifier that ignored one line of the
+    /// canonical form would stay green under a single-field probe of any other line.
+    ///
+    /// Each tampered value avoids C0 controls (so the failure is the verification
+    /// path, never the proof-input error path), `issuedAtMillis` changes as a number,
+    /// and the tampered `bodySha256` stays 64 lowercase hex (so it reaches signature
+    /// verification rather than any format gate). Every case first asserts the
+    /// canonical bytes really changed, so a vacuous tamper cannot pass.
+    func testEachProofInputFieldTamperedIndividuallyFailsVerification() throws
     {
         let fixture = try Fixtures.load("proof/proof-input.json").members()
-        let (_, publicKeySpkiDer) = try ProofFixtures.testKeyPair()
+        let (privateKeyDer, publicKeySpkiDer) = try ProofFixtures.testKeyPair()
         let entry = try fixture.list("vectors")[0].members()
         let input = try ProofFixtures.input(from: try entry["input"]!.members())
+        let recorded = try entry.text("signatureRsHex")
+        let originalBytes = try SPFNClientProof.canonicalBytes(for: input)
 
-        let tampered = SPFNProofInput(
-            method: input.method,
-            path: input.path,
-            clientID: input.clientID,
-            keyID: input.keyID,
-            nonce: input.nonce + "-tampered",
-            issuedAtMillis: input.issuedAtMillis,
-            bodySha256: input.bodySha256
-        )
+        // A2–A8: the seven fields the input type carries.
+        let bodyDigestTampered = tamperedHexDigest(input.bodySha256)
+        let cases: [(field: String, tampered: SPFNProofInput)] = [
+            ("A2-method", modified(input, method: "PUT")),
+            ("A3-path", modified(input, path: input.path + "-x")),
+            ("A4-clientId", modified(input, clientID: input.clientID + "-x")),
+            ("A5-keyId", modified(input, keyID: input.keyID + "-x")),
+            ("A6-nonce", modified(input, nonce: input.nonce + "-x")),
+            ("A7-issuedAtMillis", modified(input, issuedAtMillis: input.issuedAtMillis + 1)),
+            ("A8-bodySha256", modified(input, bodySha256: bodyDigestTampered)),
+        ]
 
+        for (field, tampered) in cases
+        {
+            XCTAssertNotEqual(
+                try SPFNClientProof.canonicalBytes(for: tampered),
+                originalBytes,
+                "'\(field)' tampering did not change the canonical bytes; the case is vacuous"
+            )
+            XCTAssertThrowsError(
+                try SPFNClientProof.verify(
+                    presented: recorded,
+                    for: tampered,
+                    publicKeySpkiDer: publicKeySpkiDer
+                ),
+                "'\(field)' tampering was accepted"
+            )
+            { error in
+                XCTAssertEqual(error as? SPFNAuthError, .proofInvalid, "'\(field)' refused with the wrong error")
+            }
+        }
+
+        // A1: the profile is a constant the input type cannot carry, so the tamper
+        // runs the other way — a signature over bytes whose profile line differs must
+        // fail against the real input. The verify call here is the same code path as
+        // above; only the signed message is different. Deliberately not
+        // "clientProofV2" upside down: this never touches profile *policy*
+        // (unknownProfilePolicy is a contract refusal), only the signature.
+        let originalString = String(decoding: originalBytes, as: UTF8.self)
+        XCTAssertTrue(originalString.hasPrefix("clientProofV1\n"), "the first proof-input line is the profile")
+        let profileTamperedBytes = Array(("clientProofX" + originalString.dropFirst("clientProofV1".count)).utf8)
+        XCTAssertNotEqual(profileTamperedBytes, originalBytes, "'A1-profile' tampering is vacuous")
+
+        let signer = try P256.Signing.PrivateKey(derRepresentation: Data(privateKeyDer))
+        let overTamperedProfile = hexLower(Array(try signer.signature(for: Data(profileTamperedBytes)).rawRepresentation))
         XCTAssertThrowsError(
             try SPFNClientProof.verify(
-                presented: try entry.text("signatureRsHex"),
-                for: tampered,
+                presented: overTamperedProfile,
+                for: input,
                 publicKeySpkiDer: publicKeySpkiDer
-            )
+            ),
+            "'A1-profile' tampering was accepted"
         )
         { error in
-            XCTAssertEqual(error as? SPFNAuthError, .proofInvalid)
+            XCTAssertEqual(error as? SPFNAuthError, .proofInvalid, "'A1-profile' refused with the wrong error")
         }
+    }
+
+    /// A different 64-character lowercase hex digest: still valid in form, so the
+    /// refusal it provokes is the signature check and never a format gate.
+    private func tamperedHexDigest(_ digest: String) -> String
+    {
+        let last = digest.last == "0" ? "f" : "0"
+        return digest.dropLast() + String(last)
+    }
+
+    private func modified(
+        _ input: SPFNProofInput,
+        method: String? = nil,
+        path: String? = nil,
+        clientID: String? = nil,
+        keyID: String? = nil,
+        nonce: String? = nil,
+        issuedAtMillis: Int64? = nil,
+        bodySha256: String? = nil
+    ) -> SPFNProofInput
+    {
+        SPFNProofInput(
+            method: method ?? input.method,
+            path: path ?? input.path,
+            clientID: clientID ?? input.clientID,
+            keyID: keyID ?? input.keyID,
+            nonce: nonce ?? input.nonce,
+            issuedAtMillis: issuedAtMillis ?? input.issuedAtMillis,
+            bodySha256: bodySha256 ?? input.bodySha256
+        )
+    }
+
+    private func hexLower(_ bytes: [UInt8]) -> String
+    {
+        let digits = Array("0123456789abcdef".utf8)
+        var out: [UInt8] = []
+        out.reserveCapacity(bytes.count * 2)
+        for byte in bytes
+        {
+            out.append(digits[Int(byte >> 4)])
+            out.append(digits[Int(byte & 0x0F)])
+        }
+        return String(decoding: out, as: UTF8.self)
     }
 
     /// DER, uppercase, truncation, non-hex, a wrong key and r = s = 0 are all one
