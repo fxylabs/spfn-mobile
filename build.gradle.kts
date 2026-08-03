@@ -124,6 +124,19 @@ if (publishingEnabled)
     sdkModules.forEach { module ->
         module.pluginManager.apply("maven-publish")
 
+        // maven-publish also registers an implicit install into ~/.m2 — a publication
+        // target OUTSIDE the staging directory the gate just proved. Both the typed
+        // install tasks and the `publishToMavenLocal` aggregate are disabled, so the
+        // staging repository below is the only target that can actually run, not just
+        // the only one declared.
+        module.tasks.withType(org.gradle.api.publish.maven.tasks.PublishToMavenLocal::class.java)
+            .configureEach {
+                enabled = false
+            }
+        module.tasks.matching { it.name == "publishToMavenLocal" }.configureEach {
+            enabled = false
+        }
+
         module.plugins.withId("com.android.library") {
             module.extensions.configure(com.android.build.api.dsl.LibraryExtension::class.java) {
                 publishing {
