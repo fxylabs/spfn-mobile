@@ -206,6 +206,19 @@ printf '      - name: probe\n        run: echo "${{ format('"'"'{0}'"'"', inputs
 expect_fail 'an input reaching run text through format() indirection fails' \
     'interpolated outside an env assignment'
 
+# --- i. the actions allow-list -----------------------------------------------------
+printf '      - name: probe\n        uses: actions/upload-artifact@v4\n' >> "$PUBLISH_WORKFLOW"
+expect_fail 'a tag-pinned form of even the allowlisted action fails' \
+    'outside the SHA-pinned allowlist'
+
+printf '      - name: probe\n        uses: actions/checkout@ea165f8d65b6e75b540449e92b4886f43607fa02\n' >> "$PUBLISH_WORKFLOW"
+expect_fail 'a SHA-pinned action outside the allowlist fails' \
+    'outside the SHA-pinned allowlist'
+
+printf '      - name: probe\n        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02\n' >> "$RC_WORKFLOW"
+expect_fail 'any action in a non-publish workflow fails, pinned or not' \
+    'uses no third-party action'
+
 # --- h. the admitted lookup form stays admitted ------------------------------------
 printf 'val probeLookupOnly = "credentials(PasswordCredentials::class)"\n' >> "$ROOT_BUILD"
 if sh tools/validate/validate.sh > "$TMP/run.log" 2>&1

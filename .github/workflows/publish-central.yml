@@ -18,8 +18,19 @@
 #     workflow zips that staged bundle and posts it to the Portal publisher API. The
 #     only remote endpoint below is central.sonatype.com, and
 #     tools/validate/validate.sh fails if any other appears here.
-#   - No third-party action (`uses:`) — D14 is still open, so there is nothing to pin
-#     and nothing borrowed. Checkout is a plain git clone with the workflow token.
+#   - Exactly ONE third-party action, pinned by commit SHA: actions/upload-artifact,
+#     used only on failure to carry the RC harness logs out of the runner — the logs
+#     died with the runner in dispatch 30795139768 and the failure was undiagnosable.
+#     D14 stays open for the general action set; the validator holds this file to that
+#     single SHA-pinned action and every other workflow to none. Checkout stays a
+#     plain git clone with the workflow token.
+#
+# Log observability is bounded on purpose: only $RUNNER_TEMP/rc-out/logs is ever
+# tailed or uploaded. Those are the harness's swift/gradle/manifest logs; Gradle does
+# not print property values, so the in-memory signing key and its passphrase never
+# appear in them, and the Central token is used only in the upload step, whose output
+# is not part of rc-out/logs. GitHub's secret masking is a second net, not the
+# mechanism.
 #
 # Signing key custody: the key exists ONLY as the two secrets above, injected into the
 # build as ORG_GRADLE_PROJECT_* environment variables and consumed in memory
@@ -65,11 +76,12 @@ jobs:
             echo "commit input must be exactly 40 hex characters, got ${#PUBLISH_COMMIT}" >&2
             exit 1
           fi
-          git clone "https://x-access-token:${{secrets.GITHUB_TOKEN}}@github.com/${GITHUB_REPOSITORY}.git" spfn-mobile
+          # --no-tags: the candidate tag exists on the remote now, and the harness
+          # creates its own local tag and refuses to run over a pre-existing one. The
+          # tag -d below stays as the second layer for a tag arriving any other way.
+          git clone --no-tags "https://x-access-token:${{secrets.GITHUB_TOKEN}}@github.com/${GITHUB_REPOSITORY}.git" spfn-mobile
           cd spfn-mobile
           git checkout --detach "$PUBLISH_COMMIT"
-          # The harness creates its own local candidate tag and refuses to run over a
-          # pre-existing one, so a tag fetched with the clone is removed first.
           VERSION=$(tr -d '[:space:]' < VERSION)
           git tag -d "$VERSION" 2> /dev/null || true
 
@@ -92,6 +104,35 @@ jobs:
           SPFN_RC_OUT="$RUNNER_TEMP/rc-out" ANDROID_HOME="${ANDROID_HOME:?Android SDK missing on runner}" \
             sh tools/rc-verify/rc-verify.sh
           echo "RC_OUT=$RUNNER_TEMP/rc-out" >> "$GITHUB_ENV"
+
+      - name: Surface RC harness logs on failure
+        # Output is confined to $RUNNER_TEMP/rc-out/logs — the harness's own
+        # swift/gradle/manifest logs, which never carry a key, passphrase or token
+        # (Gradle does not print property values; the Central token step writes
+        # nowhere under rc-out). Nothing else on the runner is echoed.
+        if: failure()
+        run: |
+          LOGS="$RUNNER_TEMP/rc-out/logs"
+          if [ ! -d "$LOGS" ]
+          then
+            echo "no rc-out/logs directory exists; the failure happened before the harness ran"
+            exit 0
+          fi
+          for log in "$LOGS"/*.log "$LOGS"/Package.resolved
+          do
+            [ -f "$log" ] || continue
+            echo "===== tail -n 80 $log ====="
+            tail -n 80 "$log"
+            echo
+          done
+
+      - name: Upload RC harness logs as an artifact
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rc-verify-logs
+          path: ${{ runner.temp }}/rc-out/logs
+          if-no-files-found: ignore
 
       - name: Bundle and upload to the Central Portal (held for human confirmation)
         env:
