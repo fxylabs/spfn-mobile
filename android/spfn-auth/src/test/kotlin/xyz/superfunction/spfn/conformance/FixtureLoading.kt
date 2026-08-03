@@ -60,5 +60,3 @@ fun Map<String, SpfnCanonicalValue>.obj(key: String): Map<String, SpfnCanonicalV
     (this[key] ?: error("fixture is missing '$key'")).members()
 
 /** The synthetic test key the proof vectors are signed with. Never a credential. */
-fun syntheticKey(): ByteArray =
-    Fixtures.load("proof/proof-input.json").members().obj("syntheticKey").text("keyUtf8").toByteArray(Charsets.UTF_8)

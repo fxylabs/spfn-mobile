@@ -11,7 +11,6 @@ package xyz.superfunction.spfn.reference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
-import xyz.superfunction.spfn.auth.SpfnClientProof
 import xyz.superfunction.spfn.auth.SpfnProofInput
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 
@@ -92,7 +91,7 @@ class SpfnReferenceReplayLedgerTest
             presentedSessionId = null,
             requiresSession = false,
             proofInput = input,
-            presentedProof = SpfnClientProof.proof(input, SpfnReferenceTestKeys.KEY_BYTES)
+            presentedProof = SpfnReferenceTestKeys.proofFor(input)
         );
     }
 

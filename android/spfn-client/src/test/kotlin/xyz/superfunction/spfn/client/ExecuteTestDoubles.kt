@@ -26,15 +26,25 @@ import xyz.superfunction.spfn.generated.SpfnListItemsResponse
 object ExecuteFixtures
 {
     /**
-     * The synthetic key the wire vectors are signed with. Not a credential; see
-     * Contracts/fixtures/MANIFEST.json.
+     * A provider over the fixture test keypair. Not a credential; see
+     * Contracts/fixtures/proof/proof-input.json — the private half is published there
+     * on purpose. Read from the fixture rather than restated, so the suite cannot
+     * silently sign with something else.
      */
-    fun syntheticProvider(clientId: String = SessionFixtureValues.CLIENT_ID): SpfnInMemoryKeyProvider =
-        SpfnInMemoryKeyProvider(
+    fun syntheticProvider(clientId: String = SessionFixtureValues.CLIENT_ID): SpfnSoftwareKeyProvider
+    {
+        val keyPair = WireFixtures.wire().obj("testKeyPair");
+        return SpfnSoftwareKeyProvider.fromPkcs8(
             clientId = clientId,
-            keyId = SessionFixtureValues.KEY_ID,
-            key = WireFixtures.wire().obj("syntheticKey").text("keyUtf8").toByteArray(Charsets.UTF_8)
-        )
+            keyId = keyPair.text("keyId"),
+            privateKeyPkcs8 = java.util.Base64.getDecoder().decode(keyPair.text("privateKeyPkcs8Base64")),
+            publicKeySpkiDer = java.util.Base64.getDecoder().decode(keyPair.text("publicKeySpkiBase64"))
+        );
+    }
+
+    /** The public half of the fixture keypair, for verifying what a session signed. */
+    fun fixturePublicKeySpkiDer(): ByteArray =
+        java.util.Base64.getDecoder().decode(WireFixtures.wire().obj("testKeyPair").text("publicKeySpkiBase64"))
 
     fun handshakeResponse(sessionId: String, expiringAt: Long): String =
         "{\"expiresAtMillis\":$expiringAt,\"sessionId\":\"$sessionId\"}"

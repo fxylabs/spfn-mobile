@@ -2,9 +2,20 @@
   "algorithm": "SPFN-PROOF-INPUT-1",
   "profile": "clientProofV1",
   "note": "Expected values were derived by Contracts/fixtures/derive-expected-values.py, a third implementation independent of both SDKs. Two SDKs agreeing with each other would prove nothing; agreeing with an outside implementation is the actual evidence.",
-  "syntheticKey": {
-    "note": "TEST VECTOR ONLY. keyUtf8 is a synthetic string, not a credential. It authenticates nothing, was never issued by anything, and must never be presented to a real endpoint.",
-    "keyUtf8": "spfn-test-key-not-a-secret-0001"
+  "signatureNote": "Every proof value in this directory was signed by derive-expected-values.py with the test keypair and an RFC 6979 deterministic nonce, so the files reproduce byte for byte. A platform signer draws a random nonce, so its proofs are judged by verification against the test public key rather than byte equality.",
+  "testKeyPair": {
+    "note": "TEST KEYPAIR ONLY — NOT A SECRET. The keypair is restated byte for byte from SPFN primitives __tests__/test-keys.ts, where publishing the private half is intentional. It authenticates nothing, was never issued by anything, and must never be presented to a real endpoint.",
+    "origin": "SPFN primitives packages/auth/src/server/client-proof/__tests__/test-keys.ts",
+    "keyId": "key-test-0001",
+    "publicKeySpkiBase64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES7xktjK+fMydT7UZcfuW/vzU9rU/+RPVVQKKgxrB1sd9bh6N1bqiBwU/zuw9/LaQ91lWPeWSN9OlT8OlDYXIYg==",
+    "privateKeyPkcs8Base64": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgMv3D4UvmGKjFeG3myLLfwlcOAQ9n8qoFmwrgGWBErsShRANCAARLvGS2Mr58zJ1PtRlx+5b+/NT2tT/5E9VVAoqDGsHWx31uHo3VuqIHBT/O7D38tpD3WVY95ZI306VPw6UNhchi"
+  },
+  "wrongKeyPair": {
+    "note": "TEST KEYPAIR ONLY — NOT A SECRET. The keypair is restated byte for byte from SPFN primitives __tests__/test-keys.ts, where publishing the private half is intentional. It authenticates nothing, was never issued by anything, and must never be presented to a real endpoint.",
+    "origin": "SPFN primitives packages/auth/src/server/client-proof/__tests__/test-keys.ts",
+    "keyId": "key-test-0002",
+    "publicKeySpkiBase64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEvA1Qe3c98K4+u/Gb5ORnGhqRGUUJ6oCVYoxRdp5b0OiRS75v5ULruknszTl9+zd8yQ817hOPjWzdJiijXSQzw==",
+    "privateKeyPkcs8Base64": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgcBSWaGkYFpu+WAjDNOwFXF1ubNfelYWjFmMRn97+69OhRANCAAQS8DVB7dz3wrj678Zvk5GcaGpEZRQnqgJVijFF2nlvQ6JFLvm/lQuu6SezNOX37N3zJDzXuE4+NbN0mKKNdJDP"
   },
   "vectors": [
     {
@@ -21,7 +32,7 @@
       },
       "canonicalString": "clientProofV1\nPOST\n/v1/auth/client-proof/handshake\nclient-test-0001\nkey-test-0001\nnonce-000000000001\n1750000000000\n0000000000000000000000000000000000000000000000000000000000000000",
       "canonicalSha256": "c58bd3236fc53e6cead257b7e8d8cff29686e2f95e16adacbf81821a57ff7c01",
-      "proofHmacSha256": "d5530f999283ee35acd6689ed3f50c798423d2fead23a1929395df0387c7065a"
+      "signatureRsHex": "471ad29a41fa335754005b611058ed7d769d93aefb507abad7880728d6816964371b11f7c07cf10d97a80a3bba320cd28dbf58cbaabd38530b8f6960728c5b5c"
     },
     {
       "name": "echo-with-canonical-body",
@@ -37,7 +48,7 @@
       },
       "canonicalString": "clientProofV1\nPOST\n/v1/echo\nclient-test-0001\nkey-test-0001\nnonce-000000000002\n1750000000000\n7ebd40a4b02f42649c0808ee91edc724f61afac3ac550f4e7c37905bcc1a6edb",
       "canonicalSha256": "c28f9c33369ad2a2140523a5813233fba27ff95a64fadd30c9850f4380951742",
-      "proofHmacSha256": "45e41e7a897cc2bf6d9a8e2cb5b66bb545b9d24a6a810f47d98a80eeb879b465"
+      "signatureRsHex": "6780704389ee82bb0b3de8f75110e934a5414556c9336ac39a82e07e1227f87789bf041fcbc6ae96479b70031e069d7464d797cbf7a8be384f0e00c0d1eac7d7"
     },
     {
       "name": "unicode-in-nonce",
@@ -53,7 +64,45 @@
       },
       "canonicalString": "clientProofV1\nPOST\n/v1/items/list\nclient-test-0002\nkey-test-0002\nnonce-한국-0003\n1750000000999\nd837ac99c8a7517b99d9b2a3bb8bb57640707eae5d3b3f8458cac9bbe13dd8dc",
       "canonicalSha256": "f10eb530c78b289d1d5f73297350724886afe2297f98f67370430f755dc561cb",
-      "proofHmacSha256": "ccf4a36693bc8ea9f71b6c4b5de803735be9586a485dc2c32bf2cca4190a9b24"
+      "signatureRsHex": "91a0ec4e79147b7c741b54b83d13195bbdd218845ac722ab6e6590a29ca6068963b9251b6e0f05c16cf62e12059a488ded975923a58505030becd2d4f28f089e"
+    }
+  ],
+  "signatureRejects": [
+    {
+      "name": "der-encoded",
+      "why": "the same signature that verifies as raw r||s must be refused in DER; a platform signer that emits DER converts before sending, never the verifier",
+      "vector": "handshake-no-body",
+      "presented": "30440220471ad29a41fa335754005b611058ed7d769d93aefb507abad7880728d68169640220371b11f7c07cf10d97a80a3bba320cd28dbf58cbaabd38530b8f6960728c5b5c"
+    },
+    {
+      "name": "uppercase-hex",
+      "why": "the wire encoding is base16-lower; an uppercase digest is a different string",
+      "vector": "handshake-no-body",
+      "presented": "471AD29A41FA335754005B611058ED7D769D93AEFB507ABAD7880728D6816964371B11F7C07CF10D97A80A3BBA320CD28DBF58CBAABD38530B8F6960728C5B5C"
+    },
+    {
+      "name": "truncated-63-bytes",
+      "why": "a raw signature is exactly 64 bytes; 126 hex characters is not one",
+      "vector": "handshake-no-body",
+      "presented": "471ad29a41fa335754005b611058ed7d769d93aefb507abad7880728d6816964371b11f7c07cf10d97a80a3bba320cd28dbf58cbaabd38530b8f6960728c5b"
+    },
+    {
+      "name": "not-hex",
+      "why": "128 characters that are not all hex digits never reach the curve",
+      "vector": "handshake-no-body",
+      "presented": "g71ad29a41fa335754005b611058ed7d769d93aefb507abad7880728d6816964371b11f7c07cf10d97a80a3bba320cd28dbf58cbaabd38530b8f6960728c5b5c"
+    },
+    {
+      "name": "wrong-key",
+      "why": "a well-formed signature by another key must fail verification, not formatting",
+      "vector": "handshake-no-body",
+      "presented": "48b7eb11b2da9ef6a424b4418e73da69f5436e892141acd57bb488e6e7aa11c37409a8d2a4c1f13a4bd4f39751f35ce8b27c63000904c6cc976865e339de53e0"
+    },
+    {
+      "name": "all-zero",
+      "why": "r = s = 0 is outside [1, n-1] and can never verify",
+      "vector": "handshake-no-body",
+      "presented": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
     }
   ]
 }

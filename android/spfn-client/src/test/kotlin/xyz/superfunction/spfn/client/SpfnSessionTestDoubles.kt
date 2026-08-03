@@ -93,6 +93,21 @@ fun jsonResponse(statusCode: Int, text: String): SpfnTransportResponse =
     )
 
 /**
+ * What a signer that cannot sign throws. Its own type, so a test can assert the
+ * session neither wrapped it nor replaced it.
+ */
+class SignerFailure : IllegalStateException("the signing key is unavailable")
+
+/** A provider whose key is gone: every sign attempt fails. */
+class ThrowingKeyProvider : SpfnKeyProvider
+{
+    override val clientId: String = SessionFixtureValues.CLIENT_ID
+    override val keyId: String = SessionFixtureValues.KEY_ID
+
+    override fun sign(message: ByteArray): ByteArray = throw SignerFailure()
+}
+
+/**
  * The synthetic identities every fixture vector uses. Not credentials; see
  * Contracts/fixtures/MANIFEST.json.
  */

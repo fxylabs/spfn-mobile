@@ -321,8 +321,8 @@ public actor SPFNSession
             canonicalBody: canonicalBody
         )
 
-        let proof = try keyProvider.withKey { key in
-            try SPFNClientProof.proof(for: input, key: key)
+        let proof = try SPFNClientProof.proof(for: input) { message in
+            try keyProvider.sign(message)
         }
 
         var headers: [(String, String)] = []

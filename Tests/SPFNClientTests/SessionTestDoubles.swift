@@ -121,6 +121,25 @@ extension SPFNTransportResponse
     }
 }
 
+/// What a signer that cannot sign throws. Its own type, so a test can assert the
+/// session neither wrapped it nor replaced it.
+enum SignerFailure: Error, Equatable
+{
+    case keyUnavailable
+}
+
+/// A provider whose key is gone: every sign attempt fails.
+struct ThrowingKeyProvider: SPFNKeyProvider
+{
+    let clientID: String = SessionFixtureValues.clientID
+    let keyID: String = SessionFixtureValues.keyID
+
+    func sign(_ message: [UInt8]) throws -> [UInt8]
+    {
+        throw SignerFailure.keyUnavailable
+    }
+}
+
 enum SessionFixtureValues
 {
     /// The synthetic key every fixture vector is signed with. Not a credential; see

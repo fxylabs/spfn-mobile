@@ -55,6 +55,7 @@ class SpfnReferenceControl(
             state.expireSessions();
             ok(emptyMap());
         }
+        REGISTER_KEY -> registerKey(body)
         REVOKE_KEY -> revokeKey(body)
         SESSION_TTL -> sessionTtl(body)
         HOLD -> hold(body)
@@ -78,6 +79,36 @@ class SpfnReferenceControl(
                 "spentNonceCount" to number(counters.spentNonceCount)
             )
         );
+    }
+
+    /**
+     * Registers the public key a test client generated — the asymmetric counterpart of
+     * the shared-key provisioning the HMAC profile injected at construction. The body
+     * carries only the public half (SPKI DER base64); no secret ever crosses this
+     * route. The field names mirror the primitives dev server's `/control/register-key`
+     * exactly, so the integration suites can drive either server with a URL change.
+     */
+    private fun registerKey(body: ByteArray): SpfnReferenceAnswer
+    {
+        val keyId = string(body, "keyId") ?: return badRequest("keyId");
+        val publicKey = string(body, "publicKey") ?: return badRequest("publicKey");
+        val decoded = try
+        {
+            java.util.Base64.getDecoder().decode(publicKey)
+        }
+        catch (_: IllegalArgumentException)
+        {
+            return badRequest("publicKey");
+        };
+        try
+        {
+            state.registerPublicKey(keyId, decoded);
+        }
+        catch (_: IllegalArgumentException)
+        {
+            return badRequest("publicKey");
+        }
+        return ok(emptyMap());
     }
 
     private fun revokeKey(body: ByteArray): SpfnReferenceAnswer
@@ -167,6 +198,7 @@ class SpfnReferenceControl(
         const val STATS: String = "/control/stats"
         const val RESET: String = "/control/reset"
         const val EXPIRE_SESSIONS: String = "/control/expire-sessions"
+        const val REGISTER_KEY: String = "/control/register-key"
         const val REVOKE_KEY: String = "/control/revoke-key"
         const val SESSION_TTL: String = "/control/session-ttl"
         const val HOLD: String = "/control/hold"

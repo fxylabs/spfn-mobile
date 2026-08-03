@@ -15,7 +15,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import xyz.superfunction.spfn.auth.SpfnAuthException
-import xyz.superfunction.spfn.auth.SpfnClientProof
 import xyz.superfunction.spfn.auth.SpfnProofAcceptance
 import xyz.superfunction.spfn.auth.SpfnProofInput
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
@@ -101,7 +100,7 @@ class SpfnReferenceCheckOrderTest
         };
 
         val input = proofInput(nonce = NONCE, issuedAtMillis = now - age);
-        val presented = if (grounds.badProof) BAD_PROOF else SpfnClientProof.proof(input, KEY);
+        val presented = if (grounds.badProof) BAD_PROOF else SpfnReferenceTestKeys.proofFor(input);
 
         return Outcomes(
             server = serverOutcome(grounds, input, presented, now),
@@ -124,7 +123,7 @@ class SpfnReferenceCheckOrderTest
             // Spent by a presentation that really was admitted: a ledger entry a test
             // wrote by hand would prove nothing about how entries get there.
             val first = proofInput(nonce = input.nonce, issuedAtMillis = nowMillis);
-            assertNull(admitOnServer(state, first, SpfnClientProof.proof(first, KEY)));
+            assertNull(admitOnServer(state, first, SpfnReferenceTestKeys.proofFor(first)));
         }
         if (grounds.revoked)
         {
@@ -158,7 +157,7 @@ class SpfnReferenceCheckOrderTest
         if (grounds.replayed)
         {
             val first = proofInput(nonce = input.nonce, issuedAtMillis = nowMillis);
-            acceptance.admit(SpfnClientProof.proof(first, KEY), first, KEY, nowMillis);
+            acceptance.admit(SpfnReferenceTestKeys.proofFor(first), first, PUBLIC_KEY, nowMillis);
         }
         if (grounds.revoked)
         {
@@ -167,7 +166,7 @@ class SpfnReferenceCheckOrderTest
 
         return try
         {
-            acceptance.admit(presented, input, KEY, nowMillis);
+            acceptance.admit(presented, input, PUBLIC_KEY, nowMillis);
             null;
         }
         catch (refusal: SpfnAuthException)
@@ -193,10 +192,10 @@ class SpfnReferenceCheckOrderTest
     private companion object
     {
         const val NONCE = "nonce-order-000001"
-        val KEY: ByteArray = SpfnReferenceTestKeys.KEY_BYTES
+        val PUBLIC_KEY: ByteArray = SpfnReferenceTestKeys.PUBLIC_KEY_SPKI_DER
         val BODY: ByteArray = "{\"message\":\"order\",\"sequence\":1}".toByteArray(Charsets.UTF_8)
 
-        /** 64 hex characters that are not the proof of anything. */
-        const val BAD_PROOF = "00000000000000000000000000000000000000000000000000000000000000ff"
+        /** 128 hex characters that are not the signature of anything: r = s = 0. */
+        val BAD_PROOF = "0".repeat(128)
     }
 }

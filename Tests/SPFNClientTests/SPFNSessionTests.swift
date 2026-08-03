@@ -22,25 +22,25 @@ final class SPFNSessionTests: XCTestCase
 {
     private let baseURL = "https://example.invalid"
 
-    private func keyProvider(clientID: String = SessionFixtureValues.clientID) -> SPFNInMemoryKeyProvider
+    /// A fresh software keypair per call. These tests assert session behaviour, not
+    /// signature bytes — the one test that verifies a proof keeps its provider so it
+    /// can verify against that provider's own public key.
+    private func keyProvider(clientID: String = SessionFixtureValues.clientID) -> SPFNSoftwareKeyProvider
     {
-        SPFNInMemoryKeyProvider(
-            clientID: clientID,
-            keyID: SessionFixtureValues.keyID,
-            key: Array("spfn-test-key-not-a-secret-0001".utf8)
-        )
+        SPFNSoftwareKeyProvider(clientID: clientID, keyID: SessionFixtureValues.keyID)
     }
 
     private func session(
         transport: ScriptedTransport,
         clock: FakeClock,
         nonces: [String],
-        clientID: String = SessionFixtureValues.clientID
+        clientID: String = SessionFixtureValues.clientID,
+        keyProvider: SPFNSoftwareKeyProvider? = nil
     ) -> SPFNSession
     {
         SPFNSession(
             transport: transport,
-            keyProvider: keyProvider(clientID: clientID),
+            keyProvider: keyProvider ?? self.keyProvider(clientID: clientID),
             baseURL: baseURL,
             clock: clock,
             nonceGenerator: ScriptedNonceGenerator(nonces)
@@ -99,10 +99,12 @@ final class SPFNSessionTests: XCTestCase
     func testProofIsTakenOverTheExactBodyThatWasSent() async throws
     {
         let transport = ScriptedTransport([handshakeAnswer()])
+        let provider = keyProvider()
         let subject = session(
             transport: transport,
             clock: FakeClock(SessionFixtureValues.issuedAtMillis),
-            nonces: ["nonce-000000000001"]
+            nonces: ["nonce-000000000001"],
+            keyProvider: provider
         )
 
         _ = try await subject.handshake()
@@ -119,12 +121,18 @@ final class SPFNSessionTests: XCTestCase
             issuedAtMillis: SessionFixtureValues.issuedAtMillis,
             canonicalBody: sent.body
         )
-        let expected = try SPFNClientProof.proof(
-            for: input,
-            key: Array("spfn-test-key-not-a-secret-0001".utf8)
-        )
 
-        XCTAssertEqual(headers[SPFNWireHeaders.proof], expected)
+        // The proof cannot be recomputed for byte equality — the signer draws a random
+        // nonce — so it is verified over an input rebuilt from the bytes the transport
+        // actually received, which is still the check that catches a second encoding.
+        let presented = try XCTUnwrap(headers[SPFNWireHeaders.proof])
+        XCTAssertNoThrow(
+            try SPFNClientProof.verify(
+                presented: presented,
+                for: input,
+                publicKeySpkiDer: provider.publicKeySpkiDer
+            )
+        )
     }
 
     func testEveryProofCarriesAFreshNonce() async throws
@@ -581,14 +589,50 @@ final class SPFNSessionTests: XCTestCase
         XCTAssertEqual(calls, 2)
     }
 
+    // MARK: - A failing signer
+
+    /// A provider whose key went away — a hardware keystore losing its entry is the
+    /// real-world shape — must surface its own error from the session, unwrapped and
+    /// unswallowed, and nothing may be sent: a request without a proof is not a
+    /// request this contract has.
+    func testASignerFailurePropagatesAndNothingIsSent() async throws
+    {
+        let transport = ScriptedTransport([handshakeAnswer()])
+        let subject = SPFNSession(
+            transport: transport,
+            keyProvider: ThrowingKeyProvider(),
+            baseURL: baseURL,
+            clock: FakeClock(SessionFixtureValues.issuedAtMillis),
+            nonceGenerator: ScriptedNonceGenerator(["nonce-000000000001"])
+        )
+
+        do
+        {
+            _ = try await subject.handshake()
+            XCTFail("a handshake with a failing signer must not succeed")
+        }
+        catch let error as SignerFailure
+        {
+            XCTAssertEqual(error, .keyUnavailable, "the signer's own error must arrive unwrapped")
+        }
+
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 0, "nothing may be sent once the signer failed")
+        let held = await subject.currentState
+        XCTAssertNil(held, "no session may be installed by a failed handshake")
+    }
+
     // MARK: - Nothing secret reaches a description
 
     func testDescriptionsCarryNoKeyAndNoSessionIdentifier()
     {
         let provider = keyProvider()
-        XCTAssertFalse("\(provider)".contains("spfn-test-key-not-a-secret-0001"))
-        XCTAssertTrue("\(provider)".contains("redacted"))
-        XCTAssertFalse(String(reflecting: provider).contains("spfn-test-key-not-a-secret-0001"))
+        // The private key has no one canonical spelling, so the assertion is the
+        // contract itself: the only value-bearing fields printed are the two public
+        // identifiers, and the key slot prints the redaction marker.
+        let expected = "SPFNSoftwareKeyProvider(clientID: \(provider.clientID), keyID: \(provider.keyID), privateKey: redacted)"
+        XCTAssertEqual("\(provider)", expected)
+        XCTAssertEqual(String(reflecting: provider), expected)
 
         let state = SPFNSessionState(
             sessionID: SessionFixtureValues.sessionID,

@@ -23,27 +23,27 @@ import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import java.io.PrintWriter
 import java.io.StringWriter
 
-private const val TEST_KEY = "spfn-test-key-not-a-secret-0001"
-
 class SpfnSessionTest
 {
     private val baseUrl = "https://example.invalid"
 
-    private fun keyProvider(clientId: String = SessionFixtureValues.CLIENT_ID): SpfnInMemoryKeyProvider =
-        SpfnInMemoryKeyProvider(
-            clientId = clientId,
-            keyId = SessionFixtureValues.KEY_ID,
-            key = TEST_KEY.toByteArray(Charsets.UTF_8)
-        )
+    /**
+     * A fresh software keypair per call. These tests assert session behaviour, not
+     * signature bytes — the one test that verifies a proof keeps its provider so it can
+     * verify against that provider's own public key.
+     */
+    private fun keyProvider(clientId: String = SessionFixtureValues.CLIENT_ID): SpfnSoftwareKeyProvider =
+        SpfnSoftwareKeyProvider.generate(clientId = clientId, keyId = SessionFixtureValues.KEY_ID)
 
     private fun session(
         transport: ScriptedTransport,
         clock: FakeClock,
         nonces: List<String>,
-        clientId: String = SessionFixtureValues.CLIENT_ID
+        clientId: String = SessionFixtureValues.CLIENT_ID,
+        keyProvider: SpfnSoftwareKeyProvider = this.keyProvider(clientId)
     ): SpfnSession = SpfnSession(
         transport = transport,
-        keyProvider = keyProvider(clientId),
+        keyProvider = keyProvider,
         baseUrl = baseUrl,
         clock = clock,
         nonceGenerator = ScriptedNonceGenerator(nonces)
@@ -87,7 +87,13 @@ class SpfnSessionTest
     @Test
     fun proofIsTakenOverTheExactBodyThatWasSent() = runBlocking {
         val transport = ScriptedTransport(listOf(handshakeAnswer()))
-        val subject = session(transport, FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS), listOf("nonce-000000000001"))
+        val provider = keyProvider()
+        val subject = session(
+            transport,
+            FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS),
+            listOf("nonce-000000000001"),
+            keyProvider = provider
+        )
 
         subject.handshake()
 
@@ -101,9 +107,15 @@ class SpfnSessionTest
             issuedAtMillis = SessionFixtureValues.ISSUED_AT_MILLIS,
             canonicalBody = sent.body
         )
-        val expected = SpfnClientProof.proof(input, TEST_KEY.toByteArray(Charsets.UTF_8))
 
-        assertEquals(expected, sent.headers.toMap()[SpfnWireHeaders.PROOF])
+        // The proof cannot be recomputed for byte equality — the signer draws a random
+        // nonce — so it is verified over an input rebuilt from the bytes the transport
+        // actually received, which is still the check that catches a second encoding.
+        SpfnClientProof.verify(
+            requireNotNull(sent.headers.toMap()[SpfnWireHeaders.PROOF]),
+            input,
+            provider.publicKeySpkiDer
+        )
     }
 
     @Test
@@ -472,14 +484,48 @@ class SpfnSessionTest
         assertEquals(2, transport.callCount)
     }
 
+    // ---- a failing signer --------------------------------------------------
+
+    /**
+     * A provider whose key went away — a hardware keystore losing its entry is the
+     * real-world shape — must surface its own error from the session, unwrapped and
+     * unswallowed, and nothing may be sent: a request without a proof is not a request
+     * this contract has.
+     */
+    @Test
+    fun aSignerFailurePropagatesAndNothingIsSent() = runBlocking {
+        val transport = ScriptedTransport(listOf(handshakeAnswer()))
+        val subject = SpfnSession(
+            transport = transport,
+            keyProvider = ThrowingKeyProvider(),
+            baseUrl = baseUrl,
+            clock = FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS),
+            nonceGenerator = ScriptedNonceGenerator(listOf("nonce-000000000001"))
+        )
+
+        val thrown = runCatching { subject.handshake() }.exceptionOrNull()
+
+        assertTrue(
+            "the signer's own error must arrive unwrapped, got $thrown",
+            thrown is SignerFailure
+        )
+        assertEquals("nothing may be sent once the signer failed", 0, transport.callCount)
+        assertNull("no session may be installed by a failed handshake", subject.currentState())
+    }
+
     // ---- nothing secret reaches a toString ---------------------------------
 
     @Test
     fun toStringCarriesNoKeyAndNoSessionIdentifier()
     {
         val provider = keyProvider();
-        assertFalse(provider.toString().contains(TEST_KEY));
-        assertTrue(provider.toString().contains("redacted"));
+        // The private key has no one canonical spelling, so the assertion is the
+        // contract itself: the only value-bearing fields printed are the two public
+        // identifiers, and the key slot prints the redaction marker.
+        assertEquals(
+            "SpfnSoftwareKeyProvider(clientId=${provider.clientId}, keyId=${provider.keyId}, privateKey=redacted)",
+            provider.toString()
+        );
 
         val state = SpfnSessionState(SessionFixtureValues.SESSION_ID, SessionFixtureValues.EXPIRES_AT_MILLIS);
         assertFalse(state.toString().contains(SessionFixtureValues.SESSION_ID));

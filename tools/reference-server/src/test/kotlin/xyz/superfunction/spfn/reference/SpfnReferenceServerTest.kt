@@ -12,7 +12,11 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import xyz.superfunction.spfn.auth.SpfnClientProof
+import xyz.superfunction.spfn.auth.SpfnProofInput
+import xyz.superfunction.spfn.client.SpfnSoftwareKeyProvider
 import xyz.superfunction.spfn.core.SpfnCanonicalJson
+import xyz.superfunction.spfn.core.SpfnCanonicalValue
 import xyz.superfunction.spfn.generated.SpfnEchoRequest
 import xyz.superfunction.spfn.generated.SpfnEchoResponse
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
@@ -255,6 +259,65 @@ class SpfnReferenceServerTest
         }
     }
 
+    /**
+     * The registration path, end to end: an unregistered keyId is PROOF_INVALID (never
+     * SESSION_REVOKED — it was never issued, so there is nothing a new session fixes),
+     * and after `/control/register-key` carries the public half across, the same key
+     * opens a session. Only the public half ever touches the wire.
+     */
+    @Test
+    fun `a key registered over the control surface verifies, and an unregistered keyId does not`()
+    {
+        SpfnReferenceHarness().use { harness ->
+            val keyId = "key-test-0777";
+            val provider = SpfnSoftwareKeyProvider.generate(SpfnReferenceTestKeys.CLIENT_ID, keyId);
+            val signer = { input: SpfnProofInput -> SpfnClientProof.proof(input) { provider.sign(it) } };
+            val operation = SpfnGeneratedOperations.authClientProofHandshake;
+
+            fun handshake(): SpfnRawResponse
+            {
+                val nonce = harness.nextNonce();
+                val body = SpfnCanonicalJson.encode(
+                    SpfnHandshakeRequest(
+                        SpfnReferenceTestKeys.CLIENT_ID,
+                        keyId,
+                        nonce,
+                        harness.clock.nowMillis()
+                    ).canonicalValue()
+                );
+                return harness.send(
+                    operation,
+                    body,
+                    harness.proofHeaders(operation, body, nonce = nonce, keyId = keyId, proofFor = signer)
+                );
+            }
+
+            val refused = handshake();
+            assertEquals("PROOF_INVALID", refused.errorCode());
+            assertEquals(401, refused.statusCode);
+
+            val registration = SpfnCanonicalJson.encode(
+                SpfnCanonicalValue.Obj(
+                    mapOf(
+                        "keyId" to SpfnCanonicalValue.Text(keyId),
+                        "publicKey" to SpfnCanonicalValue.Text(
+                            java.util.Base64.getEncoder().encodeToString(provider.publicKeySpkiDer)
+                        )
+                    )
+                )
+            );
+            val registered = harness.send(
+                "POST",
+                SpfnReferenceControl.REGISTER_KEY,
+                registration,
+                listOf(SpfnReferenceControl.TOKEN_HEADER to harness.controlTokenForTest())
+            );
+            assertEquals(200, registered.statusCode);
+
+            assertEquals(200, handshake().statusCode);
+        }
+    }
+
     @Test
     fun `a tampered proof is refused as invalid`()
     {
@@ -286,7 +349,7 @@ class SpfnReferenceServerTest
             assertTrue("the server logged nothing at all", harness.logLines.isNotEmpty());
 
             val forbidden = headers.map { it.second } +
-                listOf(session, harness.controlTokenForTest(), "secret message", SpfnReferenceTestKeys.KEY_UTF8);
+                listOf(session, harness.controlTokenForTest(), "secret message", SpfnReferenceTestKeys.PRIVATE_KEY_PKCS8_B64);
             for (value in forbidden)
             {
                 assertFalse("a request value reached the log: $value", logged.contains(value));

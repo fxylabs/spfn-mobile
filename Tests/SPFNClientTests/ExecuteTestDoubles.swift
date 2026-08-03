@@ -17,16 +17,35 @@ import SPFNGenerated
 
 enum ExecuteFixtures
 {
-    /// The synthetic key the wire vectors are signed with. Not a credential; see
-    /// Contracts/fixtures/MANIFEST.json.
-    static func syntheticProvider(clientID: String = SessionFixtureValues.clientID) throws -> SPFNInMemoryKeyProvider
+    /// A provider over the fixture test keypair. Not a credential; see
+    /// Contracts/fixtures/proof/proof-input.json — the private half is published there
+    /// on purpose. Read from the fixture rather than restated, so the suite cannot
+    /// silently sign with something else.
+    static func syntheticProvider(clientID: String = SessionFixtureValues.clientID) throws -> SPFNSoftwareKeyProvider
     {
-        let key = try WireFixtures.wire()["syntheticKey"].orFail("syntheticKey").object().text("keyUtf8")
-        return SPFNInMemoryKeyProvider(
+        let keyPair = try WireFixtures.wire()["testKeyPair"].orFail("testKeyPair").object()
+        guard let privateKeyDer = Data(base64Encoded: try keyPair.text("privateKeyPkcs8Base64"))
+        else
+        {
+            throw FixtureFailure.shape("privateKeyPkcs8Base64 is not base64")
+        }
+        return try SPFNSoftwareKeyProvider(
             clientID: clientID,
-            keyID: SessionFixtureValues.keyID,
-            key: Array(key.utf8)
+            keyID: try keyPair.text("keyId"),
+            privateKeyDer: [UInt8](privateKeyDer)
         )
+    }
+
+    /// The public half of the fixture keypair, for verifying what a session signed.
+    static func fixturePublicKeySpkiDer() throws -> [UInt8]
+    {
+        let keyPair = try WireFixtures.wire()["testKeyPair"].orFail("testKeyPair").object()
+        guard let spki = Data(base64Encoded: try keyPair.text("publicKeySpkiBase64"))
+        else
+        {
+            throw FixtureFailure.shape("publicKeySpkiBase64 is not base64")
+        }
+        return [UInt8](spki)
     }
 
     static func handshakeResponse(sessionID: String, expiringAt millis: Int64) -> String

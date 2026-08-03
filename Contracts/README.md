@@ -12,8 +12,8 @@ the other side of it now.
 
 | File | Purpose | Current state |
 | --- | --- | --- |
-| `upstream.lock.json` | what is pinned, and where it came from | `RESOLVED_UPSTREAM`, `origin: spfn-primitives-ci-export`, commit `d31aa9a1`, contract `0.1.0` |
-| `spfn-mobile-contract.json` | the vendored bundle, copied not edited | 3 operations, 7 types, 6 error codes, the canonical JSON and proof-input algorithms |
+| `upstream.lock.json` | what is pinned, and where it came from | `RESOLVED_UPSTREAM`, `origin: spfn-primitives-ci-export`, commit `4380bc40`, contract `0.2.0` |
+| `spfn-mobile-contract.json` | the vendored bundle, copied not edited | 3 operations, 7 types, 6 error codes, the canonical JSON and proof-input algorithms, and the `signature` clause (ECDSA P-256, raw r‖s base16-lower, SPKI DER public keys) |
 | `upstream-provenance.json` | the exporter's own evidence, copied unmodified | names the repository, exporter version and bundle digest the lock is checked against |
 | `auth-profiles/clientProofV1.schema.json` | profile schema | shape placeholder |
 | `fixtures/` | deterministic conformance vectors | 9 files, consumed unchanged by both SDK test suites |

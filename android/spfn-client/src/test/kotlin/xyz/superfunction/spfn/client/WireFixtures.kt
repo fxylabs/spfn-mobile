@@ -7,6 +7,9 @@
 
 package xyz.superfunction.spfn.client
 
+import org.junit.Assert.assertEquals
+import xyz.superfunction.spfn.auth.SpfnClientProof
+import xyz.superfunction.spfn.auth.SpfnProofInput
 import xyz.superfunction.spfn.core.SpfnCanonicalJson
 import xyz.superfunction.spfn.core.SpfnCanonicalValue
 import java.io.File
@@ -68,3 +71,41 @@ fun Map<String, SpfnCanonicalValue>.headerPairs(key: String): List<Pair<String, 
         require(fields.size == 2) { "a header entry must be [name, value]" };
         fields[0].text() to fields[1].text();
     }
+
+/**
+ * Every header must equal the fixture byte for byte except the proof: an ECDSA signer
+ * draws a random nonce, so the SDK's proof cannot be pinned. It is judged by
+ * verification instead — over the exact proof input the vector pins, under the fixture
+ * public key — and the fixture's own recorded proof must verify the same way, which
+ * proves this platform's verifier accepts a signature produced outside either SDK.
+ */
+fun assertHeadersMatchWireVector(
+    sent: List<Pair<String, String>>,
+    expected: List<Pair<String, String>>,
+    vector: Map<String, SpfnCanonicalValue>
+)
+{
+    assertEquals("header names or order differ", expected.map { it.first }, sent.map { it.first });
+    for ((sentPair, expectedPair) in sent.zip(expected))
+    {
+        if (sentPair.first != SpfnWireHeaders.PROOF)
+        {
+            assertEquals("header '${sentPair.first}' differs", expectedPair.second, sentPair.second);
+        }
+    }
+
+    val byName = sent.toMap();
+    val input = SpfnProofInput(
+        method = vector.text("method"),
+        path = vector.text("path"),
+        clientId = requireNotNull(byName[SpfnWireHeaders.CLIENT_ID]),
+        keyId = requireNotNull(byName[SpfnWireHeaders.KEY_ID]),
+        nonce = requireNotNull(byName[SpfnWireHeaders.NONCE]),
+        issuedAtMillis = requireNotNull(byName[SpfnWireHeaders.ISSUED_AT_MILLIS]).toLong(),
+        bodySha256 = vector.text("bodySha256")
+    );
+    val publicKey = ExecuteFixtures.fixturePublicKeySpkiDer();
+
+    SpfnClientProof.verify(requireNotNull(byName[SpfnWireHeaders.PROOF]), input, publicKey);
+    SpfnClientProof.verify(vector.text("proof"), input, publicKey);
+}

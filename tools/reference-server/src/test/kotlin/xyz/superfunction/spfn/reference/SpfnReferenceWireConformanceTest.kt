@@ -53,6 +53,36 @@ class SpfnReferenceWireConformanceTest
         assertEquals(declared, SpfnReferenceState.DEFAULT_REPLAY_WINDOW_MILLIS);
     }
 
+    /**
+     * The pre-registered public key is restated in `SpfnReferenceTestKeys`, and a
+     * restatement nobody checks is a copy that drifts: if it stopped matching the
+     * fixture's `testKeyPair`, every fixture-signed proof would fail against this
+     * server for a reason no diff would show.
+     */
+    @Test
+    fun `the pre-registered test key is the fixture test keypair`()
+    {
+        val root = System.getProperty("spfn.repoRoot") ?: error("spfn.repoRoot is not set");
+        val fixture = File(root, "Contracts/fixtures/proof/proof-input.json");
+        val keyPair = obj(
+            (SpfnCanonicalJson.parse(fixture.readBytes()) as SpfnCanonicalValue.Obj).members,
+            "testKeyPair"
+        );
+
+        assertEquals(
+            (keyPair["keyId"] as SpfnCanonicalValue.Text).value,
+            SpfnReferenceTestKeys.KEY_ID
+        );
+        assertEquals(
+            (keyPair["publicKeySpkiBase64"] as SpfnCanonicalValue.Text).value,
+            SpfnReferenceTestKeys.PUBLIC_KEY_SPKI_B64
+        );
+        assertEquals(
+            (keyPair["privateKeyPkcs8Base64"] as SpfnCanonicalValue.Text).value,
+            SpfnReferenceTestKeys.PRIVATE_KEY_PKCS8_B64
+        );
+    }
+
     private fun bundle(): Map<String, SpfnCanonicalValue>
     {
         val root = System.getProperty("spfn.repoRoot") ?: error("spfn.repoRoot is not set");

@@ -53,10 +53,12 @@ The Android suite takes the same target directly, for a run without the script:
 ## This is a test fixture
 
 Not a deployment, not a mock service, and not an SPFN endpoint. It binds the loopback
-interface only, it keeps nothing on disk, and the only key it will verify a proof against
-is the synthetic vector `Contracts/fixtures/proof/proof-input.json` already publishes:
-`key-test-0001` / `spfn-test-key-not-a-secret-0001`, marked TEST VECTOR ONLY there and
-here. That value authenticates nothing and was never issued by anything.
+interface only, it keeps nothing on disk, and the only key it pre-registers is the
+public half of the fixed test keypair `Contracts/fixtures/proof/proof-input.json`
+already publishes as `testKeyPair` (`key-test-0001`), marked TEST KEYPAIR ONLY there
+and here — the private half is published on purpose and authenticates nothing. Other
+public keys arrive only through `/control/register-key`, and only the public half
+ever crosses that wire.
 
 ## Boundary
 

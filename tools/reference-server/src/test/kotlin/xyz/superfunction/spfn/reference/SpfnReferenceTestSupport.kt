@@ -7,7 +7,6 @@
 
 package xyz.superfunction.spfn.reference
 
-import xyz.superfunction.spfn.auth.SpfnClientProof
 import xyz.superfunction.spfn.auth.SpfnProofInput
 import xyz.superfunction.spfn.core.SpfnCanonicalJson
 import xyz.superfunction.spfn.core.SpfnCanonicalValue
@@ -82,7 +81,8 @@ class SpfnReferenceHarness(
         issuedAtMillis: Long = clock.nowMillis(),
         clientId: String = SpfnReferenceTestKeys.CLIENT_ID,
         keyId: String = SpfnReferenceTestKeys.KEY_ID,
-        key: ByteArray = SpfnReferenceTestKeys.KEY_BYTES
+        /** Signs the assembled proof input; the test keypair unless a test brings its own. */
+        proofFor: (SpfnProofInput) -> String = SpfnReferenceTestKeys::proofFor
     ): MutableList<Pair<String, String>>
     {
         val input = SpfnProofInput.forRequest(
@@ -102,7 +102,7 @@ class SpfnReferenceHarness(
             SpfnReferenceWire.KEY_ID to keyId,
             SpfnReferenceWire.NONCE to nonce,
             SpfnReferenceWire.ISSUED_AT_MILLIS to issuedAtMillis.toString(),
-            SpfnReferenceWire.PROOF to SpfnClientProof.proof(input, key)
+            SpfnReferenceWire.PROOF to proofFor(input)
         );
         if (sessionId != null)
         {

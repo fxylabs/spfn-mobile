@@ -2,6 +2,9 @@
 //
 // The vectors are sequences rather than single calls, because replay is a property of
 // a sequence: the same proof accepted once and refused the second time is the point.
+// Every fixture `proof` value is a signature derive-expected-values.py produced with
+// the test keypair, so admitting one is also a statement that this platform's verifier
+// accepts a signature produced outside either SDK.
 
 package xyz.superfunction.spfn.conformance
 
@@ -33,7 +36,7 @@ class AcceptanceConformanceTest
         val fixture = Fixtures.load(path).members();
         val base = fixture.obj("base");
         val window = fixture.number("replayWindowMillis");
-        val key = syntheticKey();
+        val publicKey = ProofTestKeyPair.publicKeySpkiDer();
         val vectors = fixture.list("vectors");
         assertTrue(vectors.isNotEmpty());
 
@@ -62,13 +65,13 @@ class AcceptanceConformanceTest
 
                 if (expectation == "accept")
                 {
-                    acceptance.admit(presented, input, key, nowMillis);
+                    acceptance.admit(presented, input, publicKey, nowMillis);
                     continue;
                 }
 
                 try
                 {
-                    acceptance.admit(presented, input, key, nowMillis);
+                    acceptance.admit(presented, input, publicKey, nowMillis);
                     fail("'$name' step with nonce ${input.nonce} should have been refused with $expectation");
                 }
                 catch (failure: SpfnAuthException)
@@ -84,7 +87,7 @@ class AcceptanceConformanceTest
     {
         val fixture = Fixtures.load("revoke/revoke.json").members();
         val base = fixture.obj("base");
-        val key = syntheticKey();
+        val publicKey = ProofTestKeyPair.publicKeySpkiDer();
         val keyId = base.text("keyId");
 
         val input = SpfnProofInput(
@@ -96,14 +99,14 @@ class AcceptanceConformanceTest
             issuedAtMillis = 1_750_000_000_000L,
             bodySha256 = base.text("bodySha256")
         );
-        val goodProof = SpfnClientProof.proof(input, key);
+        val goodProof = SpfnClientProof.proof(input) { message -> ProofTestKeyPair.sign(message) };
 
         val acceptance = SpfnProofAcceptance(fixture.number("replayWindowMillis"));
         acceptance.revoke(keyId);
 
         try
         {
-            acceptance.admit(goodProof, input, key, 1_750_000_001_000L);
+            acceptance.admit(goodProof, input, publicKey, 1_750_000_001_000L);
             fail("a revoked key must be refused even with a valid proof");
         }
         catch (failure: SpfnAuthException)

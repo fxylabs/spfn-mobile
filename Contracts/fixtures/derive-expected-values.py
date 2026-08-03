@@ -8,10 +8,25 @@ something other than the implementations under test. If the Swift SDK wrote the
 expected bytes and the Kotlin SDK were then checked against them, the two agreeing
 would prove only that one copied the other.
 
-So this file is a third, independent implementation of SPFN-CANON-JSON-1 and
-SPFN-PROOF-INPUT-1, written against the contract text in
+So this file is a third, independent implementation of SPFN-CANON-JSON-1,
+SPFN-PROOF-INPUT-1 and P-256 ECDSA, written against the contract text in
 Contracts/spfn-mobile-contract.json and using nothing but the Python standard
 library. It is a development aid: no build step, test or validator runs it.
+
+Signatures under contract 0.2.0
+-------------------------------
+The proof is an ECDSA P-256 signature, and a platform signer uses a random
+per-signature nonce, so an SDK's own proof bytes cannot be pinned here. The
+fixtures are therefore two-tier:
+
+- the canonical proof-input bytes and every bodySha256 stay byte-pinned, exactly
+  as before;
+- each `signatureRsHex` / `proof` value in this directory is a signature this
+  script produced with the fixed test keypair and an RFC 6979 deterministic
+  nonce, so the file itself stays byte-reproducible. A platform test verifies
+  these fixture signatures with the fixture public key (its verifier accepts an
+  externally produced signature), and judges its own signer by verification
+  rather than byte equality.
 
 Usage
 -----
@@ -23,6 +38,7 @@ reproduces the fixture directory byte for byte.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -31,15 +47,49 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# Obviously synthetic. Never a real key, never used against a real endpoint.
-TEST_KEY_UTF8 = "spfn-test-key-not-a-secret-0001"
-
 PROFILE = "clientProofV1"
 ABSENT_BODY_DIGEST = "0" * 64
 REPLAY_WINDOW_MILLIS = 300000
 
 BUNDLE_PATH = os.path.join(HERE, "..", "spfn-mobile-contract.json")
 LOCK_PATH = os.path.join(HERE, "..", "upstream.lock.json")
+
+# --------------------------------------------------------------------------
+# The fixed test keypairs.
+#
+# TEST ONLY — NOT SECRETS. Both keypairs are restated byte for byte from SPFN
+# primitives packages/auth/src/server/client-proof/__tests__/test-keys.ts, where
+# they were generated once and frozen. They authenticate nothing, were never
+# issued by anything, and publishing the private halves is intentional: the
+# upstream dev server pre-registers the primary public half, which is what lets
+# the integration matrix run against it without provisioning a secret.
+# --------------------------------------------------------------------------
+
+TEST_KEY_ID = "key-test-0001"
+
+TEST_PUBLIC_KEY_SPKI_B64 = (
+    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES7xktjK+fMydT7UZcfuW/vzU9rU/"
+    "+RPVVQKKgxrB1sd9bh6N1bqiBwU/zuw9/LaQ91lWPeWSN9OlT8OlDYXIYg=="
+)
+
+TEST_PRIVATE_KEY_PKCS8_B64 = (
+    "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgMv3D4UvmGKjFeG3m"
+    "yLLfwlcOAQ9n8qoFmwrgGWBErsShRANCAARLvGS2Mr58zJ1PtRlx+5b+/NT2tT/5"
+    "E9VVAoqDGsHWx31uHo3VuqIHBT/O7D38tpD3WVY95ZI306VPw6UNhchi"
+)
+
+WRONG_KEY_ID = "key-test-0002"
+
+WRONG_PUBLIC_KEY_SPKI_B64 = (
+    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEvA1Qe3c98K4+u/Gb5ORnGhqRGUU"
+    "J6oCVYoxRdp5b0OiRS75v5ULruknszTl9+zd8yQ817hOPjWzdJiijXSQzw=="
+)
+
+WRONG_PRIVATE_KEY_PKCS8_B64 = (
+    "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgcBSWaGkYFpu+WAjD"
+    "NOwFXF1ubNfelYWjFmMRn97+69OhRANCAAQS8DVB7dz3wrj678Zvk5GcaGpEZRQn"
+    "qgJVijFF2nlvQ6JFLvm/lQuu6SezNOX37N3zJDzXuE4+NbN0mKKNdJDP"
+)
 
 
 def load_bundle() -> dict:
@@ -121,6 +171,179 @@ def sha256_hex(text: str) -> str:
 
 
 # --------------------------------------------------------------------------
+# P-256 ECDSA, pure standard library.
+#
+# Implemented from the curve constants in FIPS 186-4 / SEC 2 (secp256r1) so the
+# signatures here are independent of both platform signers: CryptoKit and the
+# JCA are judged against this, never against each other. Affine arithmetic with
+# modular inversion — slow and fine for a development aid.
+# --------------------------------------------------------------------------
+
+P = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
+A = P - 3
+B = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B
+GX = 0x6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296
+GY = 0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5
+N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+
+
+def _point_add(left, right):
+    if left is None:
+        return right
+    if right is None:
+        return left
+    (x1, y1), (x2, y2) = left, right
+    if x1 == x2 and (y1 + y2) % P == 0:
+        return None
+    if left == right:
+        slope = (3 * x1 * x1 + A) * pow(2 * y1, -1, P) % P
+    else:
+        slope = (y2 - y1) * pow(x2 - x1, -1, P) % P
+    x3 = (slope * slope - x1 - x2) % P
+    y3 = (slope * (x1 - x3) - y1) % P
+    return (x3, y3)
+
+
+def _point_mul(scalar: int, point):
+    result = None
+    addend = point
+    while scalar:
+        if scalar & 1:
+            result = _point_add(result, addend)
+        addend = _point_add(addend, addend)
+        scalar >>= 1
+    return result
+
+
+def _on_curve(point) -> bool:
+    if point is None:
+        return False
+    x, y = point
+    return (y * y - (x * x * x + A * x + B)) % P == 0
+
+
+def _rfc6979_nonce(scalar: int, digest: bytes) -> int:
+    """Deterministic per-signature nonce (RFC 6979, SHA-256, q of 256 bits)."""
+    x = scalar.to_bytes(32, "big")
+    h1 = (int.from_bytes(digest, "big") % N).to_bytes(32, "big")
+    v = b"\x01" * 32
+    k = b"\x00" * 32
+    k = hmac.new(k, v + b"\x00" + x + h1, hashlib.sha256).digest()
+    v = hmac.new(k, v, hashlib.sha256).digest()
+    k = hmac.new(k, v + b"\x01" + x + h1, hashlib.sha256).digest()
+    v = hmac.new(k, v, hashlib.sha256).digest()
+    while True:
+        v = hmac.new(k, v, hashlib.sha256).digest()
+        candidate = int.from_bytes(v, "big")
+        if 1 <= candidate < N:
+            return candidate
+        k = hmac.new(k, v + b"\x00", hashlib.sha256).digest()
+        v = hmac.new(k, v, hashlib.sha256).digest()
+
+
+def ecdsa_sign_raw(scalar: int, message: bytes) -> bytes:
+    """Raw r||s, two 32-byte big-endian integers — the contract's wire encoding."""
+    digest = hashlib.sha256(message).digest()
+    z = int.from_bytes(digest, "big")
+    k = _rfc6979_nonce(scalar, digest)
+    while True:
+        point = _point_mul(k, (GX, GY))
+        r = point[0] % N
+        s = pow(k, -1, N) * (z + r * scalar) % N
+        if r != 0 and s != 0:
+            return r.to_bytes(32, "big") + s.to_bytes(32, "big")
+        k = (k + 1) % N or 1
+
+
+def ecdsa_verify_raw(public_point, message: bytes, signature: bytes) -> bool:
+    if len(signature) != 64 or not _on_curve(public_point):
+        return False
+    r = int.from_bytes(signature[:32], "big")
+    s = int.from_bytes(signature[32:], "big")
+    if not (1 <= r < N and 1 <= s < N):
+        return False
+    z = int.from_bytes(hashlib.sha256(message).digest(), "big")
+    w = pow(s, -1, N)
+    point = _point_add(
+        _point_mul(z * w % N, (GX, GY)),
+        _point_mul(r * w % N, public_point),
+    )
+    if point is None:
+        return False
+    return point[0] % N == r
+
+
+def der_signature(signature: bytes) -> bytes:
+    """The DER SEQUENCE{INTEGER r, INTEGER s} form — used only as a reject vector."""
+
+    def integer(value: int) -> bytes:
+        body = value.to_bytes((value.bit_length() + 7) // 8 or 1, "big")
+        if body[0] & 0x80:
+            body = b"\x00" + body
+        return b"\x02" + bytes([len(body)]) + body
+
+    payload = integer(int.from_bytes(signature[:32], "big")) + integer(int.from_bytes(signature[32:], "big"))
+    return b"\x30" + bytes([len(payload)]) + payload
+
+
+# --------------------------------------------------------------------------
+# Minimal DER reading, only what the two fixed key encodings need.
+# --------------------------------------------------------------------------
+
+def _der_elements(blob: bytes):
+    """The (tag, value) pairs at one DER level."""
+    elements = []
+    index = 0
+    while index < len(blob):
+        tag = blob[index]
+        length = blob[index + 1]
+        index += 2
+        if length & 0x80:
+            count = length & 0x7F
+            length = int.from_bytes(blob[index:index + count], "big")
+            index += count
+        elements.append((tag, blob[index:index + length]))
+        index += length
+    return elements
+
+
+def scalar_from_pkcs8(b64: str) -> int:
+    """The private scalar inside a PKCS#8-wrapped SEC1 ECPrivateKey."""
+    outer = _der_elements(base64.b64decode(b64))
+    assert outer[0][0] == 0x30, "not a PKCS#8 PrivateKeyInfo"
+    fields = _der_elements(outer[0][1])
+    assert fields[2][0] == 0x04, "PKCS#8 carries no privateKey OCTET STRING"
+    ec_private_key = _der_elements(_der_elements(fields[2][1])[0][1])
+    assert ec_private_key[1][0] == 0x04 and len(ec_private_key[1][1]) == 32, \
+        "ECPrivateKey.privateKey is not 32 bytes"
+    return int.from_bytes(ec_private_key[1][1], "big")
+
+
+def point_from_spki(b64: str):
+    """The uncompressed public point inside an SPKI SubjectPublicKeyInfo."""
+    outer = _der_elements(base64.b64decode(b64))
+    fields = _der_elements(outer[0][1])
+    assert fields[1][0] == 0x03, "SPKI carries no BIT STRING"
+    bits = fields[1][1]
+    assert bits[0] == 0x00 and bits[1] == 0x04 and len(bits) == 66, \
+        "SPKI public key is not an uncompressed P-256 point"
+    return (int.from_bytes(bits[2:34], "big"), int.from_bytes(bits[34:66], "big"))
+
+
+TEST_SCALAR = scalar_from_pkcs8(TEST_PRIVATE_KEY_PKCS8_B64)
+TEST_PUBLIC_POINT = point_from_spki(TEST_PUBLIC_KEY_SPKI_B64)
+WRONG_SCALAR = scalar_from_pkcs8(WRONG_PRIVATE_KEY_PKCS8_B64)
+WRONG_PUBLIC_POINT = point_from_spki(WRONG_PUBLIC_KEY_SPKI_B64)
+
+# The two halves of each fixed keypair must actually be halves of one keypair,
+# or every "verification passed" below would be a statement about nothing.
+assert _point_mul(TEST_SCALAR, (GX, GY)) == TEST_PUBLIC_POINT, \
+    "the test private key does not derive the test public key"
+assert _point_mul(WRONG_SCALAR, (GX, GY)) == WRONG_PUBLIC_POINT, \
+    "the wrong-key private key does not derive its public key"
+
+
+# --------------------------------------------------------------------------
 # SPFN-PROOF-INPUT-1, implemented from the contract text.
 # --------------------------------------------------------------------------
 
@@ -141,12 +364,15 @@ def proof_input_string(fields: dict) -> str:
     return "\n".join(ordered)
 
 
-def proof_hmac(fields: dict) -> str:
-    return hmac.new(
-        TEST_KEY_UTF8.encode("utf-8"),
-        proof_input_string(fields).encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
+def proof_signature(fields: dict, scalar: int = TEST_SCALAR, public_point=TEST_PUBLIC_POINT) -> str:
+    """A proof over `fields`: raw r||s as base16-lower, self-verified before emission."""
+    message = proof_input_string(fields).encode("utf-8")
+    signature = ecdsa_sign_raw(scalar, message)
+    assert ecdsa_verify_raw(public_point, message, signature), \
+        "a signature this script produced did not verify against its own public key"
+    assert not ecdsa_verify_raw(public_point, message + b"x", signature), \
+        "the verifier accepted a tampered message, so it discriminates nothing"
+    return signature.hex()
 
 
 # --------------------------------------------------------------------------
@@ -162,11 +388,11 @@ CANONICAL_VECTORS = [
      "the five short escapes and the two mandatory ones"),
     ("control-characters", '{"k":"\\u0001\\u001f"}',
      "C0 controls with no short form use lowercase \\u00XX"),
-    ("unicode-literal", '{"k":"\ud55c\uad6d\uc5b4 \u2713"}',
+    ("unicode-literal", '{"k":"한국어 ✓"}',
      "non-ASCII is emitted literally as UTF-8, never re-escaped"),
     ("int64-bounds", '{"min":-9223372036854775808,"max":9223372036854775807}',
      "the full signed 64-bit range survives a round trip"),
-    ("key-order-utf8-vs-utf16", '{"\U00010000":1,"\uff21":2}',
+    ("key-order-utf8-vs-utf16", '{"\U00010000":1,"Ａ":2}',
      "U+FF21 sorts BEFORE U+10000 by UTF-8 bytes and AFTER it by UTF-16 code units; "
      "a platform that sorted keys with its native string comparison would fail here"),
     ("empty-containers", '{"o":{},"a":[]}',
@@ -291,7 +517,9 @@ REQUEST_VECTORS = [
 # Each entry is one fully assembled outbound request: the exact header names, the exact
 # header values and the exact body bytes an SDK must put on the wire. `sessionId` is the
 # session an earlier handshake returned; a vector without one is a request that must
-# carry no session header at all.
+# carry no session header at all. The `proof` header is the one value an SDK cannot
+# reproduce byte for byte — its signer draws a random nonce — so a suite compares every
+# other header exactly and judges the proof by verification against `testKeyPair`.
 WIRE_VECTORS = [
     {
         "name": "handshake",
@@ -365,6 +593,10 @@ BASE_PROOF = {
     "bodySha256": ABSENT_BODY_DIGEST,
 }
 
+# 128 hex characters that are not the signature of anything: r = s = 0 is outside
+# [1, n-1] on every curve, so no verifier disagreement is possible about it.
+NOT_A_SIGNATURE = "0" * 128
+
 
 def replay_vectors():
     def step(nonce, issued, now, expect):
@@ -373,7 +605,7 @@ def replay_vectors():
             "nonce": nonce,
             "issuedAtMillis": issued,
             "nowMillis": now,
-            "proof": proof_hmac(fields),
+            "proof": proof_signature(fields),
             "expect": expect,
         }
 
@@ -417,7 +649,7 @@ def replay_vectors():
                     "nonce": "nonce-replay-06",
                     "issuedAtMillis": issued,
                     "nowMillis": issued + 1000,
-                    "proof": "0" * 64,
+                    "proof": NOT_A_SIGNATURE,
                     "expect": "PROOF_INVALID",
                 },
             ],
@@ -439,7 +671,7 @@ def revoke_vectors():
                     "nonce": "nonce-revoke-01",
                     "issuedAtMillis": issued,
                     "nowMillis": issued + 1000,
-                    "proof": proof_hmac(fields),
+                    "proof": proof_signature(fields),
                     "expect": "SESSION_REVOKED",
                 },
             ],
@@ -453,7 +685,7 @@ def revoke_vectors():
                     "nonce": "nonce-revoke-02",
                     "issuedAtMillis": issued,
                     "nowMillis": issued + REPLAY_WINDOW_MILLIS + 5000,
-                    "proof": "0" * 64,
+                    "proof": NOT_A_SIGNATURE,
                     "expect": "SESSION_REVOKED",
                 },
             ],
@@ -467,10 +699,64 @@ def revoke_vectors():
                     "nonce": "nonce-revoke-03",
                     "issuedAtMillis": issued,
                     "nowMillis": issued + 1000,
-                    "proof": proof_hmac(dict(BASE_PROOF, nonce="nonce-revoke-03", issuedAtMillis=issued)),
+                    "proof": proof_signature(dict(BASE_PROOF, nonce="nonce-revoke-03", issuedAtMillis=issued)),
                     "expect": "accept",
                 },
             ],
+        },
+    ]
+
+
+def signature_reject_vectors():
+    """Presented proofs the verifier must refuse, over the handshake-no-body input.
+
+    Format violations and a wrong-key signature in one table, because they answer one
+    question: does the platform verifier refuse everything that is not a valid raw-r||s
+    base16-lower signature under the named key. Discriminance is built in — the DER,
+    uppercase and truncated entries are derived from a signature that DOES verify in
+    its correct form, so a verifier that ignores encoding admits them and fails here.
+    """
+    fields = PROOF_VECTORS[0]["input"]
+    valid = proof_signature(fields)
+    der_hex = der_signature(bytes.fromhex(valid)).hex()
+    wrong_key = proof_signature(fields, scalar=WRONG_SCALAR, public_point=WRONG_PUBLIC_POINT)
+    return [
+        {
+            "name": "der-encoded",
+            "why": "the same signature that verifies as raw r||s must be refused in DER; "
+                   "a platform signer that emits DER converts before sending, never the verifier",
+            "vector": "handshake-no-body",
+            "presented": der_hex,
+        },
+        {
+            "name": "uppercase-hex",
+            "why": "the wire encoding is base16-lower; an uppercase digest is a different string",
+            "vector": "handshake-no-body",
+            "presented": valid.upper(),
+        },
+        {
+            "name": "truncated-63-bytes",
+            "why": "a raw signature is exactly 64 bytes; 126 hex characters is not one",
+            "vector": "handshake-no-body",
+            "presented": valid[:126],
+        },
+        {
+            "name": "not-hex",
+            "why": "128 characters that are not all hex digits never reach the curve",
+            "vector": "handshake-no-body",
+            "presented": "g" + valid[1:],
+        },
+        {
+            "name": "wrong-key",
+            "why": "a well-formed signature by another key must fail verification, not formatting",
+            "vector": "handshake-no-body",
+            "presented": wrong_key,
+        },
+        {
+            "name": "all-zero",
+            "why": "r = s = 0 is outside [1, n-1] and can never verify",
+            "vector": "handshake-no-body",
+            "presented": NOT_A_SIGNATURE,
         },
     ]
 
@@ -483,8 +769,25 @@ NOTE = ("Expected values were derived by Contracts/fixtures/derive-expected-valu
         "implementation independent of both SDKs. Two SDKs agreeing with each other would prove "
         "nothing; agreeing with an outside implementation is the actual evidence.")
 
-SECRET_NOTE = ("TEST VECTOR ONLY. keyUtf8 is a synthetic string, not a credential. It authenticates "
-               "nothing, was never issued by anything, and must never be presented to a real endpoint.")
+SECRET_NOTE = ("TEST KEYPAIR ONLY — NOT A SECRET. The keypair is restated byte for byte from SPFN "
+               "primitives __tests__/test-keys.ts, where publishing the private half is intentional. "
+               "It authenticates nothing, was never issued by anything, and must never be presented "
+               "to a real endpoint.")
+
+SIGNATURE_NOTE = ("Every proof value in this directory was signed by derive-expected-values.py with "
+                  "the test keypair and an RFC 6979 deterministic nonce, so the files reproduce byte "
+                  "for byte. A platform signer draws a random nonce, so its proofs are judged by "
+                  "verification against the test public key rather than byte equality.")
+
+
+def test_keypair_block() -> dict:
+    return {
+        "note": SECRET_NOTE,
+        "origin": "SPFN primitives packages/auth/src/server/client-proof/__tests__/test-keys.ts",
+        "keyId": TEST_KEY_ID,
+        "publicKeySpkiBase64": TEST_PUBLIC_KEY_SPKI_B64,
+        "privateKeyPkcs8Base64": TEST_PRIVATE_KEY_PKCS8_B64,
+    }
 
 
 def build_canonical():
@@ -523,14 +826,23 @@ def build_proof():
             "input": vector["input"],
             "canonicalString": text,
             "canonicalSha256": sha256_hex(text),
-            "proofHmacSha256": proof_hmac(vector["input"]),
+            "signatureRsHex": proof_signature(vector["input"]),
         })
     return {
         "algorithm": "SPFN-PROOF-INPUT-1",
         "profile": PROFILE,
         "note": NOTE,
-        "syntheticKey": {"note": SECRET_NOTE, "keyUtf8": TEST_KEY_UTF8},
+        "signatureNote": SIGNATURE_NOTE,
+        "testKeyPair": test_keypair_block(),
+        "wrongKeyPair": {
+            "note": SECRET_NOTE,
+            "origin": "SPFN primitives packages/auth/src/server/client-proof/__tests__/test-keys.ts",
+            "keyId": WRONG_KEY_ID,
+            "publicKeySpkiBase64": WRONG_PUBLIC_KEY_SPKI_B64,
+            "privateKeyPkcs8Base64": WRONG_PRIVATE_KEY_PKCS8_B64,
+        },
         "vectors": vectors,
+        "signatureRejects": signature_reject_vectors(),
     }
 
 
@@ -588,7 +900,7 @@ def build_wire():
         operation = operations[vector["operationId"]]
         canonical_body = canonical(vector["body"])
         body_sha256 = sha256_hex(canonical_body)
-        proof = proof_hmac({
+        proof = proof_signature({
             "method": operation["method"],
             "path": operation["path"],
             "clientId": vector["clientId"],
@@ -633,7 +945,8 @@ def build_wire():
     return {
         "note": NOTE,
         "profile": PROFILE,
-        "syntheticKey": {"note": SECRET_NOTE, "keyUtf8": TEST_KEY_UTF8},
+        "signatureNote": SIGNATURE_NOTE,
+        "testKeyPair": test_keypair_block(),
         "requestContentType": mapping["requestContentType"],
         "headerNames": names,
         "headerOrder": mapping["headerOrder"],
@@ -676,6 +989,7 @@ def build_replay():
     return {
         "note": NOTE,
         "profile": PROFILE,
+        "signatureNote": SIGNATURE_NOTE,
         "replayWindowMillis": REPLAY_WINDOW_MILLIS,
         "base": BASE_PROOF,
         "vectors": replay_vectors(),
@@ -686,6 +1000,7 @@ def build_revoke():
     return {
         "note": NOTE,
         "profile": PROFILE,
+        "signatureNote": SIGNATURE_NOTE,
         "replayWindowMillis": REPLAY_WINDOW_MILLIS,
         "base": BASE_PROOF,
         "vectors": revoke_vectors(),

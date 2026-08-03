@@ -15,7 +15,7 @@ import okhttp3.OkHttpClient
 import xyz.superfunction.spfn.client.SpfnCall
 import xyz.superfunction.spfn.client.SpfnClient
 import xyz.superfunction.spfn.client.SpfnClock
-import xyz.superfunction.spfn.client.SpfnInMemoryKeyProvider
+import xyz.superfunction.spfn.client.SpfnSoftwareKeyProvider
 import xyz.superfunction.spfn.client.SpfnOkHttpTransport
 import xyz.superfunction.spfn.client.SpfnSession
 import xyz.superfunction.spfn.client.SpfnSystemClock
@@ -118,10 +118,14 @@ class SpfnReferenceClientHarness(timeoutMillis: Long = 5_000) : AutoCloseable
 
     val session: SpfnSession = SpfnSession(
         transport = transport,
-        keyProvider = SpfnInMemoryKeyProvider(
+        // The fixture test keypair, whose public half every reference target — this
+        // repository's server and the primitives dev server — pre-registers. TEST
+        // ONLY; the private half is published on purpose and authenticates nothing.
+        keyProvider = SpfnSoftwareKeyProvider.fromPkcs8(
             clientId = SpfnReferenceTestKeys.CLIENT_ID,
             keyId = SpfnReferenceTestKeys.KEY_ID,
-            key = SpfnReferenceTestKeys.KEY_BYTES
+            privateKeyPkcs8 = java.util.Base64.getDecoder().decode(SpfnReferenceTestKeys.PRIVATE_KEY_PKCS8_B64),
+            publicKeySpkiDer = SpfnReferenceTestKeys.PUBLIC_KEY_SPKI_DER
         ),
         baseUrl = mode.baseUrl,
         clock = mode.clientClock,

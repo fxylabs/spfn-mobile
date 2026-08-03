@@ -1,6 +1,7 @@
 {
   "note": "Expected values were derived by Contracts/fixtures/derive-expected-values.py, a third implementation independent of both SDKs. Two SDKs agreeing with each other would prove nothing; agreeing with an outside implementation is the actual evidence.",
   "profile": "clientProofV1",
+  "signatureNote": "Every proof value in this directory was signed by derive-expected-values.py with the test keypair and an RFC 6979 deterministic nonce, so the files reproduce byte for byte. A platform signer draws a random nonce, so its proofs are judged by verification against the test public key rather than byte equality.",
   "replayWindowMillis": 300000,
   "base": {
     "method": "POST",
@@ -21,7 +22,7 @@
           "nonce": "nonce-revoke-01",
           "issuedAtMillis": 1750000000000,
           "nowMillis": 1750000001000,
-          "proof": "b7c813100fb3a02e38c2c71fdb4c4285b1bf329d8d4a4b1698890a480f6ff354",
+          "proof": "bb9de537d552113c2ae02bcf4f8d5e6bde1e05afc199253dee0a92a40d194525956ad2954efd12b7dd30b45f3cd9cf8f4ba5403d8d2687ef58656691c49f70e1",
           "expect": "SESSION_REVOKED"
         }
       ]
@@ -37,7 +38,7 @@
           "nonce": "nonce-revoke-02",
           "issuedAtMillis": 1750000000000,
           "nowMillis": 1750000305000,
-          "proof": "0000000000000000000000000000000000000000000000000000000000000000",
+          "proof": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
           "expect": "SESSION_REVOKED"
         }
       ]
@@ -53,7 +54,7 @@
           "nonce": "nonce-revoke-03",
           "issuedAtMillis": 1750000000000,
           "nowMillis": 1750000001000,
-          "proof": "d4b1095c9d28055dff80720a0f328eb45dc1c1f5ec37ff13cbfd6c6a75a2129d",
+          "proof": "85a360fceb0ee9b6672fca0825184a9a805c278ca5775673c63b7453dea1d5c16cea070bb8ee0f37a64ec008b9add718b8a9c0d2871f14b366deeb4944207d38",
           "expect": "accept"
         }
       ]

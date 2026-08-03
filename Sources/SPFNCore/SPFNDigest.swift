@@ -1,9 +1,10 @@
-// SPFN Mobile — digests and message authentication.
+// SPFN Mobile — digests.
 //
 // CryptoKit ships with every platform this package declares support for, so there is
 // no dependency to add and no hand-rolled primitive to review. The Kotlin counterpart
-// uses java.security.MessageDigest and javax.crypto.Mac, and the conformance fixtures
-// assert both platforms produce the same hex for the same input.
+// uses java.security.MessageDigest, and the conformance fixtures assert both platforms
+// produce the same hex for the same input. The proof signature itself lives in
+// SPFNAuth: this module only ever hashes.
 
 import CryptoKit
 import Foundation
@@ -25,16 +26,6 @@ public enum SPFNDigest
     public static func sha256Hex(_ text: String) -> String
     {
         sha256Hex(Array(text.utf8))
-    }
-
-    /// Lowercase base16 HMAC-SHA-256.
-    public static func hmacSHA256Hex(key: [UInt8], message: [UInt8]) -> String
-    {
-        let code = HMAC<SHA256>.authenticationCode(
-            for: Data(message),
-            using: SymmetricKey(data: Data(key))
-        )
-        return hex(Array(code))
     }
 
     /// Constant-time comparison of two hex digests.

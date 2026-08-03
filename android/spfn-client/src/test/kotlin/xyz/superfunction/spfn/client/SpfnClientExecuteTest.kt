@@ -157,7 +157,7 @@ class SpfnClientExecuteTest
         val sent = transport.received.last();
         assertEquals(vector.text("method"), sent.method);
         assertEquals(baseUrl + vector.text("path"), sent.url);
-        assertEquals(expected, sent.headers);
+        assertHeadersMatchWireVector(sent.headers, expected, vector);
         assertEquals(vector.text("canonicalBody"), sent.body?.toString(Charsets.UTF_8));
     }
 

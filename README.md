@@ -23,7 +23,7 @@ model cannot drift apart between them.
 | Android module graph | 6 modules, compiling as AAR libraries |
 | Contract | one bundle pinned by real SHA-256 — **exported by SPFN primitives**, copied here at an exact commit |
 | Codegen | `tools/contract-codegen` produces both clients from that bundle, deterministically |
-| `clientProofV1` | canonical proof input, SHA-256 digest, HMAC proof, replay and revocation rules |
+| `clientProofV1` | canonical proof input, SHA-256 digest, ECDSA P-256 proof over a registered public key, replay and revocation rules |
 | Canonical JSON | SPFN-CANON-JSON-1, implemented independently on both platforms |
 | Conformance | one fixture directory, two suites, cross-platform digest parity |
 | Offline validator | working, and still the cheapest gate in the repository |
