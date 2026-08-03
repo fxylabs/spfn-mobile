@@ -897,24 +897,39 @@ do
             blockindent = -1
             next
         }
+        # Fail closed: a line at trigger depth the parser cannot read as a plain key
+        # (a quoted key, an anchor, anything unforeseen) is reported as a sentinel and
+        # refused below. A parser that skips what it does not understand would admit
+        # exactly the trigger it could not see.
         inblock {
             if ($0 ~ /^[^[:space:]#]/) { inblock = 0 }
-            else if ($0 ~ /^[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:/)
+            else if ($0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*#/) { }
+            else
             {
                 indent = match($0, /[^[:space:]]/) - 1
                 if (blockindent < 0) { blockindent = indent }
                 if (indent == blockindent)
                 {
-                    t = $0
-                    sub(/^[[:space:]]*/, "", t)
-                    sub(/[[:space:]]*:.*$/, "", t)
-                    print t
+                    if ($0 ~ /^[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:/)
+                    {
+                        t = $0
+                        sub(/^[[:space:]]*/, "", t)
+                        sub(/[[:space:]]*:.*$/, "", t)
+                        print t
+                    }
+                    else
+                    {
+                        print "SPFN_UNPARSEABLE_TRIGGER"
+                    }
                 }
             }
         }
     ' "$workflow")
     UNEXPECTED_TRIGGERS=$(printf '%s\n' "$TRIGGERS" | grep -v '^workflow_dispatch$' | grep -v '^$' || true)
-    if [ -z "$TRIGGERS" ]
+    if printf '%s\n' "$TRIGGERS" | grep -q '^SPFN_UNPARSEABLE_TRIGGER$'
+    then
+        fail "$workflow has a trigger line the parser cannot read; an unparseable trigger is refused"
+    elif [ -z "$TRIGGERS" ]
     then
         fail "$workflow declares no trigger at all; a workflow must be explicitly manual"
     elif [ -z "$UNEXPECTED_TRIGGERS" ]
@@ -992,8 +1007,11 @@ lacks_active "$PUBLISH_WORKFLOW" 'git (push|remote)' \
 
 # Expression injection: a workflow input interpolated into run text executes as
 # script. Inputs may reach the shell ONLY as an env assignment, and the commit input
-# must be machine-validated as exactly 40 hex characters before any use.
-RAW_INPUT_USES=$(grep -nE '\$\{\{[[:space:]]*inputs\.' "$PUBLISH_WORKFLOW" \
+# must be machine-validated as exactly 40 hex characters before any use. The net is
+# any mention of inputs inside an expression — `inputs.x`, the legacy
+# `github.event.inputs.x`, the bracket form, or an indirection through format() —
+# and the one admitted shape is a plain `NAME: ${{ inputs.x }}` env assignment.
+RAW_INPUT_USES=$(grep -nE '\$\{\{.*inputs' "$PUBLISH_WORKFLOW" \
     | grep -vE '^[0-9]+:[[:space:]]*[A-Z_][A-Z_0-9]*:[[:space:]]*\$\{\{[[:space:]]*inputs\.[A-Za-z_]+[[:space:]]*\}\}[[:space:]]*$' || true)
 if [ -z "$RAW_INPUT_USES" ]
 then

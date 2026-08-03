@@ -246,13 +246,18 @@ wire 경로를 건드리지 않은 change set에서는 재실행이 선택이다
   꼴이면 의심. 처방: 신호는 전용 핸들러에서 `trap '' EXIT INT TERM`으로 먼저 무장해제하고
   128+N(INT 130, TERM 143)으로 직접 exit. 증거: `tools/rc-verify/probe-trap-exit.sh`가
   태그 생성 후 kill을 실측한다.
-- **`ORG_GRADLE_PROJECT_*` 시크릿은 Gradle 데몬의 시작 환경에 붙잡힌다.** 키를 env로
-  주입한 실행이 데몬을 새로 띄우면, 그 데몬이 살아 있는 동안 키 없는 후속 실행도 데몬
-  선택에 따라 서명이 살아난다(서명 probe 후 무서명 publish의 build/ 아래에 .asc가
-  재출현한 실측). 탐지: 키 없는 실행의 산출물에 .asc가 있으면 데몬 오염 의심 —
-  rc-verify는 staging에서 이를 FAIL로 잡는다. 처방: 로컬에서 키 주입 실행 뒤 반드시
-  `./gradlew --stop`으로 데몬을 내리고 build/ 아래 서명 산출물을 지운다. CI 러너는
-  일회용이라 해당 없음.
+- **서명 실행의 .asc 잔존을 Gradle 데몬 탓으로 오진하지 말 것.** Gradle 9.5.1의
+  `providers.gradleProperty`는 호출별 클라이언트 env를 읽고, 데몬은 키를 붙잡지
+  않는다 — 통제 재현: 키 주입 publish(staging .asc 24) 직후 같은 데몬(PID 집합 동일,
+  로그에 "Starting a Gradle Daemon" 0회)에서 키 없는 publish → staging .asc 0.
+  실제로 남는 함정은 두 가지다. (1) 서명 실행이 `android/*/build/` 아래 .asc 24개를
+  남기고 이후 무서명 실행에서도 그대로 잔존한다(staging으로는 안 간다). (2)
+  `ORG_GRADLE_PROJECT_*`가 셸에 남아 있으면 무서명이라 믿은 실행이 실제로는 서명된다.
+  확인 명령: `env | grep -c ORG_GRADLE_PROJECT`(무서명 실행 전 0 확인),
+  `find android -path '*/build/*' -name '*.asc' | wc -l`(서명 실행 뒤 잔존 확인),
+  `./gradlew --status`와 실행 로그의 "Starting a Gradle Daemon" 카운트(데몬 동일성).
+  처방: 키 주입 실행 뒤 build/ 아래 .asc를 지운다. rc-verify는 키 없는 실행의
+  staging에 .asc가 있으면 FAIL로 잡는다.
 
 ## P13. 규칙을 조이면 그 규칙을 광고하는 문자열도 본다 {#p13}
 

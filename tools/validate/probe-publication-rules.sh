@@ -150,6 +150,10 @@ printf 'on: [some_future_trigger_kind]\n' >> "$RC_WORKFLOW"
 expect_fail 'a trigger kind nobody has named yet fails' \
     'declares triggers beyond workflow_dispatch'
 
+printf 'on:\n  "push":\n    branches: [main]\n' >> "$RC_WORKFLOW"
+expect_fail 'a quoted trigger key the parser cannot read fails instead of being skipped' \
+    'cannot read'
+
 # --- e. a credential-shaped committed property -------------------------------------
 printf 'centralPortalToken=probe-not-a-real-value\n' >> "$PROPERTIES"
 expect_fail 'a credential-shaped key committed in gradle.properties fails' \
@@ -192,6 +196,14 @@ expect_fail 'a scheme-less network command in publish-central.yml fails' \
 
 printf '      - name: probe\n        run: git checkout --detach "${{ inputs.commit }}"\n' >> "$PUBLISH_WORKFLOW"
 expect_fail 'a workflow input interpolated into run text fails' \
+    'interpolated outside an env assignment'
+
+printf '      - name: probe\n        run: echo "${{ github.event.inputs.commit }}"\n' >> "$PUBLISH_WORKFLOW"
+expect_fail 'the legacy github.event.inputs spelling in run text fails' \
+    'interpolated outside an env assignment'
+
+printf '      - name: probe\n        run: echo "${{ format('"'"'{0}'"'"', inputs.commit) }}"\n' >> "$PUBLISH_WORKFLOW"
+expect_fail 'an input reaching run text through format() indirection fails' \
     'interpolated outside an env assignment'
 
 # --- h. the admitted lookup form stays admitted ------------------------------------
