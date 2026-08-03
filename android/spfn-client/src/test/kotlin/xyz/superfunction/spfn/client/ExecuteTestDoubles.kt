@@ -12,6 +12,7 @@ package xyz.superfunction.spfn.client
 
 import kotlinx.coroutines.CompletableDeferred
 import xyz.superfunction.spfn.core.SpfnCanonicalJson
+import xyz.superfunction.spfn.core.SpfnOperation
 import xyz.superfunction.spfn.generated.SpfnEchoRequest
 import xyz.superfunction.spfn.generated.SpfnEchoResponse
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
@@ -20,6 +21,10 @@ import xyz.superfunction.spfn.generated.SpfnHandshakeResponse
 import xyz.superfunction.spfn.generated.SpfnItem
 import xyz.superfunction.spfn.generated.SpfnListItemsRequest
 import xyz.superfunction.spfn.generated.SpfnListItemsResponse
+import xyz.superfunction.spfn.generated.SpfnRegisterRequest
+import xyz.superfunction.spfn.generated.SpfnRegisterResponse
+import xyz.superfunction.spfn.generated.SpfnRotateKeyRequest
+import xyz.superfunction.spfn.generated.SpfnRotateKeyResponse
 
 // ---- contract bodies, spelled as a server would put them on the wire --------
 
@@ -63,6 +68,43 @@ object ExecuteFixtures
     val ECHO_RESPONSE_BODY: String =
         SpfnCanonicalJson.encode(ECHO_RESPONSE.canonicalValue()).toString(Charsets.UTF_8)
 
+    /**
+     * A register request for the contract's unproven class. Every value is a synthetic
+     * test constant; the "password" authenticates nothing and never meets a real endpoint.
+     */
+    val REGISTER_REQUEST = SpfnRegisterRequest(
+        email = "enroll@example.invalid",
+        phone = null,
+        verificationToken = "verify-test-0001",
+        password = "password-test-0001",
+        publicKey = "cHVibGljLWtleS10ZXN0",
+        keyId = "key-test-0001",
+        fingerprint = "0".repeat(64),
+        algorithm = "ES256"
+    )
+
+    val REGISTER_RESPONSE = SpfnRegisterResponse(
+        userId = "user-test-0001",
+        publicId = "public-test-0001",
+        email = "enroll@example.invalid",
+        phone = null
+    )
+
+    val REGISTER_RESPONSE_BODY: String =
+        SpfnCanonicalJson.encode(REGISTER_RESPONSE.canonicalValue()).toString(Charsets.UTF_8)
+
+    val ROTATE_REQUEST = SpfnRotateKeyRequest(
+        publicKey = "cHVibGljLWtleS10ZXN0LTI",
+        keyId = "key-test-0002",
+        fingerprint = "1".repeat(64),
+        algorithm = "ES256"
+    )
+
+    val ROTATE_RESPONSE = SpfnRotateKeyResponse(success = true, keyId = "key-test-0002")
+
+    val ROTATE_RESPONSE_BODY: String =
+        SpfnCanonicalJson.encode(ROTATE_RESPONSE.canonicalValue()).toString(Charsets.UTF_8)
+
     val LIST_REQUEST = SpfnListItemsRequest(limit = 2, cursor = "cursor-1")
 
     val LIST_RESPONSE = SpfnListItemsResponse(
@@ -102,6 +144,39 @@ object ExecuteCalls
         operation = SpfnGeneratedOperations.authClientProofHandshake,
         encode = { it.canonicalValue() },
         decode = { SpfnHandshakeResponse.decode(it) }
+    )
+
+    /** The contract's unproven class, as generated: no proof, no session, no handshake. */
+    val REGISTER = SpfnCall<SpfnRegisterRequest, SpfnRegisterResponse>(
+        operation = SpfnGeneratedOperations.authEnrollRegister,
+        encode = { it.canonicalValue() },
+        decode = { SpfnRegisterResponse.decode(it) }
+    )
+
+    /**
+     * Proven but session-free: the rotation operation authenticates with the old key
+     * alone, so it carries every proof header and never a session header.
+     */
+    val ROTATE = SpfnCall<SpfnRotateKeyRequest, SpfnRotateKeyResponse>(
+        operation = SpfnGeneratedOperations.authKeysRotate,
+        encode = { it.canonicalValue() },
+        decode = { SpfnRotateKeyResponse.decode(it) }
+    )
+
+    /**
+     * An operation naming an auth class the contract does not declare. The descriptor
+     * is hand-built because the generator can never emit one — that is the point.
+     */
+    val UNDECLARED = SpfnCall<SpfnEchoRequest, SpfnEchoResponse>(
+        operation = SpfnOperation(
+            id = "mystery.op",
+            method = "POST",
+            path = "/v1/mystery",
+            authProfile = "mysteryV9",
+            requiresSession = true
+        ),
+        encode = { it.canonicalValue() },
+        decode = { SpfnEchoResponse.decode(it) }
     )
 }
 

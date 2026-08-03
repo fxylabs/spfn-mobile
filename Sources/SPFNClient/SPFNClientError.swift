@@ -106,6 +106,13 @@ public enum SPFNClientError: Error, Equatable, Sendable
     /// it here would send it without the session bookkeeping that gives it its point.
     /// The associated value is the contract operation id, not anything a server sent.
     case unsupportedOperation(String)
+
+    /// The operation names an auth class this build's contract does not declare, so
+    /// nothing was sent. Fail-closed on purpose: the contract's own rule is that an
+    /// operation is never downgraded to anonymous handling, and an unknown class sent
+    /// with guessed headers would be exactly that. The associated value is the
+    /// operation's `authProfile` string from the pinned bundle, not anything a server sent.
+    case undeclaredAuthClass(String)
 }
 
 // `description` alone is not enough — `String(reflecting:)` and `dump` reach an enum's
@@ -128,6 +135,8 @@ extension SPFNClientError: CustomStringConvertible, CustomDebugStringConvertible
             return "SPFNClientError.decoding(\(failure.rawValue))"
         case .unsupportedOperation(let id):
             return "SPFNClientError.unsupportedOperation(\(id))"
+        case .undeclaredAuthClass(let authProfile):
+            return "SPFNClientError.undeclaredAuthClass(\(authProfile))"
         }
     }
 
