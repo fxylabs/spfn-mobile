@@ -1,11 +1,11 @@
 {
   "status": "RESOLVED_UPSTREAM",
-  "contractVersion": "0.1.0",
-  "bundleSha256": "96c48f9c01fb92817d86cad0ddddbe788018e886b1db92f8132ad5ef64a9b12c",
+  "contractVersion": "0.2.0",
+  "bundleSha256": "28f2fd4cf37ef903dd9746d4058d510435b3905b9b94312f6e95120ad3603084",
   "fixtureCount": 9,
   "derivedBy": "Contracts/fixtures/derive-expected-values.py",
   "note": "Expected values were derived by Contracts/fixtures/derive-expected-values.py, a third implementation independent of both SDKs. Two SDKs agreeing with each other would prove nothing; agreeing with an outside implementation is the actual evidence.",
-  "secrets": "TEST VECTOR ONLY. keyUtf8 is a synthetic string, not a credential. It authenticates nothing, was never issued by anything, and must never be presented to a real endpoint.",
+  "secrets": "TEST KEYPAIR ONLY — NOT A SECRET. The keypair is restated byte for byte from SPFN primitives __tests__/test-keys.ts, where publishing the private half is intentional. It authenticates nothing, was never issued by anything, and must never be presented to a real endpoint.",
   "fixtures": [
     {
       "path": "Contracts/fixtures/canonical/rejects.json",
@@ -24,8 +24,8 @@
     },
     {
       "path": "Contracts/fixtures/proof/proof-input.json",
-      "sha256": "5787020c4b5a5e1aa998e572a09baca264fd1b0655ffb2873b5fce7955413dd6",
-      "bytes": 3208
+      "sha256": "f2ecf71514126ffa6471850eba486e3f1cc54082d9b356837cb950d736b0ad69",
+      "bytes": 7075
     },
     {
       "path": "Contracts/fixtures/proof/rejects.json",
@@ -34,8 +34,8 @@
     },
     {
       "path": "Contracts/fixtures/replay/replay.json",
-      "sha256": "96301ce7ae551391f069477628a33c77020092951cc2c858767c55bfd43bf6da",
-      "bytes": 3114
+      "sha256": "3a7a6aec73436c3c95ad67c04efc0a3e5b573a8cf5e851ca1b152cdcdd58182c",
+      "bytes": 3893
     },
     {
       "path": "Contracts/fixtures/request/operations.json",
@@ -44,13 +44,13 @@
     },
     {
       "path": "Contracts/fixtures/request/wire.json",
-      "sha256": "97b30bb3a93c8204d890556dfe6af4f16324aeb89b4b78916fbb1517cccc1643",
-      "bytes": 3947
+      "sha256": "7a9519d3faff62d52ca340e07a366d592957b1d8e6d0a2812c09a8f6006c87a4",
+      "bytes": 5081
     },
     {
       "path": "Contracts/fixtures/revoke/revoke.json",
-      "sha256": "f0c0db1e0524cdff72d26e6d3248b964a315137b8c4443574dea7776b0575f0a",
-      "bytes": 2093
+      "sha256": "5d1c0b231dde76d7210e9c23b4e707c34ae1ff625dd3b71e24e941dfebceb7ec",
+      "bytes": 2616
     }
   ]
 }

@@ -13,6 +13,7 @@
 
 import Foundation
 import XCTest
+import SPFNAuth
 import SPFNClient
 import SPFNCore
 import SPFNGenerated
@@ -91,7 +92,7 @@ final class SPFNWireConformanceTests: XCTestCase
         let sent = try XCTUnwrap(recorded.first)
         XCTAssertEqual(sent.method, try vector.text("method"))
         XCTAssertEqual(sent.url, baseURL + (try vector.text("path")))
-        XCTAssertEqual(pairs(sent.headers), pairs(expected))
+        try assertHeadersMatchWireVector(sent.headers, expected: expected, vector: vector)
         XCTAssertEqual(
             String(decoding: sent.body ?? [], as: UTF8.self),
             try vector.text("canonicalBody")
@@ -124,7 +125,7 @@ final class SPFNWireConformanceTests: XCTestCase
             canonicalBody: Array((try vector.text("canonicalBody")).utf8)
         )
 
-        XCTAssertEqual(pairs(headers), pairs(expected))
+        try assertHeadersMatchWireVector(headers, expected: expected, vector: vector)
         let calls = await transport.callCount
         XCTAssertEqual(calls, 1, "one handshake, then the request itself")
         XCTAssertEqual(try vector.text("sessionId"), SessionFixtureValues.sessionID)
@@ -140,15 +141,10 @@ final class SPFNWireConformanceTests: XCTestCase
         return (nonce, millis)
     }
 
-    /// The synthetic key the vectors are signed with. Read from the fixture rather than
+    /// The fixture test keypair the vectors name. Read from the fixture rather than
     /// restated, so the suite cannot silently sign with something else.
-    private func syntheticProvider() throws -> SPFNInMemoryKeyProvider
+    private func syntheticProvider() throws -> SPFNSoftwareKeyProvider
     {
-        let key = try WireFixtures.wire()["syntheticKey"].orFail("syntheticKey").object().text("keyUtf8")
-        return SPFNInMemoryKeyProvider(
-            clientID: SessionFixtureValues.clientID,
-            keyID: SessionFixtureValues.keyID,
-            key: Array(key.utf8)
-        )
+        try ExecuteFixtures.syntheticProvider()
     }
 }

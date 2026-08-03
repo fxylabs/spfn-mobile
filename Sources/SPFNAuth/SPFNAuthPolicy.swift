@@ -34,7 +34,8 @@ public enum SPFNAuthError: Error, Equatable, Sendable
     /// newline-separated canonical form ambiguous.
     case controlCharacterInProofField(String)
 
-    /// The presented proof did not match the expected MAC.
+    /// The presented proof did not verify: not a 128-hex raw r ‖ s signature, or a
+    /// signature the named public key rejects.
     case proofInvalid
 
     /// The (clientId, nonce) pair was already spent inside the replay window.

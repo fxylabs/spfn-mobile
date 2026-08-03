@@ -1,9 +1,13 @@
 {
   "note": "Expected values were derived by Contracts/fixtures/derive-expected-values.py, a third implementation independent of both SDKs. Two SDKs agreeing with each other would prove nothing; agreeing with an outside implementation is the actual evidence.",
   "profile": "clientProofV1",
-  "syntheticKey": {
-    "note": "TEST VECTOR ONLY. keyUtf8 is a synthetic string, not a credential. It authenticates nothing, was never issued by anything, and must never be presented to a real endpoint.",
-    "keyUtf8": "spfn-test-key-not-a-secret-0001"
+  "signatureNote": "Every proof value in this directory was signed by derive-expected-values.py with the test keypair and an RFC 6979 deterministic nonce, so the files reproduce byte for byte. A platform signer draws a random nonce, so its proofs are judged by verification against the test public key rather than byte equality.",
+  "testKeyPair": {
+    "note": "TEST KEYPAIR ONLY — NOT A SECRET. The keypair is restated byte for byte from SPFN primitives __tests__/test-keys.ts, where publishing the private half is intentional. It authenticates nothing, was never issued by anything, and must never be presented to a real endpoint.",
+    "origin": "SPFN primitives packages/auth/src/server/client-proof/__tests__/test-keys.ts",
+    "keyId": "key-test-0001",
+    "publicKeySpkiBase64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES7xktjK+fMydT7UZcfuW/vzU9rU/+RPVVQKKgxrB1sd9bh6N1bqiBwU/zuw9/LaQ91lWPeWSN9OlT8OlDYXIYg==",
+    "privateKeyPkcs8Base64": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgMv3D4UvmGKjFeG3myLLfwlcOAQ9n8qoFmwrgGWBErsShRANCAARLvGS2Mr58zJ1PtRlx+5b+/NT2tT/5E9VVAoqDGsHWx31uHo3VuqIHBT/O7D38tpD3WVY95ZI306VPw6UNhchi"
   },
   "requestContentType": "application/json",
   "headerNames": {
@@ -42,7 +46,7 @@
       },
       "canonicalBody": "{\"clientId\":\"client-test-0001\",\"issuedAtMillis\":1750000000000,\"keyId\":\"key-test-0001\",\"nonce\":\"nonce-000000000001\"}",
       "bodySha256": "0261f8b70f9ee8f7014eb87fd8aefeaac9bd0caef9c105bca572960c4c2cda9b",
-      "proof": "3ff8b8af5f3b300ca5253b1796d76df74db89f6f5631d9dc28c2a3ebf9c19c9c",
+      "proof": "5bd615794d89460979870e3a891045e7c9beaecc8a7906cde777da04f9ae5cfc32b30f03d6bf721a72b3cea6fa6697215917c396f48c51e4a923605a9181e358",
       "headers": [
         [
           "content-type",
@@ -70,7 +74,7 @@
         ],
         [
           "x-spfn-proof",
-          "3ff8b8af5f3b300ca5253b1796d76df74db89f6f5631d9dc28c2a3ebf9c19c9c"
+          "5bd615794d89460979870e3a891045e7c9beaecc8a7906cde777da04f9ae5cfc32b30f03d6bf721a72b3cea6fa6697215917c396f48c51e4a923605a9181e358"
         ]
       ]
     },
@@ -88,7 +92,7 @@
       },
       "canonicalBody": "{\"message\":\"hello\",\"sequence\":7}",
       "bodySha256": "7ebd40a4b02f42649c0808ee91edc724f61afac3ac550f4e7c37905bcc1a6edb",
-      "proof": "45e41e7a897cc2bf6d9a8e2cb5b66bb545b9d24a6a810f47d98a80eeb879b465",
+      "proof": "6780704389ee82bb0b3de8f75110e934a5414556c9336ac39a82e07e1227f87789bf041fcbc6ae96479b70031e069d7464d797cbf7a8be384f0e00c0d1eac7d7",
       "headers": [
         [
           "content-type",
@@ -116,7 +120,7 @@
         ],
         [
           "x-spfn-proof",
-          "45e41e7a897cc2bf6d9a8e2cb5b66bb545b9d24a6a810f47d98a80eeb879b465"
+          "6780704389ee82bb0b3de8f75110e934a5414556c9336ac39a82e07e1227f87789bf041fcbc6ae96479b70031e069d7464d797cbf7a8be384f0e00c0d1eac7d7"
         ],
         [
           "x-spfn-session",

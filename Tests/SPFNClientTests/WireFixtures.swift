@@ -6,7 +6,10 @@
 // exercises the thing being tested.
 
 import Foundation
+import SPFNAuth
+import SPFNClient
 import SPFNCore
+import XCTest
 
 enum WireFixtures
 {
@@ -48,6 +51,56 @@ enum WireFixtures
             .orFail("wireMapping")
             .object()
     }
+}
+
+/// Every header must equal the fixture byte for byte except the proof: an ECDSA signer
+/// draws a random nonce, so the SDK's proof cannot be pinned. It is judged by
+/// verification instead — over the exact proof input the vector pins, under the fixture
+/// public key — and the fixture's own recorded proof must verify the same way, which
+/// proves this platform's verifier accepts a signature produced outside either SDK.
+func assertHeadersMatchWireVector(
+    _ sent: [(String, String)],
+    expected: [(String, String)],
+    vector: [String: SPFNCanonicalValue],
+    file: StaticString = #filePath,
+    line: UInt = #line
+) throws
+{
+    XCTAssertEqual(sent.map(\.0), expected.map(\.0), "header names or order differ", file: file, line: line)
+    for (sentPair, expectedPair) in zip(sent, expected) where sentPair.0 != SPFNWireHeaders.proof
+    {
+        XCTAssertEqual(sentPair.1, expectedPair.1, "header '\(sentPair.0)' differs", file: file, line: line)
+    }
+
+    let byName = Dictionary(uniqueKeysWithValues: sent)
+    let sentProof = try XCTUnwrap(byName[SPFNWireHeaders.proof], file: file, line: line)
+    let input = SPFNProofInput(
+        method: try vector.text("method"),
+        path: try vector.text("path"),
+        clientID: try XCTUnwrap(byName[SPFNWireHeaders.clientID], file: file, line: line),
+        keyID: try XCTUnwrap(byName[SPFNWireHeaders.keyID], file: file, line: line),
+        nonce: try XCTUnwrap(byName[SPFNWireHeaders.nonce], file: file, line: line),
+        issuedAtMillis: try XCTUnwrap(
+            Int64(try XCTUnwrap(byName[SPFNWireHeaders.issuedAtMillis], file: file, line: line)),
+            file: file,
+            line: line
+        ),
+        bodySha256: try vector.text("bodySha256")
+    )
+    let publicKey = try ExecuteFixtures.fixturePublicKeySpkiDer()
+
+    XCTAssertNoThrow(
+        try SPFNClientProof.verify(presented: sentProof, for: input, publicKeySpkiDer: publicKey),
+        "the SDK's own proof does not verify under the fixture public key",
+        file: file,
+        line: line
+    )
+    XCTAssertNoThrow(
+        try SPFNClientProof.verify(presented: try vector.text("proof"), for: input, publicKeySpkiDer: publicKey),
+        "the fixture's recorded proof does not verify on this platform",
+        file: file,
+        line: line
+    )
 }
 
 enum FixtureFailure: Error, Equatable

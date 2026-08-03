@@ -97,7 +97,7 @@ class SpfnWireConformanceTest
         val sent = transport.received.single()
         assertEquals(vector.text("method"), sent.method)
         assertEquals(baseUrl + vector.text("path"), sent.url)
-        assertEquals(expected, sent.headers)
+        assertHeadersMatchWireVector(sent.headers, expected, vector)
         assertEquals(vector.text("canonicalBody"), String(requireNotNull(sent.body), Charsets.UTF_8))
     }
 
@@ -131,7 +131,7 @@ class SpfnWireConformanceTest
             vector.text("canonicalBody").toByteArray(Charsets.UTF_8)
         )
 
-        assertEquals(expected, headers)
+        assertHeadersMatchWireVector(headers, expected, vector)
         assertEquals("one handshake, then the request itself", 1, transport.callCount)
         assertEquals(SessionFixtureValues.SESSION_ID, vector.text("sessionId"))
     }
@@ -146,13 +146,8 @@ class SpfnWireConformanceTest
     }
 
     /**
-     * The synthetic key the vectors are signed with. Read from the fixture rather than
+     * The fixture test keypair the vectors name. Read from the fixture rather than
      * restated, so the suite cannot silently sign with something else.
      */
-    private fun syntheticProvider(): SpfnInMemoryKeyProvider =
-        SpfnInMemoryKeyProvider(
-            clientId = SessionFixtureValues.CLIENT_ID,
-            keyId = SessionFixtureValues.KEY_ID,
-            key = WireFixtures.wire().obj("syntheticKey").text("keyUtf8").toByteArray(Charsets.UTF_8)
-        )
+    private fun syntheticProvider(): SpfnSoftwareKeyProvider = ExecuteFixtures.syntheticProvider()
 }

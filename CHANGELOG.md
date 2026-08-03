@@ -14,6 +14,28 @@ is reissued as `0.1.0-alpha.2` from a tree that contains the fix. Everything bel
 the next heading describes work that happened while the train carried the alpha.1
 number.
 
+### clientProofV1 revised to asymmetric ECDSA P-256 (contract 0.2.0)
+
+- The pin moved to primitives commit `4380bc40`, contract `0.2.0`, digest
+  `28f2fd4c…`: the proof is now an ECDSA P-256 signature over the unchanged
+  SPFN-PROOF-INPUT-1 bytes — raw `r ‖ s` 64 bytes as base16-lower (128 hex), DER
+  refused on the wire, low-S not required — verified against a registered public
+  key (SPKI DER base64). Wire header names, admission order, replay window, nonce
+  rules and the refusal codes are unchanged by contract.
+- The key provider is a signer now: `withKey` (which exposed the symmetric key to
+  the call site) is retired for `sign(message) → raw r ‖ s`, so a private key never
+  exists as a value outside a provider and a hardware-backed provider can land
+  later without a protocol change. The shipped implementation is a software P-256
+  provider; Kotlin converts the JCA's DER through a strict `SpfnEcdsa` codec whose
+  33- and 31-byte integer paddings are pinned by unit tests, while CryptoKit's
+  `rawRepresentation` is already raw.
+- The reference server registers public keys (`/control/register-key`, mirroring
+  the primitives dev surface field for field) and verifies signatures; the fixtures
+  are two-tier — proof-input bytes stay byte-pinned, signatures are judged by
+  verification against the fixed test keypair, and `derive-expected-values.py`
+  gained a pure-stdlib P-256 implementation (cross-checked against OpenSSL) that
+  signs the recorded values deterministically via RFC 6979.
+
 ## 0.1.0-alpha.1 — superseded by 0.1.0-alpha.2, tagged but never published
 
 Step 1 laid out the repository. Step 2 made it compile on both platforms and proved one

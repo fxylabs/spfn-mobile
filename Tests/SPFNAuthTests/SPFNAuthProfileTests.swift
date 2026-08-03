@@ -1,5 +1,6 @@
 // SPFN Mobile — auth boundary unit tests.
 
+import CryptoKit
 import Foundation
 import XCTest
 @testable import SPFNAuth
@@ -43,7 +44,18 @@ final class SPFNAuthProfileTests: XCTestCase
 
 final class SPFNClientProofUnitTests: XCTestCase
 {
-    private let key = Array("spfn-test-key-not-a-secret-0001".utf8)
+    /// A fresh in-process P-256 keypair. TEST ONLY — never persisted, never registered.
+    private let privateKey = P256.Signing.PrivateKey()
+
+    private func sign(_ message: [UInt8]) throws -> [UInt8]
+    {
+        Array(try privateKey.signature(for: Data(message)).rawRepresentation)
+    }
+
+    private var publicKeySpkiDer: [UInt8]
+    {
+        Array(privateKey.publicKey.derRepresentation)
+    }
 
     private func input(nonce: String = "nonce-0001", bodySha256: String? = nil) -> SPFNProofInput
     {
@@ -81,13 +93,20 @@ final class SPFNClientProofUnitTests: XCTestCase
         XCTAssertEqual(built.bodySha256, SPFNDigest.absentBodyDigest)
     }
 
-    func testTamperingWithAnyFieldChangesTheProof() throws
+    func testAProofVerifiesOverItsOwnInputAndFailsOverAnother() throws
     {
-        let base = try SPFNClientProof.proof(for: input(), key: key)
-        let tampered = try SPFNClientProof.proof(for: input(nonce: "nonce-0002"), key: key)
-        XCTAssertNotEqual(base, tampered)
+        let proof = try SPFNClientProof.proof(for: input(), signedBy: sign)
 
-        XCTAssertThrowsError(try SPFNClientProof.verify(presented: tampered, for: input(), key: key))
+        XCTAssertNoThrow(
+            try SPFNClientProof.verify(presented: proof, for: input(), publicKeySpkiDer: publicKeySpkiDer)
+        )
+        XCTAssertThrowsError(
+            try SPFNClientProof.verify(
+                presented: proof,
+                for: input(nonce: "nonce-0002"),
+                publicKeySpkiDer: publicKeySpkiDer
+            )
+        )
         { error in
             XCTAssertEqual(error as? SPFNAuthError, .proofInvalid)
         }
@@ -95,9 +114,22 @@ final class SPFNClientProofUnitTests: XCTestCase
 
     func testADifferentKeyDoesNotVerify() throws
     {
-        let proof = try SPFNClientProof.proof(for: input(), key: key)
+        let proof = try SPFNClientProof.proof(for: input(), signedBy: sign)
+        let otherKey = Array(P256.Signing.PrivateKey().publicKey.derRepresentation)
         XCTAssertThrowsError(
-            try SPFNClientProof.verify(presented: proof, for: input(), key: Array("another-test-key".utf8))
+            try SPFNClientProof.verify(presented: proof, for: input(), publicKeySpkiDer: otherKey)
         )
+    }
+
+    /// A signer that hands back anything but 64 bytes emitted DER — or nothing — and
+    /// is refused before its output can reach the wire.
+    func testASignerThatReturnsTheWrongLengthIsRefused() throws
+    {
+        XCTAssertThrowsError(
+            try SPFNClientProof.proof(for: input()) { _ in [UInt8](repeating: 0, count: 70) }
+        )
+        { error in
+            XCTAssertEqual(error as? SPFNAuthError, .proofInvalid)
+        }
     }
 }

@@ -1,6 +1,7 @@
 {
   "note": "Expected values were derived by Contracts/fixtures/derive-expected-values.py, a third implementation independent of both SDKs. Two SDKs agreeing with each other would prove nothing; agreeing with an outside implementation is the actual evidence.",
   "profile": "clientProofV1",
+  "signatureNote": "Every proof value in this directory was signed by derive-expected-values.py with the test keypair and an RFC 6979 deterministic nonce, so the files reproduce byte for byte. A platform signer draws a random nonce, so its proofs are judged by verification against the test public key rather than byte equality.",
   "replayWindowMillis": 300000,
   "base": {
     "method": "POST",
@@ -18,14 +19,14 @@
           "nonce": "nonce-replay-01",
           "issuedAtMillis": 1750000000000,
           "nowMillis": 1750000001000,
-          "proof": "4be4028881bd8dac0811b6fda4863b81b65b51e028aa15c930766d5b0d75b57c",
+          "proof": "0171584a59f4f2ca0480d8f42fb7af642820f5007fb6f1c4b0959c272dbe256c2419a049650c627396c1618bf84478050303e266bf763c7672b2487521612275",
           "expect": "accept"
         },
         {
           "nonce": "nonce-replay-01",
           "issuedAtMillis": 1750000000000,
           "nowMillis": 1750000002000,
-          "proof": "4be4028881bd8dac0811b6fda4863b81b65b51e028aa15c930766d5b0d75b57c",
+          "proof": "0171584a59f4f2ca0480d8f42fb7af642820f5007fb6f1c4b0959c272dbe256c2419a049650c627396c1618bf84478050303e266bf763c7672b2487521612275",
           "expect": "PROOF_REPLAYED"
         }
       ]
@@ -38,14 +39,14 @@
           "nonce": "nonce-replay-02",
           "issuedAtMillis": 1750000000000,
           "nowMillis": 1750000001000,
-          "proof": "612c357d63f16d1b4857a82d83e7de4e81737b10e5edae1d9c2d59e2df440900",
+          "proof": "1aca72b6ebf9495c66370fcf246a99513c06dfa6d5f8eff677a3a3abd7a88ade7399a118b3c540c446d4e0696de008e5d24fccee533a9d759127f973e515036e",
           "expect": "accept"
         },
         {
           "nonce": "nonce-replay-03",
           "issuedAtMillis": 1750000000000,
           "nowMillis": 1750000001000,
-          "proof": "bde6288c318a84cda258cd377dd9a01e19e40fd95d8f3e6698ae1e96c2fc55fe",
+          "proof": "911a5716ec12cf223ce94148843124b28bfcbc50f735cb49e90cc05908c8a2ec8fa24a419ec36b0631d25a5b9fd02c0b25eef65fb3c0071a0e6768590117d084",
           "expect": "accept"
         }
       ]
@@ -58,7 +59,7 @@
           "nonce": "nonce-replay-04",
           "issuedAtMillis": 1750000000000,
           "nowMillis": 1750000300001,
-          "proof": "c4c04fd0099445917dd3471747544353cf2b14d74a00a385e5668498c17d0178",
+          "proof": "fec84ce39428c7956ca569f8dd96e83be94e639ec56db8487c33c6c610769807f68765510717e5399d933b2fd90b0264a01bcc11268e8ec7154a0db1cee1b13f",
           "expect": "PROOF_EXPIRED"
         }
       ]
@@ -71,7 +72,7 @@
           "nonce": "nonce-replay-05",
           "issuedAtMillis": 1750000000000,
           "nowMillis": 1749999999999,
-          "proof": "39b07b516d6ec134c315cd93165742f1e0c3ca976ea8822ce1f381434b590aa0",
+          "proof": "c6e565902199716e1087faf95b1ab2d2a4f67e759c357bc9e1ef42091326e4a9ecc3024147f38fc454c5f6c7d8ed312d94a07db58857dce446f71d6293ba5cf6",
           "expect": "PROOF_EXPIRED"
         }
       ]
@@ -84,7 +85,7 @@
           "nonce": "nonce-replay-06",
           "issuedAtMillis": 1750000000000,
           "nowMillis": 1750000001000,
-          "proof": "0000000000000000000000000000000000000000000000000000000000000000",
+          "proof": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
           "expect": "PROOF_INVALID"
         }
       ]

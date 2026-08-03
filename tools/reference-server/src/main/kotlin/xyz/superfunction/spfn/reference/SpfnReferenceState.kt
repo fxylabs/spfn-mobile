@@ -14,18 +14,27 @@
 
 package xyz.superfunction.spfn.reference
 
+import xyz.superfunction.spfn.auth.SpfnAuthException
 import xyz.superfunction.spfn.auth.SpfnClientProof
+import xyz.superfunction.spfn.auth.SpfnEcdsa
 import xyz.superfunction.spfn.auth.SpfnProofInput
-import xyz.superfunction.spfn.core.SpfnDigest
+import java.security.KeyFactory
+import java.security.PublicKey
 import java.security.SecureRandom
+import java.security.Signature
+import java.security.spec.PKCS8EncodedKeySpec
+import java.util.Base64
 
 /**
- * The keys this server will verify a proof against.
+ * The keypair this server pre-registers, and the tests sign with.
  *
- * TEST VECTOR ONLY. Every value here is synthetic: it authenticates nothing, was never
- * issued by anything, and must never be presented to a real endpoint. The values are the
- * ones `Contracts/fixtures/proof/proof-input.json` already uses, so a proof this server
- * accepts is a proof the conformance fixtures describe.
+ * TEST KEYPAIR ONLY — NOT A SECRET. Restated byte for byte from SPFN primitives
+ * packages/auth/src/server/client-proof/__tests__/test-keys.ts, which is also what
+ * `Contracts/fixtures/proof/proof-input.json` pins as `testKeyPair` and what the
+ * primitives dev server pre-registers — so a proof this server accepts is a proof the
+ * fixtures describe and the upstream dev surface accepts too. Publishing the private
+ * half is intentional: it authenticates nothing, was never issued by anything, and
+ * must never be presented to a real endpoint.
  */
 object SpfnReferenceTestKeys
 {
@@ -33,14 +42,40 @@ object SpfnReferenceTestKeys
 
     const val KEY_ID: String = "key-test-0001"
 
-    /** TEST VECTOR ONLY. A synthetic string, not a credential. */
-    const val KEY_UTF8: String = "spfn-test-key-not-a-secret-0001"
+    /** The public half in the contract's representation: SPKI DER, base64. */
+    const val PUBLIC_KEY_SPKI_B64: String =
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES7xktjK+fMydT7UZcfuW/vzU9rU/" +
+            "+RPVVQKKgxrB1sd9bh6N1bqiBwU/zuw9/LaQ91lWPeWSN9OlT8OlDYXIYg=="
 
-    val KEY_BYTES: ByteArray
-        get() = KEY_UTF8.toByteArray(Charsets.UTF_8)
+    /** PKCS#8 DER, base64. TEST ONLY — deliberately published, not a secret. */
+    const val PRIVATE_KEY_PKCS8_B64: String =
+        "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgMv3D4UvmGKjFeG3m" +
+            "yLLfwlcOAQ9n8qoFmwrgGWBErsShRANCAARLvGS2Mr58zJ1PtRlx+5b+/NT2tT/5" +
+            "E9VVAoqDGsHWx31uHo3VuqIHBT/O7D38tpD3WVY95ZI306VPw6UNhchi"
 
+    val PUBLIC_KEY_SPKI_DER: ByteArray
+        get() = Base64.getDecoder().decode(PUBLIC_KEY_SPKI_B64)
+
+    /** The registration every launch starts from: the test keypair's public half. */
     val DIRECTORY: Map<String, ByteArray>
-        get() = mapOf(KEY_ID to KEY_BYTES)
+        get() = mapOf(KEY_ID to PUBLIC_KEY_SPKI_DER)
+
+    /**
+     * A proof over [input], signed with the test private key.
+     *
+     * The signer the server's own tests present proofs with. It lives beside the
+     * keypair rather than in every test file so the DER→raw conversion happens in
+     * exactly one place.
+     */
+    fun proofFor(input: SpfnProofInput): String = SpfnClientProof.proof(input) { message ->
+        val signer = Signature.getInstance("SHA256withECDSA");
+        signer.initSign(
+            KeyFactory.getInstance("EC")
+                .generatePrivate(PKCS8EncodedKeySpec(Base64.getDecoder().decode(PRIVATE_KEY_PKCS8_B64)))
+        );
+        signer.update(message);
+        SpfnEcdsa.derToRaw(signer.sign());
+    }
 }
 
 /** What `/control/stats` reports. Counters only; nothing a request carried. */
@@ -67,13 +102,25 @@ private class SpfnReferenceHold(val millis: Long, var remaining: Int)
 class SpfnReferenceState(
     private val clock: SpfnReferenceClock,
     sessionTtlMillis: Long = DEFAULT_SESSION_TTL_MILLIS,
-    private val keys: Map<String, ByteArray> = SpfnReferenceTestKeys.DIRECTORY,
+    publicKeys: Map<String, ByteArray> = SpfnReferenceTestKeys.DIRECTORY,
     /** The contract's `clientProofV1.replayWindowMillis`. */
     val replayWindowMillis: Long = DEFAULT_REPLAY_WINDOW_MILLIS
 )
 {
     private val lock = Any()
     private val random = SecureRandom()
+
+    /**
+     * The registered public keys, parsed once at registration. `keyId` names one of
+     * these; a keyId with no entry lands in the proof check as PROOF_INVALID, never in
+     * revocation — it was never issued, so it was never revoked, and disclosing the
+     * difference would say which keyIds exist.
+     */
+    private val registeredKeys = LinkedHashMap<String, PublicKey>()
+
+    /** What [reset] restores: the registrations this server was constructed with. */
+    private val constructedKeys: Map<String, PublicKey> =
+        publicKeys.mapValues { (_, spkiDer) -> SpfnEcdsa.publicKeyFromSpki(spkiDer) }
 
     private val sessions = LinkedHashMap<String, SpfnReferenceSession>()
 
@@ -82,6 +129,11 @@ class SpfnReferenceState(
 
     private val revokedKeyIds = LinkedHashSet<String>()
     private val holds = LinkedHashMap<String, SpfnReferenceHold>()
+
+    init
+    {
+        registeredKeys.putAll(constructedKeys);
+    }
 
     private var ttlMillis: Long = sessionTtlMillis
     private var requestCount: Long = 0
@@ -148,14 +200,40 @@ class SpfnReferenceState(
         // 4. The proof itself, last, so the three answers above stay distinguishable.
         //    An unrecognised keyId lands here rather than in step 1: it was never issued,
         //    so it was never revoked, and there is nothing for a new session to fix.
-        val key = keys[keyId] ?: return@synchronized SpfnReferenceRefusal.proofInvalid();
-        if (!SpfnDigest.constantTimeEquals(SpfnClientProof.proof(proofInput, key), presentedProof))
+        val publicKey = registeredKeys[keyId] ?: return@synchronized SpfnReferenceRefusal.proofInvalid();
+        try
+        {
+            SpfnClientProof.verify(presentedProof, proofInput, publicKey);
+        }
+        catch (_: SpfnAuthException)
         {
             return@synchronized SpfnReferenceRefusal.proofInvalid();
         }
 
         spentNonces[replayKey] = proofInput.issuedAtMillis;
         null;
+    }
+
+    // ---- keys --------------------------------------------------------------
+
+    /**
+     * Registers a public key (SPKI DER) under [keyId], replacing any earlier one.
+     *
+     * Throws [IllegalArgumentException] when the bytes are not a parseable EC public
+     * key, so the control surface can answer a bad registration as a bad request
+     * rather than storing something every later proof would fail against.
+     */
+    fun registerPublicKey(keyId: String, publicKeySpkiDer: ByteArray)
+    {
+        val parsed = try
+        {
+            SpfnEcdsa.publicKeyFromSpki(publicKeySpkiDer)
+        }
+        catch (failure: Exception)
+        {
+            throw IllegalArgumentException("not an SPKI DER public key", failure);
+        };
+        synchronized(lock) { registeredKeys[keyId] = parsed };
     }
 
     // ---- sessions ----------------------------------------------------------
@@ -208,6 +286,8 @@ class SpfnReferenceState(
             spentNonces.clear();
             revokedKeyIds.clear();
             holds.clear();
+            registeredKeys.clear();
+            registeredKeys.putAll(constructedKeys);
             ttlMillis = DEFAULT_SESSION_TTL_MILLIS;
             requestCount = 0;
             handshakeCount = 0;

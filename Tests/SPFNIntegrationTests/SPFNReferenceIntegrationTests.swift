@@ -23,11 +23,17 @@ import XCTest
 
 final class SPFNReferenceIntegrationTests: XCTestCase
 {
-    // TEST VECTOR ONLY. The synthetic identity the reference server and
-    // Contracts/fixtures/proof/proof-input.json both use. It authenticates nothing.
+    // TEST KEYPAIR ONLY — NOT A SECRET. The synthetic identity the reference server,
+    // the primitives dev server and Contracts/fixtures/proof/proof-input.json all
+    // pre-register the public half of; the private half is published on purpose and
+    // authenticates nothing. Restated from the fixture's testKeyPair because this
+    // suite runs from its own process and keeps no fixture loader.
     private static let clientID = "client-test-0001"
     private static let keyID = "key-test-0001"
-    private static let keyUTF8 = "spfn-test-key-not-a-secret-0001"
+    private static let privateKeyPkcs8B64 =
+        "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgMv3D4UvmGKjFeG3m"
+        + "yLLfwlcOAQ9n8qoFmwrgGWBErsShRANCAARLvGS2Mr58zJ1PtRlx+5b+/NT2tT/5"
+        + "E9VVAoqDGsHWx31uHo3VuqIHBT/O7D38tpD3WVY95ZI306VPw6UNhchi"
 
     /// Long enough that neither the timeout nor the cancellation can be a coincidence.
     private static let holdMillis: Int64 = 3_000
@@ -236,13 +242,19 @@ final class SPFNReferenceIntegrationTests: XCTestCase
             // case that runs after it.
             try await control.reset()
 
+            guard let privateKeyDer = Data(base64Encoded: SPFNReferenceIntegrationTests.privateKeyPkcs8B64)
+            else
+            {
+                throw SPFNIntegrationFailure.control("the test private key constant is not base64")
+            }
+
             let transport = SPFNURLSessionTransport()
             let session = SPFNSession(
                 transport: transport,
-                keyProvider: SPFNInMemoryKeyProvider(
+                keyProvider: try SPFNSoftwareKeyProvider(
                     clientID: SPFNReferenceIntegrationTests.clientID,
                     keyID: SPFNReferenceIntegrationTests.keyID,
-                    key: [UInt8](SPFNReferenceIntegrationTests.keyUTF8.utf8)
+                    privateKeyDer: [UInt8](privateKeyDer)
                 ),
                 baseURL: environment.baseURL,
                 timeoutMillis: timeoutMillis

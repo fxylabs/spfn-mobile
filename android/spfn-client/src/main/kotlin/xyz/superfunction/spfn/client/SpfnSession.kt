@@ -290,7 +290,7 @@ class SpfnSession(
             canonicalBody = canonicalBody
         );
 
-        val proof = keyProvider.withKey { key -> SpfnClientProof.proof(input, key) };
+        val proof = SpfnClientProof.proof(input) { message -> keyProvider.sign(message) };
 
         val headers = mutableListOf<Pair<String, String>>();
         if (canonicalBody != null)

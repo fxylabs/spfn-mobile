@@ -105,7 +105,7 @@ final class SPFNClientExecuteTests: XCTestCase
         let sent = try XCTUnwrap(recorded.last)
         XCTAssertEqual(sent.method, try vector.text("method"))
         XCTAssertEqual(sent.url, baseURL + (try vector.text("path")))
-        XCTAssertEqual(pairs(sent.headers), pairs(expected))
+        try assertHeadersMatchWireVector(sent.headers, expected: expected, vector: vector)
         XCTAssertEqual(String(decoding: sent.body ?? [], as: UTF8.self), try vector.text("canonicalBody"))
     }
 

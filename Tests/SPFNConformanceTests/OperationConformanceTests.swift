@@ -132,7 +132,9 @@ final class OperationConformanceTests: XCTestCase
         let binding = SPFNGeneratedContract.binding
         XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: binding.importedVersion))
 
-        for version in ["0.2.0", "1.0.0", "1.4.0", "2.0.0"]
+        // 0.1.0 sits below the lower bound and 0.3.0 above the upper: on a 0.x line
+        // both neighbouring minors are breaking, in both directions.
+        for version in ["0.1.0", "0.3.0", "1.0.0", "1.4.0", "2.0.0"]
         {
             XCTAssertThrowsError(try binding.requireSupported(serverContractVersion: version))
             { error in

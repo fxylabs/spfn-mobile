@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.1.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    96c48f9c01fb92817d86cad0ddddbe788018e886b1db92f8132ad5ef64a9b12c
-// contractVersion: 0.1.0
+// bundleSha256:    28f2fd4cf37ef903dd9746d4058d510435b3905b9b94312f6e95120ad3603084
+// contractVersion: 0.2.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -21,11 +21,11 @@ public enum SPFNGeneratedContract
 
     /// The pinned bundle these sources were derived from.
     public static let binding = SPFNContractBinding(
-        importedVersion: "0.1.0",
-        importedManifestSha256: "96c48f9c01fb92817d86cad0ddddbe788018e886b1db92f8132ad5ef64a9b12c",
-        supportedRange: ">=0.1.0 <0.2.0",
+        importedVersion: "0.2.0",
+        importedManifestSha256: "28f2fd4cf37ef903dd9746d4058d510435b3905b9b94312f6e95120ad3603084",
+        supportedRange: ">=0.2.0 <0.3.0",
         supportedMajor: 0,
-        supportedMinor: 1,
+        supportedMinor: 2,
         origin: "spfn-primitives-ci-export"
     )
 

@@ -1,13 +1,12 @@
-// SPFN Mobile — digests and message authentication.
+// SPFN Mobile — digests.
 //
 // Counterpart of Sources/SPFNCore/SPFNDigest.swift, which uses CryptoKit. Both sides
-// use the platform primitive; neither hand-rolls one.
+// use the platform primitive; neither hand-rolls one. The proof signature itself lives
+// in spfn-auth: this module only ever hashes.
 
 package xyz.superfunction.spfn.core
 
 import java.security.MessageDigest
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 
 object SpfnDigest
 {
@@ -25,14 +24,6 @@ object SpfnDigest
 
     /** Lowercase base16 SHA-256 of a UTF-8 string. */
     fun sha256Hex(text: String): String = sha256Hex(text.toByteArray(Charsets.UTF_8))
-
-    /** Lowercase base16 HMAC-SHA-256. */
-    fun hmacSha256Hex(key: ByteArray, message: ByteArray): String
-    {
-        val mac = Mac.getInstance("HmacSHA256");
-        mac.init(SecretKeySpec(key, "HmacSHA256"));
-        return hex(mac.doFinal(message));
-    }
 
     /**
      * Constant-time comparison of two hex digests.
