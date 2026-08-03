@@ -49,12 +49,30 @@ TMP=$(mktemp -d "${TMPDIR:-/tmp}/spfn-gate-probe.XXXXXX")
 BACKUP="$TMP/gradle.properties.original"
 cp gradle.properties "$BACKUP"
 
+# Idempotent: a signal trap and the EXIT trap may both reach it, and the second pass
+# must find nothing left to redo — after the first pass the backup is gone with $TMP.
 restore()
 {
-    cp "$BACKUP" gradle.properties
+    if [ -f "$BACKUP" ]
+    then
+        cp "$BACKUP" gradle.properties
+    fi
     rm -rf "$TMP"
 }
-trap restore EXIT INT TERM
+
+# A signal trap that only restores would let execution resume mid-probe; exiting here
+# keeps the interruption an interruption, with the conventional 128+N status. The EXIT
+# trap is disarmed first so the exit cannot run restore a second time.
+on_signal()
+{
+    trap '' EXIT INT TERM
+    restore
+    exit "$1"
+}
+
+trap restore EXIT
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
 
 GRADLE="./gradlew --console=plain"
 

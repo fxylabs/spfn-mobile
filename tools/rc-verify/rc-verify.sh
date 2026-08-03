@@ -101,21 +101,45 @@ SBOM_DIR="$OUT/sbom"
 LOGS="$OUT/logs"
 mkdir -p "$STAGING" "$SBOM_DIR" "$LOGS"
 
-cleanup()
+# Idempotent: the signal path and the EXIT path may both reach it, and a second
+# signal arriving mid-sweep must find nothing half-done to redo. Deleting the tag
+# resets CREATED_TAG so a re-entry cannot delete a tag this run did not create.
+sweep()
 {
-    status=$?
     if [ "$CREATED_TAG" = "1" ]
     then
         git -C "$ROOT" tag -d "$VERSION" > /dev/null 2>&1 || true
+        CREATED_TAG=0
     fi
     rm -rf "$WORK"
     # SwiftPM drops zero-byte advisory .lock markers directly in $TMPDIR, named after
     # the flattened path of the directory they guarded. The directory is gone; sweep
     # the markers that name it too.
     find "${TMPDIR:-/tmp}" -maxdepth 1 -type f -name "*$(basename "$WORK")*" -delete 2>/dev/null || true
+}
+
+cleanup()
+{
+    status=$?
+    sweep
     exit "$status"
 }
-trap cleanup EXIT INT TERM
+
+# On a signal, `$?` inside the trap is the status of the last COMPLETED command —
+# usually 0 — not the interruption, so a killed run routed through the EXIT trap
+# alone would clean up perfectly and then lie with exit 0. The signal traps exit
+# with the conventional 128+N themselves, and disarm every trap first so the exit
+# cannot re-enter cleanup and a second signal cannot re-enter the sweep.
+on_signal()
+{
+    trap '' EXIT INT TERM
+    sweep
+    exit "$1"
+}
+
+trap cleanup EXIT
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
 
 printf 'SPFN Mobile RC verification — candidate %s at commit %s\n' "$VERSION" "$COMMIT"
 printf 'output: %s\n' "$OUT"

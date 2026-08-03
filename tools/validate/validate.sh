@@ -175,6 +175,7 @@ for path in \
     tools/validate/d11-policy.lock.json tools/validate/probe-d11-guardrail.sh \
     tools/validate/probe-publishing-gate.sh \
     tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
+    tools/rc-verify/probe-trap-exit.sh \
     tools/cocoapods-compat/generate-podspec.sh \
     docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md docs/IMPLEMENTATION-PITFALLS.md \
     .github/workflows/contract.yml .github/workflows/swift.yml \
