@@ -25,8 +25,8 @@ final class SPFNKeyLifecycleTests: XCTestCase
     func testEnrollSendsTheExactFixtureBytesAndPersistsTheIdentity() async throws
     {
         let fixture = try enrollmentFixture()
-        let oauth = try fixture["oauthNative"].orFail("oauthNative").object()
-        let value = try oauth["value"].orFail("value").object()
+        let oauthNative = try fixture["oauthNative"].orFail("oauthNative").object()
+        let value = try oauthNative["value"].orFail("value").object()
 
         let transport = ScriptedTransport([
             .success(.json(200, "{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}")),
@@ -35,7 +35,7 @@ final class SPFNKeyLifecycleTests: XCTestCase
         let lifecycle = try makeLifecycle(transport, store: store, keys: [try testKey()], keyIDs: ["key-test-0001"])
 
         let result = try await lifecycle.enroll(
-            provider: try oauth.text("provider"),
+            provider: try oauthNative.text("provider"),
             idToken: try value.text("idToken"),
             nonce: try value.text("nonce")
         )
@@ -45,15 +45,15 @@ final class SPFNKeyLifecycleTests: XCTestCase
         let received = await transport.received
         let sent = try XCTUnwrap(received.first)
         XCTAssertEqual(sent.method, "POST")
-        XCTAssertEqual(sent.url, baseURL + (try oauth.text("path")))
+        XCTAssertEqual(sent.url, baseURL + (try oauthNative.text("path")))
         XCTAssertEqual(
             sent.headers.map { [$0.0, $0.1] },
-            try oauth.headerPairs("headers").map { [$0.0, $0.1] },
+            try oauthNative.headerPairs("headers").map { [$0.0, $0.1] },
             "an unproven enrollment carries exactly the fixture's headers"
         )
         XCTAssertEqual(
             String(decoding: sent.body ?? [], as: UTF8.self),
-            try oauth.text("canonical"),
+            try oauthNative.text("canonical"),
             "the enrollment body must be the fixture bytes exactly (M1)"
         )
 

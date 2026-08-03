@@ -26,6 +26,10 @@ import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import xyz.superfunction.spfn.generated.SpfnHandshakeRequest
 import xyz.superfunction.spfn.generated.SpfnHandshakeResponse
 import xyz.superfunction.spfn.generated.SpfnListItemsRequest
+import xyz.superfunction.spfn.generated.SpfnOauthNativeRequest
+import xyz.superfunction.spfn.generated.SpfnOauthNativeResponse
+import xyz.superfunction.spfn.generated.SpfnRotateKeyRequest
+import xyz.superfunction.spfn.generated.SpfnRotateKeyResponse
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.ExecutorService
@@ -129,19 +133,29 @@ class SpfnReferenceServer(
 
     private fun operationAnswer(exchange: HttpExchange): SpfnReferenceAnswer
     {
-        val operation = route(exchange) ?: return refusal(SpfnReferenceRefusal.unroutable());
+        val routed = route(exchange) ?: return refusal(SpfnReferenceRefusal.unroutable());
         val body = readBody(exchange) ?: return refusal(SpfnReferenceRefusal.bodyTooLarge());
 
         // Before verification, so a request a test is holding open has not spent its nonce
         // by the time the client gives up waiting for it.
         waitOutHold(exchange.requestURI.path);
 
-        return when (val admitted = authenticate(exchange, operation, body))
+        // The two auth classes part ways here. The unproven class runs no admission at
+        // all; the proven class runs the full contract order, exactly as before.
+        if (routed.operation.authProfile == UNPROVEN_AUTH_CLASS)
+        {
+            return unprovenAnswer(exchange, routed, body);
+        }
+
+        return when (val admitted = authenticate(exchange, routed.operation, body))
         {
             is Admission.Refused -> refusal(admitted.refusal)
-            is Admission.Accepted -> apply(operation, admitted)
+            is Admission.Accepted -> apply(routed.operation, admitted)
         };
     }
+
+    /** One routed request: the operation and the path parameter it carried, if any. */
+    private class Routed(val operation: SpfnOperation, val provider: String?)
 
     /**
      * The one operation this method and path name, or null.
@@ -149,16 +163,174 @@ class SpfnReferenceServer(
      * A query string is refused by omission: no contract path carries one, and a proof is
      * taken over the path alone, so a server that ignored a query would accept a request
      * whose proof does not cover all of what was sent.
+     *
+     * A `{provider}` segment matches one non-empty path segment and captures it; the
+     * contract's `pathTemplate` clause says the client substitutes before signing or
+     * sending, so what arrives here is always concrete.
      */
-    private fun route(exchange: HttpExchange): SpfnOperation?
+    private fun route(exchange: HttpExchange): Routed?
     {
         if (exchange.requestURI.rawQuery != null)
         {
             return null;
         }
-        return SpfnGeneratedOperations.all.firstOrNull {
-            it.path == exchange.requestURI.path && it.method == exchange.requestMethod
+        val path = exchange.requestURI.path;
+        for (operation in SpfnGeneratedOperations.all)
+        {
+            if (operation.method != exchange.requestMethod)
+            {
+                continue;
+            }
+            if (operation.path == path)
+            {
+                return Routed(operation, provider = null);
+            }
+            val provider = matchProviderTemplate(operation.path, path);
+            if (provider != null)
+            {
+                return Routed(operation, provider = provider);
+            }
+        }
+        return null;
+    }
+
+    /** The captured `{provider}` segment, or null when [path] is not [template]. */
+    private fun matchProviderTemplate(template: String, path: String): String?
+    {
+        if (!template.contains(PROVIDER_SEGMENT))
+        {
+            return null;
+        }
+        val templateSegments = template.split('/');
+        val pathSegments = path.split('/');
+        if (templateSegments.size != pathSegments.size)
+        {
+            return null;
+        }
+        var provider: String? = null;
+        for ((expected, actual) in templateSegments.zip(pathSegments))
+        {
+            if (expected == PROVIDER_SEGMENT)
+            {
+                if (actual.isEmpty())
+                {
+                    return null;
+                }
+                provider = actual;
+            }
+            else if (expected != actual)
+            {
+                return null;
+            }
+        }
+        return provider;
+    }
+
+    // ---- the unproven surface ----------------------------------------------
+
+    /**
+     * Answers an operation of the contract's unproven class.
+     *
+     * The contract's `operationAuthClasses.none` clause: accepted with neither proof
+     * headers nor a session header. This server holds the "neither" strictly — a proof
+     * or session header on an unproven request is a request assembled by something
+     * confused about which class it is calling, and waving it through would let a
+     * half-proven request pass as either class. The body is plain JSON here, not
+     * canonical-checked: the `restOperations.requestBody` clause requires canonical
+     * bytes only where a proof binds them, and no proof exists to bind these.
+     */
+    private fun unprovenAnswer(exchange: HttpExchange, routed: Routed, body: ByteArray): SpfnReferenceAnswer
+    {
+        for (header in PROOF_ONLY_HEADERS)
+        {
+            if (exchange.requestHeaders.containsKey(header))
+            {
+                return restRefusal(SpfnReferenceRestRefusal.badRequest(
+                    "an unproven operation carries neither proof headers nor a session header"
+                ));
+            }
+        }
+        if (!SpfnReferenceWire.isRequestContentType(single(exchange, SpfnReferenceWire.CONTENT_TYPE)))
+        {
+            return restRefusal(SpfnReferenceRestRefusal.badRequest(
+                "a request that carries a body must declare the contract content type"
+            ));
+        }
+        val value = try
+        {
+            SpfnCanonicalJson.parse(body)
+        }
+        catch (_: IllegalArgumentException)
+        {
+            return restRefusal(SpfnReferenceRestRefusal.badRequest("the request body is not JSON"));
         };
+
+        val answered = try
+        {
+            when (routed.operation.id)
+            {
+                SpfnGeneratedOperations.authEnrollOauthNative.id -> oauthNative(routed, value)
+                else -> RestAnswer.Refused(SpfnReferenceRestRefusal.notImplemented())
+            }
+        }
+        catch (_: IllegalArgumentException)
+        {
+            // JSON, but not the request type this operation declares.
+            RestAnswer.Refused(SpfnReferenceRestRefusal.badRequest(
+                "the request body is not the request type this operation declares"
+            ));
+        };
+
+        return when (answered)
+        {
+            is RestAnswer.Refused -> restRefusal(answered.refusal)
+            is RestAnswer.Body ->
+            {
+                state.recordOperation(routed.operation.id);
+                SpfnReferenceAnswer(HTTP_OK, SpfnCanonicalJson.encode(answered.value));
+            }
+        };
+    }
+
+    private sealed interface RestAnswer
+    {
+        class Refused(val refusal: SpfnReferenceRestRefusal) : RestAnswer
+
+        class Body(val value: SpfnCanonicalValue) : RestAnswer
+    }
+
+    private fun oauthNative(routed: Routed, value: SpfnCanonicalValue): RestAnswer
+    {
+        val provider = routed.provider
+            ?: return RestAnswer.Refused(SpfnReferenceRestRefusal.badRequest("no provider segment"));
+        val request = SpfnOauthNativeRequest.decode(value);
+
+        return when (val result = SpfnReferenceRestOps.oauthNative(
+            state = state,
+            provider = provider,
+            idToken = request.idToken,
+            nonce = request.nonce,
+            publicKeyBase64 = request.publicKey,
+            keyId = request.keyId,
+            fingerprint = request.fingerprint,
+            algorithm = request.algorithm
+        ))
+        {
+            is SpfnReferenceRestOps.Result.Refused -> RestAnswer.Refused(result.refusal)
+            is SpfnReferenceRestOps.Result.Enrolled -> RestAnswer.Body(
+                SpfnOauthNativeResponse(
+                    userId = result.userId,
+                    keyId = result.keyId,
+                    isNewUser = result.isNewUser
+                ).canonicalValue()
+            )
+        };
+    }
+
+    private fun restRefusal(refusal: SpfnReferenceRestRefusal): SpfnReferenceAnswer
+    {
+        state.recordRefusal();
+        return SpfnReferenceAnswer(refusal.httpStatus, refusal.envelopeBytes(SpfnReferenceState.newHexId()));
     }
 
     // ---- verification ------------------------------------------------------
@@ -296,6 +468,7 @@ class SpfnReferenceServer(
                 SpfnGeneratedOperations.authClientProofHandshake.id -> handshake(admitted)
                 SpfnGeneratedOperations.echoSend.id -> echo(admitted)
                 SpfnGeneratedOperations.itemsList.id -> listItems(admitted)
+                SpfnGeneratedOperations.authKeysRotate.id -> rotateKey(admitted)
                 else -> Answer.Refused(SpfnReferenceRefusal.unroutable())
             }
         }
@@ -308,6 +481,7 @@ class SpfnReferenceServer(
         return when (answered)
         {
             is Answer.Refused -> refusal(answered.refusal)
+            is Answer.RestRefused -> restRefusal(answered.refusal)
             is Answer.Body ->
             {
                 state.recordOperation(operation.id);
@@ -319,6 +493,9 @@ class SpfnReferenceServer(
     private sealed interface Answer
     {
         class Refused(val refusal: SpfnReferenceRefusal) : Answer
+
+        /** A proven REST operation's body-level refusal, in the REST vocabulary. */
+        class RestRefused(val refusal: SpfnReferenceRestRefusal) : Answer
 
         class Body(val value: SpfnCanonicalValue) : Answer
     }
@@ -338,6 +515,31 @@ class SpfnReferenceServer(
         return Answer.Body(
             SpfnHandshakeResponse(sessionId = opened.first, expiresAtMillis = opened.second).canonicalValue()
         );
+    }
+
+    /**
+     * The proven rotation. The admission that already ran proves the OLD key — the one
+     * the request's `x-spfn-key-id` names — and its ownership; what the body registers
+     * is the replacement. A body-level failure is a shape refusal in the REST surface's
+     * own vocabulary, never an auth code: the proof verified, and telling the client to
+     * re-handshake over a malformed replacement key would buy nothing.
+     */
+    private fun rotateKey(admitted: Admission.Accepted): Answer
+    {
+        val request = SpfnRotateKeyRequest.decode(admitted.value);
+        val refused = SpfnReferenceRestOps.rotate(
+            state = state,
+            oldKeyId = admitted.credentials.keyId,
+            publicKeyBase64 = request.publicKey,
+            newKeyId = request.keyId,
+            fingerprint = request.fingerprint,
+            algorithm = request.algorithm
+        );
+        if (refused != null)
+        {
+            return Answer.RestRefused(refused);
+        }
+        return Answer.Body(SpfnRotateKeyResponse(success = true, keyId = request.keyId).canonicalValue());
     }
 
     private fun echo(admitted: Admission.Accepted): Answer = Answer.Body(
@@ -405,6 +607,21 @@ class SpfnReferenceServer(
         private const val WORKER_COUNT = 8
         private const val HTTP_OK = 200
         private const val CONTROL_PREFIX = "/control/"
+        private const val PROVIDER_SEGMENT = "{provider}"
+
+        /** The contract's unproven auth class, `operationAuthClasses.none`. */
+        private const val UNPROVEN_AUTH_CLASS = "none"
+
+        /** What an unproven request may not carry: any proof field, or a session. */
+        private val PROOF_ONLY_HEADERS = listOf(
+            SpfnReferenceWire.PROFILE,
+            SpfnReferenceWire.CLIENT_ID,
+            SpfnReferenceWire.KEY_ID,
+            SpfnReferenceWire.NONCE,
+            SpfnReferenceWire.ISSUED_AT_MILLIS,
+            SpfnReferenceWire.PROOF,
+            SpfnReferenceWire.SESSION
+        )
 
         /** Far above any contract request and far below anything worth buffering. */
         private const val MAX_BODY_BYTES = 1 shl 20

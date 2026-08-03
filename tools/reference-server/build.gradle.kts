@@ -39,7 +39,15 @@ sourceSets {
     test {
         // The integration suite drives the shipped client, so it compiles the shipped
         // client rather than a copy of it. Test-only: the server itself never sees it.
+        //
+        // Two files are excluded by name: they are the platform halves of the custody
+        // seams (the real Keystore engine and the SharedPreferences store), and they
+        // import android.* classes a plain JVM compilation has no stubs for. The seams
+        // themselves — SpfnKeystoreEngine, SpfnKeyMetadataStore — compile here, and the
+        // integration suite injects software implementations of both.
         kotlin.srcDir("../../android/spfn-client/src/main/kotlin")
+        kotlin.exclude("**/SpfnAndroidKeystoreEngine.kt")
+        kotlin.exclude("**/SpfnSharedPreferencesKeyMetadataStore.kt")
     }
 }
 
@@ -70,6 +78,12 @@ val integrationTargetUrl: Provider<String> = providers.gradleProperty("spfn.inte
 val integrationLaunchFile: Provider<String> = providers.gradleProperty("spfn.integrationLaunchFile")
 val integrationControlToken: Provider<String> = providers.gradleProperty("spfn.integrationControlToken")
 
+/// Whether an EXTERNAL target implements the contract 0.3.0 REST operations. In process
+/// the answer is always yes — the server is this repository's own — so the suite only
+/// consults this against a named target, where the primitives dev surface makes no the
+/// safe default.
+val integrationRestOps: Provider<String> = providers.gradleProperty("spfn.integrationRestOps")
+
 /// The default gate. Integration cases are excluded: they bind a socket and are run by
 /// `spfnIntegrationTest`, so `./gradlew build` stays a unit gate.
 tasks.named<Test>("test") {
@@ -93,6 +107,7 @@ tasks.register<Test>("spfnIntegrationTest") {
     integrationTargetUrl.orNull?.let { systemProperty("spfn.integrationTargetUrl", it) }
     integrationLaunchFile.orNull?.let { systemProperty("spfn.integrationLaunchFile", it) }
     integrationControlToken.orNull?.let { systemProperty("spfn.integrationControlToken", it) }
+    integrationRestOps.orNull?.let { systemProperty("spfn.integrationRestOps", it) }
     outputs.upToDateWhen { false }
 
     // A suite that matched nothing is a suite that proved nothing.

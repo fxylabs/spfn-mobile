@@ -49,9 +49,16 @@ LAUNCH_INFO=tools/reference-server/build/reference-server-launch.txt
 TOKEN_HEADER=x-spfn-reference-control
 
 # Every case both suites are required to have run. Read as "platform-case"; the letters
-# are the matrix in the change set brief: round trip, expiry, revocation, replay, and
-# cancellation or timeout.
+# are the matrix in the change set brief: round trip, expiry, revocation, replay,
+# cancellation or timeout — and, where the target carries the REST surface, the
+# enrollment-rotation end-to-end (case f).
 EXPECTED_RECEIPTS='swift-a swift-b swift-c swift-d swift-e kotlin-a kotlin-b kotlin-c kotlin-d kotlin-e'
+
+# Whether the target implements the contract 0.3.0 REST operations (/_auth). The local
+# reference server always does. An external target usually does NOT — the primitives
+# dev server carries the three dev operations only — so case f is out of scope there
+# unless the caller states otherwise by exporting SPFN_INTEGRATION_REST_OPS=1.
+REST_OPS=${SPFN_INTEGRATION_REST_OPS-}
 
 WORK=$(mktemp -d)
 RECEIPTS="$WORK/receipts"
@@ -243,6 +250,15 @@ then
         printf '{"baseUrl":"%s","controlToken":"%s"}' "$BASE_URL" "$CONTROL_TOKEN" > "$KOTLIN_LAUNCH_FILE"
     fi
 
+    if [ "$REST_OPS" = "1" ]
+    then
+        printf '  --    the caller declared the target implements the REST operations; case f is expected\n'
+    else
+        printf '  --    external target: the REST operations (case f) are out of scope — the primitives\n'
+        printf '  --    dev surface carries the three dev operations only. Export SPFN_INTEGRATION_REST_OPS=1\n'
+        printf '  --    when the target really implements /_auth.\n'
+    fi
+
     pass "target ready at $BASE_URL (started by something other than this script)"
 else
     # -----------------------------------------------------------------------
@@ -306,7 +322,16 @@ else
         exit 1
     fi
 
+    # The server this script starts is this repository's own, so the REST surface is
+    # always present and case f is always expected.
+    REST_OPS=1
+
     pass "reference server ready at $BASE_URL (pid $SERVER_PID)"
+fi
+
+if [ "$REST_OPS" = "1" ]
+then
+    EXPECTED_RECEIPTS="$EXPECTED_RECEIPTS swift-f kotlin-f"
 fi
 
 # ---------------------------------------------------------------------------
@@ -318,6 +343,7 @@ set +e
 SPFN_REFERENCE_SERVER_URL="$BASE_URL" \
     SPFN_REFERENCE_CONTROL_TOKEN="$CONTROL_TOKEN" \
     SPFN_INTEGRATION_RECEIPTS="$RECEIPTS" \
+    SPFN_INTEGRATION_REST_OPS="$REST_OPS" \
     swift test --filter SPFNIntegrationTests > "$SWIFT_LOG" 2>&1
 SWIFT_STATUS=$?
 set -e
@@ -342,6 +368,7 @@ then
     ./gradlew --console=plain :reference-server:spfnIntegrationTest \
         "-Pspfn.integrationReceipts=$RECEIPTS" \
         "-Pspfn.integrationTargetUrl=$BASE_URL" \
+        "-Pspfn.integrationRestOps=$REST_OPS" \
         "-Pspfn.integrationLaunchFile=$KOTLIN_LAUNCH_FILE" > "$KOTLIN_LOG" 2>&1
 else
     ./gradlew --console=plain :reference-server:spfnIntegrationTest \
@@ -370,10 +397,11 @@ do
     fi
 done
 
+EXPECTED_COUNT=$(printf '%s\n' $EXPECTED_RECEIPTS | grep -c .)
 RECEIPT_STATUS=0
 if [ -z "$MISSING" ]
 then
-    pass 'all 10 integration cases recorded a receipt'
+    pass "all $EXPECTED_COUNT integration cases recorded a receipt"
 else
     RECEIPT_STATUS=1
     fail "integration cases that did not run:$MISSING"
