@@ -173,8 +173,10 @@ for path in \
     tools/contract-codegen/build.gradle.kts \
     tools/validate/validate.sh tools/validate/d11-forbidden.ere \
     tools/validate/d11-policy.lock.json tools/validate/probe-d11-guardrail.sh \
+    tools/validate/probe-publishing-gate.sh \
+    tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
     tools/cocoapods-compat/generate-podspec.sh \
-    docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md \
+    docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md docs/IMPLEMENTATION-PITFALLS.md \
     .github/workflows/contract.yml .github/workflows/swift.yml \
     .github/workflows/android.yml .github/workflows/security.yml \
     .github/workflows/release-candidate.yml
@@ -701,18 +703,57 @@ section '7. publication disabled, dependency sources constrained'
 contains gradle.properties 'spfn.publishing.enabled=false' 'Gradle publishing disabled'
 contains gradle.properties 'spfn.maven.group.verified=false' 'Maven namespace marked unverified'
 
+# Step 5 (decision D3) narrowed this rule without weakening it. The root build script —
+# and only the root build script — may now hold publication configuration, because the
+# RC harness stages candidate AARs to a local directory. What publication it holds is
+# pinned below: it exists only behind a per-run CLI override, the committed
+# gradle.properties value must stay false and is read from the file so an override
+# cannot launder it, and the only repository it can ever address is an absolute staging
+# path outside this tree. Credentials and signing stay forbidden everywhere, including
+# the root. tools/validate/probe-publishing-gate.sh proves each refusal actually bites;
+# this validator holds that the gate's text is still there to be run.
 GRADLE_FILES=$(find . -path ./.git -prune -o -path ./.gradle -prune -o -path './*/build' -prune -o \
     -name '*.gradle.kts' -print)
 for file in $GRADLE_FILES
 do
-    lacks_active "$file" '(maven-publish|id\("signing"\)|^[[:space:]]*publishing[[:space:]]*\{|credentials[[:space:]]*\{)' \
-        "no publication or credential block in $file"
+    lacks_active "$file" '(id\("signing"\)|credentials[[:space:]]*\{)' \
+        "no signing or credential block in $file"
+
+    if [ "$file" = "./build.gradle.kts" ]
+    then
+        continue
+    fi
+
+    lacks_active "$file" '(maven-publish|^[[:space:]]*publishing[[:space:]]*\{)' \
+        "no publication block in $file"
     # Repositories are now legal, because D5 approved a toolchain that has to come from
     # somewhere. Only the three sources needed for that toolchain are allowed, and a
     # hand-written `maven { url ... }` still fails: an arbitrary repository is exactly
     # how an unreviewed artifact enters a build.
     lacks_active "$file" 'maven[[:space:]]*\{' "no arbitrary maven repository in $file"
 done
+
+# The root build script's publication gate, held by its load-bearing lines. These are
+# fixed strings on purpose: each one is a refusal the probe script exercises, and an
+# edit that removes the refusal removes the string.
+contains build.gradle.kts 'require(committedPublishingEnabled == "false")' \
+    'root gate reads the COMMITTED publishing flag from the file and requires false'
+contains build.gradle.kts 'if (publishingEnabled)' \
+    'root publication configuration exists only behind the per-run enablement gate'
+contains build.gradle.kts 'require(candidate.isAbsolute)' \
+    'root gate requires an absolute staging path'
+contains build.gradle.kts '!canonical.path.startsWith(repoRoot.path + File.separator)' \
+    'root gate refuses a staging path inside the repository'
+contains build.gradle.kts 'url = stagingUri' \
+    'the only publication repository in the root is the gated staging directory'
+
+ROOT_MAVEN_BLOCKS=$(grep -vE '^[[:space:]]*(//|#)' build.gradle.kts \
+    | grep -cE 'maven[[:space:]]*\{' || true)
+equals "$ROOT_MAVEN_BLOCKS" "1" \
+    'the root declares exactly one maven repository block, the staging target'
+
+lacks_active build.gradle.kts 'url[[:space:]]*=[[:space:]]*.*https?://' \
+    'no repository in the root build script addresses a remote URL'
 
 REPOS=$(grep -hoE '^[[:space:]]*(google|mavenCentral|gradlePluginPortal|mavenLocal|jcenter)\(\)' $GRADLE_FILES 2>/dev/null \
     | tr -d ' ' | sort -u)

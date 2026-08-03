@@ -15,6 +15,9 @@ agp = "9.2.1"
 kotlin = "2.4.10"
 foojay-resolver = "1.0.0"
 junit = "4.13.2"
+# CycloneDX SBOM generator (decision D7, 2026-08-03). On-demand only: the tasks it
+# registers are never wired into assemble/build/check.
+cyclonedx = "3.3.0"
 
 # The Android SDK's only runtime dependency line, added with the transport module.
 # `mockwebserver3` ships from the same release train, so it is versioned by `okhttp`.
@@ -37,6 +40,7 @@ kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-c
 
 [plugins]
 android-library = { id = "com.android.library", version.ref = "agp" }
+cyclonedx-bom = { id = "org.cyclonedx.bom", version.ref = "cyclonedx" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 foojay-resolver = { id = "org.gradle.toolchains.foojay-resolver-convention", version.ref = "foojay-resolver" }
