@@ -8,6 +8,38 @@ software.
 Step 1 laid out the repository. Step 2 made it compile on both platforms and proved one
 vertical slice end to end. Nothing is committed, tagged or published.
 
+### The publication transition — a Central path that fails closed
+
+- D4 resolved (2026-08-03): the `xyz.superfunction` namespace is domain-verified on
+  the Central Portal, so `xyz.superfunction.spfn` is a real coordinate.
+  `gradle.properties` records `spfn.maven.group` with `verified=true`, the root build
+  script requires the flag to stay true, and every staged POM now carries the full
+  Central-required metadata set — name, description, url, MIT license, developers,
+  scm — asserted per element by the RC harness at staging time.
+- `.github/workflows/publish-central.yml`: the one path to Maven Central.
+  `workflow_dispatch` only — the validator now fails ANY workflow that gains a push,
+  tag or schedule trigger — against a person-named commit, re-running the RC
+  verification before anything is bundled. The upload is `USER_MANAGED`: the Portal
+  holds the deployment until a person confirms it in the Portal UI. Secrets are
+  referenced by name from a validator-pinned allowlist and are not registered, so
+  every dispatch fails today, by design. Gradle never gains a remote repository:
+  Central is reached by posting the staged bundle to the Portal publisher API, chosen
+  over a publishing plugin because it keeps the staging gate as the only Gradle
+  publication path and adds no third-party build code.
+- Signing exists as lookup configuration only (D7): an in-memory PGP key injected per
+  run as `ORG_GRADLE_PROJECT_*` environment variables into `useInMemoryPgpKeys`. With
+  a key, every staged artifact gains its detached `.asc` and the harness requires
+  them; without one, a local RC run stays unsigned and the harness requires the
+  absence. No key identity, key file or keyring path exists in the tree.
+- The validator's credential rule turned from a flat ban into a boundary with teeth:
+  both credential forms — the `credentials { }` block and the call form — are
+  detected everywhere, only pure lookups are admitted, a literal username or password
+  value fails wherever it appears, a credential-shaped property in
+  `gradle.properties` fails, and `.asc`/`.gpg`/keyring files join the forbidden-file
+  scan. Every new refusal is probed against the real validator by
+  `tools/validate/probe-publication-rules.sh`, including the one admission that must
+  keep passing.
+
 ### Step 5 — the release candidate verified without publishing
 
 - `tools/rc-verify/rc-verify.sh`: one reproducible run that produces the whole
