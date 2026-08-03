@@ -79,7 +79,20 @@ public struct SPFNClient: Sendable
         request: Request
     ) async throws -> Response
     {
-        guard call.operation.requiresSession
+        // The auth class is resolved before anything is sent, and an unknown one is
+        // refused rather than guessed at. The contract's own rule: nothing is ever
+        // downgraded to anonymous handling, so a class this build does not know is a
+        // contract this build does not implement.
+        guard let authClass = SPFNGeneratedOperations.authClass(of: call.operation)
+        else
+        {
+            throw SPFNClientError.undeclaredAuthClass(call.operation.authProfile)
+        }
+
+        // The handshake is the session's own operation whichever class it declares:
+        // it opens the session every proven operation presents, so running it here
+        // would send it without the bookkeeping that gives it its point.
+        guard call.operation.id != SPFNGeneratedOperations.authClientProofHandshake.id
         else
         {
             throw SPFNClientError.unsupportedOperation(call.operation.id)
@@ -88,6 +101,15 @@ public struct SPFNClient: Sendable
         // Encoded once, for both attempts. The proof is not: the re-sent request carries
         // the same bytes under a new nonce, a new timestamp and a new proof over them.
         let canonicalBody = SPFNCanonicalJSON.encode(call.encode(request))
+
+        switch authClass
+        {
+        case .none:
+            return try await executeUnproven(call, canonicalBody: canonicalBody)
+        case .clientProofV1:
+            break
+        }
+
         let first = try await attempt(call.operation, canonicalBody: canonicalBody)
 
         do
@@ -103,6 +125,40 @@ public struct SPFNClient: Sendable
                 failure: failure
             )
         }
+    }
+
+    // MARK: - The unproven class
+
+    /// Sends an operation of the contract's unproven class: no proof, no identity, no
+    /// nonce and no session header, because it is called before any key exists to sign
+    /// with. Nothing here touches the session, so it can never provoke a handshake.
+    ///
+    /// There is also no retry. The one retry `execute` owns exists to replace a stale
+    /// session, and this request presented none; an auth refusal here is the server's
+    /// final answer and passes through as itself.
+    private func executeUnproven<Request, Response>(
+        _ call: SPFNCall<Request, Response>,
+        canonicalBody: [UInt8]
+    ) async throws -> Response
+    {
+        let response: SPFNTransportResponse
+        do
+        {
+            response = try await transport.execute(
+                SPFNTransportRequest(
+                    method: call.operation.method,
+                    url: session.baseURL + call.operation.path,
+                    headers: [(SPFNWireHeaders.contentType, SPFNWireHeaders.requestContentType)],
+                    body: canonicalBody,
+                    timeoutMillis: timeoutMillis
+                )
+            )
+        }
+        catch
+        {
+            throw Self.classify(error)
+        }
+        return try Self.read(response, with: call.decode)
     }
 
     // MARK: - The two attempts

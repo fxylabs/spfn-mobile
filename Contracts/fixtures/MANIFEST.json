@@ -1,8 +1,8 @@
 {
   "status": "RESOLVED_UPSTREAM",
-  "contractVersion": "0.2.0",
-  "bundleSha256": "28f2fd4cf37ef903dd9746d4058d510435b3905b9b94312f6e95120ad3603084",
-  "fixtureCount": 9,
+  "contractVersion": "0.3.0",
+  "bundleSha256": "a41a3c06c9d995d4865613daa698c207ba66b53ee5c25a71015c730e7253538d",
+  "fixtureCount": 10,
   "derivedBy": "Contracts/fixtures/derive-expected-values.py",
   "note": "Expected values were derived by Contracts/fixtures/derive-expected-values.py, a third implementation independent of both SDKs. Two SDKs agreeing with each other would prove nothing; agreeing with an outside implementation is the actual evidence.",
   "secrets": "TEST KEYPAIR ONLY — NOT A SECRET. The keypair is restated byte for byte from SPFN primitives __tests__/test-keys.ts, where publishing the private half is intentional. It authenticates nothing, was never issued by anything, and must never be presented to a real endpoint.",
@@ -16,6 +16,11 @@
       "path": "Contracts/fixtures/canonical/serialization.json",
       "sha256": "d45fef239fe3431795294bc42875e56bb10e1b4a8e8fd6f18a16c62fe574f7c7",
       "bytes": 2920
+    },
+    {
+      "path": "Contracts/fixtures/enrollment/enrollment.json",
+      "sha256": "caee7c90f9cda37948cdbb3e14330bfaa97a4728256e745995406ce7dc6f7320",
+      "bytes": 2856
     },
     {
       "path": "Contracts/fixtures/error/envelopes.json",
@@ -44,8 +49,8 @@
     },
     {
       "path": "Contracts/fixtures/request/wire.json",
-      "sha256": "7a9519d3faff62d52ca340e07a366d592957b1d8e6d0a2812c09a8f6006c87a4",
-      "bytes": 5081
+      "sha256": "ac752b5a1b56d6ca6f53954516cbb195a8e1d8cda92408849af32ebdc3672448",
+      "bytes": 7030
     },
     {
       "path": "Contracts/fixtures/revoke/revoke.json",

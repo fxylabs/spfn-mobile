@@ -674,6 +674,18 @@ section '6. forbidden interactive-browser auth surface'
 AUTH_TERMS='oidc|pkce|code_verifier|code_challenge|id_token|openid|authorization_code|oauth|implicit_grant'
 HITS=$(grep -rIniE "(^|[^A-Za-z0-9_])($AUTH_TERMS)([^A-Za-z0-9_]|\$)" \
     $SURFACE_DIRS 2>/dev/null || true)
+
+# Contract 0.3.0 declares `auth.enroll.oauthNative`: the app hands the server a
+# provider-issued token and the server verifies it — no browser, no redirect, no
+# authorization code, which is what this section prohibits. Exactly two contract
+# strings carry the prohibited vocabulary: the operation path template (and its
+# provider-substituted form in fixtures) and the operation summary's phrase
+# "native/web social id_token". Only lines carrying one of those verbatim are
+# excused; every other appearance — above all redirect/PKCE vocabulary — still fails.
+NATIVE_ENROLL_PATH='/_auth/oauth/(\{provider\}|[a-z0-9-]+)/native'
+HITS=$(printf '%s\n' "$HITS" | grep -v '^$' \
+    | grep -vE "$NATIVE_ENROLL_PATH" \
+    | grep -vF 'native/web social id_token' || true)
 if [ -z "$HITS" ]
 then
     pass 'no interactive-browser auth vocabulary in the public surface'
@@ -695,14 +707,17 @@ contains android/spfn-auth/src/main/kotlin/xyz/superfunction/spfn/auth/SpfnAuthP
 contains Sources/SPFNHybrid/SPFNHybrid.swift 'allowedBridgeMessageNames: [String] = []' 'hybrid exposes no JavaScript bridge'
 contains android/spfn-hybrid/src/main/kotlin/xyz/superfunction/spfn/hybrid/SpfnHybrid.kt 'ALLOWED_BRIDGE_MESSAGE_NAMES: List<String> = emptyList()' 'Android hybrid exposes no JavaScript bridge'
 
-# Every generated operation must name the one allowed profile.
+# Every generated operation names one of the two contract auth classes: the proven
+# clientProofV1 class, or the declared unproven class `none` for enrollment operations
+# that run before any key exists to sign with. Any other value is a boundary violation.
 GENERATED_PROFILES=$(grep -h 'authProfile' "$SWIFT_GENERATED"/SPFNGeneratedOperations.swift 2>/dev/null \
     | sed -n 's/.*authProfile: "\([^"]*\)".*/\1/p' | sort -u)
-if [ "$GENERATED_PROFILES" = "clientProofV1" ]
+EXPECTED_PROFILES=$(printf 'clientProofV1\nnone')
+if [ "$GENERATED_PROFILES" = "$EXPECTED_PROFILES" ]
 then
-    pass 'every generated operation uses clientProofV1'
+    pass 'every generated operation is clientProofV1-proven or contract-declared unproven'
 else
-    fail "generated operations name profiles other than clientProofV1: $GENERATED_PROFILES"
+    fail "generated operations name auth classes outside {clientProofV1, none}: $GENERATED_PROFILES"
 fi
 
 # ---------------------------------------------------------------------------

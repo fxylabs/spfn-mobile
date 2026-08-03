@@ -222,6 +222,89 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         }
     }
 
+    // MARK: - (f)
+
+    /// The REST enrollment surface end to end: enrollment, a proof round trip with the
+    /// enrolled key, a rotation proved by it, and a proof round trip with the new key —
+    /// while the replaced key is refused with the non-disclosing PROOF_INVALID.
+    ///
+    /// Runs only when the runner says the target implements the REST surface
+    /// (`SPFN_INTEGRATION_REST_OPS=1`, which run-integration.sh sets in local mode).
+    /// The primitives dev server carries the three dev operations and no `/_auth`
+    /// surface, so against it this case is out of scope and its receipt is not expected.
+    func testCaseFEnrollmentProofRotationAndNewKeyProof() async throws
+    {
+        let fixture = try await Fixture.start()
+        guard ProcessInfo.processInfo.environment["SPFN_INTEGRATION_REST_OPS"] == "1"
+        else
+        {
+            let reason = "SPFN integration case f SKIPPED: SPFN_INTEGRATION_REST_OPS is not set, "
+                + "so the target is assumed to carry only the dev three-operation surface."
+            print(reason)
+            throw XCTSkip(reason)
+        }
+
+        // Software custody on purpose: the runner is a headless process with no
+        // enclave entitlement, and hardware custody is the COMPATIBILITY axis.
+        let store = IntegrationKeyStore()
+        let lifecycle = SPFNKeyLifecycle(
+            transport: fixture.transport,
+            store: store,
+            baseURL: fixture.environment.baseURL,
+            makeKey: { SPFNCustodyKey.generate(keyID: $0, preferSecureEnclave: false) }
+        )
+
+        let userID = "user-swift-f-0001"
+        let nonce = "nonce-swift-f-0001"
+        let enrolled = try await lifecycle.enroll(
+            provider: "google",
+            idToken: "spfn-test-idtoken.google.\(userID).\(nonce)",
+            nonce: nonce
+        )
+        XCTAssertEqual(enrolled.clientID, userID)
+        XCTAssertTrue(enrolled.isNewUser)
+
+        // A proven round trip under the enrolled key: handshake, echo, exact values.
+        let loadedFirst = try await lifecycle.activeProvider()
+        let firstProvider = try XCTUnwrap(loadedFirst)
+        let echoed = try await fixture.client(signingWith: firstProvider).execute(
+            Calls.echo,
+            request: SPFNEchoRequest(message: "enrolled key proves", sequence: 61)
+        )
+        XCTAssertEqual(echoed.message, "enrolled key proves")
+
+        // Rotate under the old key's proof; the lifecycle swaps to the new key.
+        let rotated = try await lifecycle.rotate()
+        XCTAssertEqual(rotated.clientID, userID)
+        XCTAssertNotEqual(rotated.keyID, enrolled.keyID)
+
+        let loadedNew = try await lifecycle.activeProvider()
+        let newProvider = try XCTUnwrap(loadedNew)
+        XCTAssertEqual(newProvider.keyID, rotated.keyID)
+        let again = try await fixture.client(signingWith: newProvider).execute(
+            Calls.echo,
+            request: SPFNEchoRequest(message: "rotated key proves", sequence: 62)
+        )
+        XCTAssertEqual(again.message, "rotated key proves")
+
+        // The replaced key is gone, and the refusal discloses nothing: the same
+        // PROOF_INVALID an unregistered key answers.
+        do
+        {
+            _ = try await fixture.client(signingWith: firstProvider).execute(
+                Calls.echo,
+                request: SPFNEchoRequest(message: "stale key", sequence: 63)
+            )
+            XCTFail("the replaced key must not prove anything")
+        }
+        catch SPFNClientError.auth(let refusal)
+        {
+            XCTAssertEqual(refusal.code, .proofInvalid)
+        }
+
+        try fixture.environment.record("swift-f")
+    }
+
     // MARK: - Fixture
 
     /// One SDK client pointed at the running reference server, with the server reset.
@@ -266,6 +349,48 @@ final class SPFNReferenceIntegrationTests: XCTestCase
                 session: session,
                 client: SPFNClient(transport: transport, session: session, timeoutMillis: timeoutMillis)
             )
+        }
+
+        /// A client over a session signing with [provider] — what case f uses to prove
+        /// with a key the lifecycle enrolled rather than the pre-registered fixture key.
+        func client(signingWith provider: any SPFNKeyProvider, timeoutMillis: Int64 = 5_000) -> SPFNClient
+        {
+            let signingSession = SPFNSession(
+                transport: transport,
+                keyProvider: provider,
+                baseURL: environment.baseURL,
+                timeoutMillis: timeoutMillis
+            )
+            return SPFNClient(transport: transport, session: signingSession, timeoutMillis: timeoutMillis)
+        }
+    }
+
+    /// The lifecycle's store for one integration run. In memory: what case f proves is
+    /// the wire, and the persistence seam has its own suite.
+    private final class IntegrationKeyStore: SPFNKeyStore, @unchecked Sendable
+    {
+        private let lock = NSLock()
+        private var records: [String: SPFNStoredKey] = [:]
+
+        func load(slot: String) throws -> SPFNStoredKey?
+        {
+            lock.lock()
+            defer { lock.unlock() }
+            return records[slot]
+        }
+
+        func save(_ record: SPFNStoredKey, slot: String) throws
+        {
+            lock.lock()
+            defer { lock.unlock() }
+            records[slot] = record
+        }
+
+        func delete(slot: String) throws
+        {
+            lock.lock()
+            defer { lock.unlock() }
+            records[slot] = nil
         }
     }
 

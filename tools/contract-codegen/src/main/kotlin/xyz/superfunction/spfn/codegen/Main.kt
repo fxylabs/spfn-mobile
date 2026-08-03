@@ -16,7 +16,7 @@ import java.security.MessageDigest
 
 object Header
 {
-    const val GENERATOR: String = "spfn-contract-codegen 0.1.0-dev"
+    const val GENERATOR: String = "spfn-contract-codegen 0.2.0-dev"
 
     fun lines(bundle: Bundle): List<String> = listOf(
         "GENERATED FILE — DO NOT EDIT.",

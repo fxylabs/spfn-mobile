@@ -72,6 +72,45 @@ enum ExecuteFixtures
         String(decoding: SPFNCanonicalJSON.encode(echoResponse.canonicalValue), as: UTF8.self)
     }
 
+    /// A register request for the contract's unproven class. Every value is a synthetic
+    /// test constant; the "password" authenticates nothing and never meets a real endpoint.
+    static let registerRequest = SPFNRegisterRequest(
+        email: "enroll@example.invalid",
+        phone: nil,
+        verificationToken: "verify-test-0001",
+        password: "password-test-0001",
+        publicKey: "cHVibGljLWtleS10ZXN0",
+        keyId: "key-test-0001",
+        fingerprint: String(repeating: "0", count: 64),
+        algorithm: "ES256"
+    )
+
+    static let registerResponse = SPFNRegisterResponse(
+        userId: "user-test-0001",
+        publicId: "public-test-0001",
+        email: "enroll@example.invalid",
+        phone: nil
+    )
+
+    static var registerResponseBody: String
+    {
+        String(decoding: SPFNCanonicalJSON.encode(registerResponse.canonicalValue), as: UTF8.self)
+    }
+
+    static let rotateRequest = SPFNRotateKeyRequest(
+        publicKey: "cHVibGljLWtleS10ZXN0LTI",
+        keyId: "key-test-0002",
+        fingerprint: String(repeating: "1", count: 64),
+        algorithm: "ES256"
+    )
+
+    static let rotateResponse = SPFNRotateKeyResponse(success: true, keyId: "key-test-0002")
+
+    static var rotateResponseBody: String
+    {
+        String(decoding: SPFNCanonicalJSON.encode(rotateResponse.canonicalValue), as: UTF8.self)
+    }
+
     static let listRequest = SPFNListItemsRequest(limit: 2, cursor: "cursor-1")
 
     static let listResponse = SPFNListItemsResponse(
@@ -111,6 +150,35 @@ enum ExecuteCalls
         operation: SPFNGeneratedOperations.authClientProofHandshake,
         encode: { $0.canonicalValue },
         decode: { try SPFNHandshakeResponse(canonical: $0) }
+    )
+
+    /// The contract's unproven class, as generated: no proof, no session, no handshake.
+    static let register = SPFNCall<SPFNRegisterRequest, SPFNRegisterResponse>(
+        operation: SPFNGeneratedOperations.authEnrollRegister,
+        encode: { $0.canonicalValue },
+        decode: { try SPFNRegisterResponse(canonical: $0) }
+    )
+
+    /// Proven but session-free: the rotation operation authenticates with the old key
+    /// alone, so it carries every proof header and never a session header.
+    static let rotate = SPFNCall<SPFNRotateKeyRequest, SPFNRotateKeyResponse>(
+        operation: SPFNGeneratedOperations.authKeysRotate,
+        encode: { $0.canonicalValue },
+        decode: { try SPFNRotateKeyResponse(canonical: $0) }
+    )
+
+    /// An operation naming an auth class the contract does not declare. The descriptor
+    /// is hand-built because the generator can never emit one — that is the point.
+    static let undeclared = SPFNCall<SPFNEchoRequest, SPFNEchoResponse>(
+        operation: SPFNOperation(
+            id: "mystery.op",
+            method: "POST",
+            path: "/v1/mystery",
+            authProfile: "mysteryV9",
+            requiresSession: true
+        ),
+        encode: { $0.canonicalValue },
+        decode: { try SPFNEchoResponse(canonical: $0) }
     )
 }
 

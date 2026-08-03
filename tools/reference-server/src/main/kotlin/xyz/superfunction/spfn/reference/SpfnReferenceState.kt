@@ -111,16 +111,37 @@ class SpfnReferenceState(
     private val random = SecureRandom()
 
     /**
+     * One registered key: the parsed public half and, when the REST surface enrolled
+     * it, the owner it belongs to.
+     *
+     * `ownerId` is the contract's `clientIdRule` made concrete: a proof whose clientId
+     * is not the key's owner is refused at the proof step with the same PROOF_INVALID
+     * an unregistered keyId or a failed signature answers, so the refusal leaks
+     * nothing about the key's existence or owner (the G9 mirror). A key registered
+     * through `/control/register-key` has no owner — that surface mirrors the
+     * primitives dev server, which has no userId concept — and is exempt.
+     */
+    class RegisteredKey(val publicKey: PublicKey, val ownerId: String?)
+
+    /**
      * The registered public keys, parsed once at registration. `keyId` names one of
      * these; a keyId with no entry lands in the proof check as PROOF_INVALID, never in
      * revocation — it was never issued, so it was never revoked, and disclosing the
      * difference would say which keyIds exist.
      */
-    private val registeredKeys = LinkedHashMap<String, PublicKey>()
+    private val registeredKeys = LinkedHashMap<String, RegisteredKey>()
 
-    /** What [reset] restores: the registrations this server was constructed with. */
-    private val constructedKeys: Map<String, PublicKey> =
-        publicKeys.mapValues { (_, spkiDer) -> SpfnEcdsa.publicKeyFromSpki(spkiDer) }
+    /**
+     * What [reset] restores: the registrations this server was constructed with. The
+     * pre-registered test key is owned by the test client id, so the G9 rule holds for
+     * it exactly as it does for an enrolled key.
+     */
+    private val constructedKeys: Map<String, RegisteredKey> = publicKeys.mapValues { (_, spkiDer) ->
+        RegisteredKey(SpfnEcdsa.publicKeyFromSpki(spkiDer), SpfnReferenceTestKeys.CLIENT_ID)
+    }
+
+    /** Every userId the REST surface has enrolled a key for, driving `isNewUser`. */
+    private val knownUserIds = LinkedHashSet<String>()
 
     private val sessions = LinkedHashMap<String, SpfnReferenceSession>()
 
@@ -200,10 +221,17 @@ class SpfnReferenceState(
         // 4. The proof itself, last, so the three answers above stay distinguishable.
         //    An unrecognised keyId lands here rather than in step 1: it was never issued,
         //    so it was never revoked, and there is nothing for a new session to fix.
-        val publicKey = registeredKeys[keyId] ?: return@synchronized SpfnReferenceRefusal.proofInvalid();
+        //    The ownership rule shares this step and this answer on purpose (G9): a
+        //    clientId that is not the key's owner, an unregistered keyId and a failed
+        //    signature are one indistinguishable PROOF_INVALID.
+        val registered = registeredKeys[keyId] ?: return@synchronized SpfnReferenceRefusal.proofInvalid();
+        if (registered.ownerId != null && registered.ownerId != clientId)
+        {
+            return@synchronized SpfnReferenceRefusal.proofInvalid();
+        }
         try
         {
-            SpfnClientProof.verify(presentedProof, proofInput, publicKey);
+            SpfnClientProof.verify(presentedProof, proofInput, registered.publicKey);
         }
         catch (_: SpfnAuthException)
         {
@@ -225,15 +253,62 @@ class SpfnReferenceState(
      */
     fun registerPublicKey(keyId: String, publicKeySpkiDer: ByteArray)
     {
-        val parsed = try
+        val parsed = parseSpki(publicKeySpkiDer);
+        // Ownerless: the control surface mirrors the primitives dev server, which has
+        // no userId concept, so the ownership rule does not bind these keys.
+        synchronized(lock) { registeredKeys[keyId] = RegisteredKey(parsed, ownerId = null) };
+    }
+
+    /**
+     * The REST enrollment: registers [keyId] under [ownerId] and answers whether this
+     * owner was seen before. Refuses a keyId that already exists — an enrollment that
+     * silently replaced a live key would be a rotation nobody proved.
+     */
+    fun enrollKey(keyId: String, publicKeySpkiDer: ByteArray, ownerId: String): Boolean
+    {
+        val parsed = parseSpki(publicKeySpkiDer);
+        synchronized(lock)
         {
-            SpfnEcdsa.publicKeyFromSpki(publicKeySpkiDer)
+            require(!registeredKeys.containsKey(keyId)) { "keyId is already registered" };
+            registeredKeys[keyId] = RegisteredKey(parsed, ownerId);
+            val isNewUser = !knownUserIds.contains(ownerId);
+            knownUserIds.add(ownerId);
+            return isNewUser;
         }
-        catch (failure: Exception)
+    }
+
+    /**
+     * The proven rotation: replaces [oldKeyId] with [newKeyId] under the same owner.
+     * The caller has already admitted a proof by the old key. Sessions the old key
+     * opened are dropped with it, so only the new key can prove anything afterwards.
+     * A false return means the request was not one this state can apply — the old key
+     * vanished between admission and here, the new keyId already exists, or the two
+     * are the same — and the caller answers with a shape refusal.
+     */
+    fun rotateKey(oldKeyId: String, newKeyId: String, publicKeySpkiDer: ByteArray): Boolean
+    {
+        val parsed = parseSpki(publicKeySpkiDer);
+        synchronized(lock)
         {
-            throw IllegalArgumentException("not an SPKI DER public key", failure);
-        };
-        synchronized(lock) { registeredKeys[keyId] = parsed };
+            val old = registeredKeys[oldKeyId] ?: return false;
+            if (newKeyId == oldKeyId || registeredKeys.containsKey(newKeyId))
+            {
+                return false;
+            }
+            registeredKeys.remove(oldKeyId);
+            registeredKeys[newKeyId] = RegisteredKey(parsed, old.ownerId);
+            sessions.entries.removeIf { it.value.keyId == oldKeyId };
+            return true;
+        }
+    }
+
+    private fun parseSpki(publicKeySpkiDer: ByteArray): PublicKey = try
+    {
+        SpfnEcdsa.publicKeyFromSpki(publicKeySpkiDer)
+    }
+    catch (failure: Exception)
+    {
+        throw IllegalArgumentException("not an SPKI DER public key", failure);
     }
 
     // ---- sessions ----------------------------------------------------------
@@ -286,6 +361,7 @@ class SpfnReferenceState(
             spentNonces.clear();
             revokedKeyIds.clear();
             holds.clear();
+            knownUserIds.clear();
             registeredKeys.clear();
             registeredKeys.putAll(constructedKeys);
             ttlMillis = DEFAULT_SESSION_TTL_MILLIS;

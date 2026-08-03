@@ -134,6 +134,16 @@ sealed class SpfnClientError(message: String, cause: Throwable? = null) : Except
      */
     class UnsupportedOperation(val operationId: String) :
         SpfnClientError("operation '$operationId' does not go through execute")
+
+    /**
+     * The operation names an auth class this build's contract does not declare, so
+     * nothing was sent. Fail-closed on purpose: the contract's own rule is that an
+     * operation is never downgraded to anonymous handling, and an unknown class sent
+     * with guessed headers would be exactly that. [authProfile] is the operation's
+     * class string from the pinned bundle, not anything a server sent.
+     */
+    class UndeclaredAuthClass(val authProfile: String) :
+        SpfnClientError("auth class '$authProfile' is not declared by this contract")
 }
 
 /**

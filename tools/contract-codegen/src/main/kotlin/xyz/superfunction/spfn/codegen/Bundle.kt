@@ -44,6 +44,14 @@ data class Bundle(
     val sha256: String,
     val replayWindowMillis: Long,
     val proofInputFields: List<String>,
+    /** The declared operation auth classes, sorted for deterministic emission. */
+    val authClasses: List<String>,
+    /** `keyPolicy.ttlDays`: how long a registered key stays usable. */
+    val keyPolicyTtlDays: Long,
+    /** `keyPolicy.rotationOperation`: the operation that replaces a key. */
+    val keyRotationOperationId: String,
+    /** `clientProofV1.clientIdRule`: what a clientId must identify on the REST surface. */
+    val clientIdRule: String,
     val types: List<TypeDefinition>,
     val operations: List<Operation>,
     val errors: List<ErrorDefinition>
@@ -67,6 +75,47 @@ data class Bundle(
             val proof = root.required("clientProofV1").obj();
             val proofInput = proof.required("proofInput").obj();
 
+            // Contract 0.3.0 sections. Each is required rather than defaulted: a bundle
+            // without one is an older or foreign contract, and generating plausible
+            // clients from it would put a contract decision inside a build tool. The
+            // `restOperations` section carries wire rules for the /_auth surface as
+            // prose; nothing in it is emitted, but its absence still refuses generation
+            // so a bundle that dropped the surface cannot pass as one that has it.
+            val authClassSection = root.required("operationAuthClasses").obj();
+            val authClasses = authClassSection.keys.filter { it != "rule" }.sorted();
+            if (authClasses.isEmpty())
+            {
+                throw JsonException("operationAuthClasses declares no auth class");
+            }
+            val keyPolicy = root.required("keyPolicy").obj();
+            val restOperations = root.required("restOperations").obj();
+            if (restOperations.isEmpty())
+            {
+                throw JsonException("restOperations is present but empty");
+            }
+
+            val operations = root.required("operations").arr().map { readOperation(it) };
+
+            // Fail closed on the cross-references the sections make. An operation whose
+            // auth class is undeclared, or a rotation operation that names no operation,
+            // is a contract error to refuse — not an unknown to pass through as a name.
+            operations.forEach { operation ->
+                if (operation.authProfile !in authClasses)
+                {
+                    throw JsonException(
+                        "operation '${operation.id}' names auth class '${operation.authProfile}', " +
+                            "which operationAuthClasses does not declare"
+                    );
+                }
+            }
+            val rotationOperationId = keyPolicy.required("rotationOperation").text();
+            if (operations.none { it.id == rotationOperationId })
+            {
+                throw JsonException(
+                    "keyPolicy.rotationOperation names '$rotationOperationId', which is not an operation"
+                );
+            }
+
             return Bundle(
                 contractVersion = root.required("contractVersion").text(),
                 contractMajor = contractMajor,
@@ -76,8 +125,12 @@ data class Bundle(
                 sha256 = sha256,
                 replayWindowMillis = proof.required("replayWindowMillis").number(),
                 proofInputFields = proofInput.required("fields").arr().map { it.text() },
+                authClasses = authClasses,
+                keyPolicyTtlDays = keyPolicy.required("ttlDays").number(),
+                keyRotationOperationId = rotationOperationId,
+                clientIdRule = proof.required("clientIdRule").text(),
                 types = root.required("types").arr().map { readType(it) },
-                operations = root.required("operations").arr().map { readOperation(it) },
+                operations = operations,
                 errors = root.required("errors").arr().map { readError(it) }
             );
         }
@@ -174,6 +227,10 @@ object Names
             else part.lowercase().replaceFirstChar { it.uppercase() }
         }.joinToString("");
     }
+
+    /** `clientProofV1` becomes `CLIENT_PROOF_V1`; `none` becomes `NONE`. */
+    fun upperSnake(name: String): String =
+        name.replace(Regex("([a-z0-9])([A-Z])"), "$1_$2").uppercase()
 
     fun swiftType(name: String): String = "SPFN$name"
 

@@ -18,6 +18,7 @@ import xyz.superfunction.spfn.core.SpfnDecodingException
 import xyz.superfunction.spfn.core.SpfnDigest
 import xyz.superfunction.spfn.generated.SpfnEchoRequest
 import xyz.superfunction.spfn.generated.SpfnEchoResponse
+import xyz.superfunction.spfn.generated.SpfnGeneratedAuthClass
 import xyz.superfunction.spfn.generated.SpfnGeneratedContract
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import xyz.superfunction.spfn.generated.SpfnHandshakeRequest
@@ -85,7 +86,15 @@ class OperationConformanceTest
             assertNotNull("$id was not generated", operation);
             assertEquals(entry.text("method"), operation?.method);
             assertEquals(entry.text("path"), operation?.path);
-            assertEquals("clientProofV1", operation?.authProfile);
+            assertEquals(entry.text("authProfile"), operation?.authProfile);
+            assertEquals(entry.bool("requiresSession"), operation?.requiresSession);
+
+            // Every declared auth class resolves to a generated case; the generated
+            // type is what lets the execute path fail closed on anything else.
+            assertNotNull(
+                "$id names an auth class the generated enum does not carry",
+                operation?.let { SpfnGeneratedAuthClass.of(it) }
+            );
         }
 
         assertNull(SpfnGeneratedOperations.operation("no.such.operation"));
@@ -149,9 +158,9 @@ class OperationConformanceTest
         val binding = SpfnGeneratedContract.BINDING;
         binding.requireSupported(binding.importedVersion);
 
-        // 0.1.0 sits below the lower bound and 0.3.0 above the upper: on a 0.x line
+        // 0.2.0 sits below the lower bound and 0.4.0 above the upper: on a 0.x line
         // both neighbouring minors are breaking, in both directions.
-        for (version in listOf("0.1.0", "0.3.0", "1.0.0", "1.4.0", "2.0.0"))
+        for (version in listOf("0.1.0", "0.2.0", "0.4.0", "1.0.0", "1.4.0", "2.0.0"))
         {
             try
             {

@@ -11,6 +11,7 @@ because there is nothing to drift from.
 | --- | --- |
 | `canonical/serialization.json` | canonical JSON bytes and their SHA-256 for eight inputs, including one whose key order differs between UTF-8 and UTF-16 ordering |
 | `canonical/rejects.json` | inputs that must be refused, and the exact error code each must report |
+| `enrollment/enrollment.json` | the key fingerprint rule (SHA-256 of the SPKI DER, base16-lower) for both fixture keypairs, and the exact unproven wire shape of the native social enrollment request |
 | `proof/proof-input.json` | the canonical `clientProofV1` proof input string, its digest, a deterministic ECDSA P-256 signature over it, the fixed test keypair, and the signature reject table |
 | `proof/rejects.json` | proof fields carrying control characters, which must be refused rather than escaped |
 | `request/operations.json` | canonical request and response bytes for every generated operation type |
@@ -37,7 +38,8 @@ SHA-256 of every file so drift is caught by the validator and by both suites.
 
 ## Secrets
 
-There are none. `proof/proof-input.json` and `request/wire.json` carry a fixed P-256
+There are none. `proof/proof-input.json`, `request/wire.json` and
+`enrollment/enrollment.json` carry a fixed P-256
 test keypair — private half included — restated byte for byte from SPFN primitives
 `__tests__/test-keys.ts`, where publishing it is intentional. It authenticates
 nothing, was never issued by anything, and must never be presented to a real

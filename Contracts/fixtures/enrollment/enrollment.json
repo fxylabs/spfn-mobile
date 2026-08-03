@@ -1,0 +1,38 @@
+{
+  "note": "Expected values were derived by Contracts/fixtures/derive-expected-values.py, a third implementation independent of both SDKs. Two SDKs agreeing with each other would prove nothing; agreeing with an outside implementation is the actual evidence.",
+  "why": "both SDK enrollment flows must reproduce these bytes exactly: the body is the contract's OauthNativeRequest over the fixed test keypair, and the only header an unproven request carries is the content type",
+  "testKeyPair": {
+    "note": "TEST KEYPAIR ONLY — NOT A SECRET. The keypair is restated byte for byte from SPFN primitives __tests__/test-keys.ts, where publishing the private half is intentional. It authenticates nothing, was never issued by anything, and must never be presented to a real endpoint.",
+    "origin": "SPFN primitives packages/auth/src/server/client-proof/__tests__/test-keys.ts",
+    "keyId": "key-test-0001",
+    "publicKeySpkiBase64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES7xktjK+fMydT7UZcfuW/vzU9rU/+RPVVQKKgxrB1sd9bh6N1bqiBwU/zuw9/LaQ91lWPeWSN9OlT8OlDYXIYg==",
+    "privateKeyPkcs8Base64": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgMv3D4UvmGKjFeG3myLLfwlcOAQ9n8qoFmwrgGWBErsShRANCAARLvGS2Mr58zJ1PtRlx+5b+/NT2tT/5E9VVAoqDGsHWx31uHo3VuqIHBT/O7D38tpD3WVY95ZI306VPw6UNhchi"
+  },
+  "fingerprints": {
+    "rule": "lowercase base16 SHA-256 of the SPKI DER — the same bytes publicKey carries base64-encoded. Both platforms must agree byte for byte.",
+    "testKeySpkiSha256Hex": "aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a",
+    "wrongKeySpkiSha256Hex": "8014bece7e853fb480d6c26f06eca97f140f7cabc00b58f87d3df2b80449da74"
+  },
+  "oauthNative": {
+    "operationId": "auth.enroll.oauthNative",
+    "pathTemplate": "/_auth/oauth/{provider}/native",
+    "provider": "google",
+    "path": "/_auth/oauth/google/native",
+    "headers": [
+      [
+        "content-type",
+        "application/json"
+      ]
+    ],
+    "value": {
+      "idToken": "spfn-test-idtoken.google.user-test-0001.nonce-enroll-0001",
+      "nonce": "nonce-enroll-0001",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES7xktjK+fMydT7UZcfuW/vzU9rU/+RPVVQKKgxrB1sd9bh6N1bqiBwU/zuw9/LaQ91lWPeWSN9OlT8OlDYXIYg==",
+      "keyId": "key-test-0001",
+      "fingerprint": "aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a",
+      "algorithm": "ES256"
+    },
+    "canonical": "{\"algorithm\":\"ES256\",\"fingerprint\":\"aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a\",\"idToken\":\"spfn-test-idtoken.google.user-test-0001.nonce-enroll-0001\",\"keyId\":\"key-test-0001\",\"nonce\":\"nonce-enroll-0001\",\"publicKey\":\"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES7xktjK+fMydT7UZcfuW/vzU9rU/+RPVVQKKgxrB1sd9bh6N1bqiBwU/zuw9/LaQ91lWPeWSN9OlT8OlDYXIYg==\"}",
+    "sha256": "105e4b17a2fd38d6927035c884f0c11678aa053af41ed3648c87a7f6c2e785dd"
+  }
+}
