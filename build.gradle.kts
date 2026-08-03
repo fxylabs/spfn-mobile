@@ -179,7 +179,7 @@ if (publishingEnabled)
                         pom {
                             name.set(module.name)
                             description.set(module.description ?: module.name)
-                            url.set("https://superfunction.xyz")
+                            url.set("https://github.com/fxylabs/spfn-mobile")
                             licenses {
                                 license {
                                     name.set("MIT License")
@@ -195,9 +195,9 @@ if (publishingEnabled)
                                 }
                             }
                             scm {
-                                connection.set("scm:git:https://git.superfunction.xyz/superfunction/spfn-mobile.git")
-                                developerConnection.set("scm:git:https://git.superfunction.xyz/superfunction/spfn-mobile.git")
-                                url.set("https://git.superfunction.xyz/superfunction/spfn-mobile")
+                                connection.set("scm:git:https://github.com/fxylabs/spfn-mobile.git")
+                                developerConnection.set("scm:git:https://github.com/fxylabs/spfn-mobile.git")
+                                url.set("https://github.com/fxylabs/spfn-mobile")
                             }
                         }
                     }

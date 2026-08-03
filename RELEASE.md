@@ -80,7 +80,9 @@ target only an absolute staging directory outside the repository —
 `tools/validate/validate.sh` fails if the committed flag flips, a publication or
 signing block appears outside the gated root script, a credential value or
 credential-shaped property is committed, a key file enters the tree, a repository
-outside the approved three appears, any workflow gains an automatic trigger, the
-publish workflow names an unlisted secret or a host other than the Central Portal, or
-a CocoaPods trunk publication command is added anywhere —
+outside the approved three appears, any workflow's parsed trigger set contains
+anything but `workflow_dispatch` (flow-style and block-style alike, unknown trigger
+kinds included), the publish workflow names an unlisted secret, addresses a host other
+than the Central Portal with or without a URL scheme, interpolates an input into run
+text, or a CocoaPods trunk publication command is added anywhere —
 `tools/validate/probe-publication-rules.sh` proves each of those refusals bites.

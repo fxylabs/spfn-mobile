@@ -129,20 +129,53 @@ printf 'probe: not a real key, planted by probe-publication-rules.sh\n' > "$PLAN
 expect_fail 'a committed .asc key file fails' \
     'credential-shaped files present'
 
-# --- d. an automatic workflow trigger ----------------------------------------------
-printf 'push:\n' >> "$RC_WORKFLOW"
-expect_fail 'a push trigger on a workflow fails' \
-    'has no automatic trigger'
+# --- d. automatic workflow triggers, in every YAML spelling ------------------------
+# Block-style, flow-style, an event the old deny-list never named, and an event that
+# does not exist yet: the allow-list must refuse them all, because the trigger set is
+# parsed and compared against `workflow_dispatch` alone rather than pattern-matched
+# against the triggers somebody thought of.
+printf 'on:\n  push:\n    branches: [main]\n' >> "$RC_WORKFLOW"
+expect_fail 'a block-style push trigger on a workflow fails' \
+    'declares triggers beyond workflow_dispatch'
+
+printf 'on: [push, workflow_dispatch]\n' >> "$RC_WORKFLOW"
+expect_fail 'a flow-style trigger list carrying push fails' \
+    'declares triggers beyond workflow_dispatch'
+
+printf 'on:\n  workflow_run:\n    workflows: [swift]\n' >> "$RC_WORKFLOW"
+expect_fail 'a workflow_run trigger fails' \
+    'declares triggers beyond workflow_dispatch'
+
+printf 'on: [some_future_trigger_kind]\n' >> "$RC_WORKFLOW"
+expect_fail 'a trigger kind nobody has named yet fails' \
+    'declares triggers beyond workflow_dispatch'
 
 # --- e. a credential-shaped committed property -------------------------------------
 printf 'centralPortalToken=probe-not-a-real-value\n' >> "$PROPERTIES"
 expect_fail 'a credential-shaped key committed in gradle.properties fails' \
     'commits no credential-shaped key'
 
-# --- f. signing configuration outside the gated root -------------------------------
+# --- f. signing configuration outside the gated root, in every spelling ------------
 printf 'pluginManager.apply("signing")\n' >> "$MODULE_BUILD"
 expect_fail 'signing configuration in a module build script fails' \
     'no signing configuration outside the gated root'
+
+printf 'apply(plugin = "signing")\n' >> "$MODULE_BUILD"
+expect_fail 'the apply(plugin = "signing") spelling fails too' \
+    'no signing configuration outside the gated root'
+
+# --- f2. remote-address evasions in the root ---------------------------------------
+printf 'setUrl("https://repo.example.invalid/m2")\n' >> "$ROOT_BUILD"
+expect_fail 'a setUrl call in the root fails' \
+    'never uses setUrl'
+
+printf 'val probeUrl = uri("https://repo.example.invalid/m2")\n' >> "$ROOT_BUILD"
+expect_fail 'a URL literal outside the POM metadata allowlist fails, whatever carries it' \
+    'URL literals outside the POM metadata allowlist'
+
+printf 'val probeUrl = "https://cdn.example.invalid/artifact"\n' >> "$MODULE_BUILD"
+expect_fail 'a URL literal in a module build script fails' \
+    'no URL literal outside the root build script'
 
 # --- g. the publish workflow boundary ----------------------------------------------
 printf '      - name: probe\n        run: echo "${{ secrets.UNLISTED_PROBE_TOKEN }}"\n' >> "$PUBLISH_WORKFLOW"
@@ -152,6 +185,14 @@ expect_fail 'an unlisted secret name in publish-central.yml fails' \
 printf '      - name: probe\n        run: curl https://uploads.example.invalid/put\n' >> "$PUBLISH_WORKFLOW"
 expect_fail 'a non-Central host in publish-central.yml fails' \
     'unexpected hosts'
+
+printf '      - name: probe\n        run: curl uploads.example.invalid/put\n' >> "$PUBLISH_WORKFLOW"
+expect_fail 'a scheme-less network command in publish-central.yml fails' \
+    'network commands without an allowlisted host'
+
+printf '      - name: probe\n        run: git checkout --detach "${{ inputs.commit }}"\n' >> "$PUBLISH_WORKFLOW"
+expect_fail 'a workflow input interpolated into run text fails' \
+    'interpolated outside an env assignment'
 
 # --- h. the admitted lookup form stays admitted ------------------------------------
 printf 'val probeLookupOnly = "credentials(PasswordCredentials::class)"\n' >> "$ROOT_BUILD"

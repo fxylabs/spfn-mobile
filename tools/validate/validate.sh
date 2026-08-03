@@ -764,10 +764,12 @@ do
         continue
     fi
 
-    lacks_active "$file" '(id\("signing"\)|apply\("signing"\)|SigningExtension|useInMemoryPgpKeys)' \
+    lacks_active "$file" '(id\("signing"\)|apply\("signing"\)|apply\(plugin[[:space:]]*=[[:space:]]*"signing"\)|SigningExtension|useInMemoryPgpKeys|^[[:space:]]*signing[[:space:]]*(\{|$))' \
         "no signing configuration outside the gated root script in $file"
     lacks_active "$file" '(maven-publish|^[[:space:]]*publishing[[:space:]]*\{)' \
         "no publication block in $file"
+    lacks_active "$file" 'https?://' \
+        "no URL literal outside the root build script in $file"
     # Repositories are now legal, because D5 approved a toolchain that has to come from
     # somewhere. Only the three sources needed for that toolchain are allowed, and a
     # hand-written `maven { url ... }` still fails: an arbitrary repository is exactly
@@ -804,8 +806,25 @@ ROOT_MAVEN_BLOCKS=$(grep -vE '^[[:space:]]*(//|#)' build.gradle.kts \
 equals "$ROOT_MAVEN_BLOCKS" "1" \
     'the root declares exactly one maven repository block, the staging target'
 
-lacks_active build.gradle.kts 'url[[:space:]]*=[[:space:]]*.*https?://' \
-    'no repository in the root build script addresses a remote URL'
+# Remote addresses are judged notation-neutrally: every URL LITERAL in the root is
+# extracted — whether it rides in `url = …`, `url.set(…)`, `setUrl(…)` or a plain
+# string — and held to the exact allowlist of the POM's own metadata addresses. A
+# repository URL can therefore never be remote in any spelling, and `setUrl` is
+# additionally banned outright because a variable passed through it could point a
+# repository anywhere without a literal appearing.
+ROOT_URLS=$(grep -vE '^[[:space:]]*(//|#)' build.gradle.kts \
+    | grep -oE 'https?://[^"[:space:]]*' | sort -u || true)
+UNEXPECTED_ROOT_URLS=$(printf '%s\n' "$ROOT_URLS" | grep -v '^$' \
+    | grep -vE '^https://(opensource\.org/license/mit/|github\.com/fxylabs/spfn-mobile(\.git)?|superfunction\.xyz)$' || true)
+if [ -z "$UNEXPECTED_ROOT_URLS" ]
+then
+    pass 'every URL literal in the root build script is a pinned POM metadata address'
+else
+    fail "URL literals outside the POM metadata allowlist in build.gradle.kts: $(printf '%s' "$UNEXPECTED_ROOT_URLS" | tr '\n' ' ')"
+fi
+
+lacks_active build.gradle.kts 'setUrl' \
+    'the root never uses setUrl; the staging repository is assigned once, visibly'
 
 REPOS=$(grep -hoE '^[[:space:]]*(google|mavenCentral|gradlePluginPortal|mavenLocal|jcenter)\(\)' $GRADLE_FILES 2>/dev/null \
     | tr -d ' ' | sort -u)
@@ -841,15 +860,70 @@ fi
 # Central path the publication transition opened. Every other workflow keeps the full
 # Step 2 rule. What publish-central.yml itself may do is pinned right after the loop:
 # named secrets only, one remote endpoint only, held-for-confirmation upload only.
-# Manual-only is now a trigger check on every workflow rather than a vocabulary check:
-# a push, tag or schedule trigger anywhere is a failure, so a tag appearing in the
-# repository can never publish anything.
+#
+# Manual-only is an ALLOW-list over the parsed `on:` trigger set, not a deny-list of
+# trigger names: a deny-list misses the flow-style forms (`on: [push, ...]`,
+# `on: push`, `on: {push: …}`) and every trigger nobody thought to name —
+# workflow_run, repository_dispatch, merge_group, a future one. Here the trigger set
+# of every workflow is extracted, whichever YAML style declares it, and anything that
+# is not exactly `workflow_dispatch` fails, as does a workflow declaring no trigger.
 PUBLISH_WORKFLOW=.github/workflows/publish-central.yml
 for workflow in .github/workflows/*.yml
 do
+    [ -f "$workflow" ] || continue
+
     lacks_active "$workflow" 'uses:' "$workflow uses no third-party action, so there is nothing to pin"
-    lacks_active "$workflow" '^[[:space:]]*(push|pull_request|pull_request_target|schedule|release|create|tags)[[:space:]]*:' \
-        "$workflow has no automatic trigger"
+
+    TRIGGERS=$(awk '
+        /^on:/ {
+            inline = $0
+            sub(/^on:[[:space:]]*/, "", inline)
+            sub(/[[:space:]]*#.*$/, "", inline)
+            if (inline != "")
+            {
+                gsub(/[][{}]/, "", inline)
+                n = split(inline, parts, ",")
+                for (i = 1; i <= n; i++)
+                {
+                    t = parts[i]
+                    gsub(/^[[:space:]]+|[[:space:]]+$/, "", t)
+                    sub(/:.*$/, "", t)
+                    gsub(/["'\'']/, "", t)
+                    if (t != "") { print t }
+                }
+                next
+            }
+            inblock = 1
+            blockindent = -1
+            next
+        }
+        inblock {
+            if ($0 ~ /^[^[:space:]#]/) { inblock = 0 }
+            else if ($0 ~ /^[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:/)
+            {
+                indent = match($0, /[^[:space:]]/) - 1
+                if (blockindent < 0) { blockindent = indent }
+                if (indent == blockindent)
+                {
+                    t = $0
+                    sub(/^[[:space:]]*/, "", t)
+                    sub(/[[:space:]]*:.*$/, "", t)
+                    print t
+                }
+            }
+        }
+    ' "$workflow")
+    UNEXPECTED_TRIGGERS=$(printf '%s\n' "$TRIGGERS" | grep -v '^workflow_dispatch$' | grep -v '^$' || true)
+    if [ -z "$TRIGGERS" ]
+    then
+        fail "$workflow declares no trigger at all; a workflow must be explicitly manual"
+    elif [ -z "$UNEXPECTED_TRIGGERS" ]
+    then
+        pass "$workflow triggers on workflow_dispatch and nothing else"
+    else
+        fail "$workflow declares triggers beyond workflow_dispatch: $(printf '%s' "$UNEXPECTED_TRIGGERS" | tr '\n' ' ')"
+    fi
+
     contains "$workflow" 'NOT A GATE' "$workflow states that it is not a gate"
     contains "$workflow" 'workflow_dispatch' "$workflow is manual-only"
 
@@ -891,6 +965,47 @@ contains "$PUBLISH_WORKFLOW" 'publishingType=USER_MANAGED' \
     'the uploaded deployment is held for explicit human confirmation'
 contains "$PUBLISH_WORKFLOW" 'useInMemoryPgpKeys' \
     'publish-central.yml documents the in-memory key custody (no key file on disk)'
+
+# The host allowlist above only sees URL literals, and a network command needs no
+# scheme — `curl evil.example` walks straight past it. So every line that invokes a
+# network-capable command must itself name an allowlisted host, and pushing anything
+# back from a publish run is banned outright.
+# Backslash continuations are joined first, so a command split across lines is judged
+# as the one command it is.
+NETWORK_LINES=$(awk '
+    /\\[[:space:]]*$/ { sub(/\\[[:space:]]*$/, "", $0); buf = buf $0 " "; next }
+    { print buf $0; buf = "" }
+' "$PUBLISH_WORKFLOW" \
+    | grep -vE '^[[:space:]]*#' \
+    | grep -E '(curl|wget|git clone|git fetch|git pull|ssh |scp |nc )' || true)
+UNPINNED_NETWORK=$(printf '%s\n' "$NETWORK_LINES" | grep -v '^$' \
+    | grep -vE '(central\.sonatype\.com|github\.com)' || true)
+if [ -z "$UNPINNED_NETWORK" ]
+then
+    pass 'every network command in publish-central.yml names an allowlisted host'
+else
+    fail "network commands without an allowlisted host in publish-central.yml: $UNPINNED_NETWORK"
+fi
+
+lacks_active "$PUBLISH_WORKFLOW" 'git (push|remote)' \
+    'a publish run never pushes or rewires a remote'
+
+# Expression injection: a workflow input interpolated into run text executes as
+# script. Inputs may reach the shell ONLY as an env assignment, and the commit input
+# must be machine-validated as exactly 40 hex characters before any use.
+RAW_INPUT_USES=$(grep -nE '\$\{\{[[:space:]]*inputs\.' "$PUBLISH_WORKFLOW" \
+    | grep -vE '^[0-9]+:[[:space:]]*[A-Z_][A-Z_0-9]*:[[:space:]]*\$\{\{[[:space:]]*inputs\.[A-Za-z_]+[[:space:]]*\}\}[[:space:]]*$' || true)
+if [ -z "$RAW_INPUT_USES" ]
+then
+    pass 'workflow inputs reach the shell only through env assignments'
+else
+    fail "workflow inputs interpolated outside an env assignment: $RAW_INPUT_USES"
+fi
+
+contains "$PUBLISH_WORKFLOW" '*[!0-9a-f]*' \
+    'the commit input is refused unless it is lowercase hex'
+contains "$PUBLISH_WORKFLOW" '-ne 40' \
+    'the commit input is refused unless it is exactly 40 characters'
 
 # ---------------------------------------------------------------------------
 section '8. module graph coherence'

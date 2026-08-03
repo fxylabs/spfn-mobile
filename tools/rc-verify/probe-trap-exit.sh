@@ -12,7 +12,10 @@
 #   2. the same for TERM and 143 — delivered twice, because the second signal must
 #      land in a disarmed trap rather than re-entering the sweep;
 #   3. a PRE-EXISTING tag survives a failing run: the sweep deletes only a tag the
-#      run itself created (CREATED_TAG), interrupted or not.
+#      run itself created (CREATED_TAG), interrupted or not;
+#   4. SPFN_RC_OUT is refused inside the repository — literally, and canonically when
+#      a symlink points back into the tree — and a refused attempt leaves no
+#      directory behind.
 #
 # The killed runs are real harness runs, so this needs everything the harness needs
 # (Swift toolchain, ANDROID_HOME, clean tree, no candidate tag) plus python3 for the
@@ -165,6 +168,51 @@ printf 'RC harness trap probe\n'
 
 kill_probe INT 130 1
 kill_probe TERM 143 2
+
+# --- SPFN_RC_OUT is held outside the repository, symlinks included -----------------
+# Same rule class as the Gradle staging gate: evidence never enters the tree. The
+# literal form is refused before anything is created; the symlink form is refused on
+# the canonical path, and the directory the attempt created is removed again.
+if SPFN_RC_OUT="$ROOT/build/rc-out-probe" sh tools/rc-verify/rc-verify.sh \
+    > "$TMP/harness-out-inrepo.log" 2>&1
+then
+    fail 'an SPFN_RC_OUT inside the repository was accepted'
+else
+    if grep -q 'inside the repository' "$TMP/harness-out-inrepo.log"
+    then
+        pass 'an SPFN_RC_OUT inside the repository is refused'
+    else
+        fail 'the in-repo SPFN_RC_OUT run failed, but not on the containment rule'
+    fi
+fi
+if [ -d "$ROOT/build/rc-out-probe" ]
+then
+    fail 'the refused in-repo SPFN_RC_OUT left a directory in the tree'
+    rmdir "$ROOT/build/rc-out-probe" 2>/dev/null || true
+else
+    pass 'the refused in-repo SPFN_RC_OUT left nothing behind'
+fi
+
+ln -s "$ROOT/build" "$TMP/escape-link"
+if SPFN_RC_OUT="$TMP/escape-link/rc-out-probe" sh tools/rc-verify/rc-verify.sh \
+    > "$TMP/harness-out-symlink.log" 2>&1
+then
+    fail 'an SPFN_RC_OUT that symlinks back into the repository was accepted'
+else
+    if grep -q 'resolves inside the repository' "$TMP/harness-out-symlink.log"
+    then
+        pass 'an SPFN_RC_OUT that symlinks back into the repository is refused canonically'
+    else
+        fail 'the symlinked SPFN_RC_OUT run failed, but not on the canonical containment rule'
+    fi
+fi
+if [ -d "$ROOT/build/rc-out-probe" ]
+then
+    fail 'the refused symlinked SPFN_RC_OUT left a directory in the tree'
+    rmdir "$ROOT/build/rc-out-probe" 2>/dev/null || true
+else
+    pass 'the refused symlinked SPFN_RC_OUT removed the directory it created'
+fi
 
 # --- a pre-existing tag survives a failing run -------------------------------------
 git tag "$VERSION"

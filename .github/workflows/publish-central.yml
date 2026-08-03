@@ -47,10 +47,27 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Clone the repository at the named commit
+        # The input reaches the shell ONLY through env — never interpolated into run
+        # text, where a crafted input would execute as script — and is refused unless
+        # it is exactly 40 lowercase hex characters, so "a person names the exact
+        # commit" is machine-enforced, not asked politely.
+        env:
+          PUBLISH_COMMIT: ${{ inputs.commit }}
         run: |
+          case "$PUBLISH_COMMIT" in
+            *[!0-9a-f]* | '')
+              echo "commit input must be a full 40-hex lowercase SHA, got something else" >&2
+              exit 1
+              ;;
+          esac
+          if [ "${#PUBLISH_COMMIT}" -ne 40 ]
+          then
+            echo "commit input must be exactly 40 hex characters, got ${#PUBLISH_COMMIT}" >&2
+            exit 1
+          fi
           git clone "https://x-access-token:${{secrets.GITHUB_TOKEN}}@github.com/${GITHUB_REPOSITORY}.git" spfn-mobile
           cd spfn-mobile
-          git checkout --detach "${{ inputs.commit }}"
+          git checkout --detach "$PUBLISH_COMMIT"
           # The harness creates its own local candidate tag and refuses to run over a
           # pre-existing one, so a tag fetched with the clone is removed first.
           VERSION=$(tr -d '[:space:]' < VERSION)

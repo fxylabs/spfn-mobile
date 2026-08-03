@@ -17,9 +17,12 @@ vertical slice end to end. Nothing is committed, tagged or published.
   Central-required metadata set — name, description, url, MIT license, developers,
   scm — asserted per element by the RC harness at staging time.
 - `.github/workflows/publish-central.yml`: the one path to Maven Central.
-  `workflow_dispatch` only — the validator now fails ANY workflow that gains a push,
-  tag or schedule trigger — against a person-named commit, re-running the RC
-  verification before anything is bundled. The upload is `USER_MANAGED`: the Portal
+  `workflow_dispatch` only — the validator parses every workflow's `on:` trigger set,
+  flow-style and block-style alike, and fails anything that is not exactly
+  `workflow_dispatch`, so an unlisted or future trigger kind fails too — against a
+  person-named commit validated as exactly 40 hex characters through an env
+  assignment (never interpolated into run text), re-running the RC verification
+  before anything is bundled. The upload is `USER_MANAGED`: the Portal
   holds the deployment until a person confirms it in the Portal UI. Secrets are
   referenced by name from a validator-pinned allowlist and are not registered, so
   every dispatch fails today, by design. Gradle never gains a remote repository:

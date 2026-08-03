@@ -94,12 +94,43 @@ MIN_SDK=$(sed -n 's/^min-sdk = "\(.*\)"$/\1/p' gradle/libs.versions.toml)
 # --- workspace ---------------------------------------------------------------------
 
 # OUT survives the run: it is the candidate evidence. WORK never does. SPFN_RC_OUT
-# lets a caller (the publish workflow) name the evidence directory; it must not exist
-# yet or be empty, so one run can never mix its artifacts into another's.
+# lets a caller (the publish workflow) name the evidence directory. It is held to the
+# same rule the Gradle staging gate enforces for spfn.staging.dir — absolute, and
+# canonically OUTSIDE this repository, so a symlink pointing back into the tree is
+# refused too — and it must be empty, so one run can never mix its artifacts into
+# another's.
 if [ -n "${SPFN_RC_OUT:-}" ]
 then
-    OUT="$SPFN_RC_OUT"
-    mkdir -p "$OUT"
+    case "$SPFN_RC_OUT" in
+        /*) ;;
+        *) die "SPFN_RC_OUT '$SPFN_RC_OUT' is not an absolute path" ;;
+    esac
+    # Checked twice on purpose: on the literal path before anything is created, and
+    # canonically (pwd -P) after, so a symlink that points back into the tree is
+    # refused as well. A directory this refusal itself created is removed again.
+    case "$SPFN_RC_OUT" in
+        "$ROOT" | "$ROOT"/*)
+            die "SPFN_RC_OUT '$SPFN_RC_OUT' is inside the repository; evidence never enters the tree"
+            ;;
+    esac
+    OUT_CREATED=0
+    if [ ! -d "$SPFN_RC_OUT" ]
+    then
+        OUT_CREATED=1
+    fi
+    mkdir -p "$SPFN_RC_OUT"
+    OUT=$(CDPATH= cd -- "$SPFN_RC_OUT" 2>/dev/null && pwd -P) \
+        || die "SPFN_RC_OUT '$SPFN_RC_OUT' cannot be resolved"
+    ROOT_REAL=$(CDPATH= cd -- "$ROOT" && pwd -P)
+    case "$OUT" in
+        "$ROOT_REAL" | "$ROOT_REAL"/*)
+            if [ "$OUT_CREATED" = "1" ]
+            then
+                rmdir "$SPFN_RC_OUT" 2>/dev/null || true
+            fi
+            die "SPFN_RC_OUT '$SPFN_RC_OUT' resolves inside the repository; evidence never enters the tree"
+            ;;
+    esac
     if [ -n "$(find "$OUT" -mindepth 1 -print -quit)" ]
     then
         die "SPFN_RC_OUT '$OUT' is not empty; refusing to mix candidate evidence"
@@ -267,6 +298,8 @@ do
         grep -q "$element" "$BASE.pom" \
             || die "$module POM misses Central-required element $element"
     done
+    grep -q 'github.com/fxylabs/spfn-mobile' "$BASE.pom" \
+        || die "$module POM does not name the public repository github.com/fxylabs/spfn-mobile"
     if grep -q 'PROPOSED' "$BASE.pom"
     then
         die "$module POM still calls the group proposed; D4 resolved it on 2026-08-03"
