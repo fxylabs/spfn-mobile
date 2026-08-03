@@ -15,6 +15,7 @@ import okhttp3.OkHttpClient
 import xyz.superfunction.spfn.client.SpfnCall
 import xyz.superfunction.spfn.client.SpfnClient
 import xyz.superfunction.spfn.client.SpfnClock
+import xyz.superfunction.spfn.client.SpfnKeyProvider
 import xyz.superfunction.spfn.client.SpfnSoftwareKeyProvider
 import xyz.superfunction.spfn.client.SpfnOkHttpTransport
 import xyz.superfunction.spfn.client.SpfnSession
@@ -141,6 +142,22 @@ class SpfnReferenceClientHarness(timeoutMillis: Long = 5_000) : AutoCloseable
 
     fun stats(): SpfnReferenceStats = control.stats()
 
+    /**
+     * A client over a session signing with [provider] — what case f uses to prove with
+     * a key the lifecycle enrolled rather than the pre-registered fixture key.
+     */
+    fun client(provider: SpfnKeyProvider, timeoutMillis: Long = 5_000): SpfnClient
+    {
+        val signingSession = SpfnSession(
+            transport = transport,
+            keyProvider = provider,
+            baseUrl = baseUrl,
+            clock = clientClock,
+            timeoutMillis = timeoutMillis
+        );
+        return SpfnClient(transport, signingSession, timeoutMillis = timeoutMillis);
+    }
+
     override fun close()
     {
         okHttpClient.dispatcher.executorService.shutdown();
@@ -149,5 +166,65 @@ class SpfnReferenceClientHarness(timeoutMillis: Long = 5_000) : AutoCloseable
         // Only ever the server this harness started. An external target outlives the run
         // that used it, and stopping one would be this suite reaching outside itself.
         mode.local?.close();
+    }
+}
+
+/**
+ * The custody seams' software halves for the integration run: JCA keys behind the
+ * engine seam and an in-memory metadata store. What case f proves is the wire; the
+ * persistence and hardware halves have their own suites and their own device axis.
+ */
+class SpfnIntegrationSoftwareEngine : xyz.superfunction.spfn.client.SpfnKeystoreEngine
+{
+    private val keys = java.util.concurrent.ConcurrentHashMap<String, java.security.KeyPair>()
+
+    override fun generate(
+        alias: String,
+        preferStrongBox: Boolean
+    ): xyz.superfunction.spfn.client.SpfnKeystoreGeneratedKey
+    {
+        val generator = java.security.KeyPairGenerator.getInstance("EC");
+        generator.initialize(java.security.spec.ECGenParameterSpec("secp256r1"));
+        val pair = generator.generateKeyPair();
+        keys[alias] = pair;
+        return xyz.superfunction.spfn.client.SpfnKeystoreGeneratedKey(
+            xyz.superfunction.spfn.client.SpfnKeyCustody.TRUSTED_ENVIRONMENT,
+            pair.public.encoded
+        );
+    }
+
+    override fun publicKeySpkiDer(alias: String): ByteArray? = keys[alias]?.public?.encoded
+
+    override fun signDer(alias: String, message: ByteArray): ByteArray
+    {
+        val key = keys[alias]?.private ?: throw IllegalStateException("no signing key under this alias");
+        val signer = java.security.Signature.getInstance("SHA256withECDSA");
+        signer.initSign(key);
+        signer.update(message);
+        return signer.sign();
+    }
+
+    override fun contains(alias: String): Boolean = keys.containsKey(alias)
+
+    override fun delete(alias: String)
+    {
+        keys.remove(alias);
+    }
+}
+
+class SpfnIntegrationMetadataStore : xyz.superfunction.spfn.client.SpfnKeyMetadataStore
+{
+    private val records = java.util.concurrent.ConcurrentHashMap<String, xyz.superfunction.spfn.client.SpfnStoredKeyMetadata>()
+
+    override fun load(slot: String): xyz.superfunction.spfn.client.SpfnStoredKeyMetadata? = records[slot]
+
+    override fun save(slot: String, metadata: xyz.superfunction.spfn.client.SpfnStoredKeyMetadata)
+    {
+        records[slot] = metadata;
+    }
+
+    override fun delete(slot: String)
+    {
+        records.remove(slot);
     }
 }

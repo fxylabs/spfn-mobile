@@ -35,8 +35,8 @@ class SpfnKeyLifecycleTest
     @Test
     fun enrollSendsTheExactFixtureBytesAndPersistsTheIdentity() = runBlocking {
         val fixture = enrollmentFixture();
-        val oauth = fixture.obj("oauthNative");
-        val value = oauth.obj("value");
+        val oauthNative = fixture.obj("oauthNative");
+        val value = oauthNative.obj("value");
 
         val transport = ScriptedTransport(
             listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
@@ -46,7 +46,7 @@ class SpfnKeyLifecycleTest
         val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
 
         val result = lifecycle.enroll(
-            provider = oauth.text("provider"),
+            provider = oauthNative.text("provider"),
             idToken = value.text("idToken"),
             nonce = value.text("nonce")
         );
@@ -55,15 +55,15 @@ class SpfnKeyLifecycleTest
 
         val sent = transport.received.first();
         assertEquals("POST", sent.method);
-        assertEquals(baseUrl + oauth.text("path"), sent.url);
+        assertEquals(baseUrl + oauthNative.text("path"), sent.url);
         assertEquals(
             "an unproven enrollment carries exactly the fixture's headers",
-            oauth.headerPairs("headers"),
+            oauthNative.headerPairs("headers"),
             sent.headers
         );
         assertEquals(
             "the enrollment body must be the fixture bytes exactly (M1)",
-            oauth.text("canonical"),
+            oauthNative.text("canonical"),
             sent.body?.toString(Charsets.UTF_8)
         );
 

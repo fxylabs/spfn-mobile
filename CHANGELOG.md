@@ -5,6 +5,42 @@ software.
 
 ## 0.1.0-alpha.2 — unreleased
 
+### Contract 0.3.0: the REST enrollment surface, custody, and the key lifecycle
+
+- The pin moved to primitives commit `7e727310`, contract `0.3.0`, digest
+  `a41a3c06…`: four REST operations under `/_auth` (register, login, native social
+  enrollment, key rotation), the `operationAuthClasses` section that declares the
+  unproven class, `keyPolicy` (ttlDays 90, rotation via `auth.keys.rotate`), the
+  `restOperations` wire rules and `clientProofV1.clientIdRule` — clientId now
+  identifies the key owner on the REST surface, refused as the non-disclosing
+  PROOF_INVALID otherwise. The generator requires every new section and refuses a
+  bundle missing one; the auth classes are generated as a type on both platforms.
+- The execute path resolves an operation's auth class before sending. The unproven
+  class goes out with the content type alone — no proof, identity, nonce or session
+  header, no handshake, no retry — and an operation naming an undeclared class is
+  refused unsent (fail-closed). Proven session-free operations (rotation) carry
+  every proof header and never a session header.
+- Hardware custody landed behind seams: `SPFNCustodyKey` generates inside the
+  Secure Enclave when available and records a software-keychain fallback otherwise
+  (device-only accessibility, no synchronization); `SpfnKeystoreCustodyKey`
+  generates EC P-256 in the Android Keystore, StrongBox first with the TEE fallback
+  recorded. Enclave/StrongBox runtime behaviour is real-device evidence, deferred
+  with the COMPATIBILITY axis; the software halves and every selection, persistence
+  and wipe rule are unit-tested on both platforms.
+- `SPFNKeyLifecycle` / `SpfnKeyLifecycle` own enrollment and rotation with exactly
+  one signable key at every observable moment: enroll generates, sends the exact
+  contract body (SPKI DER base64, SHA-256-of-SPKI fingerprint, ES256), persists the
+  issued userId as the proof clientId, and destroys the key on failure; rotate
+  persists the candidate before the network call, swaps only on confirmation, and
+  resumes an interrupted rotation deterministically. SESSION_REVOKED wipes; the TTL
+  judgment is foreground arithmetic over the generated keyPolicy constants.
+- The reference server mirrors the surface: a fixed-rule test idToken enrolls a key
+  under its owner, rotation replaces a key and drops its sessions, ownership is
+  refused inside the proof step indistinguishably from every other proof failure,
+  and the integration matrix gained the enrollment→proof→rotate→new-key-proof end
+  to end on both platforms (local mode; an external primitives dev target carries
+  the three dev operations only and case f is out of scope there).
+
 The candidate version moved, not the code. `0.1.0-alpha.1` exists as a public tag and
 was never published to Central: its dispatch failed because the candidate commit it
 names predates the cold-cache verification-metadata fix (#14), so a build of that

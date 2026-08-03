@@ -988,7 +988,7 @@ def build_enrollment():
     """
     bundle = load_bundle()
     operations = {operation["id"]: operation for operation in bundle["operations"]}
-    oauth = operations["auth.enroll.oauthNative"]
+    oauth_native = operations["auth.enroll.oauthNative"]
     provider = "google"
     body = {
         "idToken": "spfn-test-idtoken.google.user-test-0001.nonce-enroll-0001",
@@ -1012,10 +1012,10 @@ def build_enrollment():
             "wrongKeySpkiSha256Hex": spki_sha256_hex(WRONG_PUBLIC_KEY_SPKI_B64),
         },
         "oauthNative": {
-            "operationId": oauth["id"],
-            "pathTemplate": oauth["path"],
+            "operationId": oauth_native["id"],
+            "pathTemplate": oauth_native["path"],
             "provider": provider,
-            "path": oauth["path"].replace("{provider}", provider),
+            "path": oauth_native["path"].replace("{provider}", provider),
             "headers": [["content-type", bundle["wireMapping"]["requestContentType"]]],
             "value": body,
             "canonical": canonical_body,

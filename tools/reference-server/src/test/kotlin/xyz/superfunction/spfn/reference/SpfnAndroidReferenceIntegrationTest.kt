@@ -196,6 +196,99 @@ class SpfnAndroidReferenceIntegrationTest
     }
 
     /**
+     * The REST enrollment surface end to end (case f): enrollment, a proof round trip
+     * with the enrolled key, a rotation proved by it, and a proof round trip with the
+     * new key — while the replaced key is refused with the non-disclosing PROOF_INVALID.
+     *
+     * In process the surface always exists — the server is this repository's own. An
+     * external target carries it only when the run says so (`spfn.integrationRestOps`),
+     * because the primitives dev server has the three dev operations and no `/_auth`
+     * surface; against it this case is out of scope and its receipt is not expected.
+     */
+    @Test
+    fun `case f - enrollment, proof, rotation and the new key's proof`() = runBlocking<Unit>
+    {
+        val restOps = SpfnIntegrationTarget.resolve() == null ||
+            System.getProperty("spfn.integrationRestOps") == "1";
+        org.junit.Assume.assumeTrue(
+            "case f SKIPPED: the named target is assumed to carry only the dev three-operation surface",
+            restOps
+        );
+
+        SpfnReferenceClientHarness().use { harness ->
+            // Software custody on purpose: the suite runs on a JVM with no Keystore,
+            // and hardware custody is the COMPATIBILITY axis.
+            val engine = SpfnIntegrationSoftwareEngine();
+            val store = SpfnIntegrationMetadataStore();
+            val lifecycle = xyz.superfunction.spfn.client.SpfnKeyLifecycle(
+                transport = harness.transport,
+                store = store,
+                engine = engine,
+                baseUrl = harness.baseUrl,
+                clock = harness.clientClock
+            );
+
+            val userId = "user-kotlin-f-0001";
+            val nonce = "nonce-kotlin-f-0001";
+            val enrolled = lifecycle.enroll(
+                provider = "google",
+                idToken = "spfn-test-idtoken.google.$userId.$nonce",
+                nonce = nonce
+            );
+            assertEquals(userId, enrolled.clientId);
+            assertTrue(enrolled.isNewUser);
+
+            // A proven round trip under the enrolled key: handshake, echo, exact values.
+            val firstProvider = requireNotNull(lifecycle.activeProvider());
+            val echoed = harness.client(firstProvider).execute(
+                SpfnReferenceCalls.echo,
+                SpfnEchoRequest("enrolled key proves", 61)
+            );
+            assertEquals("enrolled key proves", echoed.message);
+
+            // Rotate under the old key's proof; the lifecycle swaps to the new key.
+            val rotated = lifecycle.rotate();
+            assertEquals(userId, rotated.clientId);
+            assertTrue(rotated.keyId != enrolled.keyId);
+
+            val newProvider = requireNotNull(lifecycle.activeProvider());
+            assertEquals(rotated.keyId, newProvider.keyId);
+            val again = harness.client(newProvider).execute(
+                SpfnReferenceCalls.echo,
+                SpfnEchoRequest("rotated key proves", 62)
+            );
+            assertEquals("rotated key proves", again.message);
+
+            // The replaced key cannot prove anything. On this platform the swap also
+            // deleted the Keystore entry, so the stale provider fails before a byte is
+            // sent — the server-side half of the same rule (the non-disclosing
+            // PROOF_INVALID for a rotated-away key) is pinned by
+            // SpfnReferenceRestOpsTest, where the key material is test-owned.
+            try
+            {
+                harness.client(firstProvider).execute(
+                    SpfnReferenceCalls.echo,
+                    SpfnEchoRequest("stale key", 63)
+                );
+                org.junit.Assert.fail("the replaced key must not prove anything");
+            }
+            catch (refused: SpfnClientError.Auth)
+            {
+                assertEquals(SpfnGeneratedErrorCode.PROOF_INVALID, refused.failure.code);
+            }
+            catch (destroyed: IllegalStateException)
+            {
+                assertTrue(
+                    "got $destroyed",
+                    destroyed.message == "no signing key under this alias"
+                );
+            }
+
+            SpfnIntegrationReceipt.record("kotlin-f");
+        }
+    }
+
+    /**
      * Checks the instant `echo.send` answered with, as closely as this run can.
      *
      * In process the server runs on a test clock this suite starts, so the value is exact.
