@@ -3,7 +3,18 @@
 No release has been made. Entries below describe repository state, not shipped
 software.
 
-## 0.1.0-alpha.1 — unreleased
+## 0.1.0-alpha.2 — unreleased
+
+The candidate version moved, not the code. `0.1.0-alpha.1` exists as a public tag and
+was never published to Central: its dispatch failed because the candidate commit it
+names predates the cold-cache verification-metadata fix (#14), so a build of that
+exact tree cannot pass dependency verification on a cold runner. Published versions —
+and their tags — are immutable here, so the tag stays where it is and the candidate
+is reissued as `0.1.0-alpha.2` from a tree that contains the fix. Everything below
+the next heading describes work that happened while the train carried the alpha.1
+number.
+
+## 0.1.0-alpha.1 — superseded by 0.1.0-alpha.2, tagged but never published
 
 Step 1 laid out the repository. Step 2 made it compile on both platforms and proved one
 vertical slice end to end. Nothing is committed, tagged or published.
