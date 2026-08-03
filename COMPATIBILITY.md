@@ -10,7 +10,7 @@ on. Those are different claims, and only the second is one an integrator can rel
 
 | Field | Value to record per release | Gate | Current state |
 | --- | --- | --- | --- |
-| Mobile SDK | version, source commit, tag digest | `VERSION`, tag, changelog and Maven POM agree | UNRESOLVED — `0.1.0-alpha.1` decided (D9), no commit, no tag, no POM |
+| Mobile SDK | version, source commit, tag digest | `VERSION`, tag, changelog and Maven POM agree | locally verified, not released — `tools/rc-verify/rc-verify.sh` at commit `0bcc02b` resolved the local tag `0.1.0-alpha.1` by SwiftPM exact pin and staged Maven POMs agreeing with `VERSION`; the tag was local and removed by the run, no artifact left this machine, and no release exists |
 | Contract | exact imported digest and supported SemVer range | a contract outside the range raises an explicit upgrade error; no unknown-profile fallback | enforced — `0.1.0` is pinned by real digest from the SPFN primitives export (D17 resolved), and the range check is driven by a shared cross-platform vector table |
 | Auth | `allowed=[clientProofV1]`, default profile, mixing prohibited | any redirect-based auth symbol, endpoint or fixture in the public surface fails the build | **enforced** — the allowlist is exactly `clientProofV1` on both platforms and in the generated clients |
 | Server | minimum verified SPFN primitives release/commit and endpoint capability set | server fixtures and both SDK conformance suites pass | UNRESOLVED — the contract is an upstream export and both suites round-trip against the SPFN primitives dev server on localhost, but no deployed service has been contacted and no minimum release is fixed |

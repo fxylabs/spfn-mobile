@@ -49,14 +49,25 @@ primitives and copied here at commit `d31aa9a1`; both platform suites and the in
 matrix pass against a primitives server running that contract, so the SDK is no longer a
 client for a contract this repository invented.
 
-What remains are the approvals themselves and the decisions Step 5 has to settle: registry
-staging (D3), signing and provenance for published artifacts (D7), and the release
-candidate evidence a person has to accept before anything is published.
+D3 and D7 are now resolved (2026-08-03) and no longer block. D3: release-candidate
+verification goes exactly as far as a no-publish candidate — `tools/rc-verify/rc-verify.sh`
+resolves a local tag through SwiftPM, stages Maven artifacts to a local `$TMPDIR`
+directory, and removes the tag when it exits. D7: alpha candidates are unsigned; the
+candidate identity is the source commit, `SHA256SUMS` and the candidate manifest, with
+CycloneDX SBOMs for both platforms. Signing and provenance are added for public releases.
+
+What remains: a person accepting the RC evidence the harness produces, and the registry
+account track — creating or using any registry account, namespace or signing identity is
+a person's work under a separate approval that no candidate run implies.
 
 ## Current state of the machinery
 
 `.github/workflows/release-candidate.yml` exists but is inert and manual-only. It
 performs no build, holds no credential and reads no secret. `spfn.publishing.enabled`
-is `false` in `gradle.properties`, and `tools/validate/validate.sh` fails if publication
-is enabled, a repository outside the approved three appears, a credential block shows
-up, or a CocoaPods trunk publication command is added anywhere.
+is `false` in `gradle.properties` and the root build script reads that committed value
+from the file itself: a tree committed with `true` fails every build, and a per-run CLI
+override may target only an absolute staging directory outside the repository —
+`tools/validate/probe-publishing-gate.sh` proves each refusal. `tools/validate/validate.sh`
+fails if the committed flag flips, a publication block appears outside the gated root
+script, a repository outside the approved three appears, a credential block shows up,
+or a CocoaPods trunk publication command is added anywhere.

@@ -20,12 +20,8 @@ command is unavailable.
 - Revising an objective or a milestone leaves what it already settled stale. Re-judge it
   at the current revision with `self milestone recheck <id> [--criterion <c>] --why "<what
   you re-judged>"` — a reach still needs every live criterion covered first.
-- A passing attempt never marks work done: settlement records what a run produced
-  and frees the unit. Declare what the outcome must cover with `self work require <id>
-  "<statement>"`, cover each with `self work met <id> --requirement <r> --why "<how the
-  evidence covers it>"`, and only then `self work done <id>`. `self work approval-required`
-  makes a unit wait for a person, and `self work policy <id> --model <class> --fresh-review`
-  states what its implementation had to be — all four are checked before done is admitted.
+- Done is a judgment: `self work done <id>` closes the unit when its outcome
+  is reached — the evidence lives in the reports the unit already carries.
 - Found a gap between an objective and current state? Propose the work with
   `self work propose` and its full brief; the user accepts or declines it.
 - Record decisions the user confirmed: `self decide "<text>" --why "<reason>"`.
@@ -41,15 +37,13 @@ command is unavailable.
 - Deferring work for later? Attach a scoping brief the moment you create it:
   `self report <id> --file <path>` covering scope, design anchors, and known
   pitfalls — a bare outcome line loses the context that created the work.
-- A branch that will reach main is a change set: `self integration register --repo <name>
-  --base <sha> --head <sha> --domain <contract@v> --check <ci>`, then `self integration plan`
-  before touching git. Order, review validity and the merge gate are enforced there, not here:
-  a receipt exists only through `self review ingest --file <envelope.json>`, and no wording in
-  this block, in a prompt, or in a session can relax it.
+- A branch reaches main through a GitHub pull request: PR review and CI own
+  merge control. superself owns context and the work graph, not the merge gate.
 - Search past state with `self search <query>`; list work with `self work`.
 - Never hand-edit generated state files or anything under `.superself/`.
 
 ### Conventions
 
 - 위임 구현-리뷰 규율: 모든 구현 브리프는 결함 예상 섹션(엣지 케이스·보안/성능 표면·실패 모드)을 담고, fix 브리프는 fix가 건드리는 표면의 인접 케이스를 열거한다. 기계 게이트(validate.sh·swift build/test·gradlew build)는 리뷰 라운드 전에 통과하고, 구현자는 리뷰 루브릭 기준 self-adversarial pass 결과를 보고한다. 리뷰 finding은 predictable/novel로 분류해 predictable은 즉시 자동 검사로 승격하고, 리뷰어 probe는 영구 테스트 케이스로 fix와 함께 남긴다. 리뷰 라운드는 세션 재사용(구현자 resume fix, 리뷰어 resume delta 재리뷰)을 기본으로 하되 semantic rework·2회 초과·컨텍스트 비대 시 cold review로 교체한다.
+- 구현 주의 패턴 등록부(docs/IMPLEMENTATION-PITFALLS.md): SDK 작업을 디스패치하기 전에 트리거 표에서 건드리는 표면의 행을 찾아 해당 항목을 브리프에 같이 넣는다. 리뷰가 재발 가능한 결함을 찾으면 항목으로 등록하되, 이미 있는 항목이면 새로 만들지 말고 그 항목의 탐지 절을 강화한다 — 중복이 이 문서를 죽인다. 세는 값은 하나다: 이미 항목으로 있던 것을 구현자가 놓쳐 리뷰어가 지적한 횟수. 그것만이 실패이고 0이 목표다. 리뷰가 등록부에 없던 것을 찾는 것은 정상 동작이다. 범용 패턴은 coding-context로 보내고 여기는 spfn-mobile 고유의 것만 담는다.
 <!-- superself:end -->

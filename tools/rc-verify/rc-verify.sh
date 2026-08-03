@@ -1,0 +1,437 @@
+#!/bin/sh
+# SPFN Mobile — release-candidate verification harness.
+#
+# Decision D3 (resolved 2026-08-03): the release candidate is verified WITHOUT
+# publishing anything. No registry, no account, no remote tag. This script produces the
+# whole of that evidence in one reproducible run:
+#
+#   1. SwiftPM  — creates the prefix-free local tag `<VERSION>` (D9), resolves it from
+#                 a throwaway consumer package via `.package(url: "file://…", exact:)`,
+#                 builds it, and runs a smoke executable that imports every public
+#                 product and touches one symbol in each.
+#   2. Maven    — stages every Android module (AAR + POM + sources) to a $TMPDIR
+#                 directory through the publication gate in the root build script, then
+#                 compiles a throwaway Android consumer project against the staged
+#                 coordinates `<group>:<module>:<VERSION>`.
+#   3. SBOM     — CycloneDX for both platforms (D7): the Gradle plugin for Android,
+#                 static generation for iOS where the dependency set is empty by design.
+#   4. Manifest — SHA256SUMS over every candidate artifact plus manifest.json binding
+#                 the source commit, the pinned contract digest, the resolved tag and
+#                 every artifact hash into one candidate identity (D7: alpha is
+#                 unsigned; commit + digests + SBOM are the provenance).
+#
+# Everything lands under one $TMPDIR output directory, printed at the end and NEVER
+# inside the repository. The local tag and every intermediate directory are removed by
+# a trap on every exit path, success or failure; only the output directory survives.
+#
+#   ANDROID_HOME=~/Library/Android/sdk sh tools/rc-verify/rc-verify.sh
+#
+# Requirements: macOS with the Swift toolchain, an Android SDK, network access for
+# Gradle dependency resolution, a clean working tree, and no existing `<VERSION>` tag.
+# Any step failing exits non-zero.
+
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+cd "$ROOT"
+
+VERSION=$(tr -d '[:space:]' < VERSION)
+GRADLE="./gradlew --console=plain"
+CREATED_TAG=0
+
+die()
+{
+    printf 'rc-verify FAIL: %s\n' "$1" >&2
+    if [ -n "${OUT:-}" ]
+    then
+        printf 'evidence kept at: %s\n' "$OUT" >&2
+    fi
+    exit 1
+}
+
+step()
+{
+    printf '\n== %s\n' "$1"
+}
+
+# --- preconditions -----------------------------------------------------------------
+
+command -v swift > /dev/null 2>&1 || die 'swift toolchain not found'
+[ -x ./gradlew ] || die 'gradlew not found at the repository root'
+
+if [ -z "${ANDROID_HOME:-}" ] && [ -d "$HOME/Library/Android/sdk" ]
+then
+    ANDROID_HOME="$HOME/Library/Android/sdk"
+    export ANDROID_HOME
+fi
+[ -n "${ANDROID_HOME:-}" ] || die 'ANDROID_HOME is not set and no default SDK exists'
+
+# The candidate is a commit, so the tree must BE that commit. A dirty tree would tag
+# one thing and stage another: SwiftPM consumes the committed state through the tag
+# while Gradle stages the working tree.
+if [ -n "$(git status --porcelain)" ]
+then
+    die 'working tree is not clean; a candidate is verified from a commit, not a diff'
+fi
+
+if [ -n "$(git tag -l "$VERSION")" ]
+then
+    die "tag $VERSION already exists; this harness creates and removes its own local tag"
+fi
+
+COMMIT=$(git rev-parse HEAD)
+CONTRACT_DIGEST=$(sed -n 's/.*"manifestSha256": *"\([0-9a-f]\{64\}\)".*/\1/p' Contracts/upstream.lock.json | head -1)
+[ -n "$CONTRACT_DIGEST" ] || die 'could not read manifestSha256 from Contracts/upstream.lock.json'
+MAVEN_GROUP=$(sed -n 's/^spfn.maven.group.proposed=\(.*\)$/\1/p' gradle.properties)
+[ -n "$MAVEN_GROUP" ] || die 'could not read spfn.maven.group.proposed from gradle.properties'
+AGP_VERSION=$(sed -n 's/^agp = "\(.*\)"$/\1/p' gradle/libs.versions.toml)
+KOTLIN_VERSION=$(sed -n 's/^kotlin = "\(.*\)"$/\1/p' gradle/libs.versions.toml)
+COMPILE_SDK=$(sed -n 's/^compile-sdk = "\(.*\)"$/\1/p' gradle/libs.versions.toml)
+MIN_SDK=$(sed -n 's/^min-sdk = "\(.*\)"$/\1/p' gradle/libs.versions.toml)
+[ -n "$AGP_VERSION" ] && [ -n "$KOTLIN_VERSION" ] && [ -n "$COMPILE_SDK" ] && [ -n "$MIN_SDK" ] \
+    || die 'could not read the toolchain baseline from gradle/libs.versions.toml'
+
+# --- workspace ---------------------------------------------------------------------
+
+# OUT survives the run: it is the candidate evidence. WORK never does.
+OUT=$(mktemp -d "${TMPDIR:-/tmp}/spfn-rc-${VERSION}.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/spfn-rc-work.XXXXXX")
+STAGING="$OUT/staging"
+SBOM_DIR="$OUT/sbom"
+LOGS="$OUT/logs"
+mkdir -p "$STAGING" "$SBOM_DIR" "$LOGS"
+
+# Idempotent: the signal path and the EXIT path may both reach it, and a second
+# signal arriving mid-sweep must find nothing half-done to redo. Deleting the tag
+# resets CREATED_TAG so a re-entry cannot delete a tag this run did not create.
+sweep()
+{
+    if [ "$CREATED_TAG" = "1" ]
+    then
+        git -C "$ROOT" tag -d "$VERSION" > /dev/null 2>&1 || true
+        CREATED_TAG=0
+    fi
+    rm -rf "$WORK"
+    # SwiftPM drops zero-byte advisory .lock markers directly in $TMPDIR, named after
+    # the flattened path of the directory they guarded. The directory is gone; sweep
+    # the markers that name it too.
+    find "${TMPDIR:-/tmp}" -maxdepth 1 -type f -name "*$(basename "$WORK")*" -delete 2>/dev/null || true
+}
+
+cleanup()
+{
+    status=$?
+    sweep
+    exit "$status"
+}
+
+# On a signal, `$?` inside the trap is the status of the last COMPLETED command —
+# usually 0 — not the interruption, so a killed run routed through the EXIT trap
+# alone would clean up perfectly and then lie with exit 0. The signal traps exit
+# with the conventional 128+N themselves, and disarm every trap first so the exit
+# cannot re-enter cleanup and a second signal cannot re-enter the sweep.
+on_signal()
+{
+    trap '' EXIT INT TERM
+    sweep
+    exit "$1"
+}
+
+trap cleanup EXIT
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
+
+printf 'SPFN Mobile RC verification — candidate %s at commit %s\n' "$VERSION" "$COMMIT"
+printf 'output: %s\n' "$OUT"
+
+# --- 1. SwiftPM: local tag resolved by a throwaway consumer ------------------------
+
+step "SwiftPM: tag $VERSION, exact-version resolution, build, smoke"
+
+git tag "$VERSION"
+CREATED_TAG=1
+
+SWIFT_CONSUMER="$WORK/swift-consumer"
+mkdir -p "$SWIFT_CONSUMER/Sources/SPFNRCConsumer"
+
+cat > "$SWIFT_CONSUMER/Package.swift" <<EOF
+// swift-tools-version: 6.0
+// Throwaway RC consumer, generated by tools/rc-verify/rc-verify.sh. Never committed.
+import PackageDescription
+
+let package = Package(
+    name: "SPFNRCConsumer",
+    platforms: [.macOS(.v13)],
+    dependencies: [
+        .package(url: "file://$ROOT", exact: "$VERSION")
+    ],
+    targets: [
+        .executableTarget(
+            name: "SPFNRCConsumer",
+            dependencies: [
+                .product(name: "SPFNCore", package: "spfn-mobile"),
+                .product(name: "SPFNGenerated", package: "spfn-mobile"),
+                .product(name: "SPFNAuth", package: "spfn-mobile"),
+                .product(name: "SPFNClient", package: "spfn-mobile"),
+                .product(name: "SPFNPersistence", package: "spfn-mobile"),
+                .product(name: "SPFNHybrid", package: "spfn-mobile"),
+            ]
+        )
+    ]
+)
+EOF
+
+cat > "$SWIFT_CONSUMER/Sources/SPFNRCConsumer/main.swift" <<EOF
+// Throwaway RC smoke, generated by tools/rc-verify/rc-verify.sh. One symbol from every
+// public product: an import alone can succeed against an empty module.
+import SPFNAuth
+import SPFNClient
+import SPFNCore
+import SPFNGenerated
+import SPFNHybrid
+import SPFNPersistence
+
+guard SPFNVersion.current == "$VERSION" else
+{
+    fatalError("resolved SPFNCore reports \(SPFNVersion.current), expected $VERSION")
+}
+precondition(SPFNAuthPolicy.allowedProfiles == [SPFNAuthProfile.clientProofV1])
+precondition(!SPFNGeneratedContract.operationIDs.isEmpty)
+precondition(SPFNHybrid.allowedBridgeMessageNames.isEmpty)
+let openStore: (String) throws -> Never = SPFNPersistence.open(storeName:)
+_ = openStore
+_ = SPFNWireHeaders.self
+_ = SPFNClient.self
+print("SPFNRCConsumer smoke OK: \(SPFNVersion.current)")
+EOF
+
+# Every run gets its own cache and config paths, so no resolution, no cloned
+# repository and no manifest cache can leak in from a previous run: a re-tagged
+# candidate must be re-resolved from the repository, never replayed from a cache.
+SPM_FLAGS="--package-path $SWIFT_CONSUMER --cache-path $WORK/spm-cache --config-path $WORK/spm-config"
+
+swift package $SPM_FLAGS resolve > "$LOGS/swiftpm-resolve.log" 2>&1 \
+    || die "SwiftPM resolution failed (see $LOGS/swiftpm-resolve.log)"
+swift run $SPM_FLAGS SPFNRCConsumer > "$LOGS/swiftpm-build-run.log" 2>&1 \
+    || die "SwiftPM consumer build/smoke failed (see $LOGS/swiftpm-build-run.log)"
+
+grep -q "SPFNRCConsumer smoke OK: $VERSION" "$LOGS/swiftpm-build-run.log" \
+    || die 'the SwiftPM smoke executable did not report the candidate version'
+
+cp "$SWIFT_CONSUMER/Package.resolved" "$LOGS/Package.resolved"
+RESOLVED_VERSION=$(sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p' "$LOGS/Package.resolved" | head -1)
+RESOLVED_REVISION=$(sed -n 's/.*"revision" *: *"\([0-9a-f]\{40\}\)".*/\1/p' "$LOGS/Package.resolved" | head -1)
+[ "$RESOLVED_VERSION" = "$VERSION" ] \
+    || die "SwiftPM resolved version '$RESOLVED_VERSION', expected '$VERSION'"
+[ "$RESOLVED_REVISION" = "$COMMIT" ] \
+    || die "SwiftPM resolved revision $RESOLVED_REVISION, but the tag points at $COMMIT"
+printf '  resolved %s at revision %s\n' "$RESOLVED_VERSION" "$RESOLVED_REVISION"
+
+# --- 2. Maven: stage through the gate, consume from the staging repository ---------
+
+step "Maven: staging $MAVEN_GROUP:*:$VERSION and compiling a consumer against it"
+
+$GRADLE -Pspfn.publishing.enabled=true -Pspfn.staging.dir="$STAGING" publish \
+    > "$LOGS/maven-publish.log" 2>&1 \
+    || die "Maven staging publication failed (see $LOGS/maven-publish.log)"
+
+GROUP_PATH=$(printf '%s' "$MAVEN_GROUP" | tr '.' '/')
+MODULES='spfn-core spfn-generated spfn-auth spfn-client spfn-sync spfn-hybrid'
+for module in $MODULES
+do
+    BASE="$STAGING/$GROUP_PATH/$module/$VERSION/$module-$VERSION"
+    for artifact in "$BASE.aar" "$BASE.pom" "$BASE-sources.jar"
+    do
+        [ -f "$artifact" ] || die "staged artifact missing: $artifact"
+    done
+    grep -q "<groupId>$MAVEN_GROUP</groupId>" "$BASE.pom" \
+        || die "$module POM does not carry groupId $MAVEN_GROUP"
+    grep -q "<version>$VERSION</version>" "$BASE.pom" \
+        || die "$module POM does not carry version $VERSION"
+    grep -q 'PROPOSED Maven group' "$BASE.pom" \
+        || die "$module POM does not state that the group is proposed and unverified (D4)"
+done
+printf '  staged 6 modules (AAR + POM + sources), POMs carry the D4 caveat\n'
+
+ANDROID_CONSUMER="$WORK/android-consumer"
+mkdir -p "$ANDROID_CONSUMER/src/main/kotlin/xyz/superfunction/spfn/rcconsumer"
+
+cat > "$ANDROID_CONSUMER/settings.gradle.kts" <<EOF
+// Throwaway RC consumer, generated by tools/rc-verify/rc-verify.sh. Never committed.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        // The staged candidate is the ONLY source for SPFN coordinates; google() and
+        // mavenCentral() carry the toolchain and transitive dependencies only.
+        maven { url = uri("file://$STAGING") }
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "spfn-rc-consumer"
+EOF
+
+cat > "$ANDROID_CONSUMER/build.gradle.kts" <<EOF
+// Throwaway RC consumer, generated by tools/rc-verify/rc-verify.sh. Never committed.
+
+// The AARs carry Kotlin $KOTLIN_VERSION binary metadata, which AGP $AGP_VERSION's
+// bundled Kotlin 2.2.x compiler cannot read. A real consumer needs the same explicit
+// Kotlin Gradle plugin upgrade this repository's own root build script performs —
+// that is a fact about consuming these artifacts, not a harness convenience, and it
+// is exactly what this consumer exists to surface.
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$KOTLIN_VERSION")
+    }
+}
+
+plugins {
+    id("com.android.library") version "$AGP_VERSION"
+}
+
+android {
+    namespace = "xyz.superfunction.spfn.rcconsumer"
+    compileSdk = $COMPILE_SDK
+    defaultConfig {
+        minSdk = $MIN_SDK
+    }
+}
+
+dependencies {
+    implementation("$MAVEN_GROUP:spfn-core:$VERSION")
+    implementation("$MAVEN_GROUP:spfn-generated:$VERSION")
+    implementation("$MAVEN_GROUP:spfn-auth:$VERSION")
+    implementation("$MAVEN_GROUP:spfn-client:$VERSION")
+    implementation("$MAVEN_GROUP:spfn-sync:$VERSION")
+    implementation("$MAVEN_GROUP:spfn-hybrid:$VERSION")
+}
+EOF
+
+cat > "$ANDROID_CONSUMER/src/main/kotlin/xyz/superfunction/spfn/rcconsumer/RcConsumerSmoke.kt" <<EOF
+// Throwaway RC smoke, generated by tools/rc-verify/rc-verify.sh. One symbol from every
+// staged module: resolution alone would pass with an empty AAR.
+package xyz.superfunction.spfn.rcconsumer
+
+import xyz.superfunction.spfn.auth.SpfnAuthPolicy
+import xyz.superfunction.spfn.client.SpfnClient
+import xyz.superfunction.spfn.core.SpfnVersion
+import xyz.superfunction.spfn.generated.SpfnGeneratedContract
+import xyz.superfunction.spfn.hybrid.SpfnHybrid
+import xyz.superfunction.spfn.sync.SpfnSync
+
+object RcConsumerSmoke
+{
+    val version: String = SpfnVersion.CURRENT
+    val allowedProfiles: Int = SpfnAuthPolicy.ALLOWED_PROFILES.size
+    val operations: Int = SpfnGeneratedContract.OPERATION_IDS.size
+    val bridgeNames: Int = SpfnHybrid.ALLOWED_BRIDGE_MESSAGE_NAMES.size
+    val clientType: Class<SpfnClient> = SpfnClient::class.java
+    val sync: SpfnSync = SpfnSync
+}
+EOF
+
+"$ROOT/gradlew" --console=plain -p "$ANDROID_CONSUMER" compileReleaseKotlin \
+    > "$LOGS/maven-consume.log" 2>&1 \
+    || die "Android consumer failed to compile against the staged coordinates (see $LOGS/maven-consume.log)"
+printf '  consumer compiled against the staging repository\n'
+
+# --- 3. SBOM: CycloneDX for both platforms -----------------------------------------
+
+step 'SBOM: CycloneDX (Gradle plugin for Android, static for iOS)'
+
+$GRADLE cyclonedxBom -Pspfn.sbom.dir="$SBOM_DIR" > "$LOGS/sbom-android.log" 2>&1 \
+    || die "Android SBOM generation failed (see $LOGS/sbom-android.log)"
+[ -f "$SBOM_DIR/spfn-mobile-android-$VERSION.cdx.json" ] \
+    || die 'Android SBOM was not written to the output directory'
+
+sh tools/rc-verify/generate-ios-sbom.sh "$SBOM_DIR/spfn-mobile-ios-$VERSION.cdx.json" \
+    > "$LOGS/sbom-ios.log" 2>&1 \
+    || die "iOS SBOM generation failed (see $LOGS/sbom-ios.log)"
+
+# The SBOM tasks are on-demand only (D7). Hold that: the default build graph must not
+# contain them, and with publishing disabled it must not contain a publish task either.
+$GRADLE build --dry-run > "$LOGS/build-dry-run.log" 2>&1 \
+    || die 'gradlew build --dry-run failed'
+if grep -qi 'cyclonedx' "$LOGS/build-dry-run.log"
+then
+    die 'a CycloneDX task leaked into the default build graph'
+fi
+if grep -qi ':publish' "$LOGS/build-dry-run.log"
+then
+    die 'a publish task leaked into the default build graph'
+fi
+printf '  SBOMs written; default build graph carries no SBOM and no publish task\n'
+
+# --- 4. SHA256SUMS + candidate manifest --------------------------------------------
+
+step 'candidate manifest: SHA256SUMS and manifest.json'
+
+(
+    cd "$OUT"
+    find staging sbom -type f \
+        \( -name '*.aar' -o -name '*.pom' -o -name '*.jar' -o -name '*.module' -o -name '*.cdx.json' -o -name '*.cdx.xml' \) \
+        -print | sort > .rc-artifacts
+    : > SHA256SUMS
+    while IFS= read -r artifact
+    do
+        shasum -a 256 "$artifact" >> SHA256SUMS
+    done < .rc-artifacts
+    rm .rc-artifacts
+)
+[ -s "$OUT/SHA256SUMS" ] || die 'SHA256SUMS is empty'
+
+{
+    printf '{\n'
+    printf '  "candidate": "%s",\n' "$VERSION"
+    printf '  "generatedAt": "%s",\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '  "sourceCommit": "%s",\n' "$COMMIT"
+    printf '  "contractDigest": "%s",\n' "$CONTRACT_DIGEST"
+    printf '  "signing": "unsigned alpha candidate (decision D7): provenance is this manifest — source commit, contract digest, artifact hashes and the CycloneDX SBOMs. Signing and attestation are added for public releases.",\n'
+    printf '  "publication": "none (decision D3): local tag and local staging only. The tag was deleted when this run ended.",\n'
+    printf '  "swiftpm": {\n'
+    printf '    "resolvedTag": "%s",\n' "$RESOLVED_VERSION"
+    printf '    "resolvedRevision": "%s",\n' "$RESOLVED_REVISION"
+    printf '    "consumer": "throwaway package resolving .package(url: file://<repo>, exact: %s)"\n' "$VERSION"
+    printf '  },\n'
+    printf '  "maven": {\n'
+    printf '    "group": "%s",\n' "$MAVEN_GROUP"
+    printf '    "groupStatus": "PROPOSED, unverified (docs/OPEN-DECISIONS.md D4)",\n'
+    printf '    "modules": ["spfn-core", "spfn-generated", "spfn-auth", "spfn-client", "spfn-sync", "spfn-hybrid"]\n'
+    printf '  },\n'
+    printf '  "artifacts": [\n'
+    awk '{
+        if (NR > 1) { printf ",\n" }
+        printf "    { \"path\": \"%s\", \"sha256\": \"%s\" }", $2, $1
+    } END { printf "\n" }' "$OUT/SHA256SUMS"
+    printf '  ]\n'
+    printf '}\n'
+} > "$OUT/manifest.json"
+
+ARTIFACT_COUNT=$(wc -l < "$OUT/SHA256SUMS" | tr -d ' ')
+
+# --- summary -----------------------------------------------------------------------
+
+printf '\nRC VERIFY SUMMARY\n'
+printf '  candidate:        %s\n' "$VERSION"
+printf '  source commit:    %s\n' "$COMMIT"
+printf '  contract digest:  %s\n' "$CONTRACT_DIGEST"
+printf '  swiftpm:          tag %s resolved at %s\n' "$RESOLVED_VERSION" "$RESOLVED_REVISION"
+printf '  maven staging:    %s (6 modules)\n' "$STAGING"
+printf '  sbom:             %s\n' "$SBOM_DIR"
+printf '  manifest:         %s (%s artifacts)\n' "$OUT/manifest.json" "$ARTIFACT_COUNT"
+printf '  logs:             %s\n' "$LOGS"
+printf '  local tag:        removed on exit by trap\n'
+printf 'RESULT: PASS\n'

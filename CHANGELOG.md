@@ -8,6 +8,40 @@ software.
 Step 1 laid out the repository. Step 2 made it compile on both platforms and proved one
 vertical slice end to end. Nothing is committed, tagged or published.
 
+### Step 5 — the release candidate verified without publishing
+
+- `tools/rc-verify/rc-verify.sh`: one reproducible run that produces the whole
+  no-publish candidate evidence (D3, resolved 2026-08-03). It creates the prefix-free
+  local tag, resolves it from a throwaway SwiftPM consumer with
+  `.package(url: "file://…", exact:)` under per-run cache and config paths so nothing
+  is replayed from a previous resolution, builds and runs a smoke executable that
+  imports every public product and touches a symbol in each, stages every Android
+  module (AAR + POM + sources) to a `$TMPDIR` directory, compiles a throwaway Android
+  consumer against the staged coordinates, and removes the tag and every intermediate
+  directory on exit — success or failure. Only the output directory survives.
+- The publication gate turned from a flat refusal into a narrow door with the same
+  lock. The committed `gradle.properties` value must stay `false` and is read from the
+  file itself, so a tree committed with `true` fails every build and a CLI override
+  cannot launder it. Enabling publication for a run is legal only as a CLI override
+  targeting an absolute staging directory outside the repository. Every refusal — and
+  the one legal admission — is proven by `tools/validate/probe-publishing-gate.sh`, and
+  the validator pins the gate's load-bearing lines so removing a refusal removes a
+  string it checks.
+- Staged coordinates are `xyz.superfunction.spfn:<module>:0.1.0-alpha.1`. That group is
+  still the D4 PROPOSED value: `spfn.maven.group.verified` stays `false`, and every
+  staged POM restates in its own description that the group is proposed, unverified and
+  local-staging only.
+- SBOMs are CycloneDX on both platforms (D7, resolved 2026-08-03): the CycloneDX Gradle
+  plugin for Android, registered on demand only — the default build graph carries no
+  SBOM task, and the harness fails if one leaks in — and static generation for iOS
+  (`tools/rc-verify/generate-ios-sbom.sh`), whose component edges are read from
+  `tools/module-graph.json` because the Swift package has zero external dependencies to
+  resolve. Alpha candidates are unsigned: candidate identity is the source commit,
+  `SHA256SUMS` and `manifest.json` binding version, commit, pinned contract digest and
+  every artifact hash. Signing and provenance attestation arrive with public releases.
+- `docs/IMPLEMENTATION-PITFALLS.md`: the implementation-pitfall registry adopted for
+  this repository's delegated work, copied verbatim from the reviewed final report.
+
 ### The contract moved upstream
 
 - `Contracts/spfn-mobile-contract.json` is now an SPFN primitives export, copied byte for
