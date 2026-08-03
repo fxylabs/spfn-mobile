@@ -246,6 +246,13 @@ wire 경로를 건드리지 않은 change set에서는 재실행이 선택이다
   꼴이면 의심. 처방: 신호는 전용 핸들러에서 `trap '' EXIT INT TERM`으로 먼저 무장해제하고
   128+N(INT 130, TERM 143)으로 직접 exit. 증거: `tools/rc-verify/probe-trap-exit.sh`가
   태그 생성 후 kill을 실측한다.
+- **`ORG_GRADLE_PROJECT_*` 시크릿은 Gradle 데몬의 시작 환경에 붙잡힌다.** 키를 env로
+  주입한 실행이 데몬을 새로 띄우면, 그 데몬이 살아 있는 동안 키 없는 후속 실행도 데몬
+  선택에 따라 서명이 살아난다(서명 probe 후 무서명 publish의 build/ 아래에 .asc가
+  재출현한 실측). 탐지: 키 없는 실행의 산출물에 .asc가 있으면 데몬 오염 의심 —
+  rc-verify는 staging에서 이를 FAIL로 잡는다. 처방: 로컬에서 키 주입 실행 뒤 반드시
+  `./gradlew --stop`으로 데몬을 내리고 build/ 아래 서명 산출물을 지운다. CI 러너는
+  일회용이라 해당 없음.
 
 ## P13. 규칙을 조이면 그 규칙을 광고하는 문자열도 본다 {#p13}
 
