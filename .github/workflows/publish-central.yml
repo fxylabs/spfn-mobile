@@ -1,0 +1,95 @@
+# NOT A GATE, AND NOT AUTOMATIC.
+#
+# The one path from this repository to Maven Central, opened by the publication
+# transition change set (D3/D4/D7). Everything about it is deliberate:
+#
+#   - workflow_dispatch ONLY. No push trigger, no tag trigger, no schedule. A tag
+#     appearing anywhere never publishes anything; a person dispatches this run and
+#     names the exact commit being published.
+#   - Secrets are referenced BY NAME and are not registered yet. Until a person
+#     registers CENTRAL_PORTAL_TOKEN, SIGNING_IN_MEMORY_KEY and
+#     SIGNING_IN_MEMORY_KEY_PASSWORD in the repository settings, every dispatch fails
+#     at the signing step. That failure is the designed state, not a bug.
+#   - The upload uses publishingType=USER_MANAGED: the Central Portal holds the
+#     deployment for explicit human confirmation in the Portal UI. Nothing reaches
+#     Central's public index from this file alone.
+#   - Gradle never talks to Central. The build publishes to a local staging directory
+#     through the repository's publication gate, exactly as tools/rc-verify does; this
+#     workflow zips that staged bundle and posts it to the Portal publisher API. The
+#     only remote endpoint below is central.sonatype.com, and
+#     tools/validate/validate.sh fails if any other appears here.
+#   - No third-party action (`uses:`) — D14 is still open, so there is nothing to pin
+#     and nothing borrowed. Checkout is a plain git clone with the workflow token.
+#
+# Signing key custody: the key exists ONLY as the two secrets above, injected into the
+# build as ORG_GRADLE_PROJECT_* environment variables and consumed in memory
+# (useInMemoryPgpKeys). No key file is written to disk at any point.
+name: publish-central
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: >
+          Full 40-hex SHA of the commit to publish. A commit, not a tag: the candidate
+          tag is created locally by the verification harness and compared against
+          VERSION, so a pre-existing tag would abort the run.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-upload:
+    # Needs the Swift toolchain and an Android SDK in one place, like the local
+    # RC verification it re-runs.
+    runs-on: macos-latest
+    steps:
+      - name: Clone the repository at the named commit
+        run: |
+          git clone "https://x-access-token:${{secrets.GITHUB_TOKEN}}@github.com/${GITHUB_REPOSITORY}.git" spfn-mobile
+          cd spfn-mobile
+          git checkout --detach "${{ inputs.commit }}"
+          # The harness creates its own local candidate tag and refuses to run over a
+          # pre-existing one, so a tag fetched with the clone is removed first.
+          VERSION=$(tr -d '[:space:]' < VERSION)
+          git tag -d "$VERSION" 2> /dev/null || true
+
+      - name: Offline validation
+        run: |
+          cd spfn-mobile
+          sh tools/validate/validate.sh
+
+      - name: RC verification with signing (fails until secrets are registered)
+        env:
+          ORG_GRADLE_PROJECT_spfnSigningInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
+          ORG_GRADLE_PROJECT_spfnSigningInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
+        run: |
+          cd spfn-mobile
+          if [ -z "$ORG_GRADLE_PROJECT_spfnSigningInMemoryKey" ]
+          then
+            echo "SIGNING_IN_MEMORY_KEY is not registered; a Central bundle must be signed." >&2
+            exit 1
+          fi
+          SPFN_RC_OUT="$RUNNER_TEMP/rc-out" ANDROID_HOME="${ANDROID_HOME:?Android SDK missing on runner}" \
+            sh tools/rc-verify/rc-verify.sh
+          echo "RC_OUT=$RUNNER_TEMP/rc-out" >> "$GITHUB_ENV"
+
+      - name: Bundle and upload to the Central Portal (held for human confirmation)
+        env:
+          CENTRAL_PORTAL_TOKEN: ${{ secrets.CENTRAL_PORTAL_TOKEN }}
+        run: |
+          if [ -z "$CENTRAL_PORTAL_TOKEN" ]
+          then
+            echo "CENTRAL_PORTAL_TOKEN is not registered; nothing can be uploaded." >&2
+            exit 1
+          fi
+          cd "$RC_OUT/staging"
+          zip -qr "$RUNNER_TEMP/central-bundle.zip" xyz
+          VERSION=$(tr -d '[:space:]' < "$GITHUB_WORKSPACE/spfn-mobile/VERSION")
+          curl --fail --silent --show-error \
+            --header "Authorization: Bearer $CENTRAL_PORTAL_TOKEN" \
+            --form "bundle=@$RUNNER_TEMP/central-bundle.zip" \
+            "https://central.sonatype.com/api/v1/publisher/upload?publishingType=USER_MANAGED&name=spfn-mobile-$VERSION"
+          echo "Deployment uploaded and HELD: a person must confirm or drop it in the Central Portal UI."

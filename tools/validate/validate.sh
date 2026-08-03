@@ -174,13 +174,14 @@ for path in \
     tools/validate/validate.sh tools/validate/d11-forbidden.ere \
     tools/validate/d11-policy.lock.json tools/validate/probe-d11-guardrail.sh \
     tools/validate/probe-publishing-gate.sh \
+    tools/validate/probe-publication-rules.sh \
     tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
     tools/rc-verify/probe-trap-exit.sh \
     tools/cocoapods-compat/generate-podspec.sh \
     docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md docs/IMPLEMENTATION-PITFALLS.md \
     .github/workflows/contract.yml .github/workflows/swift.yml \
     .github/workflows/android.yml .github/workflows/security.yml \
-    .github/workflows/release-candidate.yml
+    .github/workflows/release-candidate.yml .github/workflows/publish-central.yml
 do
     if [ -f "$path" ]
     then
@@ -258,9 +259,15 @@ else
     fail "unexpected binary artifacts present: $BINARIES"
 fi
 
-SECRETS=$(find . -path ./.git -prune -o \
+# Build outputs are pruned exactly as the binary scan above prunes them: a signed
+# staging run legitimately writes .asc signature outputs under a module's build/
+# directory, and those are generated, gitignored artifacts of the run — what this
+# check forbids is credential-shaped files in the COMMITTED tree.
+SECRETS=$(find . -path ./.git -prune -o -path ./.build -prune -o -path ./.gradle -prune -o \
+    -path './*/build' -prune -o \
     \( -name '.netrc' -o -name '*.p12' -o -name '*.jks' -o -name '*.keystore' \
        -o -name '*.mobileprovision' -o -name '*.pem' -o -name '*.key' -o -name 'id_rsa*' \
+       -o -name '*.gpg' -o -name '*.asc' -o -name 'secring*' -o -name 'pubring*' \
        -o -name '.env' -o -name '.env.*' \) -print 2>/dev/null || true)
 if [ -z "$SECRETS" ]
 then
@@ -702,29 +709,63 @@ fi
 section '7. publication disabled, dependency sources constrained'
 # ---------------------------------------------------------------------------
 contains gradle.properties 'spfn.publishing.enabled=false' 'Gradle publishing disabled'
-contains gradle.properties 'spfn.maven.group.verified=false' 'Maven namespace marked unverified'
+contains gradle.properties 'spfn.maven.group.verified=true' \
+    'Maven namespace recorded as Central-verified (D4, resolved 2026-08-03)'
+contains gradle.properties 'spfn.maven.group=xyz.superfunction.spfn' \
+    'the D4-verified Maven group is the committed coordinate'
 
-# Step 5 (decision D3) narrowed this rule without weakening it. The root build script —
-# and only the root build script — may now hold publication configuration, because the
-# RC harness stages candidate AARs to a local directory. What publication it holds is
-# pinned below: it exists only behind a per-run CLI override, the committed
-# gradle.properties value must stay false and is read from the file so an override
-# cannot launder it, and the only repository it can ever address is an absolute staging
-# path outside this tree. Credentials and signing stay forbidden everywhere, including
-# the root. tools/validate/probe-publishing-gate.sh proves each refusal actually bites;
-# this validator holds that the gate's text is still there to be run.
+# No committed property may ever hold a credential or key. The active keys in
+# gradle.properties are version, gate flags, group and Gradle tuning — anything
+# credential-shaped is a value that belongs in a per-run environment, never in a file.
+lacks_active gradle.properties '[Ss]igning|[Tt]oken|[Pp]assword|[Ss]ecret|[Cc]redential|[Kk]ey' \
+    'gradle.properties commits no credential-shaped key'
+
+# The publication transition (D3/D4/D7) narrowed these rules again without weakening
+# them. The root build script — and only the root build script — holds publication and
+# signing configuration. What it may hold is pinned below: publication exists only
+# behind the per-run gate towards the local staging directory, and signing exists only
+# as an in-memory key looked up from the per-run environment. Credentials are banned
+# in BOTH syntactic forms — the `credentials { }` block and the call form
+# `credentials(...)` — unless the same line is a pure lookup, and a literal username
+# or password value fails wherever it appears. Central itself is never a Gradle
+# repository: the upload is a bundle POST done by the manual workflow, so any remote
+# publication URL in a build script is still a failure.
+# tools/validate/probe-publication-rules.sh proves each of these refusals bites.
 GRADLE_FILES=$(find . -path ./.git -prune -o -path ./.gradle -prune -o -path './*/build' -prune -o \
     -name '*.gradle.kts' -print)
+CREDENTIAL_LOOKUPS='environmentVariable\(|gradleProperty\(|System\.getenv\(|PasswordCredentials::class'
 for file in $GRADLE_FILES
 do
-    lacks_active "$file" '(id\("signing"\)|credentials[[:space:]]*\{)' \
-        "no signing or credential block in $file"
+    # Both credential forms, block and call. A hit is legal only when the same line is
+    # one of the approved lookup shapes; any other hit — above all a literal value —
+    # fails.
+    CREDENTIAL_HITS=$(grep -vE '^[[:space:]]*(//|#)' "$file" \
+        | grep -E 'credentials[[:space:]]*[({]' \
+        | grep -vE "$CREDENTIAL_LOOKUPS" || true)
+    if [ -z "$CREDENTIAL_HITS" ]
+    then
+        pass "no committed credential configuration in $file"
+    else
+        fail "credential configuration that is not a pure lookup in $file: $CREDENTIAL_HITS"
+    fi
+
+    LITERAL_SECRETS=$(grep -vE '^[[:space:]]*(//|#)' "$file" \
+        | grep -E '(username|password)[[:space:]]*=[[:space:]]*"' \
+        | grep -vE "$CREDENTIAL_LOOKUPS" || true)
+    if [ -z "$LITERAL_SECRETS" ]
+    then
+        pass "no literal username or password value in $file"
+    else
+        fail "literal credential value committed in $file: $LITERAL_SECRETS"
+    fi
 
     if [ "$file" = "./build.gradle.kts" ]
     then
         continue
     fi
 
+    lacks_active "$file" '(id\("signing"\)|apply\("signing"\)|SigningExtension|useInMemoryPgpKeys)' \
+        "no signing configuration outside the gated root script in $file"
     lacks_active "$file" '(maven-publish|^[[:space:]]*publishing[[:space:]]*\{)' \
         "no publication block in $file"
     # Repositories are now legal, because D5 approved a toolchain that has to come from
@@ -733,6 +774,16 @@ do
     # how an unreviewed artifact enters a build.
     lacks_active "$file" 'maven[[:space:]]*\{' "no arbitrary maven repository in $file"
 done
+
+# Signing in the root: lookup-only, in memory, per run. The admission is pinned as the
+# exact mechanism; every path that would put key material or key identity in the tree
+# is refused.
+contains build.gradle.kts 'useInMemoryPgpKeys(signingKey' \
+    'root signing admits only the in-memory key mechanism'
+contains build.gradle.kts 'providers.gradleProperty("spfnSigningInMemoryKey")' \
+    'the signing key arrives as a per-run property lookup (ORG_GRADLE_PROJECT_*)'
+lacks_active build.gradle.kts '(secretKeyRingFile|signing\.keyId|\.gpg|\.asc|secring|pubring)' \
+    'root signing names no key file, keyring or key identity'
 
 # The root build script's publication gate, held by its load-bearing lines. These are
 # fixed strings on purpose: each one is a refusal the probe script exercises, and an
@@ -786,14 +837,60 @@ else
     fail "CocoaPods trunk publication command present in: $TRUNK"
 fi
 
+# One workflow — and only one — may speak publication: publish-central.yml, the manual
+# Central path the publication transition opened. Every other workflow keeps the full
+# Step 2 rule. What publish-central.yml itself may do is pinned right after the loop:
+# named secrets only, one remote endpoint only, held-for-confirmation upload only.
+# Manual-only is now a trigger check on every workflow rather than a vocabulary check:
+# a push, tag or schedule trigger anywhere is a failure, so a tag appearing in the
+# repository can never publish anything.
+PUBLISH_WORKFLOW=.github/workflows/publish-central.yml
 for workflow in .github/workflows/*.yml
 do
     lacks_active "$workflow" 'uses:' "$workflow uses no third-party action, so there is nothing to pin"
-    lacks_active "$workflow" '(secrets\.|publish|deploy|upload-artifact|trunk|registry)' \
-        "$workflow requests no secret and performs no publication"
+    lacks_active "$workflow" '^[[:space:]]*(push|pull_request|pull_request_target|schedule|release|create|tags)[[:space:]]*:' \
+        "$workflow has no automatic trigger"
     contains "$workflow" 'NOT A GATE' "$workflow states that it is not a gate"
     contains "$workflow" 'workflow_dispatch' "$workflow is manual-only"
+
+    if [ "$workflow" = "$PUBLISH_WORKFLOW" ]
+    then
+        continue
+    fi
+
+    lacks_active "$workflow" '(secrets\.|publish|deploy|upload-artifact|trunk|registry)' \
+        "$workflow requests no secret and performs no publication"
 done
+
+# The publish workflow's own boundary. Secrets by NAME only, from a fixed allowlist —
+# a new secret name is a new decision, not an edit. The only remote hosts it may
+# address are the Central Portal and github.com (its own clone), and the upload must
+# be held for a person (USER_MANAGED), never auto-released.
+UNEXPECTED_SECRETS=$(grep -oE 'secrets\.[A-Za-z0-9_]+' "$PUBLISH_WORKFLOW" 2>/dev/null | sort -u \
+    | grep -vE '^secrets\.(CENTRAL_PORTAL_TOKEN|SIGNING_IN_MEMORY_KEY|SIGNING_IN_MEMORY_KEY_PASSWORD|GITHUB_TOKEN)$' || true)
+if [ -z "$UNEXPECTED_SECRETS" ]
+then
+    pass 'publish-central.yml references only the four allowlisted secret names'
+else
+    fail "publish-central.yml references unexpected secrets: $UNEXPECTED_SECRETS"
+fi
+
+UNEXPECTED_HOSTS=$(grep -oE 'https?://[^/"[:space:]]+' "$PUBLISH_WORKFLOW" 2>/dev/null \
+    | sed -E 's#https?://##; s#.*@##; s#:.*##' | sort -u \
+    | grep -vE '^(central\.sonatype\.com|github\.com)$' || true)
+if [ -z "$UNEXPECTED_HOSTS" ]
+then
+    pass 'publish-central.yml addresses only central.sonatype.com and github.com'
+else
+    fail "publish-central.yml addresses unexpected hosts: $UNEXPECTED_HOSTS"
+fi
+
+contains "$PUBLISH_WORKFLOW" 'central.sonatype.com/api/v1/publisher/upload' \
+    'the Central upload goes through the Portal publisher API'
+contains "$PUBLISH_WORKFLOW" 'publishingType=USER_MANAGED' \
+    'the uploaded deployment is held for explicit human confirmation'
+contains "$PUBLISH_WORKFLOW" 'useInMemoryPgpKeys' \
+    'publish-central.yml documents the in-memory key custody (no key file on disk)'
 
 # ---------------------------------------------------------------------------
 section '8. module graph coherence'
