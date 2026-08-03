@@ -1,9 +1,9 @@
 // GENERATED FILE — DO NOT EDIT.
 //
-// generator:       spfn-contract-codegen 0.1.0-dev
+// generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    28f2fd4cf37ef903dd9746d4058d510435b3905b9b94312f6e95120ad3603084
-// contractVersion: 0.2.0
+// bundleSha256:    a41a3c06c9d995d4865613daa698c207ba66b53ee5c25a71015c730e7253538d
+// contractVersion: 0.3.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -14,6 +14,27 @@
 package xyz.superfunction.spfn.generated
 
 import xyz.superfunction.spfn.core.SpfnOperation
+
+/**
+ * Every auth class the contract declares. An operation's `authProfile` names one
+ * of these; a value outside the list is a contract mismatch, and a caller refuses
+ * to send rather than downgrading to any other class.
+ */
+enum class SpfnGeneratedAuthClass(val wireName: String)
+{
+    CLIENT_PROOF_V1("clientProofV1"),
+    NONE("none");
+
+    companion object
+    {
+        /**
+         * Resolves an operation's auth class, or null for a class this contract
+         * does not declare. The caller fails closed on null instead of guessing.
+         */
+        fun of(operation: SpfnOperation): SpfnGeneratedAuthClass? =
+            entries.firstOrNull { it.wireName == operation.authProfile }
+    }
+}
 
 object SpfnGeneratedOperations
 {
@@ -44,11 +65,51 @@ object SpfnGeneratedOperations
         requiresSession = true
     )
 
+    /** Registers an account with a verification token and enrolls the client-generated public key. */
+    val authEnrollRegister: SpfnOperation = SpfnOperation(
+        id = "auth.enroll.register",
+        method = "POST",
+        path = "/_auth/register",
+        authProfile = "none",
+        requiresSession = false
+    )
+
+    /** Authenticates with password credentials and enrolls a fresh client-generated public key. */
+    val authEnrollLogin: SpfnOperation = SpfnOperation(
+        id = "auth.enroll.login",
+        method = "POST",
+        path = "/_auth/login",
+        authProfile = "none",
+        requiresSession = false
+    )
+
+    /** Verifies a native/web social id_token server-side and enrolls the client-generated public key. */
+    val authEnrollOauthNative: SpfnOperation = SpfnOperation(
+        id = "auth.enroll.oauthNative",
+        method = "POST",
+        path = "/_auth/oauth/{provider}/native",
+        authProfile = "none",
+        requiresSession = false
+    )
+
+    /** Replaces the authenticated key with a new client-generated public key before its TTL runs out. */
+    val authKeysRotate: SpfnOperation = SpfnOperation(
+        id = "auth.keys.rotate",
+        method = "POST",
+        path = "/_auth/keys/rotate",
+        authProfile = "clientProofV1",
+        requiresSession = false
+    )
+
     /** Every operation, in bundle order. */
     val all: List<SpfnOperation> = listOf(
         authClientProofHandshake,
         echoSend,
-        itemsList
+        itemsList,
+        authEnrollRegister,
+        authEnrollLogin,
+        authEnrollOauthNative,
+        authKeysRotate
     )
 
     /**

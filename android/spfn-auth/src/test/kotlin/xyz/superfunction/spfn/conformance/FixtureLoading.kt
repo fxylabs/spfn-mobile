@@ -50,8 +50,14 @@ fun SpfnCanonicalValue.number(): Long =
 fun Map<String, SpfnCanonicalValue>.text(key: String): String =
     (this[key] ?: error("fixture is missing '$key'")).text()
 
+fun SpfnCanonicalValue.flag(): Boolean =
+    (this as? SpfnCanonicalValue.Bool)?.value ?: error("expected a boolean, got $this")
+
 fun Map<String, SpfnCanonicalValue>.number(key: String): Long =
     (this[key] ?: error("fixture is missing '$key'")).number()
+
+fun Map<String, SpfnCanonicalValue>.bool(key: String): Boolean =
+    (this[key] ?: error("fixture is missing '$key'")).flag()
 
 fun Map<String, SpfnCanonicalValue>.list(key: String): List<SpfnCanonicalValue> =
     (this[key] ?: error("fixture is missing '$key'")).elements()

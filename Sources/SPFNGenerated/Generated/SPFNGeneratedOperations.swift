@@ -1,9 +1,9 @@
 // GENERATED FILE — DO NOT EDIT.
 //
-// generator:       spfn-contract-codegen 0.1.0-dev
+// generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    28f2fd4cf37ef903dd9746d4058d510435b3905b9b94312f6e95120ad3603084
-// contractVersion: 0.2.0
+// bundleSha256:    a41a3c06c9d995d4865613daa698c207ba66b53ee5c25a71015c730e7253538d
+// contractVersion: 0.3.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -12,6 +12,15 @@
 // Verified by:     ./gradlew :contract-codegen:spfnCodegenVerify
 
 import SPFNCore
+
+/// Every auth class the contract declares. An operation's `authProfile` names one
+/// of these; a value outside the list is a contract mismatch, and a caller refuses
+/// to send rather than downgrading to any other class.
+public enum SPFNGeneratedAuthClass: String, CaseIterable, Sendable
+{
+    case clientProofV1 = "clientProofV1"
+    case none = "none"
+}
 
 public enum SPFNGeneratedOperations
 {
@@ -42,11 +51,51 @@ public enum SPFNGeneratedOperations
         requiresSession: true
     )
 
+    /// Registers an account with a verification token and enrolls the client-generated public key.
+    public static let authEnrollRegister = SPFNOperation(
+        id: "auth.enroll.register",
+        method: "POST",
+        path: "/_auth/register",
+        authProfile: "none",
+        requiresSession: false
+    )
+
+    /// Authenticates with password credentials and enrolls a fresh client-generated public key.
+    public static let authEnrollLogin = SPFNOperation(
+        id: "auth.enroll.login",
+        method: "POST",
+        path: "/_auth/login",
+        authProfile: "none",
+        requiresSession: false
+    )
+
+    /// Verifies a native/web social id_token server-side and enrolls the client-generated public key.
+    public static let authEnrollOauthNative = SPFNOperation(
+        id: "auth.enroll.oauthNative",
+        method: "POST",
+        path: "/_auth/oauth/{provider}/native",
+        authProfile: "none",
+        requiresSession: false
+    )
+
+    /// Replaces the authenticated key with a new client-generated public key before its TTL runs out.
+    public static let authKeysRotate = SPFNOperation(
+        id: "auth.keys.rotate",
+        method: "POST",
+        path: "/_auth/keys/rotate",
+        authProfile: "clientProofV1",
+        requiresSession: false
+    )
+
     /// Every operation, in bundle order.
     public static let all: [SPFNOperation] = [
         authClientProofHandshake,
         echoSend,
         itemsList,
+        authEnrollRegister,
+        authEnrollLogin,
+        authEnrollOauthNative,
+        authKeysRotate,
     ]
 
     /// Looks an operation up by contract id. Returns nil rather than a nearest
@@ -54,5 +103,12 @@ public enum SPFNGeneratedOperations
     public static func operation(id: String) -> SPFNOperation?
     {
         all.first { $0.id == id }
+    }
+
+    /// Resolves an operation's auth class, or nil for a class this contract does
+    /// not declare. The caller fails closed on nil instead of guessing.
+    public static func authClass(of operation: SPFNOperation) -> SPFNGeneratedAuthClass?
+    {
+        SPFNGeneratedAuthClass(rawValue: operation.authProfile)
     }
 }

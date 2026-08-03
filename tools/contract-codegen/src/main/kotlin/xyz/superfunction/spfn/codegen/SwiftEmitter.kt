@@ -50,9 +50,22 @@ object SwiftEmitter
         appendLine("    public static let proofInputFields: [String] = [");
         bundle.proofInputFields.forEach { appendLine("        \"$it\",") };
         appendLine("    ]");
+        appendLine();
+        appendLine("    /// `keyPolicy.ttlDays`: a registered public key expires this many days after");
+        appendLine("    /// registration, so the client rotates before the TTL runs out.");
+        appendLine("    public static let keyPolicyTtlDays: Int64 = ${bundle.keyPolicyTtlDays}");
+        appendLine();
+        appendLine("    /// `keyPolicy.rotationOperation`: the operation that replaces a registered key.");
+        appendLine("    public static let keyRotationOperationID: String = \"${bundle.keyRotationOperationId}\"");
+        appendLine();
+        appendLine("    /// `clientProofV1.clientIdRule`, verbatim from the bundle.");
+        appendLine("    public static let clientIdRule: String = \"${swiftStringLiteral(bundle.clientIdRule)}\"");
         append("}");
         appendLine();
     }
+
+    private fun swiftStringLiteral(text: String): String =
+        text.replace("\\", "\\\\").replace("\"", "\\\"")
 
     private fun types(bundle: Bundle): String = buildString {
         appendLine(header(bundle));
@@ -102,6 +115,14 @@ object SwiftEmitter
         appendLine();
         appendLine("import SPFNCore");
         appendLine();
+        appendLine("/// Every auth class the contract declares. An operation's `authProfile` names one");
+        appendLine("/// of these; a value outside the list is a contract mismatch, and a caller refuses");
+        appendLine("/// to send rather than downgrading to any other class.");
+        appendLine("public enum SPFNGeneratedAuthClass: String, CaseIterable, Sendable");
+        appendLine("{");
+        bundle.authClasses.forEach { appendLine("    case ${it} = \"${it}\"") };
+        appendLine("}");
+        appendLine();
         appendLine("public enum SPFNGeneratedOperations");
         appendLine("{");
         bundle.operations.forEachIndexed { index, operation ->
@@ -129,6 +150,13 @@ object SwiftEmitter
         appendLine("    public static func operation(id: String) -> SPFNOperation?");
         appendLine("    {");
         appendLine("        all.first { \$0.id == id }");
+        appendLine("    }");
+        appendLine();
+        appendLine("    /// Resolves an operation's auth class, or nil for a class this contract does");
+        appendLine("    /// not declare. The caller fails closed on nil instead of guessing.");
+        appendLine("    public static func authClass(of operation: SPFNOperation) -> SPFNGeneratedAuthClass?");
+        appendLine("    {");
+        appendLine("        SPFNGeneratedAuthClass(rawValue: operation.authProfile)");
         appendLine("    }");
         append("}");
         appendLine();
