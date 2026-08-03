@@ -40,6 +40,7 @@
 | 공유 conformance 표·fixture 수정 | [P10](#p10) [P2](#p2) |
 | 게이트·통합 매트릭스 실행 | [P11](#p11) [P12](#p12) |
 | 버전 범위·호환성 규칙 수정 | [P3](#p3) [P13](#p13) |
+| Android main 소스에 `java.*`/`javax.*` import 추가 | [P14](#p14) |
 
 ---
 
@@ -277,6 +278,28 @@ range 문자열, 에러 메시지, doc comment, COMPATIBILITY.md 행, 생성 코
 [P1](#p1)의 파생 필드 처방을 쓴다.
 
 **나온 곳.** cs-6jcny r1 → r3.
+
+## P14. JDK API의 API-level 하한은 JVM 단위 테스트가 못 잡는다 {#p14}
+
+**증상.** Android main 소스에 `java.util.Base64` 같은 JDK 클래스를 쓰면 JVM 단위
+테스트는 호스트 JDK에서 돌아 전부 통과하지만, 그 클래스의 Android 도입 API level이
+minSdk(24)보다 높으면 실기기에서 크래시한다. lint(NewApi)가 잡는데, lint는
+`./gradlew build` 전체 실행에서만 돈다 — `test`·`testDebugUnitTest`만 돌린 게이트는
+통과한 것처럼 보인다.
+
+**탐지.** Android main 소스에 `java.*`·`javax.*` import를 추가하는 diff면 그 클래스의
+"Added in API level"을 확인한다 (developer.android.com 레퍼런스 하단). 확인 명령:
+`ANDROID_HOME="$HOME/Library/Android/sdk" ./gradlew build` — lint 포함 전체가 게이트다
+([P12](#p12)의 ANDROID_HOME 함정과 겹친다).
+
+**처방.** API level 하한이 없는 대체를 먼저 찾는다 — base64는
+`kotlin.io.encoding.Base64`(stdlib, Kotlin 2.0+ stable)가 `java.util.Base64.getEncoder()`와
+같은 RFC 4648 padded 출력을 낸다. 대체가 없으면 desugaring이 아니라 minSdk 상향을
+별도 결정으로 올린다.
+
+**나온 곳.** PR #18이 넣은 `SpfnKeyLifecycle.kt`의 `java.util.Base64`(API 26+, minSdk 24)
+— enrollment·rotation 본문 인코딩이 API 24/25에서 크래시하는 결함. alpha.3 릴리스
+change set에서 발견·수정.
 
 ## 원장
 
