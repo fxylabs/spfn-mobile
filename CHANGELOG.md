@@ -8,6 +8,23 @@ software.
 Step 1 laid out the repository. Step 2 made it compile on both platforms and proved one
 vertical slice end to end. Nothing is committed, tagged or published.
 
+### Dependency verification: the three artifacts only a cold cache reveals
+
+- The observability shipped for it found the CI failure the same day: dispatch
+  30798267699 failed on `Dependency verification failed for configuration
+  'classpath'` for three metadata artifacts missing from
+  `gradle/verification-metadata.xml` — `guava-parent-33.3.1-jre.pom`,
+  `junit-bom-5.11.0-M2.module`, `kotlinx-coroutines-bom-1.8.0.pom`. A metadata
+  artifact is verified only when it is downloaded and parsed; a warm local cache
+  serves the parsed descriptor and never re-verifies, so every local run passed
+  while every cold CI runner failed. Reproduced locally both ways with a fresh
+  `GRADLE_USER_HOME`: the exact three-artifact failure before the fix, a clean
+  publish after it.
+- The fix is the three missing checksums and nothing else — 13 lines, append-only,
+  no churn, no broad trust: each SHA-256 computed from the repo1.maven.org artifact
+  and cross-checked against Central's own published checksum sidecar. Fail-closed
+  proven by flipping one hex digit on a cold home: exactly that artifact refuses.
+
 ### RC failure observability — evidence leaves the runner, secrets do not
 
 - Central dispatch 30795139768 failed inside the RC harness and the logs died with
