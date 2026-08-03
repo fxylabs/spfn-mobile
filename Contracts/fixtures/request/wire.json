@@ -127,6 +127,54 @@
           "session-test-0001"
         ]
       ]
+    },
+    {
+      "name": "rotate-key",
+      "why": "a proven session-free operation carries every proof header and no session header; the proof is the OLD key's while the body registers the replacement (here the second fixture keypair)",
+      "operationId": "auth.keys.rotate",
+      "method": "POST",
+      "path": "/_auth/keys/rotate",
+      "requiresSession": false,
+      "sessionId": null,
+      "body": {
+        "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEvA1Qe3c98K4+u/Gb5ORnGhqRGUUJ6oCVYoxRdp5b0OiRS75v5ULruknszTl9+zd8yQ817hOPjWzdJiijXSQzw==",
+        "keyId": "key-test-0002",
+        "fingerprint": "8014bece7e853fb480d6c26f06eca97f140f7cabc00b58f87d3df2b80449da74",
+        "algorithm": "ES256"
+      },
+      "canonicalBody": "{\"algorithm\":\"ES256\",\"fingerprint\":\"8014bece7e853fb480d6c26f06eca97f140f7cabc00b58f87d3df2b80449da74\",\"keyId\":\"key-test-0002\",\"publicKey\":\"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEvA1Qe3c98K4+u/Gb5ORnGhqRGUUJ6oCVYoxRdp5b0OiRS75v5ULruknszTl9+zd8yQ817hOPjWzdJiijXSQzw==\"}",
+      "bodySha256": "416ca28128571f48872c52669e57c11c5d89bacc925803182668ddacf50c0c8b",
+      "proof": "bd93eac68d5b112911df6a651b638bf1a0ff5096264fc1771951eb95a1926021fdd56a84ad666c7887a7d64791865a2b1f515f7e844597c41661b5ea7c42f08b",
+      "headers": [
+        [
+          "content-type",
+          "application/json"
+        ],
+        [
+          "x-spfn-auth-profile",
+          "clientProofV1"
+        ],
+        [
+          "x-spfn-client-id",
+          "client-test-0001"
+        ],
+        [
+          "x-spfn-key-id",
+          "key-test-0001"
+        ],
+        [
+          "x-spfn-nonce",
+          "nonce-000000000003"
+        ],
+        [
+          "x-spfn-issued-at",
+          "1750000000000"
+        ],
+        [
+          "x-spfn-proof",
+          "bd93eac68d5b112911df6a651b638bf1a0ff5096264fc1771951eb95a1926021fdd56a84ad666c7887a7d64791865a2b1f515f7e844597c41661b5ea7c42f08b"
+        ]
+      ]
     }
   ]
 }

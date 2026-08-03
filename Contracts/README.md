@@ -16,7 +16,7 @@ the other side of it now.
 | `spfn-mobile-contract.json` | the vendored bundle, copied not edited | 7 operations (3 proven dev-surface, 4 REST: register, login, native social enrollment, key rotation), 14 types, 6 error codes, the canonical JSON and proof-input algorithms, the `signature` clause (ECDSA P-256, raw r‖s base16-lower, SPKI DER public keys), and the 0.3.0 sections: `operationAuthClasses`, `keyPolicy` (ttlDays 90), `restOperations`, `clientProofV1.clientIdRule` |
 | `upstream-provenance.json` | the exporter's own evidence, copied unmodified | names the repository, exporter version and bundle digest the lock is checked against |
 | `auth-profiles/clientProofV1.schema.json` | profile schema | shape placeholder |
-| `fixtures/` | deterministic conformance vectors | 9 files, consumed unchanged by both SDK test suites |
+| `fixtures/` | deterministic conformance vectors | 10 files, consumed unchanged by both SDK test suites |
 
 ## Lock states
 

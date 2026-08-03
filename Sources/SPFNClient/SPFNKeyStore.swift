@@ -47,14 +47,20 @@ public struct SPFNStoredKey: Equatable, Sendable
 
     public let custody: SPFNKeyCustody
 
+    /// When the key was generated, in epoch milliseconds. The TTL judgment reads this:
+    /// `keyPolicy.ttlDays` counts from registration, and generation is the client-side
+    /// moment closest to it that survives a restart.
+    public let createdAtMillis: Int64
+
     /// The custody blob: the enclave's sealed key, or the software key's DER.
     public let keyBlob: [UInt8]
 
-    public init(keyID: String, clientID: String?, custody: SPFNKeyCustody, keyBlob: [UInt8])
+    public init(keyID: String, clientID: String?, custody: SPFNKeyCustody, createdAtMillis: Int64, keyBlob: [UInt8])
     {
         self.keyID = keyID
         self.clientID = clientID
         self.custody = custody
+        self.createdAtMillis = createdAtMillis
         self.keyBlob = keyBlob
     }
 }
@@ -66,7 +72,8 @@ extension SPFNStoredKey: CustomStringConvertible, CustomDebugStringConvertible, 
 {
     public var description: String
     {
-        "SPFNStoredKey(keyID: \(keyID), clientID: \(clientID ?? "nil"), custody: \(custody.rawValue), keyBlob: redacted)"
+        "SPFNStoredKey(keyID: \(keyID), clientID: \(clientID ?? "nil"), custody: \(custody.rawValue), "
+            + "createdAtMillis: \(createdAtMillis), keyBlob: redacted)"
     }
 
     public var debugDescription: String
@@ -199,6 +206,7 @@ public struct SPFNKeychainKeyStore: SPFNKeyStore
         var members: [String: SPFNCanonicalValue] = [
             "keyId": .string(record.keyID),
             "custody": .string(record.custody.rawValue),
+            "createdAtMillis": .integer(record.createdAtMillis),
             "keyBlobBase64": .string(Data(record.keyBlob).base64EncodedString()),
         ]
         if let clientID = record.clientID
@@ -216,6 +224,7 @@ public struct SPFNKeychainKeyStore: SPFNKeyStore
               case .string(let keyID)? = members["keyId"],
               case .string(let custodyName)? = members["custody"],
               let custody = SPFNKeyCustody(rawValue: custodyName),
+              case .integer(let createdAtMillis)? = members["createdAtMillis"],
               case .string(let blobBase64)? = members["keyBlobBase64"],
               let blob = Data(base64Encoded: blobBase64)
         else
@@ -228,6 +237,12 @@ public struct SPFNKeychainKeyStore: SPFNKeyStore
         {
             clientID = owner
         }
-        return SPFNStoredKey(keyID: keyID, clientID: clientID, custody: custody, keyBlob: [UInt8](blob))
+        return SPFNStoredKey(
+            keyID: keyID,
+            clientID: clientID,
+            custody: custody,
+            createdAtMillis: createdAtMillis,
+            keyBlob: [UInt8](blob)
+        )
     }
 }

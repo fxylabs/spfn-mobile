@@ -173,8 +173,13 @@ class SpfnKeystoreCustodyKey private constructor(
     fun sign(message: ByteArray): ByteArray = SpfnEcdsa.derToRaw(engine.signDer(alias, message))
 
     /** The metadata that persists this key, before or after enrollment names its owner. */
-    fun metadata(clientId: String?): SpfnStoredKeyMetadata =
-        SpfnStoredKeyMetadata(keyId = keyId, clientId = clientId, custody = custody, alias = alias)
+    fun metadata(clientId: String?, createdAtMillis: Long): SpfnStoredKeyMetadata = SpfnStoredKeyMetadata(
+        keyId = keyId,
+        clientId = clientId,
+        custody = custody,
+        createdAtMillis = createdAtMillis,
+        alias = alias
+    )
 
     /** Deletes the Keystore entry. A destroyed key cannot be reloaded or re-derived. */
     fun destroy()
