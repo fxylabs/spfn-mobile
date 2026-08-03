@@ -80,6 +80,127 @@ final class SPFNClientExecuteTests: XCTestCase
         XCTAssertEqual(calls, 0, "a refused operation costs no network call")
     }
 
+    // MARK: - The unproven class
+
+    /// K1/K2. An unproven operation is sent with the content type alone: no proof, no
+    /// identity, no nonce and no session header — and no handshake happens first,
+    /// because the operation exists to run before any key does.
+    func testAnUnprovenOperationCarriesNoProofIdentityNonceOrSessionHeader() async throws
+    {
+        let transport = ScriptedTransport([
+            .success(.json(200, ExecuteFixtures.registerResponseBody)),
+        ])
+        let client = try makeClient(transport)
+
+        let registered = try await client.execute(ExecuteCalls.register, request: ExecuteFixtures.registerRequest)
+
+        XCTAssertEqual(registered, ExecuteFixtures.registerResponse)
+        let recorded = await transport.received
+        XCTAssertEqual(recorded.count, 1, "no handshake preceded the unproven request")
+        let sent = try XCTUnwrap(recorded.first)
+        XCTAssertEqual(sent.method, "POST")
+        XCTAssertEqual(sent.url, baseURL + SPFNGeneratedOperations.authEnrollRegister.path)
+        XCTAssertEqual(
+            sent.headers.map { "\($0.0): \($0.1)" },
+            ["\(SPFNWireHeaders.contentType): \(SPFNWireHeaders.requestContentType)"],
+            "the content type is the only header an unproven request carries"
+        )
+        XCTAssertEqual(
+            sent.body ?? [],
+            SPFNCanonicalJSON.encode(ExecuteFixtures.registerRequest.canonicalValue)
+        )
+    }
+
+    /// K2. The session is not consulted, not opened and not stored around an unproven
+    /// call — the request goes out immediately with no state on either side of it.
+    func testAnUnprovenOperationTouchesNoSessionState() async throws
+    {
+        let transport = ScriptedTransport([
+            .success(.json(200, ExecuteFixtures.registerResponseBody)),
+        ])
+        let session = try makeSession(transport)
+        let client = SPFNClient(transport: transport, session: session)
+
+        _ = try await client.execute(ExecuteCalls.register, request: ExecuteFixtures.registerRequest)
+
+        let state = await session.currentState
+        XCTAssertNil(state, "an unproven call opened a session it has no use for")
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 1)
+    }
+
+    /// The unproven class owns no retry: the one retry `execute` has exists to replace
+    /// a stale session, and an unproven request never presented one.
+    func testAnUnprovenOperationIsNotRetriedOnAnAuthRefusal() async throws
+    {
+        let transport = ScriptedTransport([
+            .success(.json(401, ExecuteFixtures.errorEnvelope(code: "PROOF_INVALID"))),
+        ])
+        let client = try makeClient(transport)
+
+        let thrown = await failure
+        {
+            _ = try await client.execute(ExecuteCalls.register, request: ExecuteFixtures.registerRequest)
+        }
+
+        guard case .auth(let refusal)? = thrown as? SPFNClientError
+        else
+        {
+            return XCTFail("expected the refusal itself, got \(String(describing: thrown))")
+        }
+        XCTAssertEqual(refusal.code, .proofInvalid)
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 1, "no re-handshake and no re-send for a session nobody presented")
+    }
+
+    /// K3. A proven operation that requires no session — the rotation operation — still
+    /// carries every proof header, and never a session header or a handshake.
+    func testAProvenSessionFreeOperationCarriesProofHeadersAndNoSession() async throws
+    {
+        let transport = ScriptedTransport([
+            .success(.json(200, ExecuteFixtures.rotateResponseBody)),
+        ])
+        let client = try makeClient(transport)
+
+        let rotated = try await client.execute(ExecuteCalls.rotate, request: ExecuteFixtures.rotateRequest)
+
+        XCTAssertEqual(rotated, ExecuteFixtures.rotateResponse)
+        let recorded = await transport.received
+        XCTAssertEqual(recorded.count, 1, "no handshake: the proof alone authenticates this operation")
+        let sent = try XCTUnwrap(recorded.first)
+        XCTAssertEqual(sent.url, baseURL + SPFNGeneratedOperations.authKeysRotate.path)
+        XCTAssertEqual(sent.headers.map(\.0), [
+            SPFNWireHeaders.contentType,
+            SPFNWireHeaders.profile,
+            SPFNWireHeaders.clientID,
+            SPFNWireHeaders.keyID,
+            SPFNWireHeaders.nonce,
+            SPFNWireHeaders.issuedAtMillis,
+            SPFNWireHeaders.proof,
+        ])
+    }
+
+    /// K4. An operation naming an auth class outside the generated enum is refused
+    /// before anything is sent. Fail-closed: unknown is never downgraded to unproven.
+    func testAnOperationNamingAnUndeclaredAuthClassIsRefusedUnsent() async throws
+    {
+        let transport = ScriptedTransport([])
+        let client = try makeClient(transport)
+
+        let thrown = await failure
+        {
+            _ = try await client.execute(ExecuteCalls.undeclared, request: ExecuteFixtures.echoRequest)
+        }
+
+        XCTAssertEqual(thrown as? SPFNClientError, .undeclaredAuthClass("mysteryV9"))
+        XCTAssertEqual(
+            "\(SPFNClientError.undeclaredAuthClass("mysteryV9"))",
+            "SPFNClientError.undeclaredAuthClass(mysteryV9)"
+        )
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 0, "a refused auth class costs no network call")
+    }
+
     // MARK: - The bytes on the wire
 
     func testAnExecutedRequestMatchesTheWireVector() async throws

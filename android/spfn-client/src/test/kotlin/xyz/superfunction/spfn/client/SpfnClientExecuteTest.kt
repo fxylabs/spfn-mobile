@@ -28,6 +28,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import xyz.superfunction.spfn.auth.SpfnAuthException
@@ -132,6 +133,113 @@ class SpfnClientExecuteTest
             (thrown as SpfnClientError.UnsupportedOperation).operationId
         );
         assertEquals("a refused operation costs no network call", 0, transport.callCount);
+    }
+
+    // ---- the unproven class ------------------------------------------------
+
+    /**
+     * K1/K2. An unproven operation is sent with the content type alone: no proof, no
+     * identity, no nonce and no session header — and no handshake happens first,
+     * because the operation exists to run before any key does.
+     */
+    @Test
+    fun anUnprovenOperationCarriesNoProofIdentityNonceOrSessionHeader() = runBlocking {
+        val transport = ScriptedTransport(listOf(answer(ExecuteFixtures.REGISTER_RESPONSE_BODY)));
+        val subject = client(transport);
+
+        val registered = subject.execute(ExecuteCalls.REGISTER, ExecuteFixtures.REGISTER_REQUEST);
+
+        assertEquals(ExecuteFixtures.REGISTER_RESPONSE, registered);
+        assertEquals("no handshake preceded the unproven request", 1, transport.callCount);
+        val sent = transport.received.first();
+        assertEquals("POST", sent.method);
+        assertEquals(baseUrl + SpfnGeneratedOperations.authEnrollRegister.path, sent.url);
+        assertEquals(
+            "the content type is the only header an unproven request carries",
+            listOf(SpfnWireHeaders.CONTENT_TYPE to SpfnWireHeaders.REQUEST_CONTENT_TYPE),
+            sent.headers
+        );
+        assertEquals(
+            SpfnCanonicalJson.encode(ExecuteFixtures.REGISTER_REQUEST.canonicalValue()).toString(Charsets.UTF_8),
+            sent.body?.toString(Charsets.UTF_8)
+        );
+    }
+
+    /**
+     * K2. The session is not consulted, not opened and not stored around an unproven
+     * call — the request goes out immediately with no state on either side of it.
+     */
+    @Test
+    fun anUnprovenOperationTouchesNoSessionState() = runBlocking {
+        val transport = ScriptedTransport(listOf(answer(ExecuteFixtures.REGISTER_RESPONSE_BODY)));
+        val shared = session(transport);
+        val subject = SpfnClient(transport = transport, session = shared);
+
+        subject.execute(ExecuteCalls.REGISTER, ExecuteFixtures.REGISTER_REQUEST);
+
+        assertNull("an unproven call opened a session it has no use for", shared.currentState());
+        assertEquals(1, transport.callCount);
+    }
+
+    /**
+     * The unproven class owns no retry: the one retry `execute` has exists to replace
+     * a stale session, and an unproven request never presented one.
+     */
+    @Test
+    fun anUnprovenOperationIsNotRetriedOnAnAuthRefusal() = runBlocking {
+        val transport = ScriptedTransport(listOf(answer(ExecuteFixtures.errorEnvelope("PROOF_INVALID"), 401)));
+        val subject = client(transport);
+
+        val thrown = failureOf { subject.execute(ExecuteCalls.REGISTER, ExecuteFixtures.REGISTER_REQUEST) };
+
+        assertTrue("got $thrown", thrown is SpfnClientError.Auth);
+        assertEquals(SpfnGeneratedErrorCode.PROOF_INVALID, (thrown as SpfnClientError.Auth).failure.code);
+        assertEquals("no re-handshake and no re-send for a session nobody presented", 1, transport.callCount);
+    }
+
+    /**
+     * K3. A proven operation that requires no session — the rotation operation — still
+     * carries every proof header, and never a session header or a handshake.
+     */
+    @Test
+    fun aProvenSessionFreeOperationCarriesProofHeadersAndNoSession() = runBlocking {
+        val transport = ScriptedTransport(listOf(answer(ExecuteFixtures.ROTATE_RESPONSE_BODY)));
+        val subject = client(transport);
+
+        val rotated = subject.execute(ExecuteCalls.ROTATE, ExecuteFixtures.ROTATE_REQUEST);
+
+        assertEquals(ExecuteFixtures.ROTATE_RESPONSE, rotated);
+        assertEquals("no handshake: the proof alone authenticates this operation", 1, transport.callCount);
+        val sent = transport.received.first();
+        assertEquals(baseUrl + SpfnGeneratedOperations.authKeysRotate.path, sent.url);
+        assertEquals(
+            listOf(
+                SpfnWireHeaders.CONTENT_TYPE,
+                SpfnWireHeaders.PROFILE,
+                SpfnWireHeaders.CLIENT_ID,
+                SpfnWireHeaders.KEY_ID,
+                SpfnWireHeaders.NONCE,
+                SpfnWireHeaders.ISSUED_AT_MILLIS,
+                SpfnWireHeaders.PROOF
+            ),
+            sent.headers.map { it.first }
+        );
+    }
+
+    /**
+     * K4. An operation naming an auth class outside the generated enum is refused
+     * before anything is sent. Fail-closed: unknown is never downgraded to unproven.
+     */
+    @Test
+    fun anOperationNamingAnUndeclaredAuthClassIsRefusedUnsent() = runBlocking {
+        val transport = ScriptedTransport(emptyList());
+        val subject = client(transport);
+
+        val thrown = failureOf { subject.execute(ExecuteCalls.UNDECLARED, ExecuteFixtures.ECHO_REQUEST) };
+
+        assertTrue("got $thrown", thrown is SpfnClientError.UndeclaredAuthClass);
+        assertEquals("mysteryV9", (thrown as SpfnClientError.UndeclaredAuthClass).authProfile);
+        assertEquals("a refused auth class costs no network call", 0, transport.callCount);
     }
 
     // ---- the bytes on the wire ---------------------------------------------

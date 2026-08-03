@@ -22,7 +22,9 @@ import xyz.superfunction.spfn.core.SpfnCanonicalJson
 import xyz.superfunction.spfn.core.SpfnCanonicalValue
 import xyz.superfunction.spfn.core.SpfnErrorEnvelope
 import xyz.superfunction.spfn.core.SpfnOperation
+import xyz.superfunction.spfn.generated.SpfnGeneratedAuthClass
 import xyz.superfunction.spfn.generated.SpfnGeneratedErrorCode
+import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import kotlin.coroutines.coroutineContext
 
 /**
@@ -66,7 +68,17 @@ class SpfnClient(
      */
     suspend fun <Req, Resp> execute(call: SpfnCall<Req, Resp>, request: Req): Resp
     {
-        if (!call.operation.requiresSession)
+        // The auth class is resolved before anything is sent, and an unknown one is
+        // refused rather than guessed at. The contract's own rule: nothing is ever
+        // downgraded to anonymous handling, so a class this build does not know is a
+        // contract this build does not implement.
+        val authClass = SpfnGeneratedAuthClass.of(call.operation)
+            ?: throw SpfnClientError.UndeclaredAuthClass(call.operation.authProfile);
+
+        // The handshake is the session's own operation whichever class it declares:
+        // it opens the session every proven operation presents, so running it here
+        // would send it without the bookkeeping that gives it its point.
+        if (call.operation.id == SpfnGeneratedOperations.authClientProofHandshake.id)
         {
             throw SpfnClientError.UnsupportedOperation(call.operation.id);
         }
@@ -74,6 +86,12 @@ class SpfnClient(
         // Encoded once, for both attempts. The proof is not: the re-sent request carries
         // the same bytes under a new nonce, a new timestamp and a new proof over them.
         val canonicalBody = SpfnCanonicalJson.encode(call.encode(request));
+
+        if (authClass == SpfnGeneratedAuthClass.NONE)
+        {
+            return executeUnproven(call, canonicalBody);
+        }
+
         val first = attempt(call.operation, canonicalBody);
 
         return try
@@ -84,6 +102,42 @@ class SpfnClient(
         {
             retryOnce(call, canonicalBody, first.sessionId, refusal)
         };
+    }
+
+    // ---- the unproven class ------------------------------------------------
+
+    /**
+     * Sends an operation of the contract's unproven class: no proof, no identity, no
+     * nonce and no session header, because it is called before any key exists to sign
+     * with. Nothing here touches the session, so it can never provoke a handshake.
+     *
+     * There is also no retry. The one retry `execute` owns exists to replace a stale
+     * session, and this request presented none; an auth refusal here is the server's
+     * final answer and passes through as itself.
+     */
+    private suspend fun <Req, Resp> executeUnproven(call: SpfnCall<Req, Resp>, canonicalBody: ByteArray): Resp
+    {
+        val response = try
+        {
+            transport.execute(
+                SpfnTransportRequest(
+                    method = call.operation.method,
+                    url = session.baseUrl + call.operation.path,
+                    headers = listOf(SpfnWireHeaders.CONTENT_TYPE to SpfnWireHeaders.REQUEST_CONTENT_TYPE),
+                    body = canonicalBody,
+                    timeoutMillis = timeoutMillis
+                )
+            )
+        }
+        catch (cancellation: CancellationException)
+        {
+            throw cancellation;
+        }
+        catch (failure: Exception)
+        {
+            throw classify(failure);
+        };
+        return read(response, call.decode);
     }
 
     // ---- the two attempts --------------------------------------------------
