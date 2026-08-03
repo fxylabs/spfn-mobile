@@ -17,7 +17,7 @@
 
 Pod::Spec.new do |s|
   s.name             = 'SPFNMobileCompatFixture'
-  s.version          = '0.1.0-alpha.2'
+  s.version          = '0.1.0-alpha.3'
   s.summary          = 'Internal, unpublished CocoaPods compatibility fixture for the SPFN Mobile Swift sources.'
   s.description      = <<-DESC
                        Step 1 scaffold fixture. Describes the SwiftPM module graph to CocoaPods

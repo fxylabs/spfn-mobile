@@ -1,9 +1,15 @@
 # Changelog
 
-No release has been made. Entries below describe repository state, not shipped
-software.
+`0.1.0-alpha.2` is the only published release. Entries under an unreleased heading
+describe repository state, not shipped software.
 
-## 0.1.0-alpha.2 — unreleased
+## 0.1.0-alpha.3 — unreleased
+
+`0.1.0-alpha.2` was published before the asymmetric clientProofV1 revision below:
+it signs proofs with the retired symmetric HMAC profile and cannot authenticate
+against a server on contract `0.2.0` or later. Published versions are immutable
+here, so the train reissues as `0.1.0-alpha.3` from a tree that carries the
+asymmetric profile and the key lifecycle.
 
 ### Contract 0.3.0: the REST enrollment surface, custody, and the key lifecycle
 
@@ -41,15 +47,6 @@ software.
   to end on both platforms (local mode; an external primitives dev target carries
   the three dev operations only and case f is out of scope there).
 
-The candidate version moved, not the code. `0.1.0-alpha.1` exists as a public tag and
-was never published to Central: its dispatch failed because the candidate commit it
-names predates the cold-cache verification-metadata fix (#14), so a build of that
-exact tree cannot pass dependency verification on a cold runner. Published versions —
-and their tags — are immutable here, so the tag stays where it is and the candidate
-is reissued as `0.1.0-alpha.2` from a tree that contains the fix. Everything below
-the next heading describes work that happened while the train carried the alpha.1
-number.
-
 ### clientProofV1 revised to asymmetric ECDSA P-256 (contract 0.2.0)
 
 - The pin moved to primitives commit `4380bc40`, contract `0.2.0`, digest
@@ -71,6 +68,21 @@ number.
   verification against the fixed test keypair, and `derive-expected-values.py`
   gained a pure-stdlib P-256 implementation (cross-checked against OpenSSL) that
   signs the recorded values deterministically via RFC 6979.
+
+## 0.1.0-alpha.2 — published 2026-08-03, superseded by 0.1.0-alpha.3
+
+Published to Maven Central (deployment `d0ca11b5`) with the matching SwiftPM tag.
+This is the last release on the symmetric HMAC clientProofV1: it does not
+authenticate against a server on contract `0.2.0` or later.
+
+The candidate version moved, not the code. `0.1.0-alpha.1` exists as a public tag and
+was never published to Central: its dispatch failed because the candidate commit it
+names predates the cold-cache verification-metadata fix (#14), so a build of that
+exact tree cannot pass dependency verification on a cold runner. Published versions —
+and their tags — are immutable here, so the tag stays where it is and the candidate
+is reissued as `0.1.0-alpha.2` from a tree that contains the fix. Everything below
+the next heading describes work that happened while the train carried the alpha.1
+number.
 
 ## 0.1.0-alpha.1 — superseded by 0.1.0-alpha.2, tagged but never published
 

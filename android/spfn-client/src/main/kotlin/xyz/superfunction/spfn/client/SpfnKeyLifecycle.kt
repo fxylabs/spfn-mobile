@@ -40,8 +40,8 @@ import xyz.superfunction.spfn.generated.SpfnOauthNativeRequest
 import xyz.superfunction.spfn.generated.SpfnOauthNativeResponse
 import xyz.superfunction.spfn.generated.SpfnRotateKeyRequest
 import xyz.superfunction.spfn.generated.SpfnRotateKeyResponse
-import java.util.Base64
 import java.util.UUID
+import kotlin.io.encoding.Base64
 
 /** The lifecycle's answer to "what key does this install hold". */
 enum class SpfnKeyLifecycleState
@@ -224,7 +224,7 @@ class SpfnKeyLifecycle(
                 SpfnOauthNativeRequest(
                     idToken = idToken,
                     nonce = nonce,
-                    publicKey = Base64.getEncoder().encodeToString(key.publicKeySpkiDer),
+                    publicKey = Base64.encode(key.publicKeySpkiDer),
                     keyId = key.keyId,
                     fingerprint = SpfnDigest.sha256Hex(key.publicKeySpkiDer),
                     algorithm = ALGORITHM_NAME
@@ -401,7 +401,7 @@ class SpfnKeyLifecycle(
         client(signer = old).execute(
             rotateCall(),
             SpfnRotateKeyRequest(
-                publicKey = Base64.getEncoder().encodeToString(candidate.publicKeySpkiDer),
+                publicKey = Base64.encode(candidate.publicKeySpkiDer),
                 keyId = candidate.keyId,
                 fingerprint = SpfnDigest.sha256Hex(candidate.publicKeySpkiDer),
                 algorithm = ALGORITHM_NAME

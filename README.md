@@ -54,6 +54,10 @@ modules are Gradle/Maven modules. **CocoaPods is not supported**; `tools/cocoapo
 holds an internal, unpublished fixture whose only job is to prove the module graph stays
 single-sourced.
 
+Android consumers must build with Kotlin 2.4 or later: the published AARs carry
+Kotlin 2.4 metadata, which the Kotlin 2.2.x compiler bundled by an AGP 9 default
+toolchain cannot read. See the Android row in `COMPATIBILITY.md`.
+
 ## Running the checks
 
 ```sh
