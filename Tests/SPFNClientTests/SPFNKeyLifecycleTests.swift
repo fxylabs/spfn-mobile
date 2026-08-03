@@ -114,7 +114,9 @@ final class SPFNKeyLifecycleTests: XCTestCase
         let transport = ScriptedTransport([])
         let lifecycle = try makeLifecycle(transport, store: InMemoryKeyStore(), keys: [], keyIDs: [])
 
-        for provider in ["", "Google", "google/../evil", "goo gle", "google{", "구글"]
+        // The full-width "ｇoogle" is the P9 case: a Unicode-aware character class
+        // would wave it through where the ASCII-explicit rule must not.
+        for provider in ["", "Google", "google/../evil", "goo gle", "google{", "구글", "ｇoogle"]
         {
             let thrown = await failure
             {
