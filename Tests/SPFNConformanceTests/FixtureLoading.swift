@@ -74,6 +74,17 @@ extension SPFNCanonicalValue
         }
         return value
     }
+
+    func flag(file: StaticString = #filePath, line: UInt = #line) throws -> Bool
+    {
+        guard case .bool(let value) = self
+        else
+        {
+            XCTFail("expected a boolean, got \(self)", file: file, line: line)
+            throw ConformanceFailure.shape
+        }
+        return value
+    }
 }
 
 extension Dictionary where Key == String, Value == SPFNCanonicalValue
@@ -98,6 +109,17 @@ extension Dictionary where Key == String, Value == SPFNCanonicalValue
             throw ConformanceFailure.shape
         }
         return try value.number(file: file, line: line)
+    }
+
+    func bool(_ key: String, file: StaticString = #filePath, line: UInt = #line) throws -> Bool
+    {
+        guard let value = self[key]
+        else
+        {
+            XCTFail("fixture is missing '\(key)'", file: file, line: line)
+            throw ConformanceFailure.shape
+        }
+        return try value.flag(file: file, line: line)
     }
 
     func list(_ key: String, file: StaticString = #filePath, line: UInt = #line) throws -> [SPFNCanonicalValue]

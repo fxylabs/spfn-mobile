@@ -12,20 +12,20 @@
   },
   "source": {
     "repository": "git.superfunction.xyz/superfunction/primitives",
-    "commit": "4380bc40d2c8fd86c4a526b58cde36e715aacba3",
+    "commit": "7e727310c55942dd71b37a4f642e708b6c426710",
     "upstreamBundlePath": "contracts/mobile/spfn-mobile-contract.json",
-    "exporterVersion": "@spfn/auth/contract-bundle@2.0.0",
+    "exporterVersion": "@spfn/auth/contract-bundle@3.0.0",
     "keyNamingRule": "This is not called bundlePath on purpose. The readers of this file match a key name at any depth, so two keys with the same name in different objects would resolve to whichever appears first, and the validator would digest the upstream path instead of the vendored one."
   },
   "contract": {
     "name": "spfn-mobile-contract",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "major": 0,
-    "minor": 2,
+    "minor": 3,
     "bundlePath": "Contracts/spfn-mobile-contract.json",
-    "manifestSha256": "28f2fd4cf37ef903dd9746d4058d510435b3905b9b94312f6e95120ad3603084",
-    "supportedRange": ">=0.2.0 <0.3.0",
-    "rangeRule": "The contract line is 0.x, so the breaking axis is the minor rather than the major. A server contract is supported only when its major AND minor both match this pin. Comparing majors alone would admit 0.3.0, which this range excludes, and the SDK would then decode a contract it does not implement."
+    "manifestSha256": "a41a3c06c9d995d4865613daa698c207ba66b53ee5c25a71015c730e7253538d",
+    "supportedRange": ">=0.3.0 <0.4.0",
+    "rangeRule": "The contract line is 0.x, so the breaking axis is the minor rather than the major. A server contract is supported only when its major AND minor both match this pin. Comparing majors alone would admit 0.4.0, which this range excludes, and the SDK would then decode a contract it does not implement."
   },
   "authProfiles": {
     "allowed": ["clientProofV1"],

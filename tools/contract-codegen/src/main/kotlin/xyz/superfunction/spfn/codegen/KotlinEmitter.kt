@@ -60,9 +60,24 @@ object KotlinEmitter
             appendLine("        \"$field\"$comma");
         }
         appendLine("    )");
+        appendLine();
+        appendLine("    /**");
+        appendLine("     * `keyPolicy.ttlDays`: a registered public key expires this many days after");
+        appendLine("     * registration, so the client rotates before the TTL runs out.");
+        appendLine("     */");
+        appendLine("    const val KEY_POLICY_TTL_DAYS: Long = ${bundle.keyPolicyTtlDays}L");
+        appendLine();
+        appendLine("    /** `keyPolicy.rotationOperation`: the operation that replaces a registered key. */");
+        appendLine("    const val KEY_ROTATION_OPERATION_ID: String = \"${bundle.keyRotationOperationId}\"");
+        appendLine();
+        appendLine("    /** `clientProofV1.clientIdRule`, verbatim from the bundle. */");
+        appendLine("    const val CLIENT_ID_RULE: String = \"${kotlinStringLiteral(bundle.clientIdRule)}\"");
         append("}");
         appendLine();
     }
+
+    private fun kotlinStringLiteral(text: String): String =
+        text.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$")
 
     private fun types(bundle: Bundle): String = buildString {
         appendLine(header(bundle));
@@ -117,6 +132,29 @@ object KotlinEmitter
         appendLine("package xyz.superfunction.spfn.generated");
         appendLine();
         appendLine("import xyz.superfunction.spfn.core.SpfnOperation");
+        appendLine();
+        appendLine("/**");
+        appendLine(" * Every auth class the contract declares. An operation's `authProfile` names one");
+        appendLine(" * of these; a value outside the list is a contract mismatch, and a caller refuses");
+        appendLine(" * to send rather than downgrading to any other class.");
+        appendLine(" */");
+        appendLine("enum class SpfnGeneratedAuthClass(val wireName: String)");
+        appendLine("{");
+        bundle.authClasses.forEachIndexed { index, authClass ->
+            val terminator = if (index == bundle.authClasses.size - 1) ";" else ",";
+            appendLine("    ${Names.upperSnake(authClass)}(\"$authClass\")$terminator");
+        }
+        appendLine();
+        appendLine("    companion object");
+        appendLine("    {");
+        appendLine("        /**");
+        appendLine("         * Resolves an operation's auth class, or null for a class this contract");
+        appendLine("         * does not declare. The caller fails closed on null instead of guessing.");
+        appendLine("         */");
+        appendLine("        fun of(operation: SpfnOperation): SpfnGeneratedAuthClass? =");
+        appendLine("            entries.firstOrNull { it.wireName == operation.authProfile }");
+        appendLine("    }");
+        appendLine("}");
         appendLine();
         appendLine("object SpfnGeneratedOperations");
         appendLine("{");
