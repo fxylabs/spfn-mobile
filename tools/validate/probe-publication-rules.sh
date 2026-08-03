@@ -219,6 +219,14 @@ printf '      - name: probe\n        uses: actions/upload-artifact@ea165f8d65b6e
 expect_fail 'any action in a non-publish workflow fails, pinned or not' \
     'uses no third-party action'
 
+printf '      - uses: actions/checkout@v4\n' >> "$PUBLISH_WORKFLOW"
+expect_fail 'the step-first "- uses:" spelling fails too' \
+    'outside the SHA-pinned allowlist'
+
+printf '      - { name: probe, uses: actions/checkout@ea165f8d65b6e75b540449e92b4886f43607fa02 }\n' >> "$PUBLISH_WORKFLOW"
+expect_fail 'a flow-style step map carrying uses: fails' \
+    'outside the SHA-pinned allowlist'
+
 # --- h. the admitted lookup form stays admitted ------------------------------------
 printf 'val probeLookupOnly = "credentials(PasswordCredentials::class)"\n' >> "$ROOT_BUILD"
 if sh tools/validate/validate.sh > "$TMP/run.log" 2>&1

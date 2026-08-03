@@ -879,8 +879,13 @@ do
     # workflow still uses none.
     if [ "$workflow" = "$PUBLISH_WORKFLOW" ]
     then
-        UNEXPECTED_USES=$(grep -E '^[[:space:]]*uses:' "$workflow" \
-            | grep -vE '^[[:space:]]*uses:[[:space:]]*actions/upload-artifact@[0-9a-f]{40}([[:space:]]+#.*)?$' || true)
+        # Non-anchored on purpose: `uses:` can open a step (`- uses:`) or ride in a
+        # flow-style map, and an anchored extraction reads right past both. Only
+        # full-line comments are exempt; the admitted shape allows the list-item
+        # dash and nothing else.
+        UNEXPECTED_USES=$(grep -E 'uses:' "$workflow" \
+            | grep -vE '^[[:space:]]*#' \
+            | grep -vE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*actions/upload-artifact@[0-9a-f]{40}([[:space:]]+#.*)?$' || true)
         if [ -z "$UNEXPECTED_USES" ]
         then
             pass "$workflow uses only the commit-SHA-pinned upload-artifact action"

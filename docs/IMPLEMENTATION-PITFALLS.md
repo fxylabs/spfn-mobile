@@ -267,6 +267,11 @@ wire 경로를 건드리지 않은 change set에서는 재실행이 선택이다
 
 **탐지.** 비교 규칙을 바꾸는 diff에서 그 규칙을 인용하는 곳을 전부 나열한다 —
 range 문자열, 에러 메시지, doc comment, COMPATIBILITY.md 행, 생성 코드.
+직렬화 포맷·DSL(YAML·Gradle DSL)을 향한 검사를 신설·확장할 때는 표기 변형을 probe에
+반드시 심는다 — flow/block 스타일, quoted 키, 리스트 항목 접두(`- uses:`),
+호출형/대입형. 이 클래스는 한 PR 사이클에서 3회 재발했다: F-A(flow-style `on:` 트리거
+통과) → DF-2(quoted `"push":` skip) → `- uses:`(step 첫 키 관용형이 앵커 추출을 우회).
+일반형 패턴은 coding-context `reliability/denylist-notation-bypass`.
 
 **처방.** 규칙 변경과 그것을 서술하는 문자열 변경을 같은 커밋에 넣는다. 파생 불가면
 [P1](#p1)의 파생 필드 처방을 쓴다.
