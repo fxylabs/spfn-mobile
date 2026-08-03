@@ -240,6 +240,12 @@ wire 경로를 건드리지 않은 change set에서는 재실행이 선택이다
 - **Kotlin 테스트 결과는 `testDebugUnitTest` 변형에 있다.** `:spfn-core:test`가 아니라
   `:spfn-core:testDebugUnitTest --rerun-tasks`로 돌리고
   `build/test-results/testDebugUnitTest/`를 읽는다.
+- **신호 trap 안의 `$?`는 인터럽트가 아니라 마지막 완료 명령의 상태다.** `trap cleanup
+  EXIT INT TERM` 한 줄로 합치면 SIGINT/SIGTERM으로 죽은 실행이 정리는 다 하고 exit 0으로
+  끝난다. 탐지: trap 목록에 신호가 EXIT와 같은 핸들러를 공유하면서 핸들러가 `exit "$status"`
+  꼴이면 의심. 처방: 신호는 전용 핸들러에서 `trap '' EXIT INT TERM`으로 먼저 무장해제하고
+  128+N(INT 130, TERM 143)으로 직접 exit. 증거: `tools/rc-verify/probe-trap-exit.sh`가
+  태그 생성 후 kill을 실측한다.
 
 ## P13. 규칙을 조이면 그 규칙을 광고하는 문자열도 본다 {#p13}
 
