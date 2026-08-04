@@ -1,9 +1,9 @@
 # Compatibility matrix
 
-**Every device-support row is UNRESOLVED.** One release exists (`0.1.0-alpha.2`,
-published 2026-08-03, superseded) but nothing has run on a device, so no device
-compatibility has been established. This file fixes the shape each future release
-must fill in, and the gate that must pass before a row may claim a value.
+**Every device-support row is UNRESOLVED.** Two releases exist (`0.1.0-alpha.2`,
+superseded, and `0.1.0-alpha.3`, current) but nothing has run on a device, so no
+device compatibility has been established. This file fixes the shape each future
+release must fill in, and the gate that must pass before a row may claim a value.
 
 A build baseline is not a support commitment. Decision D5 fixed the toolchain this
 repository compiles with; that says what the code was built against, not what it works
@@ -11,7 +11,7 @@ on. Those are different claims, and only the second is one an integrator can rel
 
 | Field | Value to record per release | Gate | Current state |
 | --- | --- | --- | --- |
-| Mobile SDK | version, source commit, tag digest | `VERSION`, tag, changelog and Maven POM agree | published — `0.1.0-alpha.2` (source commit `be53221`) reached Maven Central via `publish-central.yml` (deployment `d0ca11b5`) with the matching SwiftPM tag, and repo1.maven.org propagation of all six modules was verified 2026-08-04; alpha.2 is superseded: it predates the asymmetric clientProofV1 revision and cannot authenticate against a contract `0.2.0`+ server. `0.1.0-alpha.3` is the current candidate |
+| Mobile SDK | version, source commit, tag digest | `VERSION`, tag, changelog and Maven POM agree | published — `0.1.0-alpha.3` (source commit `70781e4`) reached Maven Central via `publish-central.yml` (deployment `b7ae0261`) with the matching SwiftPM tag. Consumption was verified 2026-08-04 from the published coordinates alone by `tools/rc-verify/verify-published.sh`: six modules on repo1.maven.org with matching sha256 sidecars and PGP signatures under key `1CC7BD2E870BC4B2A279EB5BCB666532EB4E568A`, an Android consumer compiled against `mavenCentral()` on a refreshed cache, and the SwiftPM tag resolving to that commit. `0.1.0-alpha.2` (deployment `d0ca11b5`) is superseded: it predates the asymmetric clientProofV1 revision and cannot authenticate against a contract `0.2.0`+ server |
 | Contract | exact imported digest and supported SemVer range | a contract outside the range raises an explicit upgrade error; no unknown-profile fallback | enforced — `0.1.0` is pinned by real digest from the SPFN primitives export (D17 resolved), and the range check is driven by a shared cross-platform vector table |
 | Auth | `allowed=[clientProofV1]`, default profile, mixing prohibited | any redirect-based auth symbol, endpoint or fixture in the public surface fails the build | **enforced** — the allowlist is exactly `clientProofV1` on both platforms and in the generated clients |
 | Server | minimum verified SPFN primitives release/commit and endpoint capability set | server fixtures and both SDK conformance suites pass | UNRESOLVED — the contract is an upstream export and both suites round-trip against the SPFN primitives dev server on localhost, but no deployed service has been contacted and no minimum release is fixed |

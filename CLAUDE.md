@@ -10,18 +10,33 @@ command is unavailable.
   then `self work start <id>`. Report progress with `self report <id> "<summary>"`
   after committing — HEAD is attached as evidence automatically.
 - The long-term goal and time-boxed objectives are separate state: `self goal set`
-  keeps the goal, `self objective add "<outcome>" --horizon week --target <date>`
+  keeps the goal, `self objective add "<outcome>" --target <date>`
   adds an objective, and `self milestone add "<outcome>" --objective <id> --exit "<criterion>"`
   adds a checkpoint under it. `self objective` lists both with the reason for each state.
+- Every asserted record — goal, decision, convention, objective, milestone, work —
+  folds into one entity with placement. `self state` lists them all,
+  `self state show <id>` prints one, and `self state add "<text>" --label <l>`
+  records a free-labeled one; `self alias add <verb>` makes a verb of a label.
+- Placement is scope × priority × exposure. `self state place <id> [--priority <n>]
+  [--exposure full|index|search] [--scope project|workspace]` moves what context
+  renders; a demotion records `--why`, and demoting out of full waits for the user:
+  pass `--proposed`, then the user runs `self state confirm <id>`.
+- Retention caps bound the rendered tiers. Past a cap, `state add` and `state place`
+  refuse until `--demote <id>` names what frees the room — pass `--proposed` so the
+  add and the demotion land as a pair waiting on the user.
+- A workspace-scoped record renders in every project's context: `--scope workspace`
+  on a state or alias verb, or `self convention add "<text>" --workspace`.
 - State what work contributes to: `self work link <id> --milestone <id>`. A milestone
   is reached only when every exit criterion is covered — `self milestone met <id>
   --criterion <c> --why "<how the evidence covers it>"`, then `self milestone reach <id>`.
   Finishing work never reaches a milestone on its own, and progress is never a percentage.
 - Revising an objective or a milestone leaves what it already settled stale. Re-judge it
-  at the current revision with `self milestone recheck <id> [--criterion <c>] --why "<what
+  at the current revision with `self milestone recheck <id> --criterion <c> --why "<what
   you re-judged>"` — a reach still needs every live criterion covered first.
-- Done is a judgment: `self work done <id>` closes the unit when its outcome
-  is reached — the evidence lives in the reports the unit already carries.
+- Done is a judgment, and the claim must carry evidence: `self work done <id>` closes
+  the unit only when a report carries a commit or an artifact, or the done itself
+  states one — `self work done <id> --report "<what verifiably happened>"`.
+  A bare claim is refused, and declared criteria gate done until each is covered.
 - Found a gap between an objective and current state? Propose the work with
   `self work propose` and its full brief; the user accepts or declines it.
 - Record decisions the user confirmed: `self decide "<text>" --why "<reason>"`.
@@ -46,4 +61,6 @@ command is unavailable.
 
 - 위임 구현-리뷰 규율: 모든 구현 브리프는 결함 예상 섹션(엣지 케이스·보안/성능 표면·실패 모드)을 담고, fix 브리프는 fix가 건드리는 표면의 인접 케이스를 열거한다. 기계 게이트(validate.sh·swift build/test·gradlew build)는 리뷰 라운드 전에 통과하고, 구현자는 리뷰 루브릭 기준 self-adversarial pass 결과를 보고한다. 리뷰 finding은 predictable/novel로 분류해 predictable은 즉시 자동 검사로 승격하고, 리뷰어 probe는 영구 테스트 케이스로 fix와 함께 남긴다. 리뷰 라운드는 세션 재사용(구현자 resume fix, 리뷰어 resume delta 재리뷰)을 기본으로 하되 semantic rework·2회 초과·컨텍스트 비대 시 cold review로 교체한다.
 - 구현 주의 패턴 등록부(docs/IMPLEMENTATION-PITFALLS.md): SDK 작업을 디스패치하기 전에 트리거 표에서 건드리는 표면의 행을 찾아 해당 항목을 브리프에 같이 넣는다. 리뷰가 재발 가능한 결함을 찾으면 항목으로 등록하되, 이미 있는 항목이면 새로 만들지 말고 그 항목의 탐지 절을 강화한다 — 중복이 이 문서를 죽인다. 세는 값은 하나다: 이미 항목으로 있던 것을 구현자가 놓쳐 리뷰어가 지적한 횟수. 그것만이 실패이고 0이 목표다. 리뷰가 등록부에 없던 것을 찾는 것은 정상 동작이다. 범용 패턴은 coding-context로 보내고 여기는 spfn-mobile 고유의 것만 담는다.
+- 리뷰는 열린 탐색 위임이 아니다. 구현을 맡긴 설계에서 유한한 경우의 수 표(상태 변수 × 연산 × 기대 결과)를 착수 전에 닫고, 테스트는 표의 셀과 1:1로 대응시키며, 디스패처가 셀-테스트 대응을 기계적으로 확인한다. 표로 닫은 표면에는 리뷰 라운드를 두지 않는다. 유한 열거로 탐지할 수 없는 잔여(플랫폼 암호 API 의미론, 언어 간 분류 갈림, 외부 통합 등)만 Codex GPT-5.6 Luna fresh 리뷰에 맡긴다.
+- 위임 설계 산출물은 통짜로 승인받지 않는다. 수용 시 산출물에 임베디드된 결정을 추출해 항목별로 사용자 승인을 받으며, 암호 프리미티브·인증 모델·데이터 소유권·저장 방식 클래스는 반드시 개별 항목이다. 각 항목에는 기존 구현 대조를 붙인다: upstream/기존 시스템이 이미 이 문제의 메커니즘을 소유하는지, 다르게 가면 왜인지. clientProofV1 대칭 사건의 재발 방지 — 리뷰 강화가 아니라 승인 단위 교정이 처방이다.
 <!-- superself:end -->

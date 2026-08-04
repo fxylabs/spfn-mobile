@@ -1,9 +1,16 @@
 # Changelog
 
-`0.1.0-alpha.2` is the only published release. Entries under an unreleased heading
-describe repository state, not shipped software.
+`0.1.0-alpha.3` is the current published release and `0.1.0-alpha.2` is superseded.
+Entries under an unreleased heading describe repository state, not shipped software.
 
-## 0.1.0-alpha.3 — unreleased
+## 0.1.0-alpha.3 — published 2026-08-04
+
+Published to Maven Central (deployment `b7ae0261`) with the matching SwiftPM tag at
+source commit `70781e4`. Verified from the published coordinates alone by
+`tools/rc-verify/verify-published.sh`: all six modules on repo1.maven.org with
+matching sha256 sidecars and valid PGP signatures, an Android consumer compiled
+against `mavenCentral()` with a refreshed cache, and a SwiftPM consumer resolving
+the public tag to that same commit and running its smoke executable.
 
 `0.1.0-alpha.2` was published before the asymmetric clientProofV1 revision below:
 it signs proofs with the retired symmetric HMAC profile and cannot authenticate

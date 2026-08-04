@@ -1325,7 +1325,13 @@ do
 done
 
 contains README.md 'no public support' 'README refuses to promise public support'
-contains RELEASE.md 'No release has been made' 'RELEASE.md states no release exists'
+# Releases exist now, so the doc must name the current train rather than deny every
+# release: the literal this replaced ("No release has been made") stayed pinned after
+# 0.1.0-alpha.2 shipped, which made the check enforce a false sentence. Reading the
+# version from VERSION is what keeps it honest — the next version bump fails here until
+# RELEASE.md records what happened to it.
+contains RELEASE.md "$(tr -d '[:space:]' < VERSION)" 'RELEASE.md names the current version'
+contains RELEASE.md 'UNRESOLVED' 'RELEASE.md still claims no device support'
 contains Sources/SPFNCore/SPFNScaffold.swift 'isScaffold: Bool = true' 'the built library declares itself a scaffold'
 contains android/spfn-core/src/main/kotlin/xyz/superfunction/spfn/core/SpfnCore.kt 'IS_SCAFFOLD: Boolean = true' \
     'the Android library declares itself a scaffold'
