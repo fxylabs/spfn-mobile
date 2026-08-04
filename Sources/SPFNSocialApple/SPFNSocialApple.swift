@@ -17,8 +17,11 @@
 //     SDK is not where they belong: an app that wants them asks for them itself and
 //     sends them through a profile operation (decision 1).
 //
-// There is no Android counterpart to the platform flow — Apple ships no native SDK
-// there — so android/spfn-social-apple carries the half that is platform-independent.
+// This module is iOS-only, and the module graph says so: `androidModule` is null on its
+// row. Apple ships no native sign-in SDK for Android, so an Android half would have
+// owned a one-line nonce accessor and a seam the app fills in anyway. An Android app
+// signing in with Apple needs `SpfnSocialNonce`, `appleRequestValue` and
+// `enroll(provider = "apple", …)` — all three live in spfn-client and always did.
 
 import AuthenticationServices
 import Foundation

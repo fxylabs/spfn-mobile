@@ -718,8 +718,12 @@ HITS=$(printf '%s\n' "$HITS" | grep -v '^$' | grep -vxF -f "$TMP/adapter-excused
 # the scope result (P6, P7).
 grep -rIl '' $SURFACE_DIRS 2>/dev/null > "$TMP/surface-files.txt" || true
 SURFACE_FILES=$(wc -l < "$TMP/surface-files.txt" | tr -d ' ')
+# Three trees, not four: the Apple adapter is iOS-only. Apple ships no native sign-in
+# SDK for Android, so its Android half would have owned a nonce accessor and an empty
+# seam, and everything an Android app needs to sign in with Apple — the nonce type, the
+# request value and the enrollment call — lives in spfn-client either way.
 find Sources/SPFNSocialApple Sources/SPFNSocialGoogle \
-    android/spfn-social-apple/src/main android/spfn-social-google/src/main \
+    android/spfn-social-google/src/main \
     -type f \( -name '*.swift' -o -name '*.kt' \) > "$TMP/adapter-files.txt" 2>/dev/null || true
 ADAPTER_FILES=$(wc -l < "$TMP/adapter-files.txt" | tr -d ' ')
 
@@ -732,9 +736,9 @@ fi
 
 # The exception is scoped to two module trees. If those trees stop holding sources the
 # exception stops being an exception, and nothing else in this section would notice.
-if [ "$ADAPTER_FILES" -ge 4 ]
+if [ "$ADAPTER_FILES" -ge 3 ]
 then
-    pass "the adapter vocabulary exception is scoped to $ADAPTER_FILES sources in the two adapter trees"
+    pass "the adapter vocabulary exception is scoped to $ADAPTER_FILES sources in the three adapter trees"
 else
     fail "the adapter exception is scoped to paths holding only $ADAPTER_FILES sources; the scope is stale"
 fi
@@ -949,15 +953,47 @@ fi
 grep '"swiftTarget"' "$GRAPH" > "$TMP/graph-lines.txt" || true
 GRAPH_MODULES=$(wc -l < "$TMP/graph-lines.txt" | tr -d ' ')
 
+# Since schemaVersion 3 a module can have no Android half at all: `androidModule` is
+# either a name or the literal null, and null is a DECLARATION, not an omission. Every
+# Android-side check below and in sections 8 and 10 skips a null-declared module, so the
+# skip is what has to be kept narrow — a reader that also skips a line it simply failed
+# to parse reports a clean graph having read nothing (P7).
+#
+# The bucketing is the guard. Each module line lands in exactly one of two buckets, and
+# the two must add up to the number of module lines; a line that lands in neither was
+# not understood, and being not understood is a failure rather than a skip.
+# The name must be non-empty: `"androidModule": ""` is a value nobody wrote on purpose,
+# and bucketing it as Android-backed would turn a malformed line into a module whose
+# directory is merely missing.
+grep '"androidModule": "[^"]' "$TMP/graph-lines.txt" > "$TMP/graph-android.txt" || true
+grep '"androidModule": null' "$TMP/graph-lines.txt" > "$TMP/graph-ios-only.txt" || true
+GRAPH_ANDROID=$(wc -l < "$TMP/graph-android.txt" | tr -d ' ')
+GRAPH_IOS_ONLY=$(wc -l < "$TMP/graph-ios-only.txt" | tr -d ' ')
+
+if [ "$((GRAPH_ANDROID + GRAPH_IOS_ONLY))" = "$GRAPH_MODULES" ]
+then
+    pass "every one of the $GRAPH_MODULES graph modules declares its Android half or declares it absent ($GRAPH_ANDROID backed, $GRAPH_IOS_ONLY iOS-only)"
+else
+    fail "$((GRAPH_MODULES - GRAPH_ANDROID - GRAPH_IOS_ONLY)) module lines in $GRAPH declare neither an androidModule nor null; they were not read"
+fi
+
 # A graph nobody could read yields an empty allowlist, and an empty allowlist agrees
 # with an empty manifest scan: two zeroes match, and the whole section reports green
-# without having looked at anything. The floor is what makes that impossible — the
-# train has never carried fewer modules than the four it started with (P7).
+# without having looked at anything. The floors make that impossible, and there are two
+# of them because the two platforms no longer carry the same modules — one number
+# covering both would pass with an entire platform at zero (P7).
 if [ "$GRAPH_MODULES" -ge 4 ]
 then
-    pass "the external-dependency allowlist read $GRAPH_MODULES modules from the graph"
+    pass "the external-dependency allowlist read $GRAPH_MODULES Swift modules from the graph"
 else
-    fail "the external-dependency allowlist read $GRAPH_MODULES modules from $GRAPH; it could not run"
+    fail "the external-dependency allowlist read $GRAPH_MODULES Swift modules from $GRAPH; it could not run"
+fi
+
+if [ "$GRAPH_ANDROID" -ge 4 ]
+then
+    pass "the external-dependency allowlist read $GRAPH_ANDROID Android modules from the graph"
+else
+    fail "the external-dependency allowlist read $GRAPH_ANDROID Android modules from $GRAPH; it could not run"
 fi
 
 sed -n 's/.*"externalDeps": {"swift": \[\([^]]*\)\].*/\1/p' "$TMP/graph-lines.txt" \
@@ -1006,14 +1042,24 @@ contains Package.swift '.default(enabledTraits: [])' \
 # be either a project edge or a catalogue alias the graph names for that module, and a
 # line in any other shape fails outright — a coordinate string is exactly how an
 # unreviewed artifact enters a build, and no name extraction would recognise it.
+#
+# The loop runs over the ANDROID-BACKED bucket, so a module that declares no Android
+# half is out of scope by declaration rather than by accident. Inside the bucket
+# nothing is skipped: a build script that is missing is a problem, not a reason to move
+# on, because "the file was not there" and "the file was clean" must never share an
+# outcome.
 ANDROID_SCANNED=0
 ANDROID_PROBLEMS=''
 while IFS= read -r graph_line
 do
     android_module=$(printf '%s' "$graph_line" | sed -n 's/.*"androidModule": "\([^"]*\)".*/\1/p')
     script="android/$android_module/build.gradle.kts"
-    [ -f "$script" ] || continue
     ANDROID_SCANNED=$((ANDROID_SCANNED + 1))
+    if [ ! -f "$script" ]
+    then
+        ANDROID_PROBLEMS="$ANDROID_PROBLEMS $android_module:no-build-script"
+        continue
+    fi
 
     printf '%s' "$graph_line" \
         | sed -n 's/.*"externalDeps": {[^}]*"android": \[\([^]]*\)\].*/\1/p' \
@@ -1049,13 +1095,13 @@ do
     then
         ANDROID_PROBLEMS="$ANDROID_PROBLEMS $android_module:declared-but-unused($(printf '%s' "$UNUSED" | tr '\n' ','))"
     fi
-done < "$TMP/graph-lines.txt"
+done < "$TMP/graph-android.txt"
 
-if [ "$ANDROID_SCANNED" = "$GRAPH_MODULES" ]
+if [ "$ANDROID_SCANNED" = "$GRAPH_ANDROID" ]
 then
-    pass "the external-dependency allowlist was applied to all $ANDROID_SCANNED Android modules"
+    pass "the external-dependency allowlist was applied to all $ANDROID_SCANNED Android-backed modules"
 else
-    fail "the external-dependency allowlist reached $ANDROID_SCANNED of $GRAPH_MODULES Android modules"
+    fail "the external-dependency allowlist reached $ANDROID_SCANNED of $GRAPH_ANDROID Android-backed modules"
 fi
 
 if [ -z "$ANDROID_PROBLEMS" ]
@@ -1273,6 +1319,9 @@ section '8. module graph coherence'
 # ---------------------------------------------------------------------------
 grep '"swiftTarget"' "$GRAPH" > "$TMP/modules.txt"
 MODULE_COUNT=$(wc -l < "$TMP/modules.txt" | tr -d ' ')
+MODULES_WITH_ANDROID=0
+MODULES_IOS_ONLY=0
+MODULES_UNREADABLE=0
 
 while IFS= read -r line
 do
@@ -1304,29 +1353,59 @@ do
             "Package.swift target $swift_target dependency edge matches the graph"
     fi
 
-    contains settings.gradle.kts "\":$android_module\"" "settings.gradle.kts includes :$android_module"
-    contains settings.gradle.kts "project(\":$android_module\").projectDir = file(\"android/$android_module\")" \
-        ":$android_module maps to android/$android_module"
-
-    if [ -f "android/$android_module/build.gradle.kts" ] \
-        && [ -n "$(find "android/$android_module/src/main/kotlin" -name '*.kt' -print -quit 2>/dev/null)" ]
+    # The Android half is checked when the graph names one. A module that declares
+    # `androidModule: null` has none by decision, and the three states are kept apart
+    # here: a name is checked, a null is counted as iOS-only, and a line that is neither
+    # is a line this loop did not understand — which fails rather than passing quietly.
+    if [ -n "$android_module" ]
     then
-        pass "android/$android_module has a build script and Kotlin sources"
-    else
-        fail "android/$android_module missing build script or Kotlin sources"
-    fi
+        MODULES_WITH_ANDROID=$((MODULES_WITH_ANDROID + 1))
 
-    if [ -z "$android_deps" ]
+        contains settings.gradle.kts "\":$android_module\"" "settings.gradle.kts includes :$android_module"
+        contains settings.gradle.kts "project(\":$android_module\").projectDir = file(\"android/$android_module\")" \
+            ":$android_module maps to android/$android_module"
+
+        if [ -f "android/$android_module/build.gradle.kts" ] \
+            && [ -n "$(find "android/$android_module/src/main/kotlin" -name '*.kt' -print -quit 2>/dev/null)" ]
+        then
+            pass "android/$android_module has a build script and Kotlin sources"
+        else
+            fail "android/$android_module missing build script or Kotlin sources"
+        fi
+
+        if [ -z "$android_deps" ]
+        then
+            expected='extra["spfnModuleDependsOn"] = listOf<String>()'
+        else
+            expected="extra[\"spfnModuleDependsOn\"] = listOf($android_deps)"
+        fi
+        contains "android/$android_module/build.gradle.kts" "$expected" \
+            "android/$android_module dependency edge matches the graph"
+
+        contains "android/$android_module/build.gradle.kts" "extra[\"spfnSwiftCounterpart\"] = \"$swift_target\"" \
+            "android/$android_module declares its Swift counterpart $swift_target"
+    elif printf '%s' "$line" | grep -q '"androidModule": null'
     then
-        expected='extra["spfnModuleDependsOn"] = listOf<String>()'
-    else
-        expected="extra[\"spfnModuleDependsOn\"] = listOf($android_deps)"
-    fi
-    contains "android/$android_module/build.gradle.kts" "$expected" \
-        "android/$android_module dependency edge matches the graph"
+        MODULES_IOS_ONLY=$((MODULES_IOS_ONLY + 1))
 
-    contains "android/$android_module/build.gradle.kts" "extra[\"spfnSwiftCounterpart\"] = \"$swift_target\"" \
-        "android/$android_module declares its Swift counterpart $swift_target"
+        # A declared-absent Android half must really be absent, or the train would ship
+        # an Android artifact nothing in the graph describes — the same drift the graph
+        # exists to prevent, pointing the other way. The link is looked up rather than
+        # derived from the target name: every Android module names its Swift counterpart
+        # in its own build script, so the question "does an Android module for this
+        # target exist" has an exact answer that no naming convention has to supply.
+        ORPHAN=$(grep -l "extra\[\"spfnSwiftCounterpart\"\] = \"$swift_target\"" \
+            android/*/build.gradle.kts 2>/dev/null || true)
+        if [ -z "$ORPHAN" ]
+        then
+            pass "$swift_target is iOS-only, and no Android module claims to be its counterpart"
+        else
+            fail "$swift_target declares no Android half, but $ORPHAN claims to be its counterpart"
+        fi
+    else
+        MODULES_UNREADABLE=$((MODULES_UNREADABLE + 1))
+        fail "the graph line for $swift_target declares neither an androidModule nor null"
+    fi
 
     contains "$PODSPEC" "s.subspec '$swift_target'" "CocoaPods fixture has subspec $swift_target"
     printf '%s\n' "$swift_deps" | tr ',' '\n' | sed 's/[" ]//g' > "$TMP/deps.txt"
@@ -1338,21 +1417,47 @@ do
     done < "$TMP/deps.txt"
 done < "$TMP/modules.txt"
 
+# What the loop above did with each line, counted independently of what it checked. The
+# two buckets have to account for every module: a line the loop skipped without
+# understanding would otherwise leave no trace at all.
+if [ "$((MODULES_WITH_ANDROID + MODULES_IOS_ONLY))" = "$MODULE_COUNT" ] && [ "$MODULES_UNREADABLE" = "0" ]
+then
+    pass "the coherence loop read all $MODULE_COUNT modules ($MODULES_WITH_ANDROID Android-backed, $MODULES_IOS_ONLY iOS-only)"
+else
+    fail "the coherence loop read $MODULES_WITH_ANDROID + $MODULES_IOS_ONLY of $MODULE_COUNT modules and could not read $MODULES_UNREADABLE"
+fi
+
+# The two platforms no longer carry the same modules, so they are counted against
+# different numbers. One number covering both would have let an entire Android tree
+# disappear while the Swift side kept the count right.
 SOURCE_DIRS=$(find Sources -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')
 ANDROID_DIRS=$(find android -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')
 SUBSPECS=$(grep -c 's.subspec ' "$PODSPEC" || printf '0')
 
-for actual_pair in "Sources:$SOURCE_DIRS" "android:$ANDROID_DIRS" "podspec subspecs:$SUBSPECS"
+for actual_pair in "Sources:$SOURCE_DIRS:$MODULE_COUNT" "android:$ANDROID_DIRS:$MODULES_WITH_ANDROID" "podspec subspecs:$SUBSPECS:$MODULE_COUNT"
 do
-    label=${actual_pair%:*}
-    actual=${actual_pair##*:}
-    if [ "$actual" = "$MODULE_COUNT" ]
+    label=${actual_pair%%:*}
+    rest=${actual_pair#*:}
+    actual=${rest%:*}
+    expected=${rest#*:}
+    if [ "$actual" = "$expected" ]
     then
-        pass "$label count is $MODULE_COUNT, matching module-graph.json"
+        pass "$label count is $expected, matching module-graph.json"
     else
-        fail "$label count is $actual but module-graph.json declares $MODULE_COUNT (undeclared module?)"
+        fail "$label count is $actual but module-graph.json declares $expected (undeclared module?)"
     fi
 done
+
+# A Gradle include outlives the directory it points at without anything above noticing:
+# the per-module checks only look at the modules the graph names, and the directory
+# count only sees directories. Counting the project mappings is what closes that gap.
+SETTINGS_PROJECTS=$(grep -cE '^project\(":[a-z-]+"\)\.projectDir = file\("android/' settings.gradle.kts || printf '0')
+if [ "$SETTINGS_PROJECTS" = "$MODULES_WITH_ANDROID" ]
+then
+    pass "settings.gradle.kts maps $SETTINGS_PROJECTS Android projects, one per Android-backed module"
+else
+    fail "settings.gradle.kts maps $SETTINGS_PROJECTS Android projects but the graph declares $MODULES_WITH_ANDROID"
+fi
 
 # A module exists here only once it carries an implementation. The persistence/sync and
 # hybrid modules were declared in the Step 1 scaffold from the approved layout, never
@@ -1443,8 +1548,14 @@ contains gradle/libs.versions.toml 'compile-sdk = ' 'version catalogue pins comp
 # Read from the module graph rather than restated here. A hand-written list silently
 # stops covering a module the moment someone adds one, which is the failure mode this
 # whole section exists to prevent.
+# The extraction takes quoted names only, so a module declaring `androidModule: null`
+# drops out of this loop by itself — which is right, and which is also how the loop
+# would look if the extraction had broken entirely. The visit count is compared against
+# the Android-backed bucket for exactly that reason.
+TOOLCHAIN_VISITED=0
 for module in $(sed -n 's/.*"androidModule": "\([^"]*\)".*/\1/p' "$GRAPH")
 do
+    TOOLCHAIN_VISITED=$((TOOLCHAIN_VISITED + 1))
     script="android/$module/build.gradle.kts"
     contains "$script" 'jvmToolchain(libs.versions.jdk.toolchain.get().toInt())' \
         "$module compiles on the pinned JDK toolchain"
@@ -1453,6 +1564,13 @@ do
     contains "$script" 'sourceCompatibility = JavaVersion.VERSION_11' \
         "$module pins javac source compatibility explicitly"
 done
+
+if [ "$TOOLCHAIN_VISITED" = "$MODULES_WITH_ANDROID" ]
+then
+    pass "the toolchain baseline was checked on all $TOOLCHAIN_VISITED Android-backed modules"
+else
+    fail "the toolchain baseline reached $TOOLCHAIN_VISITED of $MODULES_WITH_ANDROID Android-backed modules"
+fi
 
 # ---------------------------------------------------------------------------
 section '11. unresolved ownership and support are represented honestly'

@@ -278,7 +278,17 @@ $GRADLE -Pspfn.publishing.enabled=true -Pspfn.staging.dir="$STAGING" publish \
     || die "Maven staging publication failed (see $LOGS/maven-publish.log)"
 
 GROUP_PATH=$(printf '%s' "$MAVEN_GROUP" | tr '.' '/')
+# Android-backed modules only: since schemaVersion 3 a module may declare
+# `androidModule: null`, which means it has no Android artifact to stage at all. The
+# quoted-name extraction drops those by itself — and would also drop everything if it
+# broke, so the count is checked against the graph's own two buckets before it is used.
 MODULES=$(sed -n 's/.*"androidModule": "\([^"]*\)".*/\1/p' tools/module-graph.json | tr '\n' ' ')
+MODULE_LINES=$(grep -c '"swiftTarget"' tools/module-graph.json)
+IOS_ONLY_LINES=$(grep -c '"androidModule": null' tools/module-graph.json || true)
+STAGED_COUNT=$(printf '%s\n' $MODULES | grep -c .)
+[ "$STAGED_COUNT" -eq "$((MODULE_LINES - IOS_ONLY_LINES))" ] \
+    || die "the module graph yields $STAGED_COUNT Android modules, expected $((MODULE_LINES - IOS_ONLY_LINES))"
+[ "$STAGED_COUNT" -ge 4 ] || die "only $STAGED_COUNT Android modules were read from the module graph"
 for module in $MODULES
 do
     BASE="$STAGING/$GROUP_PATH/$module/$VERSION/$module-$VERSION"
@@ -394,7 +404,6 @@ import xyz.superfunction.spfn.auth.SpfnAuthPolicy
 import xyz.superfunction.spfn.client.SpfnClient
 import xyz.superfunction.spfn.core.SpfnVersion
 import xyz.superfunction.spfn.generated.SpfnGeneratedContract
-import xyz.superfunction.spfn.social.apple.SpfnSocialApple
 import xyz.superfunction.spfn.social.google.SpfnSocialGoogle
 
 object RcConsumerSmoke
@@ -403,7 +412,8 @@ object RcConsumerSmoke
     val allowedProfiles: Int = SpfnAuthPolicy.ALLOWED_PROFILES.size
     val operations: Int = SpfnGeneratedContract.OPERATION_IDS.size
     val clientType: Class<SpfnClient> = SpfnClient::class.java
-    val appleAdapterType: Class<SpfnSocialApple> = SpfnSocialApple::class.java
+    // No Apple adapter symbol here: SPFNSocialApple is iOS-only and stages no Android
+    // artifact, so a touch would name a class that is not on this consumer's classpath.
     val googleAdapterType: Class<SpfnSocialGoogle> = SpfnSocialGoogle::class.java
 }
 EOF

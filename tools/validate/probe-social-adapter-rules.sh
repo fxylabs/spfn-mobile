@@ -23,6 +23,14 @@
 #   j. an adapter scope that no longer holds sources fails instead of passing;
 #   k. a module graph that cannot be read fails instead of passing.
 #
+# Since schemaVersion 3 a module may declare `androidModule: null` — no Android half at
+# all — and every Android-side check skips those. A skip is the other way a check stops
+# checking, so it gets the same treatment:
+#
+#   l. an iOS-only entry that claims an Android module is still checked, and fails;
+#   m. a graph with every androidModule removed fails instead of skipping everything;
+#   n. widening the skip so no module is Android-checked fails on the visit count.
+#
 # The last three mutate a copy of the validator with its ROOT pinned, because their
 # subject is what the check does when its own input is unavailable — the one condition
 # that cannot be produced by editing the tree without destroying it.
@@ -66,6 +74,7 @@ GOOGLE_BUILD=android/spfn-social-google/build.gradle.kts
 cp "$CORE_SOURCE" "$TMP/core.bak"
 cp "$APPLE_SOURCE" "$TMP/apple.bak"
 cp "$MANIFEST" "$TMP/manifest.bak"
+cp "$GRAPH" "$TMP/graph.bak"
 cp "$CLIENT_BUILD" "$TMP/client-build.bak"
 cp "$GOOGLE_BUILD" "$TMP/google-build.bak"
 
@@ -76,6 +85,7 @@ restore()
         cp "$TMP/core.bak" "$CORE_SOURCE"
         cp "$TMP/apple.bak" "$APPLE_SOURCE"
         cp "$TMP/manifest.bak" "$MANIFEST"
+        cp "$TMP/graph.bak" "$GRAPH"
         cp "$TMP/client-build.bak" "$CLIENT_BUILD"
         cp "$TMP/google-build.bak" "$GOOGLE_BUILD"
         rm -rf "$TMP"
@@ -98,6 +108,7 @@ restore_files()
     cp "$TMP/core.bak" "$CORE_SOURCE"
     cp "$TMP/apple.bak" "$APPLE_SOURCE"
     cp "$TMP/manifest.bak" "$MANIFEST"
+    cp "$TMP/graph.bak" "$GRAPH"
     cp "$TMP/client-build.bak" "$CLIENT_BUILD"
     cp "$TMP/google-build.bak" "$GOOGLE_BUILD"
 }
@@ -199,6 +210,24 @@ expect_unrunnable 'an adapter exception scoped to paths with no sources fails' \
 expect_unrunnable 'an unreadable module graph fails instead of allowing nothing quietly' \
     'it could not run' \
     "s#^GRAPH=tools/module-graph.json#GRAPH=$TMP/empty-graph.json#"
+
+# --- l, m, n. the skip an iOS-only module gets is narrow ---------------------------
+# `androidModule: null` takes a module out of every Android-side check. That is a skip,
+# and a skip is the other way a check stops checking, so all three of its failure modes
+# are probed: an entry that claims an Android half it does not have, a graph where the
+# key is gone entirely, and a validator whose skip has been widened to cover everything.
+sed 's#"androidModule": null#"androidModule": "spfn-social-apple"#' "$TMP/graph.bak" > "$GRAPH"
+expect_fail 'an iOS-only entry that claims an Android module is still checked' \
+    'android/spfn-social-apple missing build script or Kotlin sources'
+
+sed 's#"androidModule": "[a-z-]*"#"androidModule": ""#; s#"androidModule": null#"androidModule": ""#' \
+    "$TMP/graph.bak" > "$GRAPH"
+expect_fail 'a graph with no readable androidModule at all fails instead of skipping everything' \
+    'declares neither an androidModule nor null'
+
+expect_unrunnable 'a skip widened to cover every module fails on the visit count' \
+    'Android-backed modules' \
+    's#^    if \[ -n "$android_module" \]#    if [ -n "" ]#'
 
 # --- the unmodified tree still passes ----------------------------------------------
 if sh tools/validate/validate.sh > "$TMP/run.log" 2>&1

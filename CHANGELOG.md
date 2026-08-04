@@ -7,12 +7,23 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ### Native social sign-in has an SDK surface, and the nonce is no longer a string
 
-- `SPFNSocialApple` / `spfn-social-apple` and `SPFNSocialGoogle` / `spfn-social-google`
-  are the first modules added under the five module rules. Each carries an
-  implementation, each drags in a provider dependency most consumers will not link, and
-  each closes exactly one gap: obtaining a provider token on the device. Key generation,
-  the registration request and the account are owned by `SPFNKeyLifecycle.enroll` and by
-  the server, and none of it was reimplemented.
+- `SPFNSocialApple` and `SPFNSocialGoogle` / `spfn-social-google` are the first modules
+  added under the five module rules. Each carries an implementation, each drags in a
+  provider dependency most consumers will not link, and each closes exactly one gap:
+  obtaining a provider token on the device. Key generation, the registration request and
+  the account are owned by `SPFNKeyLifecycle.enroll` and by the server, and none of it
+  was reimplemented.
+- The Apple adapter is iOS-only, and the module graph can now say so: `androidModule` is
+  either a name or the literal `null`. Apple ships no native sign-in SDK for Android, so
+  the Android half would have owned a one-line nonce accessor and a seam the app fills
+  in anyway, while App Store guideline 4.8 requires the button on iOS alone. An Android
+  app signing in with Apple is unaffected — `SpfnSocialNonce`, `appleRequestValue` and
+  `enroll(provider = "apple", …)` are in `spfn-client` and always were.
+- `null` is a declaration, not an omission, and the validator refuses to confuse the two:
+  every module line is bucketed into Android-backed or declared-iOS-only, the buckets
+  must add up to the number of lines, and each platform is counted against its own floor.
+  A skip that also covers a line nobody could parse is how a graph check reports green
+  having read nothing.
 - `SPFNSocialNonce` / `SpfnSocialNonce` replaces the `String` nonce on `enroll`. It mints
   a random lowercase-hex value, hides it, and publishes only `appleRequestValue` — the
   SHA-256 of it. Apple's request carries the hash, every other provider's carries the raw
