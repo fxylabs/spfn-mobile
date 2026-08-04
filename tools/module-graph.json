@@ -1,15 +1,22 @@
 {
   "comment": "Single source of truth for the SPFN Mobile module graph. Canonical format: exactly one module object per line inside \"modules\". Consumed by tools/validate/validate.sh and tools/cocoapods-compat/generate-podspec.sh.",
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "modules": [
-    {"id": "core", "swiftTarget": "SPFNCore", "androidModule": "spfn-core", "swiftDependsOn": [], "androidDependsOn": []},
-    {"id": "generated", "swiftTarget": "SPFNGenerated", "androidModule": "spfn-generated", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"]},
-    {"id": "auth", "swiftTarget": "SPFNAuth", "androidModule": "spfn-auth", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"]},
-    {"id": "client", "swiftTarget": "SPFNClient", "androidModule": "spfn-client", "swiftDependsOn": ["SPFNCore", "SPFNAuth", "SPFNGenerated"], "androidDependsOn": ["spfn-core", "spfn-auth", "spfn-generated"]}
+    {"id": "core", "swiftTarget": "SPFNCore", "androidModule": "spfn-core", "swiftDependsOn": [], "androidDependsOn": [], "externalDeps": {"swift": [], "android": []}},
+    {"id": "generated", "swiftTarget": "SPFNGenerated", "androidModule": "spfn-generated", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"], "externalDeps": {"swift": [], "android": []}},
+    {"id": "auth", "swiftTarget": "SPFNAuth", "androidModule": "spfn-auth", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"], "externalDeps": {"swift": [], "android": []}},
+    {"id": "client", "swiftTarget": "SPFNClient", "androidModule": "spfn-client", "swiftDependsOn": ["SPFNCore", "SPFNAuth", "SPFNGenerated"], "androidDependsOn": ["spfn-core", "spfn-auth", "spfn-generated"], "externalDeps": {"swift": [], "android": ["okhttp", "kotlinx-coroutines-core"]}},
+    {"id": "social-apple", "swiftTarget": "SPFNSocialApple", "androidModule": null, "swiftDependsOn": ["SPFNClient"], "androidDependsOn": null, "swiftTrait": "SocialApple", "externalDeps": {"swift": [], "android": null}},
+    {"id": "social-google", "swiftTarget": "SPFNSocialGoogle", "androidModule": "spfn-social-google", "swiftDependsOn": ["SPFNClient"], "androidDependsOn": ["spfn-client"], "swiftTrait": "SocialGoogle", "externalDeps": {"swift": ["GoogleSignIn-iOS"], "android": ["androidx-credentials", "androidx-credentials-play-services-auth", "googleid"]}}
   ],
   "notes": [
     "A module exists here only once it carries an implementation. The persistence/sync and hybrid modules were declared in the Step 1 scaffold, never implemented, and published as empty coordinates through 0.1.0-alpha.3; they were dropped from the train instead. Adding one back means adding it with behaviour.",
     "Dependency edges are a Step 1 scaffold proposal derived from the layered design; they carry no implementation and may be revised in Step 2.",
-    "The client module gained edges to auth and generated with the session change set: a session assembles a clientProofV1 proof (auth) over a generated operation and its generated request type. The transport boundary inside the same module still depends on core alone."
+    "The client module gained edges to auth and generated with the session change set: a session assembles a clientProofV1 proof (auth) over a generated operation and its generated request type. The transport boundary inside the same module still depends on core alone.",
+    "schemaVersion 3 made a module one-platform-capable. `androidModule` is either an Android module name or the literal null, and null means DECLARED ABSENT: this module has no Android half at all. `social-apple` is the first — Apple ships no native sign-in SDK for Android, so the Android half would have been a nonce accessor and an empty seam, while everything an Android app actually needs (SpfnSocialNonce, appleRequestValue, enroll with provider \"apple\") lives in spfn-client and stays there. `androidDependsOn` and `externalDeps.android` are null on the same line for the same reason: there is nothing on that side to depend on anything.",
+    "Every reader must tell `null` apart from a key it could not read. The two are different events — the first is a declaration, the second is a broken parse — and a reader that treats both as \"skip\" reports a clean graph when it has read nothing at all. validate.sh buckets every module line into android-backed or declared-iOS-only and fails unless the two buckets add up to the number of module lines, which is what makes the skip narrow (docs/IMPLEMENTATION-PITFALLS.md P7).",
+    "schemaVersion 2 added two keys with the provider adapter modules. `swiftTrait` names the SwiftPM trait that switches a target's external dependency on, and is absent on every module that has none. `externalDeps` is the ALLOWLIST the validator holds each platform's manifests to: an external dependency that is not listed here fails, and a listed one that no manifest declares fails too.",
+    "Neither new key is a substring of another key in this file and neither appears twice on a module line, so a line-scoped extraction cannot read one where it meant the other (docs/IMPLEMENTATION-PITFALLS.md P5). `swiftTrait` and `swiftTarget` share a prefix on purpose-free grounds only: every reader matches the full quoted key name, never a prefix.",
+    "The Android names in `externalDeps` are version-catalogue aliases with dots replaced by hyphens: `libs.androidx.credentials.play.services.auth` is `androidx-credentials-play-services-auth`. The Swift names are the SwiftPM package identity, which is the last path component of the repository URL."
   ]
 }

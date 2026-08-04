@@ -1,6 +1,10 @@
 # Swift / SwiftPM
 .build/
 .swiftpm/
+# A resolution appears only when a consumer or a local build enables the SocialGoogle
+# trait. Committing it would pin transitive versions for every consumer, and its
+# absence is also evidence: a trait-off build resolves nothing at all.
+Package.resolved
 *.xcodeproj/
 *.xcworkspace/
 DerivedData/

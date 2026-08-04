@@ -5,18 +5,25 @@ This repository operates under a strict change policy, decided 2026-08-01
 
 - **No direct commits to `main`.** Branch protection rejects them, including from
   administrators. Every change lands through a pull request.
-- **Every change set is registered and reviewed.** A branch is registered as a
-  change set in the project state (`self integration register`), receives a fresh
-  cross-model review receipt (`self review ingest`) bound to the exact reviewed
-  bytes, and merges only with the owner's explicit approval.
-- **Delegated implementation runs as recorded attempts**, never as untracked agent
-  sessions: the attempt spool records the plan, capability boundary, model and
-  result envelope for every run.
-- The GitHub PR is the transport; the project state holds the gates. A green PR
-  with no receipt does not merge.
+- **Every change attaches to a work unit**, and the design behind it is approved item
+  by item rather than as one artifact. Cryptographic primitives, the authentication
+  model, data ownership and storage class are always separate items.
+- **How a diff is reviewed depends on whether a table can close it.** A surface with a
+  finite case table — state variables × operations × expected results — is closed by
+  that table before implementation starts, its tests correspond 1:1 to the cells, and
+  it gets no review round. What no table can close (platform crypto semantics,
+  cross-language classification, external integrations) goes to a fresh cross-model
+  review.
+- **Delegated implementation carries a written brief**: the case table or the
+  anticipated defects, the surfaces it touches, the machine gates it must pass before
+  review, and what is explicitly out of scope.
+- The GitHub PR is the transport; the project state holds the gates and the approvals.
 
-The SDK itself is still in staged bootstrap — transport, persistence and the hybrid
-bridge are scaffold stubs (see `docs/SCAFFOLD-STATUS.md`). Strict process, early code.
+The SDK is still a staged scaffold (`docs/SCAFFOLD-STATUS.md`), and no support row is
+claimed until real-device evidence exists. What changed is that a module now exists only
+with an implementation behind it — the persistence and hybrid coordinates were dropped
+rather than kept empty (see `docs/architecture/README.md`, "How a module is added").
+Strict process, early code.
 
 ## Issues and pull requests
 
@@ -26,10 +33,10 @@ GitHub is the transparency surface; the project state holds the gates.
   only when a maintainer accepts it: the `status:accepted` label AND a registered
   work unit in the project state, as a pair. One without the other starts nothing,
   and no automation turns an external issue into agent work.
-- **Pull requests** follow the template: a registered change set id, a fresh
-  cross-model review receipt id bound to the exact diff, the verification commands'
-  results, and a `Closes #N` reference. A green checklist is necessary, not
-  sufficient — the owner's recorded approval is the merge gate.
+- **Pull requests** follow the template: the work unit id, the approved decision ids,
+  how the diff was reviewed (a closed case table or a fresh cross-model review), the
+  verification commands' results, and a `Closes #N` reference. A green checklist is
+  necessary, not sufficient — the owner's recorded approval is the merge gate.
 - **Merges** are squash-only and `main` history is linear.
 
 ## Before you change anything

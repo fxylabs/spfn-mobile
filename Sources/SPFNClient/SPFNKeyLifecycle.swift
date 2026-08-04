@@ -194,7 +194,12 @@ public actor SPFNKeyLifecycle
     /// the literal algorithm name. On success the response's `userId` is persisted as
     /// the clientID every future proof carries (M2). On any failure the generated key
     /// is destroyed — nothing was persisted, so no orphan outlives the throw (M3).
-    public func enroll(provider: String, idToken: String, nonce: String) async throws -> SPFNEnrollmentResult
+    ///
+    /// The nonce arrives as `SPFNSocialNonce` rather than as a `String` because the
+    /// server compares the body against the raw value while Apple's request carries its
+    /// hash: a caller free to pass either would eventually pass the wrong one, and the
+    /// refusal that follows names nothing a log could point at.
+    public func enroll(provider: String, idToken: String, nonce: SPFNSocialNonce) async throws -> SPFNEnrollmentResult
     {
         guard Self.isProviderID(provider)
         else
@@ -220,7 +225,7 @@ public actor SPFNKeyLifecycle
             Self.oauthNativeCall(provider: provider),
             request: SPFNOauthNativeRequest(
                 idToken: idToken,
-                nonce: nonce,
+                nonce: nonce.rawValue,
                 publicKey: Data(key.publicKeySpkiDer).base64EncodedString(),
                 keyId: key.keyID,
                 fingerprint: SPFNDigest.sha256Hex(key.publicKeySpkiDer),

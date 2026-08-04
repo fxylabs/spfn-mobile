@@ -37,6 +37,9 @@ KEYSERVER=https://keyserver.ubuntu.com
 # Derived from the module graph, not hand-listed: a module added to or dropped from the
 # train changes what this script must fetch, and a stale list would silently stop
 # checking a published artifact.
+# Android-backed modules only. A module may declare `androidModule: null` (no Android
+# half at all), and the quoted-name extraction drops those — as it would drop every
+# module if it broke, which is why the count is checked before anything uses it.
 MODULES=$(sed -n 's/.*"androidModule": "\([^"]*\)".*/\1/p' tools/module-graph.json | tr '\n' ' ')
 SWIFT_TARGETS=$(sed -n 's/.*"swiftTarget": "\([^"]*\)".*/\1/p' tools/module-graph.json)
 FAILURES=0
@@ -46,6 +49,21 @@ die()
     printf 'verify-published FAIL: %s\n' "$1" >&2
     exit 1
 }
+
+assert_module_lists_are_complete()
+{
+    module_lines=$(grep -c '"swiftTarget"' tools/module-graph.json)
+    ios_only=$(grep -c '"androidModule": null' tools/module-graph.json || true)
+    maven_count=$(printf '%s\n' $MODULES | grep -c .)
+    swift_count=$(printf '%s\n' $SWIFT_TARGETS | grep -c .)
+    [ "$maven_count" -eq "$((module_lines - ios_only))" ] \
+        || die "the graph yields $maven_count Maven coordinates, expected $((module_lines - ios_only))"
+    [ "$swift_count" -eq "$module_lines" ] \
+        || die "the graph yields $swift_count Swift targets, expected $module_lines"
+    [ "$maven_count" -ge 4 ] || die "only $maven_count Maven coordinates were read from the module graph"
+}
+
+assert_module_lists_are_complete
 
 step()
 {

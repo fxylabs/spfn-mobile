@@ -202,8 +202,14 @@ class SpfnKeyLifecycle(
      * the literal algorithm name. On success the response's `userId` is persisted as
      * the clientId every future proof carries (M2). On any failure the generated key —
      * a Keystore entry by then — is destroyed, so no orphan outlives the throw (M3).
+     *
+     * The nonce arrives as [SpfnSocialNonce] rather than as a String because the server
+     * compares the body against the raw value while Apple's request carries its hash: a
+     * caller free to pass either would eventually pass the wrong one, and the refusal
+     * that follows names nothing a log could point at.
      */
-    suspend fun enroll(provider: String, idToken: String, nonce: String): SpfnEnrollmentResult = mutex.withLock {
+    @OptIn(SpfnInternalNonceAccess::class)
+    suspend fun enroll(provider: String, idToken: String, nonce: SpfnSocialNonce): SpfnEnrollmentResult = mutex.withLock {
         if (!isProviderId(provider))
         {
             throw SpfnKeyLifecycleException.MalformedProviderId();
@@ -223,7 +229,7 @@ class SpfnKeyLifecycle(
                 oauthNativeCall(provider),
                 SpfnOauthNativeRequest(
                     idToken = idToken,
-                    nonce = nonce,
+                    nonce = nonce.rawValue,
                     publicKey = Base64.encode(key.publicKeySpkiDer),
                     keyId = key.keyId,
                     fingerprint = SpfnDigest.sha256Hex(key.publicKeySpkiDer),
@@ -234,6 +240,11 @@ class SpfnKeyLifecycle(
             {
                 throw SpfnKeyLifecycleException.ServerNamedAnotherKey(sent = key.keyId, received = response.keyId);
             }
+            // Persisting is inside the same guard as the request, because a save that
+            // throws leaves an enrollment the server accepted with no local metadata
+            // naming it. The key would then outlive the throw as an orphan alias and
+            // the retry would mint a second one.
+            store.save(ACTIVE_SLOT, key.metadata(clientId = response.userId, createdAtMillis = clock.nowMillis()));
         }
         catch (failure: Throwable)
         {
@@ -243,7 +254,6 @@ class SpfnKeyLifecycle(
             throw failure;
         }
 
-        store.save(ACTIVE_SLOT, key.metadata(clientId = response.userId, createdAtMillis = clock.nowMillis()));
         SpfnEnrollmentResult(clientId = response.userId, keyId = key.keyId, isNewUser = response.isNewUser);
     }
 

@@ -36,7 +36,8 @@
 | 계약 번들 교체·재핀, `upstream.lock.json` 수정 | [P1](#p1) [P2](#p2) [P3](#p3) [P6](#p6) |
 | `tools/validate/` 수정, 새 검사 추가 | [P4](#p4) [P5](#p5) [P6](#p6) [P7](#p7) |
 | `tools/contract-codegen/` 수정, 계약 타입 문법 변화 | [P8](#p8) [P2](#p2) |
-| Swift·Kotlin 대칭 로직 추가·수정 | [P9](#p9) [P10](#p10) |
+| Swift·Kotlin 대칭 로직 추가·수정 | [P9](#p9) [P10](#p10) [P15](#p15) |
+| 플랫폼 콜백 API를 async/suspend로 감싸기, 제공자 어댑터 | [P16](#p16) [P15](#p15) |
 | 공유 conformance 표·fixture 수정 | [P10](#p10) [P2](#p2) |
 | 게이트·통합 매트릭스 실행 | [P11](#p11) [P12](#p12) |
 | 버전 범위·호환성 규칙 수정 | [P3](#p3) [P13](#p13) |
@@ -270,8 +271,12 @@ wire 경로를 건드리지 않은 change set에서는 재실행이 선택이다
 range 문자열, 에러 메시지, doc comment, COMPATIBILITY.md 행, 생성 코드.
 직렬화 포맷·DSL(YAML·Gradle DSL)을 향한 검사를 신설·확장할 때는 표기 변형을 probe에
 반드시 심는다 — flow/block 스타일, quoted 키, 리스트 항목 접두(`- uses:`),
-호출형/대입형. 이 클래스는 한 PR 사이클에서 3회 재발했다: F-A(flow-style `on:` 트리거
+호출형/대입형, **블록 여는 줄에 같이 쓴 항목**(`dependencies { implementation(...) }`).
+이 클래스는 한 PR 사이클에서 3회 재발했다: F-A(flow-style `on:` 트리거
 통과) → DF-2(quoted `"push":` skip) → `- uses:`(step 첫 키 관용형이 앵커 추출을 우회).
+w-6m8dz에서 4번째로 나왔다: Gradle 의존성 검사가 `^[[:space:]]*(api|implementation)\(`로
+줄을 앵커해 읽어서, 블록 여는 줄에 함께 쓴 의존성이 통과했다. **줄이 아니라 출현을
+읽는다** — 앵커를 버리고 `grep -oE`로 모든 출현을 뽑아 판정한다.
 일반형 패턴은 coding-context `reliability/denylist-notation-bypass`.
 
 **처방.** 규칙 변경과 그것을 서술하는 문자열 변경을 같은 커밋에 넣는다. 파생 불가면
@@ -301,6 +306,65 @@ minSdk(24)보다 높으면 실기기에서 크래시한다. lint(NewApi)가 잡�
 — enrollment·rotation 본문 인코딩이 API 24/25에서 크래시하는 결함. alpha.3 릴리스
 change set에서 발견·수정.
 
+## P15. 같은 규칙이라도 두 언어의 강제력이 다르다 {#p15}
+
+**증상.** Swift에서 막은 것을 Kotlin에 "같은 모양"으로 옮기고 대칭이 됐다고 본다.
+모양은 같고 강제력은 다르다. `package` 가시성은 패키지 밖에서 이름 자체를 지우지만,
+`@RequiresOptIn`은 Kotlin 컴파일러 규칙이라 Java 호출자에게는 아무 게이트가 아니다.
+수명도 갈린다 — 실패한 등록에서 Swift는 메모리 값 하나를 버리면 되고, Android는 이미
+Keystore에 별칭이 있어 지우지 않으면 고아로 남는다.
+
+**탐지.** 대칭 코드에서 "앱이 이것을 할 수 없다"를 주장하면, 그 주장을 **각 플랫폼의
+소비 언어마다** 따로 확인한다. Android 모듈은 Java에서도 소비된다. 확인 명령:
+
+```
+# 접근자가 Java 시야에서 지워졌는지는 클래스 플래그로 판정한다.
+# -v가 필요하다 — javap -p는 synthetic 메서드도 평범한 public으로 찍는다.
+javap -v -p -cp android/spfn-client/build/intermediates/built_in_kotlinc/debug/compileDebugKotlin/classes \
+  xyz.superfunction.spfn.client.SpfnSocialNonce | grep -A3 'getRawValue()'
+# 기대: flags 줄에 ACC_SYNTHETIC. 없으면 Java에서 그냥 읽힌다.
+```
+
+정리(cleanup) 블록이면 **성공 경로의 마지막 부수효과까지** 감싸는지 본다. 서버가 이미
+받아들인 뒤에 던지는 구간이 블록 밖에 있으면 적중.
+
+**처방.** Kotlin 쪽은 opt-in에 `@get:JvmSynthetic`을 겹쳐 두 언어가 같은 접근을
+거부하게 한다. 플랫폼이 요구하는 타입은 넓은 상위 타입(`Context`)이 아니라 실제로
+동작하는 타입(`Activity`)으로 받는다 — 컴파일되고 사용자가 보는 순간 실패하는 인자는
+값 타입으로 막는 것과 같은 종류의 결함이다. 수명이 갈리는 자원은 대칭을 코드 모양이
+아니라 **무엇이 남는가**로 맞춘다.
+
+**나온 곳.** PR #24 fresh 리뷰 — `SpfnSocialNonce.rawValue`가 Java에서 그냥 읽혔고
+(승인된 결정 "앱은 raw를 읽거나 보낼 수 없다"가 Android에서 성립하지 않았다),
+`SpfnKeyLifecycle.enroll`의 `store.save`가 정리 블록 밖이라 저장 실패가 Keystore
+별칭을 고아로 남겼으며, Credential Manager 드라이버가 `Context`를 받아 application
+context로도 컴파일됐다.
+
+## P16. 취소는 실패가 아니다 {#p16}
+
+**증상.** 어댑터가 `catch (Throwable)`/`catch`로 전부 받아 제 에러 타입으로 분류한다.
+그 그물에 취소가 같이 걸린다. Kotlin은 `CancellationException`을 던져 코루틴을
+취소하므로 호출자 스코프는 취소된 적 없다고 믿고, Swift에서는 `CancellationError`가
+`NSError`로 읽혀 `code: 0`짜리 "제공자 거부"가 된다. 사용자가 겪은 적 없는 실패다.
+
+반대편도 있다. 플랫폼 콜백 API를 `withCheckedContinuation`으로 감쌀 때, 시트를 닫는
+것은 델리게이트 콜백으로 오지만 **태스크 취소는 아무것도 부르지 않는다.** 핸들러가
+없으면 continuation은 프로세스가 끝날 때까지 suspend로 남는다.
+
+**탐지.** 어댑터의 catch 절이 취소 타입보다 먼저 넓게 잡는지 본다. `withCheckedContinuation`
+계열이면 `withTaskCancellationHandler`가 같이 있는지, 컨트롤러를 취소할 수 있게
+보관하는지 본다. 제공자의 "사용자가 닫음" 예외와 언어의 취소 예외는 **다른 타입**이고
+둘 다 "cancelled"로 읽혀 한쪽만 처리하기 쉽다.
+
+**처방.** 취소는 분류하지 말고 그대로 다시 던진다(Kotlin은 `classify`의 첫 분기,
+Swift는 `catch let … as CancellationError`). continuation은 취소 핸들러에서 먼저
+resume하고 그 다음 플랫폼 컨트롤러를 취소한다 — 순서가 반대면 콜백이 먼저 도착해
+취소가 제공자 거부로 보고된다.
+
+**나온 곳.** PR #24 fresh 리뷰 — Google 어댑터가 `CancellationException`을
+`Failed(SIGN_IN_FAILED)`로 바꿨고, Apple 세션에는 취소 핸들러가 없어 태스크 취소가
+continuation과 세션을 영구히 붙잡았다. 범용 축은 coding-context 후보.
+
 ## 원장
 
 change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서 나온 finding 수**를 적는다.
@@ -313,6 +377,17 @@ change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서
 | PR #11 (w-6s7yg) | 2 | 4 | 0 |
 | PR #12 (w-9phsb) | 2 | 8 | 0 |
 | PR #13 (w-9phsb, 관측성) | 1 | 1 | 0 |
+| w-6m8dz (네이티브 소셜) | 0 — 케이스 표로 닫음 | 1 (probe가 스스로 잡음) | 0 |
+| PR #24 잔여 fresh 리뷰 | 1 | 6 (5 확정, 1 기각) | 0 |
+
+**PR #24 읽는 법.** 케이스 표가 닫은 표면에는 리뷰를 두지 않고, 표로 못 닫는 잔여
+3가지(플랫폼 암호·인증 API 의미론, 언어 간 분류 갈림, 외부 통합)만 리뷰에 넘겼다.
+확정 5건이 전부 그 잔여에서 나왔고 표가 덮은 셀에서는 하나도 나오지 않았다 — 범위
+분리가 의도대로 작동했다. 기각 1건은 SwiftPM 트레이트가 의존성 해석을 막지 못한다는
+주장으로, 리뷰어가 문서만 읽고 낸 결론이었다. 소비자 패키지 2개로 실측해 반증했다
+(트레이트 OFF: 원격 패키지 0개·`Package.resolved` 없음 / ON: 8개 체크아웃).
+**리뷰어의 문서 추론은 실측 앞에서 진다** — 이것이 6번째 항목이 아니라 이 줄인 이유는,
+등록부가 담는 것은 코드 함정이지 리뷰 운영이 아니기 때문이다.
 
 **cs-mzv14 읽는 법.** 등록부를 도입한 change set 자신이다. 브리프에 인용한 항목은
 [P4](#p4)–[P7](#p7)이었고 리뷰가 넷 다 지켜졌다고 확인했다. finding 10건 중 9건은

@@ -5,6 +5,74 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Native social sign-in has an SDK surface, and the nonce is no longer a string
+
+- `SPFNSocialApple` and `SPFNSocialGoogle` / `spfn-social-google` are the first modules
+  added under the five module rules. Each carries an implementation, each drags in a
+  provider dependency most consumers will not link, and each closes exactly one gap:
+  obtaining a provider token on the device. Key generation, the registration request and
+  the account are owned by `SPFNKeyLifecycle.enroll` and by the server, and none of it
+  was reimplemented.
+- The Apple adapter is iOS-only, and the module graph can now say so: `androidModule` is
+  either a name or the literal `null`. Apple ships no native sign-in SDK for Android, so
+  the Android half would have owned a one-line nonce accessor and a seam the app fills
+  in anyway, while App Store guideline 4.8 requires the button on iOS alone. An Android
+  app signing in with Apple is unaffected — `SpfnSocialNonce`, `appleRequestValue` and
+  `enroll(provider = "apple", …)` are in `spfn-client` and always were.
+- `null` is a declaration, not an omission, and the validator refuses to confuse the two:
+  every module line is bucketed into Android-backed or declared-iOS-only, the buckets
+  must add up to the number of lines, and each platform is counted against its own floor.
+  A skip that also covers a line nobody could parse is how a graph check reports green
+  having read nothing.
+- `SPFNSocialNonce` / `SpfnSocialNonce` replaces the `String` nonce on `enroll`. It mints
+  a random lowercase-hex value, hides it, and publishes only `appleRequestValue` — the
+  SHA-256 of it. Apple's request carries the hash, every other provider's carries the raw
+  value, and the server always compares against the raw value; an app that could pass
+  either would eventually pass the wrong one, and the refusal that follows names nothing.
+- The raw value is deliberately not base64. A base64url value's last character carries
+  fewer than six bits, and Naver hands back a different trailing character than it was
+  given (primitives #57). The shape is fixed now rather than after flows are enrolled.
+- The Android adapter runs on Credential Manager — `androidx.credentials` 1.6.0,
+  `credentials-play-services-auth` 1.6.0 and `googleid` 1.2.0 — rather than on the
+  deprecated one-tap surface in `play-services-auth`. It was written on the deprecated
+  API first, behind two suppressions, and moved before anything shipped; a suppression
+  is what keeps a retired API out of a build log, so `validate.sh` refuses one anywhere
+  in SDK sources and the probe proves the refusal bites. The nonce still rides raw, now
+  in `GetGoogleIdOption`, and a dismissal is still told apart from a failure, now by
+  `GetCredentialCancellationException` rather than by a numeric status code.
+- The manifest baseline moved to swift-tools-version 6.1 (D5 revision 3b) for package
+  traits. `SocialApple` and `SocialGoogle` are declared, neither is on by default, and a
+  trait-off consumer resolves nothing: a cold build creates no `Package.resolved` and no
+  checkout, which is now what the trait-off build is expected to prove.
+- `tools/module-graph.json` gained `swiftTrait` and `externalDeps`, and the validator's
+  "zero external dependencies" rule became an allowlist read from the graph, checked in
+  both directions on both platforms — an undeclared dependency fails, and so does an
+  allowance nothing uses. Zero was never the property worth keeping; reviewed was.
+- The interactive-browser vocabulary ban is narrowed to a named exception rather than
+  loosened: only inside the two adapter module trees, and only for the provider-token
+  words. Redirect and PKCE vocabulary stays refused everywhere, adapters included.
+- Kakao and Naver adapters are not here. The server has no `verifyNativeIdToken` for
+  them (primitives #56, #57), and a module is added with an implementation or not at all.
+- A cancelled task now reads as a cancellation on both platforms. Both adapters caught
+  everything and classified it, so cancelling the caller — `CancellationException` in
+  Kotlin, `CancellationError` in Swift — was reported as a sign-in the provider refused,
+  while the caller's own scope believed it had never been cancelled. Apple's session also
+  had no cancellation handler at all: the sheet's dismissal arrives as a delegate
+  callback, but a cancelled task arrives as nothing, and the continuation stayed
+  suspended for the life of the process. It now resumes and takes the sheet down.
+- `SpfnSocialNonce.rawValue` is `@get:JvmSynthetic`. The decision behind the type says an
+  app cannot read the raw value, and `@RequiresOptIn` enforced that in Kotlin and nowhere
+  else — a Java caller saw an ordinary getter and no opt-in to write. Swift needed no
+  counterpart: `package` visibility already removes the name outside the package.
+- An enrollment the server accepted and the device cannot record no longer leaves a
+  Keystore alias behind. Persisting moved inside the same guard as the request, so a
+  store that throws destroys the key rather than orphaning an alias the retry cannot
+  find. This is Android-only by nature — on iOS a failed enrollment drops a value.
+- `SpfnSocialGoogleCredentialDriver` takes an `Activity` rather than a `Context`.
+  `getCredential` puts an account picker on the screen and Android asks for an activity
+  to present it from; a `Context` parameter compiled against an application context and
+  failed at the one moment a user was watching.
+
 ### The empty modules are gone, and the rule that made them is written down
 
 - `SPFNPersistence` / `spfn-sync` and `SPFNHybrid` / `spfn-hybrid` are dropped. Both were

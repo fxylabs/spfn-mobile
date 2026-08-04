@@ -37,7 +37,7 @@ final class SPFNKeyLifecycleTests: XCTestCase
         let result = try await lifecycle.enroll(
             provider: try oauthNative.text("provider"),
             idToken: try value.text("idToken"),
-            nonce: try value.text("nonce")
+            nonce: SPFNSocialNonce(raw: try value.text("nonce"))
         )
 
         XCTAssertEqual(result, SPFNEnrollmentResult(clientID: "user-test-0001", keyID: "key-test-0001", isNewUser: true))
@@ -99,7 +99,7 @@ final class SPFNKeyLifecycleTests: XCTestCase
 
         let thrown = await failure
         {
-            _ = try await lifecycle.enroll(provider: "google", idToken: "idtoken-test", nonce: "nonce-enroll-9999")
+            _ = try await lifecycle.enroll(provider: "google", idToken: "idtoken-test", nonce: SPFNSocialNonce(raw: "nonce-enroll-9999"))
         }
 
         XCTAssertNotNil(thrown)
@@ -120,7 +120,7 @@ final class SPFNKeyLifecycleTests: XCTestCase
         {
             let thrown = await failure
             {
-                _ = try await lifecycle.enroll(provider: provider, idToken: "t", nonce: "n")
+                _ = try await lifecycle.enroll(provider: provider, idToken: "t", nonce: SPFNSocialNonce(raw: "n"))
             }
             XCTAssertEqual(thrown as? SPFNKeyLifecycleError, .malformedProviderID, "'\(provider)' was accepted")
         }

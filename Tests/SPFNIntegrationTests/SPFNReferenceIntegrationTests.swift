@@ -259,7 +259,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let enrolled = try await lifecycle.enroll(
             provider: "google",
             idToken: "spfn-test-idtoken.google.\(userID).\(nonce)",
-            nonce: nonce
+            nonce: SPFNSocialNonce(raw: nonce)
         )
         XCTAssertEqual(enrolled.clientID, userID)
         XCTAssertTrue(enrolled.isNewUser)
