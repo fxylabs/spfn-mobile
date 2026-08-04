@@ -9,11 +9,14 @@
 
 package xyz.superfunction.spfn.client
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import xyz.superfunction.spfn.auth.SpfnEcdsa
@@ -24,6 +27,7 @@ import java.security.KeyFactory
 import java.security.Signature
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
+import kotlin.coroutines.cancellation.CancellationException
 
 class SpfnKeyLifecycleTest
 {
@@ -45,11 +49,11 @@ class SpfnKeyLifecycleTest
         val engine = scriptedEngine(testKeyPair());
         val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
 
-        val result = lifecycle.enroll(
-            provider = oauthNative.text("provider"),
-            idToken = value.text("idToken"),
-            nonce = SpfnSocialNonce.of(value.text("nonce"))
-        );
+        // The fixture's token is answered as the sign-in's result. The nonce is not
+        // passed at all any more: the lifecycle derives it from the key it generated,
+        // and the body assertion below is what proves it derived the fixture's value.
+        val fixtureToken = value.text("idToken");
+        val result = lifecycle.enroll(provider = oauthNative.text("provider")) { fixtureToken };
 
         assertEquals(SpfnEnrollmentResult("user-test-0001", "key-test-0001", true), result);
 
@@ -108,7 +112,7 @@ class SpfnKeyLifecycleTest
         val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
 
         val thrown = failureOf {
-            lifecycle.enroll(provider = "google", idToken = "idtoken-test", nonce = SpfnSocialNonce.of("nonce-enroll-9999"));
+            lifecycle.enroll(provider = "google") { "idtoken-test" };
         };
 
         assertNotNull(thrown);
@@ -138,7 +142,7 @@ class SpfnKeyLifecycleTest
         val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
 
         val thrown = failureOf {
-            lifecycle.enroll(provider = "google", idToken = "idtoken-test", nonce = SpfnSocialNonce.of("nonce-enroll-9999"));
+            lifecycle.enroll(provider = "google") { "idtoken-test" };
         };
 
         assertEquals("the store's own refusal reaches the caller", refusal, thrown);
@@ -156,10 +160,302 @@ class SpfnKeyLifecycleTest
 
         for (provider in listOf("", "Google", "google/../evil", "goo gle", "google{", "구글", "ｇoogle"))
         {
-            val thrown = failureOf { lifecycle.enroll(provider = provider, idToken = "t", nonce = SpfnSocialNonce.of("n")) };
+            val thrown = failureOf { lifecycle.enroll(provider = provider) { "t" } };
             assertTrue("'$provider' was accepted: $thrown", thrown is SpfnKeyLifecycleException.MalformedProviderId);
         }
         assertEquals(0, transport.callCount);
+    }
+
+    // ---- the enroll cells the closure entry point added -------------------
+
+    /** Cell 2: a key already exists — refused, and the sign-in never runs. */
+    @Test
+    fun c2_enrolledRefusesAndRunsNoSignIn() = runBlocking {
+        val transport = ScriptedTransport(emptyList());
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair());
+        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-existing-0001"));
+        // An install that already holds a key: the metadata is what `state()` reads, and
+        // writing it directly is how the M-series rows set this up too.
+        store.save(
+            SpfnKeyLifecycle.ACTIVE_SLOT,
+            SpfnStoredKeyMetadata(
+                keyId = "key-existing-0001",
+                clientId = "user-existing-0001",
+                custody = SpfnKeyCustody.TRUSTED_ENVIRONMENT,
+                createdAtMillis = 1_750_000_000_000,
+                alias = "spfn-client-key-key-existing-0001"
+            )
+        );
+
+        var signInRan = 0;
+        val thrown = failureOf { lifecycle.enroll(provider = "apple") { signInRan++; "t" } };
+
+        assertTrue("$thrown", thrown is SpfnKeyLifecycleException.AlreadyEnrolled);
+        assertEquals("an already-enrolled install must not put a sign-in sheet up", 0, signInRan);
+    }
+
+    /** Cell 3: a rotation is unresolved — refused, and the sign-in never runs. */
+    @Test
+    fun c3_rotationPendingRefusesAndRunsNoSignIn() = runBlocking {
+        val transport = ScriptedTransport(emptyList());
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair());
+        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
+        store.save(
+            SpfnKeyLifecycle.CANDIDATE_SLOT,
+            SpfnStoredKeyMetadata(
+                keyId = "key-candidate-0001",
+                clientId = "user-existing-0001",
+                custody = SpfnKeyCustody.TRUSTED_ENVIRONMENT,
+                createdAtMillis = 1_750_000_000_000,
+                alias = "spfn-client-key-key-candidate-0001"
+            )
+        );
+
+        var signInRan = 0;
+        val thrown = failureOf { lifecycle.enroll(provider = "apple") { signInRan++; "t" } };
+
+        assertTrue("$thrown", thrown is SpfnKeyLifecycleException.RotationUnresolved);
+        assertEquals("an unresolved rotation must not put a sign-in sheet up", 0, signInRan);
+        assertEquals("an unresolved rotation must not reach the network", 0, transport.callCount);
+    }
+
+    /**
+     * Cell 4: a second enrollment during the first one's sign-in is refused.
+     *
+     * The state checks cannot catch this on their own — an enrollment in progress has
+     * saved nothing, so both calls read UNENROLLED. Without the in-flight claim both
+     * would generate a Keystore entry and register it, and the second save would bury the
+     * first registration while the server kept honouring it.
+     */
+    @Test
+    fun c4_aSecondEnrollmentDuringTheSignInIsRefused() = runBlocking {
+        val transport = ScriptedTransport(
+            listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
+        );
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair(), testKeyPair());
+        val lifecycle = makeLifecycle(
+            transport, store, engine,
+            keyIds = listOf("key-test-0001", "key-test-0002")
+        );
+        val arrived = CompletableDeferred<Unit>();
+        val release = CompletableDeferred<Unit>();
+
+        val first = async {
+            lifecycle.enroll(provider = "apple")
+            {
+                arrived.complete(Unit);
+                release.await();
+                "idtoken-first";
+            }
+        };
+        arrived.await();
+
+        val thrown = failureOf { lifecycle.enroll(provider = "apple") { "idtoken-second" } };
+        assertTrue("$thrown", thrown is SpfnKeyLifecycleException.EnrollmentInFlight);
+
+        release.complete(Unit);
+        val result = first.await();
+
+        assertEquals("the first enrollment is the one that settled", "key-test-0001", result.keyId);
+        assertEquals("exactly one registration reached the server", 1, transport.callCount);
+    }
+
+    /**
+     * Cell 4: the claim is released however the call leaves, so a failed enrollment does
+     * not lock the install out of enrolling again. The release is deliberately not a
+     * suspending one — a cancelled coroutine could not run that, and a claim outliving its
+     * call would be permanent.
+     */
+    @Test
+    fun c4_aFailedEnrollmentReleasesTheClaim() = runBlocking {
+        val transport = ScriptedTransport(
+            listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-test-0002\",\"userId\":\"user-test-0001\"}"))
+        );
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair(), testKeyPair());
+        val lifecycle = makeLifecycle(
+            transport, store, engine,
+            keyIds = listOf("key-test-0001", "key-test-0002")
+        );
+
+        val thrown = failureOf { lifecycle.enroll(provider = "apple") { throw SignInRefused() } };
+        assertTrue("$thrown", thrown is SignInRefused);
+
+        val result = lifecycle.enroll(provider = "apple") { "idtoken-retry" };
+        assertEquals("key-test-0002", result.keyId);
+    }
+
+    /**
+     * Cell 20: a rotation started during a sign-in answers NotEnrolled, because at that
+     * moment the install genuinely holds no key. This is also what proves the mutex is
+     * not held across the sign-in: a held mutex would hang here instead of answering.
+     */
+    @Test
+    fun c20_rotateDuringTheSignInAnswersNotEnrolled() = runBlocking {
+        val transport = ScriptedTransport(
+            listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
+        );
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair());
+        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
+        val arrived = CompletableDeferred<Unit>();
+        val release = CompletableDeferred<Unit>();
+
+        val first = async {
+            lifecycle.enroll(provider = "apple")
+            {
+                arrived.complete(Unit);
+                release.await();
+                "idtoken-first";
+            }
+        };
+        arrived.await();
+
+        val thrown = failureOf { lifecycle.rotate() };
+        assertTrue("$thrown", thrown is SpfnKeyLifecycleException.NotEnrolled);
+
+        release.complete(Unit);
+        first.await();
+        Unit;
+    }
+
+    /**
+     * Cell 5: a cancelled sign-in reaches the caller as the cancellation it was, and the
+     * Keystore entry the enrollment generated is deleted. This is the case the whole
+     * closure shape exists for: the key has to be made before the provider is asked, so
+     * abandoning the sheet must not strand it.
+     */
+    @Test
+    fun c5_aCancelledSignInPropagatesUnchangedAndDestroysTheKey() = runBlocking {
+        val transport = ScriptedTransport(emptyList());
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair());
+        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
+
+        val thrown = failureOf { lifecycle.enroll(provider = "apple") { throw CancellationException("dismissed") } };
+
+        assertTrue("the cancellation was reshaped into $thrown", thrown is CancellationException);
+        assertEquals("a cancelled sign-in must not reach the network", 0, transport.callCount);
+        assertFalse("the Keystore entry was deleted, not orphaned", engine.contains("spfn-client-key-key-test-0001"));
+        assertEquals(SpfnKeyLifecycleState.UNENROLLED, lifecycle.state());
+    }
+
+    /** Cell 6: any other refusal from the sign-in reaches the caller unchanged. */
+    @Test
+    fun c6_aRefusedSignInPropagatesUnchangedAndDestroysTheKey() = runBlocking {
+        val transport = ScriptedTransport(emptyList());
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair());
+        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
+        val refusal = SignInRefused();
+
+        val thrown = failureOf { lifecycle.enroll(provider = "apple") { throw refusal } };
+
+        assertSame("the provider's own error is the app's to read", refusal, thrown);
+        assertEquals(0, transport.callCount);
+        assertFalse(engine.contains("spfn-client-key-key-test-0001"));
+    }
+
+    /**
+     * Cell 7: an empty token is refused here rather than sent. The server can only refuse
+     * it, and its refusal for this is outside the contract's error codes — so the app
+     * would read an unknown code naming nothing.
+     */
+    @Test
+    fun c7_anEmptyTokenIsRefusedBeforeTheNetwork() = runBlocking {
+        val transport = ScriptedTransport(emptyList());
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair());
+        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
+
+        val thrown = failureOf { lifecycle.enroll(provider = "apple") { "" } };
+
+        assertTrue("$thrown", thrown is SpfnKeyLifecycleException.IdTokenMissing);
+        assertEquals(0, transport.callCount);
+        assertFalse(engine.contains("spfn-client-key-key-test-0001"));
+    }
+
+    /**
+     * Cell 9: a success naming a different key is refused and stores nothing. A server
+     * that confirms another key has not registered the one this device holds.
+     */
+    @Test
+    fun c9_successNamingAnotherKeyIsRefusedAndStoresNothing() = runBlocking {
+        val transport = ScriptedTransport(
+            listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-other-9999\",\"userId\":\"user-test-0001\"}"))
+        );
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair());
+        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
+
+        val thrown = failureOf { lifecycle.enroll(provider = "apple") { "idtoken-apple" } };
+
+        assertTrue("$thrown", thrown is SpfnKeyLifecycleException.ServerNamedAnotherKey);
+        assertNull(store.load(SpfnKeyLifecycle.ACTIVE_SLOT));
+        assertFalse(engine.contains("spfn-client-key-key-test-0001"));
+    }
+
+    /**
+     * Cell 11: a transport failure destroys the key and hands the error on. Enrollment is
+     * the one flow where a lost answer needs no resume: nothing was persisted, so the next
+     * attempt starts from the state this one started from.
+     */
+    @Test
+    fun c11_aTransportFailureDestroysTheKeyAndPropagates() = runBlocking {
+        val transport = ScriptedTransport(listOf(ScriptedTransport.Outcome.Failure(SpfnTransportError.Connectivity("offline"))));
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair());
+        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
+
+        val thrown = failureOf { lifecycle.enroll(provider = "apple") { "idtoken-apple" } };
+
+        assertNotNull(thrown);
+        assertNull(store.load(SpfnKeyLifecycle.ACTIVE_SLOT));
+        assertFalse(engine.contains("spfn-client-key-key-test-0001"));
+    }
+
+    /**
+     * Cell 15: the body's nonce is the fingerprint, and the sign-in was handed a nonce
+     * minted for the provider the call named. The apple case is the one that matters:
+     * its request value is a different string from the one the body carries.
+     */
+    @Test
+    fun c15_theBodyCarriesTheFingerprintAndTheSignInGetsTheProvidersShape() = runBlocking {
+        for (provider in listOf("apple", "google", "kakao", "naver"))
+        {
+            val transport = ScriptedTransport(
+                listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
+            );
+            val store = InMemoryKeyMetadataStore();
+            val engine = scriptedEngine(testKeyPair());
+            val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
+
+            var handed: SpfnSocialNonce? = null;
+            lifecycle.enroll(provider = provider) { nonce -> handed = nonce; "idtoken-$provider" };
+
+            val nonce = requireNotNull(handed);
+            assertEquals(provider, nonce.provider);
+
+            val body = String(requireNotNull(transport.received.first().body));
+            assertTrue(
+                "$provider: the body's nonce must be the fingerprint",
+                body.contains("\"nonce\":\"${nonce.fingerprint}\"")
+            );
+            assertTrue(
+                "$provider: the body's fingerprint must be the same value",
+                body.contains("\"fingerprint\":\"${nonce.fingerprint}\"")
+            );
+            if (provider == "apple")
+            {
+                assertFalse(
+                    "apple: the body must not carry the value the authorization request took",
+                    body.contains(nonce.requestValue)
+                );
+            }
+        }
     }
 
     // ---- M4: rotation swaps on success, with the fixture's exact wire shape
@@ -458,6 +754,9 @@ class SpfnKeyLifecycleTest
             newKeyId = { if (remaining.isEmpty()) "key-unexpected" else remaining.removeAt(0) }
         );
     }
+
+    /** What a sign-in that refuses looks like: an error of the app's own making. */
+    private class SignInRefused : IllegalStateException("the app's sign-in refused")
 
     private suspend fun failureOf(body: suspend () -> Unit): Throwable?
     {

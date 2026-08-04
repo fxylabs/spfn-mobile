@@ -1,10 +1,11 @@
 // SPFN Mobile — the Google Sign-In half of a native enrollment.
 //
 // Same shape as the Apple adapter and one deliberate difference: Google's request
-// carries the RAW nonce, not its hash. Apple is the exception in this SDK, and the
-// exception lives in one place — `SPFNSocialNonce.appleRequestValue` — so an adapter
-// that reaches for the raw value is doing the ordinary thing rather than the risky one.
-// The value type is what makes that checkable: neither shape is an app's to pick.
+// carries the key fingerprint itself, not its hash. Apple is the exception in this SDK,
+// and the exception lives in one place — `SPFNSocialNonce.requestValue`, which the nonce
+// computed from the provider it was minted for. So both adapters read the same member
+// and neither picks a shape; what an adapter does check is that the nonce it was handed
+// was minted for its own provider.
 //
 // The external dependency is trait-gated. A consumer that does not enable the
 // `SocialGoogle` trait does not resolve, check out or link Google's SDK, and this file
@@ -34,6 +35,9 @@ public enum SPFNSocialGoogleError: Error, Equatable, Sendable
 
     /// Any other refusal from the platform flow, carrying Google's numeric code.
     case signInFailed(code: Int)
+
+    /// The nonce was minted for a different provider. See the guard in `idToken`.
+    case nonceProviderMismatch
 }
 
 /// The seam between this adapter and Google's flow, so the adapter's rules are testable
@@ -53,6 +57,10 @@ public struct SPFNSocialGoogle: Sendable
     /// Google's SDK instead of from this file.
     package static let errorDomain = "com.google.GIDSignIn"
 
+    /// The provider name an enrollment for this adapter is started under, and the one a
+    /// nonce must have been minted for.
+    package static let provider = "google"
+
     #if SocialGoogle
     package static let cancelledCode = GIDSignInError.canceled.rawValue
     #else
@@ -67,14 +75,24 @@ public struct SPFNSocialGoogle: Sendable
         self.driver = driver
     }
 
-    /// The token to hand `SPFNKeyLifecycle.enroll` together with the same nonce.
+    /// The token to answer `SPFNKeyLifecycle.enroll` with, from inside its closure.
     public func idToken(nonce: SPFNSocialNonce) async throws -> String
     {
+        // Google's flow reads the raw fingerprint, and an apple-minted nonce carries a
+        // hash instead — the token would come back bound to a value the SPFN server
+        // never compares against, and its refusal is a code the app cannot read.
+        guard nonce.provider == Self.provider
+        else
+        {
+            throw SPFNSocialGoogleError.nonceProviderMismatch
+        }
+
         let token: String?
         do
         {
-            // The raw value, not the hash: Apple is the only provider that hashes.
-            token = try await driver.identityToken(requestNonce: nonce.rawValue)
+            // `requestValue` is the raw fingerprint here: Apple is the only provider
+            // whose request carries a hash instead.
+            token = try await driver.identityToken(requestNonce: nonce.requestValue)
         }
         catch let cancellation as CancellationError
         {

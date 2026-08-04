@@ -12,12 +12,21 @@ import SPFNSocialGoogle
 
 final class SPFNSocialGoogleTests: XCTestCase
 {
+    /// A fingerprint shaped as one taken over a real key: 64 lowercase hex characters.
+    /// Fixed, because what these rows test is the adapter's handling of it, not its value.
+    private static let fingerprint = "aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a"
+
+    private static func googleNonce() -> SPFNSocialNonce
+    {
+        SPFNSocialNonce(fingerprint: fingerprint, provider: "google")
+    }
+
     /// C5: the user completes the flow — the token comes back untouched.
     func test_C5_aCompletedSignInReturnsTheToken() async throws
     {
         let adapter = SPFNSocialGoogle(driver: RecordingGoogleDriver(outcome: .success("google-token-0001")))
 
-        let token = try await adapter.idToken(nonce: SPFNSocialNonce.make())
+        let token = try await adapter.idToken(nonce: Self.googleNonce())
 
         XCTAssertEqual(token, "google-token-0001")
     }
@@ -31,7 +40,7 @@ final class SPFNSocialGoogleTests: XCTestCase
 
         let thrown = await failure
         {
-            _ = try await dismissed.idToken(nonce: SPFNSocialNonce.make())
+            _ = try await dismissed.idToken(nonce: Self.googleNonce())
         }
         XCTAssertEqual(thrown as? SPFNSocialGoogleError, .cancelled)
 
@@ -40,7 +49,7 @@ final class SPFNSocialGoogleTests: XCTestCase
 
         let other = await failure
         {
-            _ = try await failed.idToken(nonce: SPFNSocialNonce.make())
+            _ = try await failed.idToken(nonce: Self.googleNonce())
         }
         XCTAssertEqual(other as? SPFNSocialGoogleError, .signInFailed(code: -2))
 
@@ -60,7 +69,7 @@ final class SPFNSocialGoogleTests: XCTestCase
 
         let thrown = await failure
         {
-            _ = try await adapter.idToken(nonce: SPFNSocialNonce.make())
+            _ = try await adapter.idToken(nonce: Self.googleNonce())
         }
 
         XCTAssertTrue(
@@ -69,18 +78,47 @@ final class SPFNSocialGoogleTests: XCTestCase
         )
     }
 
-    /// C7: the request's nonce field carries the RAW value, never the Apple hash.
-    func test_C7_theRequestNonceIsTheRawValueNotTheHash() async throws
+    /// C7 / cell 14: the request's nonce field carries the fingerprint itself, never the
+    /// hash that only Apple's flow expects.
+    func test_C7_theRequestNonceIsTheFingerprintNotTheHash() async throws
     {
         let driver = RecordingGoogleDriver(outcome: .success("google-token-0001"))
         let adapter = SPFNSocialGoogle(driver: driver)
-        let nonce = SPFNSocialNonce.make()
+        let nonce = Self.googleNonce()
 
         _ = try await adapter.idToken(nonce: nonce)
 
         let requested = await driver.requestedNonce
-        XCTAssertEqual(requested, nonce.rawValue)
-        XCTAssertNotEqual(requested, nonce.appleRequestValue, "only Apple's request carries the hash")
+        XCTAssertEqual(requested, Self.fingerprint)
+        XCTAssertEqual(requested, nonce.requestValue)
+        XCTAssertNotEqual(
+            requested,
+            SPFNSocialNonce(fingerprint: Self.fingerprint, provider: "apple").requestValue,
+            "only Apple's request carries the hash"
+        )
+    }
+
+    /// Cell 18: a nonce minted for another provider is refused, and the flow never runs.
+    /// An apple-minted nonce carries a hash, so Google would echo a value the SPFN server
+    /// never compares against.
+    func test_18_aNonceMintedForAnotherProviderIsRefusedBeforeTheFlow() async throws
+    {
+        for provider in ["apple", "kakao", "naver"]
+        {
+            let driver = RecordingGoogleDriver(outcome: .success("google-token-0001"))
+            let adapter = SPFNSocialGoogle(driver: driver)
+
+            let thrown = await failure
+            {
+                _ = try await adapter.idToken(
+                    nonce: SPFNSocialNonce(fingerprint: Self.fingerprint, provider: provider)
+                )
+            }
+
+            XCTAssertEqual(thrown as? SPFNSocialGoogleError, .nonceProviderMismatch, "'\(provider)' was accepted")
+            let requested = await driver.requestedNonce
+            XCTAssertNil(requested, "'\(provider)': the platform flow must not have been reached")
+        }
     }
 
     /// A sign-in that answers with no token fails explicitly rather than enrolling an
@@ -93,7 +131,7 @@ final class SPFNSocialGoogleTests: XCTestCase
             let adapter = SPFNSocialGoogle(driver: RecordingGoogleDriver(outcome: outcome))
             let thrown = await failure
             {
-                _ = try await adapter.idToken(nonce: SPFNSocialNonce.make())
+                _ = try await adapter.idToken(nonce: Self.googleNonce())
             }
             XCTAssertEqual(thrown as? SPFNSocialGoogleError, .identityTokenMissing)
         }

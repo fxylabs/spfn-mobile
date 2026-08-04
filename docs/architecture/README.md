@@ -51,7 +51,7 @@ or the literal `null`, and `null` means declared absent rather than not yet writ
 `SPFNSocialApple` is the first: Apple ships no native sign-in SDK for Android, an
 Android half would have owned a one-line nonce accessor and a seam the app fills in
 anyway, and an Android app signing in with Apple needs only what `spfn-client` already
-gives it — `SpfnSocialNonce`, `appleRequestValue` and `enroll(provider = "apple", …)`.
+gives it — `SpfnSocialNonce`, its `requestValue` and `enroll(provider = "apple", …)`.
 
 `null` is a declaration, and every reader has to tell it apart from a key it could not
 read: the first is a decision, the second is a broken parse, and a reader that treats
@@ -143,13 +143,26 @@ added with an implementation or not at all, so they arrive when the server half 
 one gap — obtaining a provider token on the device — and the adapter modules are that
 gap and nothing else. Two things are worth knowing about the surface.
 
-**The nonce is a type, not a string.** `SPFNSocialNonce` mints a random lowercase-hex
-value, hides it, and publishes only `appleRequestValue`, the SHA-256 of it. Apple's
-request carries the hash and every other provider's carries the raw value, while the
-SPFN server always compares against the raw value; an app free to pass either would
-eventually pass the wrong one, and the refusal that follows names nothing a log could
-point at. The raw value is reachable inside the package (Swift) or behind an opt-in
-marker (Kotlin, which has no package visibility), and by an app in neither.
+**The nonce is the key's fingerprint, and enrollment is one call.** The contract's
+`nativeEnrollment.nonceRule` requires the enrollment body's nonce to equal its
+fingerprint — the SHA-256 of the public key being registered. An id_token is
+bearer-shaped, so a server that verified only the token would let whoever stole one
+enroll their own key on the victim's account; deriving the nonce from the key means a
+stolen token carries the victim's fingerprint and pairs with nothing else.
+
+That ordering is why `enroll` takes a closure rather than a token: the key must exist
+before the provider is asked, and a sign-in the user abandons would otherwise strand a
+key nobody registered. The SDK owns the whole flow, so it can destroy it — an Android
+Keystore entry to delete, an iOS value to drop.
+
+`SPFNSocialNonce` carries the fingerprint and the provider it was minted for, and
+publishes one value: `requestValue`, which is the SHA-256 of the fingerprint for Apple
+and the fingerprint itself for everyone else. One value means an app has nothing to
+choose between and so cannot choose wrong — and it stays public because an app driving
+kakao or naver through their own SDKs needs it. Each adapter refuses a nonce minted for
+another provider. Minting one is the lifecycle's job: the constructor is package-visible
+in Swift, and in Kotlin — which has no package visibility — it is `internal` with an
+opt-in-gated factory the sibling adapter modules use.
 
 **The Android side is Credential Manager, not play-services-auth.** Google deprecated
 the one-tap sign-in surface, and the adapter was written on it once before being moved:

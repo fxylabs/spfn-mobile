@@ -254,13 +254,16 @@ final class SPFNReferenceIntegrationTests: XCTestCase
             makeKey: { SPFNCustodyKey.generate(keyID: $0, preferSecureEnclave: false) }
         )
 
+        // The token is minted inside the sign-in closure because it has to carry the
+        // nonce, and the nonce is the fingerprint of a key that does not exist until the
+        // enrollment generates it. That ordering is the whole reason the entry point
+        // takes a closure. Google echoes the raw value, so `requestValue` here is the
+        // fingerprint the reference server compares the body against.
         let userID = "user-swift-f-0001"
-        let nonce = "nonce-swift-f-0001"
-        let enrolled = try await lifecycle.enroll(
-            provider: "google",
-            idToken: "spfn-test-idtoken.google.\(userID).\(nonce)",
-            nonce: SPFNSocialNonce(raw: nonce)
-        )
+        let enrolled = try await lifecycle.enroll(provider: "google")
+        { nonce in
+            "spfn-test-idtoken.google.\(userID).\(nonce.requestValue)"
+        }
         XCTAssertEqual(enrolled.clientID, userID)
         XCTAssertTrue(enrolled.isNewUser)
 

@@ -1,8 +1,8 @@
 // SPFN Mobile — the Google Sign-In half of a native enrollment, on Android.
 //
 // Same shape as the Apple adapter and one deliberate difference: Google's request
-// carries the RAW nonce, not its hash. Apple is the exception in this SDK, and the
-// exception lives in one place — SpfnSocialNonce.appleRequestValue — so an adapter that
+// carries the key fingerprint itself, not its hash. Apple is the exception in this SDK,
+// and the exception lives in one place — SpfnSocialNonce.requestValue, which the nonce
 // reaches for the raw value is doing the ordinary thing rather than the risky one.
 //
 // The API is Credential Manager, not the one-tap sign-in surface in play-services-auth,
@@ -30,7 +30,6 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
-import xyz.superfunction.spfn.client.SpfnInternalNonceAccess
 import xyz.superfunction.spfn.client.SpfnSocialNonce
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -54,6 +53,13 @@ sealed class SpfnSocialGoogleException(message: String) : Exception(message)
      * never the provider's own text.
      */
     class Failed(val type: String) : SpfnSocialGoogleException("the Google sign-in failed with type $type")
+
+    /**
+     * The nonce was minted for a different provider. See the guard in
+     * [SpfnSocialGoogle.idToken].
+     */
+    class NonceProviderMismatch(val provider: String) :
+        SpfnSocialGoogleException("this nonce was minted for '$provider', not for Google")
 }
 
 /**
@@ -68,15 +74,23 @@ fun interface SpfnSocialGoogleDriver
 /** The one thing this module offers an app: a nonce goes in, a provider token comes out. */
 class SpfnSocialGoogle(private val driver: SpfnSocialGoogleDriver)
 {
-    /** The token to hand `SpfnKeyLifecycle.enroll` together with the same nonce. */
-    @OptIn(SpfnInternalNonceAccess::class)
+    /** The token to answer `SpfnKeyLifecycle.enroll` with, from inside its closure. */
     suspend fun idToken(nonce: SpfnSocialNonce): String
     {
+        // Google's flow reads the raw fingerprint, and an apple-minted nonce carries a
+        // hash instead — the token would come back bound to a value the SPFN server never
+        // compares against, and its refusal is a code the app cannot read.
+        if (nonce.provider != PROVIDER)
+        {
+            throw SpfnSocialGoogleException.NonceProviderMismatch(nonce.provider);
+        }
+
         val token: String?;
         try
         {
-            // The raw value, not the hash: Apple is the only provider that hashes.
-            token = driver.identityToken(nonce.rawValue);
+            // `requestValue` is the raw fingerprint here: Apple is the only provider
+            // whose request carries a hash instead.
+            token = driver.identityToken(nonce.requestValue);
         }
         catch (failure: Throwable)
         {
@@ -92,19 +106,24 @@ class SpfnSocialGoogle(private val driver: SpfnSocialGoogleDriver)
     companion object
     {
         /**
+         * The provider name an enrollment for this adapter is started under, and the one
+         * a nonce must have been minted for.
+         */
+        const val PROVIDER = "google"
+
+        /**
          * The Google request option Credential Manager is asked with. The nonce field
-         * carries the raw value, and the server client id is the app's — this module
+         * carries the fingerprint, and the server client id is the app's — this module
          * never holds one.
          *
          * Authorized accounts are not filtered: an enrollment is the first time this
          * install meets the user, so filtering to accounts already used with this app
          * would offer an empty list on the one flow that needs a full one.
          */
-        @OptIn(SpfnInternalNonceAccess::class)
         fun googleIdOption(serverClientId: String, nonce: SpfnSocialNonce): GetGoogleIdOption =
             GetGoogleIdOption.Builder()
                 .setServerClientId(serverClientId)
-                .setNonce(nonce.rawValue)
+                .setNonce(nonce.requestValue)
                 .setFilterByAuthorizedAccounts(false)
                 .build()
 

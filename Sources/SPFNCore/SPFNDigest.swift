@@ -49,7 +49,13 @@ public enum SPFNDigest
         return difference == 0
     }
 
-    private static func hex(_ bytes: [UInt8]) -> String
+    /// The encoder every fingerprint in this SDK is spelled with.
+    ///
+    /// Package-visible rather than private so the shared byte-to-hex vector can assert
+    /// against the encoder that actually runs. It used to assert against a second copy
+    /// in `SPFNSocialNonce`, which proved the copy correct and said nothing about this
+    /// one; the copy is gone and the vector moved here.
+    package static func hex(_ bytes: [UInt8]) -> String
     {
         let digits = Array("0123456789abcdef".utf8)
         var out: [UInt8] = []

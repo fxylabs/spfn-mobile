@@ -1,6 +1,6 @@
 {
   "note": "Expected values were derived by Contracts/fixtures/derive-expected-values.py, a third implementation independent of both SDKs. Two SDKs agreeing with each other would prove nothing; agreeing with an outside implementation is the actual evidence.",
-  "why": "both SDK enrollment flows must reproduce these bytes exactly: the body is the contract's OauthNativeRequest over the fixed test keypair, and the only header an unproven request carries is the content type",
+  "why": "both SDK enrollment flows must reproduce these bytes exactly: the body is the contract's OauthNativeRequest over the fixed test keypair, the nonce is the key's fingerprint as nativeEnrollment.nonceRule requires, and the only header an unproven request carries is the content type",
   "testKeyPair": {
     "note": "TEST KEYPAIR ONLY — NOT A SECRET. The keypair is restated byte for byte from SPFN primitives __tests__/test-keys.ts, where publishing the private half is intentional. It authenticates nothing, was never issued by anything, and must never be presented to a real endpoint.",
     "origin": "SPFN primitives packages/auth/src/server/client-proof/__tests__/test-keys.ts",
@@ -25,14 +25,14 @@
       ]
     ],
     "value": {
-      "idToken": "spfn-test-idtoken.google.user-test-0001.nonce-enroll-0001",
-      "nonce": "nonce-enroll-0001",
+      "idToken": "spfn-test-idtoken.google.user-test-0001.aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a",
+      "nonce": "aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a",
       "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES7xktjK+fMydT7UZcfuW/vzU9rU/+RPVVQKKgxrB1sd9bh6N1bqiBwU/zuw9/LaQ91lWPeWSN9OlT8OlDYXIYg==",
       "keyId": "key-test-0001",
       "fingerprint": "aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a",
       "algorithm": "ES256"
     },
-    "canonical": "{\"algorithm\":\"ES256\",\"fingerprint\":\"aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a\",\"idToken\":\"spfn-test-idtoken.google.user-test-0001.nonce-enroll-0001\",\"keyId\":\"key-test-0001\",\"nonce\":\"nonce-enroll-0001\",\"publicKey\":\"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES7xktjK+fMydT7UZcfuW/vzU9rU/+RPVVQKKgxrB1sd9bh6N1bqiBwU/zuw9/LaQ91lWPeWSN9OlT8OlDYXIYg==\"}",
-    "sha256": "105e4b17a2fd38d6927035c884f0c11678aa053af41ed3648c87a7f6c2e785dd"
+    "canonical": "{\"algorithm\":\"ES256\",\"fingerprint\":\"aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a\",\"idToken\":\"spfn-test-idtoken.google.user-test-0001.aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a\",\"keyId\":\"key-test-0001\",\"nonce\":\"aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a\",\"publicKey\":\"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAES7xktjK+fMydT7UZcfuW/vzU9rU/+RPVVQKKgxrB1sd9bh6N1bqiBwU/zuw9/LaQ91lWPeWSN9OlT8OlDYXIYg==\"}",
+    "sha256": "254e65c2f8d74e4173d96973e1ebf563e2ce4e75576de15e84f9a6dd3735dbff"
   }
 }

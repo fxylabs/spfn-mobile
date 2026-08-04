@@ -1,26 +1,20 @@
 #!/bin/sh
 # SPFN Mobile — proves the provider-adapter validator rules refuse what they must.
 #
-# The adapter change set relaxed two rules, and a relaxation is where holes are born:
+# The adapter change set relaxed one rule that still stands: "zero external dependencies"
+# became "only what tools/module-graph.json declares". A relaxation is where holes are
+# born, and this rule is a SCAN — a scan that cannot run reports the same green as a scan
+# that found nothing (docs/IMPLEMENTATION-PITFALLS.md P7). So the probe asks two separate
+# questions of it: does it bite, and does it fail red when it cannot run.
 #
-#   - the interactive-browser vocabulary ban gained an exception, scoped to the two
-#     adapter module trees and to the provider-token words alone;
-#   - "zero external dependencies" became "only what tools/module-graph.json declares".
+# It also once covered an interactive-browser vocabulary ban and that ban's adapter
+# exception. Both are gone: the ban never caught anything, matched spelling rather than
+# meaning, and was removed along with the exceptions that had accumulated around it.
 #
-# Both new rules are also SCANS, and a scan that cannot run reports the same green as a
-# scan that found nothing (docs/IMPLEMENTATION-PITFALLS.md P7). So this probe asks two
-# separate questions of each: does it bite, and does it fail red when it cannot run.
-#
-#   a. redirect/PKCE vocabulary in a non-adapter module still fails;
-#   b. provider-token vocabulary in a non-adapter module still fails;
-#   c. redirect/PKCE vocabulary INSIDE an adapter fails — the exception is by term too;
-#   d. provider-token vocabulary inside an adapter passes, or the exception is a lie;
 #   e. an Android dependency the graph does not declare fails;
 #   f. a graph allowance no module uses fails;
 #   g. a coordinate string instead of a catalogue alias fails;
 #   h. a Swift package the graph does not declare fails;
-#   i. the vocabulary scan reaching no files fails instead of passing;
-#   j. an adapter scope that no longer holds sources fails instead of passing;
 #   k. a module graph that cannot be read fails instead of passing.
 #
 # Since schemaVersion 3 a module may declare `androidModule: null` — no Android half at
@@ -71,7 +65,6 @@ fail()
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/spfn-adapter-probe.XXXXXX")
 
-CORE_SOURCE=Sources/SPFNCore/SPFNDigest.swift
 APPLE_SOURCE=Sources/SPFNSocialApple/SPFNSocialApple.swift
 MANIFEST=Package.swift
 GRAPH=tools/module-graph.json
@@ -79,7 +72,6 @@ CLIENT_BUILD=android/spfn-client/build.gradle.kts
 GOOGLE_BUILD=android/spfn-social-google/build.gradle.kts
 GOOGLE_SOURCE=android/spfn-social-google/src/main/kotlin/xyz/superfunction/spfn/social/google/SpfnSocialGoogle.kt
 
-cp "$CORE_SOURCE" "$TMP/core.bak"
 cp "$APPLE_SOURCE" "$TMP/apple.bak"
 cp "$MANIFEST" "$TMP/manifest.bak"
 cp "$GRAPH" "$TMP/graph.bak"
@@ -91,7 +83,6 @@ restore()
 {
     if [ -d "$TMP" ]
     then
-        cp "$TMP/core.bak" "$CORE_SOURCE"
         cp "$TMP/apple.bak" "$APPLE_SOURCE"
         cp "$TMP/manifest.bak" "$MANIFEST"
         cp "$TMP/graph.bak" "$GRAPH"
@@ -115,7 +106,6 @@ trap 'on_signal 143' TERM
 
 restore_files()
 {
-    cp "$TMP/core.bak" "$CORE_SOURCE"
     cp "$TMP/apple.bak" "$APPLE_SOURCE"
     cp "$TMP/manifest.bak" "$MANIFEST"
     cp "$TMP/graph.bak" "$GRAPH"
@@ -164,30 +154,6 @@ expect_unrunnable()
 
 printf 'provider adapter rules probe\n'
 
-# --- a, b. the vocabulary ban is unchanged outside the adapter trees ----------------
-printf '// probe: pkce\n' >> "$CORE_SOURCE"
-expect_fail 'redirect vocabulary in a non-adapter module still fails' \
-    'interactive-browser auth vocabulary found'
-
-printf '// probe: id_token\n' >> "$CORE_SOURCE"
-expect_fail 'provider-token vocabulary in a non-adapter module still fails' \
-    'interactive-browser auth vocabulary found'
-
-# --- c. the exception is scoped by term, not only by path --------------------------
-printf '// probe: pkce inside the adapter\n' >> "$APPLE_SOURCE"
-expect_fail 'redirect vocabulary inside an adapter module fails' \
-    'interactive-browser auth vocabulary found'
-
-# --- d. and it really is an exception ----------------------------------------------
-printf '// probe: the adapter names an id_token, which is what it is for\n' >> "$APPLE_SOURCE"
-if sh tools/validate/validate.sh > "$TMP/run.log" 2>&1
-then
-    pass 'provider-token vocabulary inside an adapter module is admitted'
-else
-    fail 'the adapter exception refuses the vocabulary it exists to admit'
-fi
-restore_files
-
 # --- e, f, g. the Android allowlist, in both directions and in every shape ----------
 printf 'dependencies { implementation(libs.googleid) }\n' >> "$CLIENT_BUILD"
 expect_fail 'an Android dependency the module graph does not declare fails' \
@@ -208,16 +174,8 @@ sed 's#^    dependencies: \[#    dependencies: [\n        .package(url: "https:/
 expect_fail 'a Swift package the module graph does not declare fails' \
     'does not declare: UnreviewedPackage'
 
-# --- i, j, k. every new scan fails red when it cannot run --------------------------
+# --- k. the graph scan fails red when it cannot run --------------------------------
 : > "$TMP/empty-graph.json"
-expect_unrunnable 'a vocabulary scan that reaches no files fails instead of passing' \
-    'it did not run over the surface' \
-    "s#^SURFACE_DIRS='.*'#SURFACE_DIRS='probe-no-such-surface-dir'#"
-
-expect_unrunnable 'an adapter exception scoped to paths with no sources fails' \
-    'the scope is stale' \
-    's#^find Sources/SPFNSocialApple Sources/SPFNSocialGoogle \\#find probe-no-apple probe-no-google \\#'
-
 expect_unrunnable 'an unreadable module graph fails instead of allowing nothing quietly' \
     'it could not run' \
     "s#^GRAPH=tools/module-graph.json#GRAPH=$TMP/empty-graph.json#"

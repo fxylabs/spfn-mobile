@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    a41a3c06c9d995d4865613daa698c207ba66b53ee5c25a71015c730e7253538d
-// contractVersion: 0.3.0
+// bundleSha256:    999b98b1f6c207ff0ab4f2d151bfb3d327e6079dd3f22bcd8216c92a59aec4e3
+// contractVersion: 0.4.1
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -87,6 +87,33 @@ public enum SPFNGeneratedOperations
         requiresSession: false
     )
 
+    /// Lists the keys registered to the caller, one per device that can sign for them.
+    public static let authKeysList = SPFNOperation(
+        id: "auth.keys.list",
+        method: "POST",
+        path: "/_auth/keys/list",
+        authProfile: "clientProofV1",
+        requiresSession: false
+    )
+
+    /// Revokes one of the caller's keys, signing that device out.
+    public static let authKeysRevoke = SPFNOperation(
+        id: "auth.keys.revoke",
+        method: "POST",
+        path: "/_auth/keys/revoke",
+        authProfile: "clientProofV1",
+        requiresSession: false
+    )
+
+    /// Revokes every key the caller has, sparing the calling device unless asked otherwise.
+    public static let authKeysRevokeAll = SPFNOperation(
+        id: "auth.keys.revokeAll",
+        method: "POST",
+        path: "/_auth/keys/revoke-all",
+        authProfile: "clientProofV1",
+        requiresSession: false
+    )
+
     /// Every operation, in bundle order.
     public static let all: [SPFNOperation] = [
         authClientProofHandshake,
@@ -96,6 +123,9 @@ public enum SPFNGeneratedOperations
         authEnrollLogin,
         authEnrollOauthNative,
         authKeysRotate,
+        authKeysList,
+        authKeysRevoke,
+        authKeysRevokeAll,
     ]
 
     /// Looks an operation up by contract id. Returns nil rather than a nearest

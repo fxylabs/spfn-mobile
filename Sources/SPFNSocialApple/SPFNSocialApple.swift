@@ -8,10 +8,12 @@
 //
 // Two rules shape it, and both come from decisions rather than from taste:
 //
-//   - The request's nonce field carries `appleRequestValue`, never the raw value.
-//     Apple follows the OIDC rule here: the request nonce is hashed with SHA-256 and
-//     the id_token it signs carries that hash, so the SPFN server — which sees the raw
-//     value in the enrollment body — can only match if the request carried the hash.
+//   - The request's nonce field carries the nonce's `requestValue`, which for an
+//     apple-minted nonce is the SHA-256 of the key fingerprint. Apple follows the OIDC
+//     rule here: the request nonce is hashed and the id_token it signs carries that
+//     hash, so the SPFN server — which sees the fingerprint in the enrollment body —
+//     can only match if the request carried the hash. A nonce minted for another
+//     provider is refused rather than sent.
 //   - Nothing here reads, stores or logs anything but the token. Apple hands the
 //     display fields to the credential exactly once, on first authorization, and this
 //     SDK is not where they belong: an app that wants them asks for them itself and
@@ -20,7 +22,7 @@
 // This module is iOS-only, and the module graph says so: `androidModule` is null on its
 // row. Apple ships no native sign-in SDK for Android, so an Android half would have
 // owned a one-line nonce accessor and a seam the app fills in anyway. An Android app
-// signing in with Apple needs `SpfnSocialNonce`, `appleRequestValue` and
+// signing in with Apple needs `SpfnSocialNonce`, its `requestValue` and
 // `enroll(provider = "apple", …)` — all three live in spfn-client and always did.
 
 import AuthenticationServices
@@ -45,6 +47,12 @@ public enum SPFNSocialAppleError: Error, Equatable, Sendable
 
     /// Any other refusal from the platform flow, carrying Apple's numeric code.
     case authorizationFailed(code: Int)
+
+    /// The nonce was minted for a different provider, so its value is the raw
+    /// fingerprint rather than the hash Apple's flow requires. Refused here because the
+    /// server's answer to sending it would be a 400 outside the contract's error codes,
+    /// reaching the app as an unknown code naming nothing.
+    case nonceProviderMismatch
 }
 
 /// The seam between this adapter and the platform flow.
@@ -77,17 +85,26 @@ public struct SPFNSocialApple: Sendable
         self.driver = driver
     }
 
-    /// The token to hand `SPFNKeyLifecycle.enroll` together with the same nonce.
+    /// The token to answer `SPFNKeyLifecycle.enroll` with, from inside its closure.
     ///
     /// The nonce is passed as the value type rather than as a string precisely so this
-    /// call cannot put the wrong shape in the request: it reads `appleRequestValue` and
-    /// has no way to reach the raw value at all.
+    /// call cannot put the wrong shape in the request: `requestValue` is already what
+    /// this provider expects, and there is no other value on the type to reach for.
     public func idToken(nonce: SPFNSocialNonce) async throws -> String
     {
+        // A nonce minted for another provider carries the raw fingerprint, and Apple
+        // signs the hash of whatever it is given — so the token would come back bound to
+        // a value the SPFN server never compares against.
+        guard nonce.provider == SPFNSocialNonce.appleProvider
+        else
+        {
+            throw SPFNSocialAppleError.nonceProviderMismatch
+        }
+
         let token: String?
         do
         {
-            token = try await driver.identityToken(requestNonce: nonce.appleRequestValue)
+            token = try await driver.identityToken(requestNonce: nonce.requestValue)
         }
         catch let cancellation as CancellationError
         {

@@ -14,13 +14,22 @@ import SPFNSocialApple
 
 final class SPFNSocialAppleTests: XCTestCase
 {
+    /// A fingerprint shaped as one taken over a real key: 64 lowercase hex characters.
+    /// Fixed, because what these rows test is the adapter's handling of it, not its value.
+    private static let fingerprint = "aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a"
+
+    private static func appleNonce() -> SPFNSocialNonce
+    {
+        SPFNSocialNonce(fingerprint: fingerprint, provider: "apple")
+    }
+
     /// C1: the user completes the flow — the token comes back untouched.
     func test_C1_aCompletedAuthorizationReturnsTheToken() async throws
     {
         let driver = RecordingAppleDriver(outcome: .success("apple-token-0001"))
         let adapter = SPFNSocialApple(driver: driver)
 
-        let token = try await adapter.idToken(nonce: SPFNSocialNonce.make())
+        let token = try await adapter.idToken(nonce: Self.appleNonce())
 
         XCTAssertEqual(token, "apple-token-0001")
     }
@@ -37,7 +46,7 @@ final class SPFNSocialAppleTests: XCTestCase
 
         let thrown = await failure
         {
-            _ = try await dismissed.idToken(nonce: SPFNSocialNonce.make())
+            _ = try await dismissed.idToken(nonce: Self.appleNonce())
         }
         XCTAssertEqual(thrown as? SPFNSocialAppleError, .cancelled)
 
@@ -49,7 +58,7 @@ final class SPFNSocialAppleTests: XCTestCase
 
         let other = await failure
         {
-            _ = try await failed.idToken(nonce: SPFNSocialNonce.make())
+            _ = try await failed.idToken(nonce: Self.appleNonce())
         }
         XCTAssertEqual(
             other as? SPFNSocialAppleError,
@@ -70,7 +79,7 @@ final class SPFNSocialAppleTests: XCTestCase
 
         let thrown = await failure
         {
-            _ = try await adapter.idToken(nonce: SPFNSocialNonce.make())
+            _ = try await adapter.idToken(nonce: Self.appleNonce())
         }
 
         XCTAssertTrue(
@@ -88,25 +97,48 @@ final class SPFNSocialAppleTests: XCTestCase
             let adapter = SPFNSocialApple(driver: RecordingAppleDriver(outcome: outcome))
             let thrown = await failure
             {
-                _ = try await adapter.idToken(nonce: SPFNSocialNonce.make())
+                _ = try await adapter.idToken(nonce: Self.appleNonce())
             }
             XCTAssertEqual(thrown as? SPFNSocialAppleError, .identityTokenMissing)
         }
     }
 
-    /// C4: the request's nonce field carries the Apple request value — the hash — and
-    /// never the raw value the enrollment body carries.
-    func test_C4_theRequestNonceIsTheAppleRequestValueNotTheRawValue() async throws
+    /// C4 / cell 13: the request's nonce field carries the nonce's request value — the
+    /// hash — and never the fingerprint the enrollment body carries.
+    func test_C4_theRequestNonceIsTheHashNotTheFingerprint() async throws
     {
         let driver = RecordingAppleDriver(outcome: .success("apple-token-0001"))
         let adapter = SPFNSocialApple(driver: driver)
-        let nonce = SPFNSocialNonce.make()
+        let nonce = Self.appleNonce()
 
         _ = try await adapter.idToken(nonce: nonce)
 
         let requested = await driver.requestedNonce
-        XCTAssertEqual(requested, nonce.appleRequestValue)
-        XCTAssertNotEqual(requested, nonce.rawValue, "Apple's request must carry the hash, not the pre-image")
+        XCTAssertEqual(requested, nonce.requestValue)
+        XCTAssertNotEqual(requested, Self.fingerprint, "Apple's request must carry the hash, not the pre-image")
+    }
+
+    /// Cell 17: a nonce minted for another provider is refused, and the sheet never goes
+    /// up. Such a nonce carries the raw fingerprint, so Apple would sign the hash of the
+    /// wrong value and the server's refusal would be a code the app cannot read.
+    func test_17_aNonceMintedForAnotherProviderIsRefusedBeforeTheSheet() async throws
+    {
+        for provider in ["google", "kakao", "naver"]
+        {
+            let driver = RecordingAppleDriver(outcome: .success("apple-token-0001"))
+            let adapter = SPFNSocialApple(driver: driver)
+
+            let thrown = await failure
+            {
+                _ = try await adapter.idToken(
+                    nonce: SPFNSocialNonce(fingerprint: Self.fingerprint, provider: provider)
+                )
+            }
+
+            XCTAssertEqual(thrown as? SPFNSocialAppleError, .nonceProviderMismatch, "'\(provider)' was accepted")
+            let requested = await driver.requestedNonce
+            XCTAssertNil(requested, "'\(provider)': the platform flow must not have been reached")
+        }
     }
 
     private func failure(

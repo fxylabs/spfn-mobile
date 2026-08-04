@@ -58,6 +58,39 @@ class SpfnReferenceRestOpsTest
         }
     }
 
+    /**
+     * Cell 19: the contract's `nativeEnrollment.nonceRule` — the body's nonce must be the
+     * body's fingerprint. The real server checks this in `assertNonceBindsPublicKey`, and
+     * without it here the reference server would be more permissive than the thing it
+     * stands in for, which is the one way a fake server does harm.
+     *
+     * The token carries the wrong nonce too, so this row would pass the earlier
+     * token-grammar check on its own: what it isolates is a body whose two fields
+     * disagree, which is what a stolen id_token paired with the thief's key looks like.
+     */
+    @Test
+    fun enrollRefusesANonceThatIsNotTheKeysFingerprint()
+    {
+        SpfnReferenceHarness().use { harness ->
+            val keyPair = newKeyPair();
+            val wrongNonce = SpfnDigest.sha256Hex(newKeyPair().public.encoded);
+            val body = enrollmentBody(
+                keyPair,
+                keyId = "key-n1-0009",
+                userId = "user-n1-0009",
+                nonce = wrongNonce,
+                idToken = "spfn-test-idtoken.google.user-n1-0009.$wrongNonce"
+            );
+
+            val refused = harness.send("POST", ENROLL_PATH, body, contentTypeOnly);
+            assertEquals(400, refused.statusCode);
+
+            // Nothing was registered: the key cannot open a session.
+            val opened = handshake(harness, keyPair, clientId = "user-n1-0009", keyId = "key-n1-0009");
+            assertEquals("PROOF_INVALID", opened.errorCode());
+        }
+    }
+
     @Test
     fun enrollRefusesATokenThatFailsTheFixedRule()
     {
@@ -284,13 +317,19 @@ class SpfnReferenceRestOpsTest
         }
     }
 
+    /**
+     * The contract's `nativeEnrollment.nonceRule` shapes the defaults: the nonce IS the
+     * fingerprint, and the fixed test token carries that same value. A row that wants
+     * them to disagree overrides one of them, which is exactly what the rule's own row
+     * does.
+     */
     private fun enrollmentBody(
         keyPair: KeyPair,
         keyId: String,
         userId: String,
-        nonce: String = "nonce-rest-0001",
-        idToken: String = "spfn-test-idtoken.google.$userId.$nonce",
-        fingerprint: String = SpfnDigest.sha256Hex(keyPair.public.encoded)
+        fingerprint: String = SpfnDigest.sha256Hex(keyPair.public.encoded),
+        nonce: String = fingerprint,
+        idToken: String = "spfn-test-idtoken.google.$userId.$nonce"
     ): ByteArray = SpfnCanonicalJson.encode(
         SpfnOauthNativeRequest(
             idToken = idToken,
@@ -307,13 +346,18 @@ class SpfnReferenceRestOpsTest
         keyPair: KeyPair,
         keyId: String,
         userId: String,
-        idToken: String = "spfn-test-idtoken.google.$userId.nonce-rest-0001"
-    ): SpfnRawResponse = harness.send(
-        "POST",
-        ENROLL_PATH,
-        enrollmentBody(keyPair, keyId = keyId, userId = userId, idToken = idToken),
-        contentTypeOnly
-    )
+        idToken: String? = null
+    ): SpfnRawResponse
+    {
+        val fingerprint = SpfnDigest.sha256Hex(keyPair.public.encoded);
+        val body = enrollmentBody(
+            keyPair,
+            keyId = keyId,
+            userId = userId,
+            idToken = idToken ?: "spfn-test-idtoken.google.$userId.$fingerprint"
+        );
+        return harness.send("POST", ENROLL_PATH, body, contentTypeOnly);
+    }
 
     private fun handshake(
         harness: SpfnReferenceHarness,

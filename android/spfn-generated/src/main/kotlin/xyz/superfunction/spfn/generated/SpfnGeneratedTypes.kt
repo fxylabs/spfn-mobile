@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    a41a3c06c9d995d4865613daa698c207ba66b53ee5c25a71015c730e7253538d
-// contractVersion: 0.3.0
+// bundleSha256:    999b98b1f6c207ff0ab4f2d151bfb3d327e6079dd3f22bcd8216c92a59aec4e3
+// contractVersion: 0.4.1
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -456,6 +456,7 @@ data class SpfnLoginResponse(
 data class SpfnOauthNativeRequest(
     val idToken: String,
     val nonce: String,
+    val accessToken: String? = null,
     val publicKey: String,
     val keyId: String,
     val fingerprint: String,
@@ -472,6 +473,10 @@ data class SpfnOauthNativeRequest(
         val members = LinkedHashMap<String, SpfnCanonicalValue>();
         members["idToken"] = SpfnCanonicalValue.Text(idToken);
         members["nonce"] = SpfnCanonicalValue.Text(nonce);
+        if (accessToken != null)
+        {
+            members["accessToken"] = SpfnCanonicalValue.Text(accessToken);
+        }
         members["publicKey"] = SpfnCanonicalValue.Text(publicKey);
         members["keyId"] = SpfnCanonicalValue.Text(keyId);
         members["fingerprint"] = SpfnCanonicalValue.Text(fingerprint);
@@ -487,6 +492,7 @@ data class SpfnOauthNativeRequest(
             return SpfnOauthNativeRequest(
                 idToken = SpfnDecoding.string(members["idToken"], "$path.idToken"),
                 nonce = SpfnDecoding.string(members["nonce"], "$path.nonce"),
+                accessToken = SpfnDecoding.optionalString(members["accessToken"], "$path.accessToken"),
                 publicKey = SpfnDecoding.string(members["publicKey"], "$path.publicKey"),
                 keyId = SpfnDecoding.string(members["keyId"], "$path.keyId"),
                 fingerprint = SpfnDecoding.string(members["fingerprint"], "$path.fingerprint"),
@@ -593,6 +599,259 @@ data class SpfnRotateKeyResponse(
             return SpfnRotateKeyResponse(
                 success = SpfnDecoding.boolean(members["success"], "$path.success"),
                 keyId = SpfnDecoding.string(members["keyId"], "$path.keyId")
+            );
+        }
+    }
+}
+
+data class SpfnListKeysRequest(
+    val includeRevoked: Boolean? = null
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        if (includeRevoked != null)
+        {
+            members["includeRevoked"] = SpfnCanonicalValue.Bool(includeRevoked);
+        }
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnListKeysRequest
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnListKeysRequest(
+                includeRevoked = SpfnDecoding.boolean(members["includeRevoked"], "$path.includeRevoked")
+            );
+        }
+    }
+}
+
+data class SpfnKeySummary(
+    val keyId: String,
+    val deviceName: String? = null,
+    val platform: String? = null,
+    val algorithm: String,
+    val fingerprintPrefix: String,
+    val createdAt: String,
+    val lastUsedAt: String? = null,
+    val expiresAt: String? = null,
+    val isExpired: Boolean,
+    val isActive: Boolean,
+    val revokedAt: String? = null
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        members["keyId"] = SpfnCanonicalValue.Text(keyId);
+        if (deviceName != null)
+        {
+            members["deviceName"] = SpfnCanonicalValue.Text(deviceName);
+        }
+        if (platform != null)
+        {
+            members["platform"] = SpfnCanonicalValue.Text(platform);
+        }
+        members["algorithm"] = SpfnCanonicalValue.Text(algorithm);
+        members["fingerprintPrefix"] = SpfnCanonicalValue.Text(fingerprintPrefix);
+        members["createdAt"] = SpfnCanonicalValue.Text(createdAt);
+        if (lastUsedAt != null)
+        {
+            members["lastUsedAt"] = SpfnCanonicalValue.Text(lastUsedAt);
+        }
+        if (expiresAt != null)
+        {
+            members["expiresAt"] = SpfnCanonicalValue.Text(expiresAt);
+        }
+        members["isExpired"] = SpfnCanonicalValue.Bool(isExpired);
+        members["isActive"] = SpfnCanonicalValue.Bool(isActive);
+        if (revokedAt != null)
+        {
+            members["revokedAt"] = SpfnCanonicalValue.Text(revokedAt);
+        }
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnKeySummary
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnKeySummary(
+                keyId = SpfnDecoding.string(members["keyId"], "$path.keyId"),
+                deviceName = SpfnDecoding.optionalString(members["deviceName"], "$path.deviceName"),
+                platform = SpfnDecoding.optionalString(members["platform"], "$path.platform"),
+                algorithm = SpfnDecoding.string(members["algorithm"], "$path.algorithm"),
+                fingerprintPrefix = SpfnDecoding.string(members["fingerprintPrefix"], "$path.fingerprintPrefix"),
+                createdAt = SpfnDecoding.string(members["createdAt"], "$path.createdAt"),
+                lastUsedAt = SpfnDecoding.optionalString(members["lastUsedAt"], "$path.lastUsedAt"),
+                expiresAt = SpfnDecoding.optionalString(members["expiresAt"], "$path.expiresAt"),
+                isExpired = SpfnDecoding.boolean(members["isExpired"], "$path.isExpired"),
+                isActive = SpfnDecoding.boolean(members["isActive"], "$path.isActive"),
+                revokedAt = SpfnDecoding.optionalString(members["revokedAt"], "$path.revokedAt")
+            );
+        }
+    }
+}
+
+data class SpfnListKeysResponse(
+    val keys: List<SpfnKeySummary>
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        members["keys"] = SpfnCanonicalValue.Arr(keys.map { it.canonicalValue() });
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnListKeysResponse
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnListKeysResponse(
+                keys = SpfnDecoding.array(members["keys"], "$path.keys").map { SpfnKeySummary.decode(it, "$path.keys") }
+            );
+        }
+    }
+}
+
+data class SpfnRevokeKeyRequest(
+    val keyId: String
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        members["keyId"] = SpfnCanonicalValue.Text(keyId);
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnRevokeKeyRequest
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnRevokeKeyRequest(
+                keyId = SpfnDecoding.string(members["keyId"], "$path.keyId")
+            );
+        }
+    }
+}
+
+data class SpfnRevokeKeyResponse(
+    val keyId: String,
+    val selfRevoked: Boolean
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        members["keyId"] = SpfnCanonicalValue.Text(keyId);
+        members["selfRevoked"] = SpfnCanonicalValue.Bool(selfRevoked);
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnRevokeKeyResponse
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnRevokeKeyResponse(
+                keyId = SpfnDecoding.string(members["keyId"], "$path.keyId"),
+                selfRevoked = SpfnDecoding.boolean(members["selfRevoked"], "$path.selfRevoked")
+            );
+        }
+    }
+}
+
+data class SpfnRevokeAllKeysRequest(
+    val includeCurrent: Boolean? = null
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        if (includeCurrent != null)
+        {
+            members["includeCurrent"] = SpfnCanonicalValue.Bool(includeCurrent);
+        }
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnRevokeAllKeysRequest
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnRevokeAllKeysRequest(
+                includeCurrent = SpfnDecoding.boolean(members["includeCurrent"], "$path.includeCurrent")
+            );
+        }
+    }
+}
+
+data class SpfnRevokeAllKeysResponse(
+    val revokedCount: Long,
+    val currentKeyRevoked: Boolean
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        members["revokedCount"] = SpfnCanonicalValue.Integer(revokedCount);
+        members["currentKeyRevoked"] = SpfnCanonicalValue.Bool(currentKeyRevoked);
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnRevokeAllKeysResponse
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnRevokeAllKeysResponse(
+                revokedCount = SpfnDecoding.integer(members["revokedCount"], "$path.revokedCount"),
+                currentKeyRevoked = SpfnDecoding.boolean(members["currentKeyRevoked"], "$path.currentKeyRevoked")
             );
         }
     }

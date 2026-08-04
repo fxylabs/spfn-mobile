@@ -1,95 +1,113 @@
-// SPFN Mobile — the one-time value that binds a provider sign-in to this enrollment.
+// SPFN Mobile — the value that ties a provider sign-in to the key being enrolled.
 //
-// The same nonce is written into two places in two different shapes, and an app that
-// gets the asymmetry wrong sees the server refuse the enrollment with nothing in any
-// log saying why. So the shapes are not the app's to choose:
+// The nonce is not a random number. It is the fingerprint of the public key this
+// enrollment registers: the SHA-256 of that key's SPKI DER bytes, in lowercase hex.
+// The contract's `nativeEnrollment.nonceRule` requires the body's nonce and fingerprint
+// to be the same value, and the server refuses the call when they differ.
 //
-//   Apple's authorization request  ->  appleRequestValue, the SHA-256 of the raw value
-//   every other provider's request ->  the raw value
-//   this SDK's enrollment body     ->  the raw value
+// Why the server wants it that way: an id_token is bearer-shaped, so whoever holds one
+// can present it. If the server verified only the token, anyone who stole one could
+// enroll their own key on the victim's account. Deriving the nonce from the key means a
+// stolen token carries the victim's fingerprint and cannot be paired with another key.
 //
-// The raw value is lowercase hex and deliberately NOT base64. A base64url value's last
-// character carries fewer than 6 bits, and a provider that re-encodes the value can
-// return a different last character than it was given — measured against Naver, which
-// drops a trailing `A` (spfn-primitives issue #57). Hex has a fixed meaning per
-// position, so a round trip through a provider is either identical or obviously broken.
+// One consequence runs through this whole file: the key must exist before the provider
+// is asked for a token, which is why SpfnKeyLifecycle.enroll takes a closure and mints
+// this value itself. An app cannot construct one.
 //
-// Sources/SPFNClient/SPFNSocialNonce.swift is the same value in Swift. The one place
-// the two differ is how the raw value is kept out of an app's reach: Swift has package
-// visibility, Kotlin does not, so here the accessor is public and gated twice — an
-// opt-in an app has to write out before Kotlin will compile against it, and
-// `@JvmSynthetic` so the getter is not in the class Java sees at all.
+// The provider decides the shape of the value that goes into the provider's own request:
+//
+//   apple            ->  requestValue is the SHA-256 of the fingerprint, in lowercase hex
+//   everyone else    ->  requestValue is the fingerprint itself
+//   the SPFN body    ->  always the fingerprint, never requestValue
+//
+// Apple is the exception because it follows the OIDC rule literally: it hashes the nonce
+// in the request and puts that hash in the token it signs, so the value the SPFN server
+// compares against is the pre-image. Every other provider SPFN supports natively —
+// google, kakao, naver, github — echoes the raw value back.
+//
+// There is exactly one public value, and the SDK picked it knowing the provider. That is
+// the point: an app that could choose between two shapes would eventually choose wrong,
+// and the server's refusal for that mistake is a 400 outside the contract's six error
+// codes, so it reaches the app as an unknown code naming nothing.
+//
+// This file still declares an opt-in annotation, and it guards something else now. It
+// used to keep the apple-shaped value out of an app's reach; that value is gone, and
+// what needs a gate today is minting a nonce from another Gradle module. See
+// SpfnInternalNonceAccess below.
+//
+// The fingerprint is lowercase hex and deliberately not base64. Naver drops a trailing
+// `A` from a nonce it echoes back (spfn-primitives issue #57); lowercase hex has no `A`
+// in its alphabet, so the round trip is either identical or obviously broken.
+//
+// Sources/SPFNClient/SPFNSocialNonce.swift is the same value in Swift.
 
 package xyz.superfunction.spfn.client
 
 import xyz.superfunction.spfn.core.SpfnDigest
-import java.security.SecureRandom
 
 /**
- * Marks the raw nonce accessor. Reaching for it inside an app means putting the wrong
- * shape in a provider request, which the server answers with a refusal that names
- * nothing. The provider adapter modules opt in; nothing else has a reason to.
+ * Marks the factory that mints a nonce outside the enrollment flow.
+ *
+ * Minting one is `SpfnKeyLifecycle.enroll`'s job: it holds the key the fingerprint comes
+ * from, so a nonce it did not mint belongs to no key this device holds and the server can
+ * only refuse it. Kotlin's `internal` stops at the Gradle module, so the adapter modules —
+ * which have to drive their own rules in their own suites — reach it through this instead.
+ *
+ * Swift needs no counterpart: `package` visibility already spans the whole package there.
  */
 @RequiresOptIn(
     level = RequiresOptIn.Level.ERROR,
-    message = "The raw nonce belongs to the SDK: providers other than Apple receive it through their adapter."
+    message = "A nonce is minted by SpfnKeyLifecycle.enroll, which holds the key its fingerprint comes from."
 )
 @Retention(AnnotationRetention.BINARY)
 @Target(AnnotationTarget.PROPERTY, AnnotationTarget.FUNCTION, AnnotationTarget.CLASS)
 annotation class SpfnInternalNonceAccess
 
-class SpfnSocialNonce private constructor(private val raw: String)
+class SpfnSocialNonce internal constructor(
+    /**
+     * The key's fingerprint: what the SPFN enrollment body carries as both `nonce` and
+     * `fingerprint`. Module-visible because the body is assembled in this module and
+     * nowhere else; an app has no reason to read it.
+     */
+    internal val fingerprint: String,
+
+    /** The provider this nonce was minted for. Lowercase, as the enrollment path requires. */
+    val provider: String,
+)
 {
     /**
-     * What goes in Apple's authorization request: the SHA-256 of the raw value, in
-     * lowercase hex.
-     */
-    val appleRequestValue: String = SpfnDigest.sha256Hex(raw)
-
-    /**
-     * The value the SPFN server compares against, and the value every provider other
-     * than Apple puts in its own request.
+     * The value to put in the provider's own authorization request.
      *
-     * `@RequiresOptIn` is a Kotlin compiler rule and stops at the language boundary: a
-     * Java caller sees a plain `getRawValue()` and no opt-in to write. `@JvmSynthetic`
-     * removes the getter from the class's Java-visible surface, so the two languages
-     * refuse the same reach.
+     * Public because an app may drive a provider this SDK ships no adapter for — kakao
+     * and naver are the ordinary cases — and it needs the value to hand that provider's
+     * SDK. There is only this one, so there is nothing to get wrong.
+     *
+     * The hash is taken over the fingerprint's text, not over the bytes it spells.
+     * Upstream's `hashNonce` hashes the nonce string it received, so hashing the decoded
+     * bytes here would produce a value that verifies nowhere.
      */
-    @SpfnInternalNonceAccess
-    @get:JvmSynthetic
-    val rawValue: String
-        get() = raw
+    val requestValue: String =
+        if (provider == APPLE_PROVIDER) SpfnDigest.sha256Hex(fingerprint) else fingerprint
 
     /**
-     * The default rendering of a class prints its properties, which would put the raw
-     * value in every log line that ever interpolates a nonce. Written out, and naming
-     * only the public value.
+     * The default rendering of a class prints its properties, which would put the
+     * fingerprint in every log line that ever interpolates a nonce. It is not a secret —
+     * it is the hash of a public key — but it names the device's key across every log it
+     * lands in, so this is written out and names only the provider.
      */
-    override fun toString(): String = "SpfnSocialNonce(appleRequestValue=$appleRequestValue)"
+    override fun toString(): String = "SpfnSocialNonce(provider=$provider)"
 
     companion object
     {
-        /** 32 bytes, rendered as 64 hex characters: a digest pre-image, not an id. */
-        internal const val BYTE_COUNT = 32
+        /** The provider name Apple's flow uses, and the only one whose request is hashed. */
+        const val APPLE_PROVIDER = "apple"
 
         /**
-         * A fresh nonce. Every call returns a different raw value; nothing here is
-         * derived from device state, the clock or a counter.
+         * Mints a nonce from outside this module. Gated: see [SpfnInternalNonceAccess].
          */
-        fun make(): SpfnSocialNonce
-        {
-            val bytes = ByteArray(BYTE_COUNT);
-            SecureRandom().nextBytes(bytes);
-            return SpfnSocialNonce(hex(bytes));
-        }
-
-        /**
-         * Module-visible so the conformance suites can pin the exact wire bytes a flow
-         * produces against the fixtures, which name a fixed nonce. It accepts any string
-         * because the fixture's nonce is contract data rather than something this SDK
-         * minted, and rejecting it here would make the fixture unusable as evidence.
-         */
-        internal fun of(raw: String): SpfnSocialNonce = SpfnSocialNonce(raw)
+        @SpfnInternalNonceAccess
+        fun forProvider(fingerprint: String, provider: String): SpfnSocialNonce =
+            SpfnSocialNonce(fingerprint = fingerprint, provider = provider)
 
         /**
          * Lowercase base16, written out rather than taken from a character
@@ -99,19 +117,5 @@ class SpfnSocialNonce private constructor(private val raw: String)
          */
         internal fun isLowercaseHex(text: String): Boolean =
             text.isNotEmpty() && text.all { it.code < 0x80 && (it in '0'..'9' || it in 'a'..'f') }
-
-        /** The hex encoder both platforms are pinned to by a shared vector in the suites. */
-        internal fun hex(bytes: ByteArray): String
-        {
-            val digits = "0123456789abcdef";
-            val out = StringBuilder(bytes.size * 2);
-            for (byte in bytes)
-            {
-                val value = byte.toInt() and 0xFF;
-                out.append(digits[value ushr 4]);
-                out.append(digits[value and 0x0F]);
-            }
-            return out.toString();
-        }
     }
 }
