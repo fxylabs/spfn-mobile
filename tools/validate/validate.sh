@@ -175,6 +175,7 @@ for path in \
     tools/validate/d11-policy.lock.json tools/validate/probe-d11-guardrail.sh \
     tools/validate/probe-publishing-gate.sh \
     tools/validate/probe-publication-rules.sh \
+    tools/validate/probe-social-adapter-rules.sh \
     tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
     tools/rc-verify/probe-trap-exit.sh tools/rc-verify/local-signed-run.sh \
     tools/cocoapods-compat/generate-podspec.sh \
@@ -686,9 +687,61 @@ NATIVE_ENROLL_PATH='/_auth/oauth/(\{provider\}|[a-z0-9-]+)/native'
 HITS=$(printf '%s\n' "$HITS" | grep -v '^$' \
     | grep -vE "$NATIVE_ENROLL_PATH" \
     | grep -vF 'native/web social id_token' || true)
+
+# tools/validate/probe-social-adapter-rules.sh proves this exception is an exception and
+# not a hole: it is scoped by path AND by term, and the scan fails red when it cannot run.
+#
+# The provider adapter modules are the one place where naming the provider-token
+# vocabulary is the honest thing to do: Apple hashes the request nonce because OIDC
+# says the id_token carries that hash, and a file that cannot say so has to be read
+# twice by everyone who meets it.
+#
+# The exception is narrow in both directions, because an exception that is not is how
+# a prohibition dies. By PATH: only the two adapter module trees — core, client, auth,
+# generated, the contract data, the examples and CI keep the rule whole. By TERM: only
+# the provider-token words. Redirect and PKCE vocabulary stays refused everywhere,
+# including inside the adapters, because no adapter has a reason to name an
+# authorization code and naming one would be the boundary violation itself.
+ADAPTER_PATHS='^(Sources/SPFNSocial[A-Za-z]+|android/spfn-social-[a-z-]+)/'
+REDIRECT_TERMS='pkce|code_verifier|code_challenge|authorization_code|implicit_grant|oidc'
+printf '%s\n' "$HITS" | grep -v '^$' \
+    | grep -E "$ADAPTER_PATHS" \
+    | grep -vE "(^|[^A-Za-z0-9_])($REDIRECT_TERMS)([^A-Za-z0-9_]|\$)" \
+    > "$TMP/adapter-excused.txt" || true
+ADAPTER_EXCUSED=$(wc -l < "$TMP/adapter-excused.txt" | tr -d ' ')
+HITS=$(printf '%s\n' "$HITS" | grep -v '^$' | grep -vxF -f "$TMP/adapter-excused.txt" || true)
+
+# A scan that reads nothing reports the same green as a scan that read everything, so
+# what it reached is counted and floored, and the counts ride in the pass message. The
+# two floors are separate checks rather than a gate around the third: a stale scope
+# must not silence the vocabulary result, and an unreadable surface must not silence
+# the scope result (P6, P7).
+grep -rIl '' $SURFACE_DIRS 2>/dev/null > "$TMP/surface-files.txt" || true
+SURFACE_FILES=$(wc -l < "$TMP/surface-files.txt" | tr -d ' ')
+find Sources/SPFNSocialApple Sources/SPFNSocialGoogle \
+    android/spfn-social-apple/src/main android/spfn-social-google/src/main \
+    -type f \( -name '*.swift' -o -name '*.kt' \) > "$TMP/adapter-files.txt" 2>/dev/null || true
+ADAPTER_FILES=$(wc -l < "$TMP/adapter-files.txt" | tr -d ' ')
+
+if [ "$SURFACE_FILES" -ge 100 ]
+then
+    pass "the auth-vocabulary scan reached $SURFACE_FILES surface files"
+else
+    fail "the auth-vocabulary scan reached only $SURFACE_FILES files; it did not run over the surface"
+fi
+
+# The exception is scoped to two module trees. If those trees stop holding sources the
+# exception stops being an exception, and nothing else in this section would notice.
+if [ "$ADAPTER_FILES" -ge 4 ]
+then
+    pass "the adapter vocabulary exception is scoped to $ADAPTER_FILES sources in the two adapter trees"
+else
+    fail "the adapter exception is scoped to paths holding only $ADAPTER_FILES sources; the scope is stale"
+fi
+
 if [ -z "$HITS" ]
 then
-    pass 'no interactive-browser auth vocabulary in the public surface'
+    pass "no interactive-browser auth vocabulary in the public surface ($ADAPTER_EXCUSED adapter lines excused)"
 else
     fail 'interactive-browser auth vocabulary found:'
     printf '%s\n' "$HITS" | sed 's/^/          /'
@@ -876,7 +929,141 @@ else
     fail 'dependency verification has no components while dependencies are declared'
 fi
 
-lacks_active Package.swift '\.package\(' 'Package.swift declares zero external dependencies'
+# ---------------------------------------------------------------------------
+# External dependencies: only what the module graph declares.
+# ---------------------------------------------------------------------------
+# The rule here used to be "zero", and it was true until a provider adapter needed the
+# provider's own SDK. Zero is not the property worth keeping — REVIEWED is. So the rule
+# became an allowlist: tools/module-graph.json names, per module and per platform, what
+# may be pulled in, and both build systems are held to it in both directions. An
+# undeclared dependency fails, and a declared one no manifest uses fails too, because an
+# allowance nobody exercises is an allowance nobody is watching.
+#
+# tools/validate/probe-social-adapter-rules.sh proves each refusal here bites, in both
+# directions and in the notations that would otherwise slip past.
+#
+# The graph is read line by line, never with json_string: `externalDeps` holds one
+# array per platform and a whole-file "first hit at any depth" read would return the
+# first module's list for every module (P5). Each module object is one line by the
+# graph's own canonical format, which is what makes a line-scoped read exact.
+grep '"swiftTarget"' "$GRAPH" > "$TMP/graph-lines.txt" || true
+GRAPH_MODULES=$(wc -l < "$TMP/graph-lines.txt" | tr -d ' ')
+
+# A graph nobody could read yields an empty allowlist, and an empty allowlist agrees
+# with an empty manifest scan: two zeroes match, and the whole section reports green
+# without having looked at anything. The floor is what makes that impossible — the
+# train has never carried fewer modules than the four it started with (P7).
+if [ "$GRAPH_MODULES" -ge 4 ]
+then
+    pass "the external-dependency allowlist read $GRAPH_MODULES modules from the graph"
+else
+    fail "the external-dependency allowlist read $GRAPH_MODULES modules from $GRAPH; it could not run"
+fi
+
+sed -n 's/.*"externalDeps": {"swift": \[\([^]]*\)\].*/\1/p' "$TMP/graph-lines.txt" \
+    | tr ',' '\n' | tr -d '" ' | grep -v '^$' | sort -u > "$TMP/declared-swift.txt" || true
+DECLARED_SWIFT=$(wc -l < "$TMP/declared-swift.txt" | tr -d ' ')
+
+grep -E '^[[:space:]]*\.package\(' Package.swift > "$TMP/manifest-packages.txt" || true
+MANIFEST_PACKAGES=$(wc -l < "$TMP/manifest-packages.txt" | tr -d ' ')
+sed -E 's#.*\.package\(url:[[:space:]]*"[^"]*/([^/"]+)".*#\1#' "$TMP/manifest-packages.txt" \
+    | sort -u > "$TMP/manifest-package-names.txt"
+
+if [ "$MANIFEST_PACKAGES" = "$DECLARED_SWIFT" ]
+then
+    pass "Package.swift declares $MANIFEST_PACKAGES external packages, the number the module graph allows"
+else
+    fail "Package.swift declares $MANIFEST_PACKAGES external packages; the module graph allows $DECLARED_SWIFT"
+fi
+
+UNDECLARED_SWIFT=$(comm -23 "$TMP/manifest-package-names.txt" "$TMP/declared-swift.txt" || true)
+if [ -z "$UNDECLARED_SWIFT" ]
+then
+    pass 'every external package in Package.swift is declared in the module graph'
+else
+    fail "Package.swift depends on packages the module graph does not declare: $(printf '%s' "$UNDECLARED_SWIFT" | tr '\n' ' ')"
+fi
+
+UNUSED_SWIFT=$(comm -13 "$TMP/manifest-package-names.txt" "$TMP/declared-swift.txt" || true)
+if [ -z "$UNUSED_SWIFT" ]
+then
+    pass 'every Swift package the module graph allows is actually declared'
+else
+    fail "the module graph allows Swift packages nothing depends on: $(printf '%s' "$UNUSED_SWIFT" | tr '\n' ' ')"
+fi
+
+# An external package may only be reached through the trait its module declares, so a
+# trait-off consumer resolves nothing. The condition is what makes that true; the
+# declaration alone would still put the package in every consumer's resolution.
+for trait in $(sed -n 's/.*"swiftTrait": "\([^"]*\)".*/\1/p' "$TMP/graph-lines.txt")
+do
+    contains Package.swift ".trait(name: \"$trait\"" "Package.swift declares the trait $trait"
+done
+contains Package.swift '.default(enabledTraits: [])' \
+    'no trait is enabled by default, so a consumer resolves an adapter SDK only on request'
+
+# Android: the same allowlist, per module. Every dependency line in an SDK module must
+# be either a project edge or a catalogue alias the graph names for that module, and a
+# line in any other shape fails outright — a coordinate string is exactly how an
+# unreviewed artifact enters a build, and no name extraction would recognise it.
+ANDROID_SCANNED=0
+ANDROID_PROBLEMS=''
+while IFS= read -r graph_line
+do
+    android_module=$(printf '%s' "$graph_line" | sed -n 's/.*"androidModule": "\([^"]*\)".*/\1/p')
+    script="android/$android_module/build.gradle.kts"
+    [ -f "$script" ] || continue
+    ANDROID_SCANNED=$((ANDROID_SCANNED + 1))
+
+    printf '%s' "$graph_line" \
+        | sed -n 's/.*"externalDeps": {[^}]*"android": \[\([^]]*\)\].*/\1/p' \
+        | tr ',' '\n' | tr -d '" ' | grep -v '^$' | sort -u > "$TMP/declared-android.txt" || true
+
+    # Every OCCURRENCE is judged, not every line: a dependency can share its line with
+    # the block that opens it, and a line-anchored read walks straight past that one
+    # (P13, the notation-bypass class). Comment lines are dropped first, and the
+    # capitalised `testImplementation` / `androidTestImplementation` spellings fall
+    # outside the alternation on purpose — test configurations describe how this
+    # repository is checked, not what a consumer links.
+    grep -vE '^[[:space:]]*(//|#)' "$script" \
+        | grep -oE '(^|[^A-Za-z0-9_.])(api|implementation|compileOnly|runtimeOnly)\([^,)]*' \
+        | sed -E 's/.*(api|implementation|compileOnly|runtimeOnly)\(//' \
+        > "$TMP/module-deps.txt" || true
+
+    UNKNOWN_SHAPE=$(grep -vE '^(libs\.[A-Za-z0-9.]+|project\(":[a-z-]+"|$)' "$TMP/module-deps.txt" || true)
+    if [ -n "$UNKNOWN_SHAPE" ]
+    then
+        ANDROID_PROBLEMS="$ANDROID_PROBLEMS $android_module:unrecognised-dependency-form"
+    fi
+
+    grep -E '^libs\.' "$TMP/module-deps.txt" \
+        | sed 's/^libs\.//' | tr '.' '-' | sort -u > "$TMP/module-external.txt" || true
+
+    UNDECLARED=$(comm -23 "$TMP/module-external.txt" "$TMP/declared-android.txt" || true)
+    UNUSED=$(comm -13 "$TMP/module-external.txt" "$TMP/declared-android.txt" || true)
+    if [ -n "$UNDECLARED" ]
+    then
+        ANDROID_PROBLEMS="$ANDROID_PROBLEMS $android_module:undeclared($(printf '%s' "$UNDECLARED" | tr '\n' ','))"
+    fi
+    if [ -n "$UNUSED" ]
+    then
+        ANDROID_PROBLEMS="$ANDROID_PROBLEMS $android_module:declared-but-unused($(printf '%s' "$UNUSED" | tr '\n' ','))"
+    fi
+done < "$TMP/graph-lines.txt"
+
+if [ "$ANDROID_SCANNED" = "$GRAPH_MODULES" ]
+then
+    pass "the external-dependency allowlist was applied to all $ANDROID_SCANNED Android modules"
+else
+    fail "the external-dependency allowlist reached $ANDROID_SCANNED of $GRAPH_MODULES Android modules"
+fi
+
+if [ -z "$ANDROID_PROBLEMS" ]
+then
+    pass 'every Android module depends on exactly the external artifacts the module graph declares'
+else
+    fail "Android external dependencies disagree with the module graph:$ANDROID_PROBLEMS"
+fi
 
 TRUNK=$(grep -rIl 'pod trunk push' . --exclude-dir=.git --exclude-dir=.build --exclude-dir=.gradle --exclude=validate.sh 2>/dev/null || true)
 if [ -z "$TRUNK" ]
@@ -1108,8 +1295,12 @@ do
     then
         contains Package.swift ".target(name: \"$swift_target\")" "Package.swift target $swift_target has no dependencies"
     else
+        # The graph's edges are the LEADING dependencies of the target, in order, and
+        # the closing bracket is deliberately not part of the match: a target may carry
+        # a trait-gated external product after them, which section 7 holds to
+        # `externalDeps` instead.
         rendered=$(printf '%s' "$swift_deps" | sed 's/, /, /g')
-        contains Package.swift ".target(name: \"$swift_target\", dependencies: [$rendered])" \
+        contains Package.swift ".target(name: \"$swift_target\", dependencies: [$rendered" \
             "Package.swift target $swift_target dependency edge matches the graph"
     fi
 
@@ -1239,7 +1430,7 @@ fi
 # ---------------------------------------------------------------------------
 section '10. toolchain baseline (D5) is declared, not implied'
 # ---------------------------------------------------------------------------
-contains Package.swift 'swift-tools-version: 6.0' 'Package.swift pins swift-tools-version 6.0'
+contains Package.swift 'swift-tools-version: 6.1' 'Package.swift pins swift-tools-version 6.1'
 contains Package.swift '.iOS(.v16)' 'Package.swift pins the iOS 16 baseline'
 contains Package.swift '.macOS(.v13)' 'Package.swift pins the macOS 13 baseline'
 

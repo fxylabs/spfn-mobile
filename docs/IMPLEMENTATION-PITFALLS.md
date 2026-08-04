@@ -270,8 +270,12 @@ wire 경로를 건드리지 않은 change set에서는 재실행이 선택이다
 range 문자열, 에러 메시지, doc comment, COMPATIBILITY.md 행, 생성 코드.
 직렬화 포맷·DSL(YAML·Gradle DSL)을 향한 검사를 신설·확장할 때는 표기 변형을 probe에
 반드시 심는다 — flow/block 스타일, quoted 키, 리스트 항목 접두(`- uses:`),
-호출형/대입형. 이 클래스는 한 PR 사이클에서 3회 재발했다: F-A(flow-style `on:` 트리거
+호출형/대입형, **블록 여는 줄에 같이 쓴 항목**(`dependencies { implementation(...) }`).
+이 클래스는 한 PR 사이클에서 3회 재발했다: F-A(flow-style `on:` 트리거
 통과) → DF-2(quoted `"push":` skip) → `- uses:`(step 첫 키 관용형이 앵커 추출을 우회).
+w-6m8dz에서 4번째로 나왔다: Gradle 의존성 검사가 `^[[:space:]]*(api|implementation)\(`로
+줄을 앵커해 읽어서, 블록 여는 줄에 함께 쓴 의존성이 통과했다. **줄이 아니라 출현을
+읽는다** — 앵커를 버리고 `grep -oE`로 모든 출현을 뽑아 판정한다.
 일반형 패턴은 coding-context `reliability/denylist-notation-bypass`.
 
 **처방.** 규칙 변경과 그것을 서술하는 문자열 변경을 같은 커밋에 넣는다. 파생 불가면
@@ -313,6 +317,7 @@ change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서
 | PR #11 (w-6s7yg) | 2 | 4 | 0 |
 | PR #12 (w-9phsb) | 2 | 8 | 0 |
 | PR #13 (w-9phsb, 관측성) | 1 | 1 | 0 |
+| w-6m8dz (네이티브 소셜) | 0 — 케이스 표로 닫음 | 1 (probe가 스스로 잡음) | 0 |
 
 **cs-mzv14 읽는 법.** 등록부를 도입한 change set 자신이다. 브리프에 인용한 항목은
 [P4](#p4)–[P7](#p7)이었고 리뷰가 넷 다 지켜졌다고 확인했다. finding 10건 중 9건은

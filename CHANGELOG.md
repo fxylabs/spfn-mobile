@@ -5,6 +5,36 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Native social sign-in has an SDK surface, and the nonce is no longer a string
+
+- `SPFNSocialApple` / `spfn-social-apple` and `SPFNSocialGoogle` / `spfn-social-google`
+  are the first modules added under the five module rules. Each carries an
+  implementation, each drags in a provider dependency most consumers will not link, and
+  each closes exactly one gap: obtaining a provider token on the device. Key generation,
+  the registration request and the account are owned by `SPFNKeyLifecycle.enroll` and by
+  the server, and none of it was reimplemented.
+- `SPFNSocialNonce` / `SpfnSocialNonce` replaces the `String` nonce on `enroll`. It mints
+  a random lowercase-hex value, hides it, and publishes only `appleRequestValue` — the
+  SHA-256 of it. Apple's request carries the hash, every other provider's carries the raw
+  value, and the server always compares against the raw value; an app that could pass
+  either would eventually pass the wrong one, and the refusal that follows names nothing.
+- The raw value is deliberately not base64. A base64url value's last character carries
+  fewer than six bits, and Naver hands back a different trailing character than it was
+  given (primitives #57). The shape is fixed now rather than after flows are enrolled.
+- The manifest baseline moved to swift-tools-version 6.1 (D5 revision 3b) for package
+  traits. `SocialApple` and `SocialGoogle` are declared, neither is on by default, and a
+  trait-off consumer resolves nothing: a cold build creates no `Package.resolved` and no
+  checkout, which is now what the trait-off build is expected to prove.
+- `tools/module-graph.json` gained `swiftTrait` and `externalDeps`, and the validator's
+  "zero external dependencies" rule became an allowlist read from the graph, checked in
+  both directions on both platforms — an undeclared dependency fails, and so does an
+  allowance nothing uses. Zero was never the property worth keeping; reviewed was.
+- The interactive-browser vocabulary ban is narrowed to a named exception rather than
+  loosened: only inside the two adapter module trees, and only for the provider-token
+  words. Redirect and PKCE vocabulary stays refused everywhere, adapters included.
+- Kakao and Naver adapters are not here. The server has no `verifyNativeIdToken` for
+  them (primitives #56, #57), and a module is added with an implementation or not at all.
+
 ### The empty modules are gone, and the rule that made them is written down
 
 - `SPFNPersistence` / `spfn-sync` and `SPFNHybrid` / `spfn-hybrid` are dropped. Both were

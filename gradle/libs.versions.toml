@@ -23,6 +23,9 @@ cyclonedx = "3.3.0"
 # `mockwebserver3` ships from the same release train, so it is versioned by `okhttp`.
 okhttp = "5.4.0"
 kotlinx-coroutines = "1.11.0"
+# The Google Sign-In adapter's only dependency. Google's identity API is where a
+# sign-in request can carry a nonce, which is the whole reason that module exists.
+play-services-auth = "21.6.0"
 
 # Numeric baselines consumed by the module build scripts.
 jdk-toolchain = "21"
@@ -37,6 +40,7 @@ junit = { module = "junit:junit", version.ref = "junit" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver3", version.ref = "okhttp" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
+play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "play-services-auth" }
 
 [plugins]
 android-library = { id = "com.android.library", version.ref = "agp" }

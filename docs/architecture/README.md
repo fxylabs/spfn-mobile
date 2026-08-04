@@ -5,7 +5,7 @@ topology decision artifact
 `2026-07-27-spfn-mobile-sdk-repository-topology-decision.html`; where the two differ, the
 tree is right and this page follows it.
 
-Four modules per platform, one release train, `clientProofV1` as the only auth profile,
+Six modules per platform, one release train, `clientProofV1` as the only auth profile,
 and a contract imported from SPFN primitives by digest. The vertical slice is complete:
 canonical serialization, proof assembly on P-256 ECDSA, hardware key custody, the key
 lifecycle, a transport, a session and one execute path, with generated clients on both
@@ -29,12 +29,21 @@ fixture generator, `tools/rc-verify/rc-verify.sh` and
 `tools/rc-verify/verify-published.sh` derive their consumer dependency lists, imports
 and Maven coordinate lists from the graph.
 
-| Swift target | Android module | Depends on |
-| --- | --- | --- |
-| `SPFNCore` | `spfn-core` | — |
-| `SPFNGenerated` | `spfn-generated` | core |
-| `SPFNAuth` | `spfn-auth` | core |
-| `SPFNClient` | `spfn-client` | core, auth, generated |
+| Swift target | Android module | Depends on | External |
+| --- | --- | --- | --- |
+| `SPFNCore` | `spfn-core` | — | — |
+| `SPFNGenerated` | `spfn-generated` | core | — |
+| `SPFNAuth` | `spfn-auth` | core | — |
+| `SPFNClient` | `spfn-client` | core, auth, generated | OkHttp, coroutines (Android) |
+| `SPFNSocialApple` | `spfn-social-apple` | client | — |
+| `SPFNSocialGoogle` | `spfn-social-google` | client | GoogleSignIn (trait), play-services-auth |
+
+The graph gained two keys with the provider adapters. `swiftTrait` names the SwiftPM
+trait a module's external dependency hangs off, and `externalDeps` is the allowlist the
+validator holds both manifests to — in both directions, so an undeclared dependency and
+an unused allowance each fail. The rule this replaced was "zero external dependencies",
+which was true until an adapter needed the provider's own SDK; zero was never the
+property worth keeping, reviewed was.
 
 A module appears here only once it carries an implementation. `SPFNPersistence` /
 `spfn-sync` and `SPFNHybrid` / `spfn-hybrid` were declared in the Step 1 scaffold from
@@ -58,6 +67,11 @@ entry points that throw. `validate.sh` refuses unimplemented-entry-point vocabul
 (`notImplemented`, `TODO`, `plannedStep`, …) anywhere under `Sources` or
 `android/*/src/main`; examples and tools are excluded, because a placeholder example is
 honest about being one.
+
+The provider adapters are the first modules added under these rules, and they are also
+what tested the second one below: each drags in a provider SDK that most consumers will
+not link, and on iOS a consumer that does not enable the module's trait does not
+resolve, check out or link it at all.
 
 **The default shape of an extension is an injected protocol, not a module.** A new
 capability starts as a protocol plus a default implementation inside the module that
@@ -98,7 +112,35 @@ reads as a promise.
 | Hybrid WebView bridge | the module was dropped rather than kept empty; the validator now refuses WebView and JavaScript-bridge vocabulary anywhere in the surface | D10, COMPATIBILITY Hybrid row |
 
 Interactive-browser auth (`oidcPkceV1`) is a stronger prohibition than a scope decision:
-`validate.sh` fails on redirect and PKCE vocabulary in the surface at all.
+`validate.sh` fails on redirect and PKCE vocabulary in the surface at all. The provider
+adapters narrowed that check without weakening it: inside the two adapter module trees a
+line may name the provider-token vocabulary (`id_token`, `oauth`, `openid`), because an
+adapter that cannot say why Apple hashes the request nonce has to be re-derived by
+everyone who reads it. Redirect and PKCE vocabulary stays refused there too.
+
+Kakao and Naver adapters are not here for a reason that is not a decision at all: the
+server has no `verifyNativeIdToken` for them yet (primitives #56, #57). A module is
+added with an implementation or not at all, so they arrive when the server half does.
+
+## Native social enrollment
+
+`auth.enroll.oauthNative` and `SPFNKeyLifecycle.enroll` already owned everything except
+one gap — obtaining a provider token on the device — and the adapter modules are that
+gap and nothing else. Two things are worth knowing about the surface.
+
+**The nonce is a type, not a string.** `SPFNSocialNonce` mints a random lowercase-hex
+value, hides it, and publishes only `appleRequestValue`, the SHA-256 of it. Apple's
+request carries the hash and every other provider's carries the raw value, while the
+SPFN server always compares against the raw value; an app free to pass either would
+eventually pass the wrong one, and the refusal that follows names nothing a log could
+point at. The raw value is reachable inside the package (Swift) or behind an opt-in
+marker (Kotlin, which has no package visibility), and by an app in neither.
+
+**The raw value is not base64.** A base64url value's last character carries fewer than
+six bits, and a provider that re-encodes it can hand back a different last character
+than it was given — measured against Naver, which drops a trailing `A`. Hex has a fixed
+meaning per position. The constraint is kept from the start because changing the shape
+later would break flows that are already enrolled.
 
 ## Key custody and the key lifecycle
 

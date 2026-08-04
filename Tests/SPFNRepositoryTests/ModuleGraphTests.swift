@@ -79,12 +79,65 @@ final class ModuleGraphTests: XCTestCase
             {
                 continue
             }
+            // The graph's edges are the LEADING dependencies of the target, in order.
+            // A target may carry more — a trait-gated external product is declared on
+            // the same line — and those are held to `externalDeps` instead, by the
+            // shell validator's section 7 and by the manifest itself.
             let rendered = dependencies.map { "\"\($0)\"" }.joined(separator: ", ")
             XCTAssertTrue(
-                manifest.contains(".target(name: \"\(target)\", dependencies: [\(rendered)])"),
+                manifest.contains(".target(name: \"\(target)\", dependencies: [\(rendered)"),
                 "Package.swift dependency edge for \(target) does not match module-graph.json"
             )
         }
+    }
+
+    /// The graph is also the allowlist for what the manifest may pull in from outside.
+    /// Both directions are checked: a trait or an external package the graph declares
+    /// must appear in the manifest, and a package the manifest declares must be named
+    /// by some module's `externalDeps`.
+    func testDeclaredTraitsAndExternalPackagesMatchTheManifest() throws
+    {
+        let manifest = try RepoPaths.text(at: "Package.swift")
+        var declaredPackages: Set<String> = []
+
+        for module in try modules()
+        {
+            let external = try XCTUnwrap(module["externalDeps"] as? [String: Any])
+            let swiftPackages = try XCTUnwrap(external["swift"] as? [String])
+            declaredPackages.formUnion(swiftPackages)
+
+            if let trait = module["swiftTrait"] as? String
+            {
+                XCTAssertTrue(
+                    manifest.contains(".trait(name: \"\(trait)\""),
+                    "Package.swift declares no trait named \(trait)"
+                )
+            }
+            for package in swiftPackages
+            {
+                XCTAssertTrue(manifest.contains("/\(package)\""), "Package.swift declares no dependency on \(package)")
+            }
+        }
+
+        let manifestPackages = manifest
+            .split(separator: "\n")
+            .filter { $0.contains(".package(url:") }
+        XCTAssertEqual(
+            manifestPackages.count, declaredPackages.count,
+            "Package.swift declares \(manifestPackages.count) external packages; the graph allows \(declaredPackages.count)"
+        )
+        for line in manifestPackages
+        {
+            XCTAssertTrue(
+                declaredPackages.contains { line.contains("/\($0)\"") },
+                "Package.swift declares an external package the module graph does not allow: \(line)"
+            )
+        }
+
+        // Traits carry no external dependency of their own, so the default trait set
+        // has to stay empty: a default-enabled trait would resolve Google's SDK for a
+        // consumer that never asked for it.
+        XCTAssertTrue(manifest.contains(".default(enabledTraits: [])"), "the default trait set must stay empty")
     }
 
     func testVersionIsConsistentAcrossManifests() throws
@@ -100,7 +153,9 @@ final class ModuleGraphTests: XCTestCase
     func testToolchainBaselineIsDeclaredInTheManifest() throws
     {
         let manifest = try RepoPaths.text(at: "Package.swift")
-        XCTAssertTrue(manifest.contains("swift-tools-version: 6.0"), "D5 fixes swift-tools-version at 6.0")
+        // D5 revision 3b moved the floor from 6.0 to 6.1: the provider adapters select
+        // their external dependency with package traits, which 6.0 has no notion of.
+        XCTAssertTrue(manifest.contains("swift-tools-version: 6.1"), "D5 fixes swift-tools-version at 6.1")
         XCTAssertTrue(manifest.contains(".iOS(.v16)"), "D5 fixes the iOS baseline at 16")
         XCTAssertTrue(manifest.contains(".macOS(.v13)"), "D5 fixes the macOS baseline at 13")
     }

@@ -20,6 +20,10 @@
 #   /examples/android-compose/     <android-owner>
 #   /Sources/SPFNAuth/             <ios-owner> <security-owner>
 #   /android/spfn-auth/            <android-owner> <security-owner>
+#   /Sources/SPFNSocialApple/      <ios-owner> <security-owner>
+#   /Sources/SPFNSocialGoogle/     <ios-owner> <security-owner>
+#   /android/spfn-social-apple/    <android-owner> <security-owner>
+#   /android/spfn-social-google/   <android-owner> <security-owner>
 #   /.github/workflows/            <release-owner> <security-owner>
 #   /VERSION                       <release-owner> <security-owner>
 #   /RELEASE.md                    <release-owner> <security-owner>

@@ -11,9 +11,10 @@ the same fixture vectors.
 
 ## What it is not
 
-- Not an SDK. There is a transport boundary, a session, one execute path and key
-  custody above them, and nothing above that: local persistence and a hybrid bridge do
-  not exist at all — their modules were dropped from the train after `0.1.0-alpha.3`
+- Not an SDK. There is a transport boundary, a session, one execute path, key custody
+  above them, and the two provider adapters that obtain a native sign-in token for
+  enrollment — and nothing above that: local persistence and a hybrid bridge do not
+  exist at all, their modules having been dropped from the train after `0.1.0-alpha.3`
   rather than kept as empty reservations.
 - **Not verified against a deployed service.** Both SDKs complete a real HTTP round trip
   against `tools/reference-server` and against the SPFN primitives `04-mobile-contract-dev`
@@ -31,7 +32,7 @@ the same fixture vectors.
 | --- | --- |
 | Toolchain baseline (D5) | applied: Swift 6 language mode, iOS 16 / macOS 13, Gradle 9.5.1, AGP 9.2.1, Kotlin 2.4.10, JDK 21, minSdk 24 / compileSdk 36 |
 | Gradle wrapper | committed, distribution and jar pinned to checksums published by gradle.org |
-| Android modules | all compile, and three run unit tests |
+| Android modules | all compile, and five of the six run unit tests |
 | Contract bundle | an SPFN primitives export, pinned by real SHA-256 at commit `d31aa9a1`, with the exporter's evidence vendored beside it |
 | Codegen | `tools/contract-codegen` generates both clients from the bundle, deterministically |
 | Conformance | shared fixtures under `Contracts/fixtures/`, consumed by both test suites |

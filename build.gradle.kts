@@ -103,8 +103,9 @@ require(mavenGroupVerified)
         "docs/OPEN-DECISIONS.md D4), not a property edit."
 }
 
-/// The five SDK modules. `:contract-codegen` is a build tool, not an SDK module, so it
-/// is excluded from every graph check and from the AAR baseline.
+/// The SDK modules, taken from where they live rather than from a list that would stop
+/// covering the next one. `:contract-codegen` and `:reference-server` are build tools,
+/// not SDK modules, so they are excluded from every graph check and from the AAR baseline.
 val sdkModules: List<Project>
     get() = subprojects.filter { it.projectDir.parentFile.name == "android" }
 

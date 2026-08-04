@@ -27,6 +27,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import xyz.superfunction.spfn.client.SpfnClientError
+import xyz.superfunction.spfn.client.SpfnSocialNonce
 import xyz.superfunction.spfn.client.SpfnTransportError
 import xyz.superfunction.spfn.client.SpfnTransportRequest
 import xyz.superfunction.spfn.core.SpfnCanonicalJson
@@ -233,7 +234,7 @@ class SpfnAndroidReferenceIntegrationTest
             val enrolled = lifecycle.enroll(
                 provider = "google",
                 idToken = "spfn-test-idtoken.google.$userId.$nonce",
-                nonce = nonce
+                nonce = SpfnSocialNonce.of(nonce)
             );
             assertEquals(userId, enrolled.clientId);
             assertTrue(enrolled.isNewUser);

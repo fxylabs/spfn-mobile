@@ -48,7 +48,7 @@ class SpfnKeyLifecycleTest
         val result = lifecycle.enroll(
             provider = oauthNative.text("provider"),
             idToken = value.text("idToken"),
-            nonce = value.text("nonce")
+            nonce = SpfnSocialNonce.of(value.text("nonce"))
         );
 
         assertEquals(SpfnEnrollmentResult("user-test-0001", "key-test-0001", true), result);
@@ -108,7 +108,7 @@ class SpfnKeyLifecycleTest
         val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
 
         val thrown = failureOf {
-            lifecycle.enroll(provider = "google", idToken = "idtoken-test", nonce = "nonce-enroll-9999");
+            lifecycle.enroll(provider = "google", idToken = "idtoken-test", nonce = SpfnSocialNonce.of("nonce-enroll-9999"));
         };
 
         assertNotNull(thrown);
@@ -124,7 +124,7 @@ class SpfnKeyLifecycleTest
 
         for (provider in listOf("", "Google", "google/../evil", "goo gle", "google{", "구글", "ｇoogle"))
         {
-            val thrown = failureOf { lifecycle.enroll(provider = provider, idToken = "t", nonce = "n") };
+            val thrown = failureOf { lifecycle.enroll(provider = provider, idToken = "t", nonce = SpfnSocialNonce.of("n")) };
             assertTrue("'$provider' was accepted: $thrown", thrown is SpfnKeyLifecycleException.MalformedProviderId);
         }
         assertEquals(0, transport.callCount);

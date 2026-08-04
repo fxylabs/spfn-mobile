@@ -50,4 +50,14 @@ Pod::Spec.new do |s|
     sp.dependency 'SPFNMobileCompatFixture/SPFNGenerated'
   end
 
+  s.subspec 'SPFNSocialApple' do |sp|
+    sp.source_files = 'Sources/SPFNSocialApple/**/*.swift'
+    sp.dependency 'SPFNMobileCompatFixture/SPFNClient'
+  end
+
+  s.subspec 'SPFNSocialGoogle' do |sp|
+    sp.source_files = 'Sources/SPFNSocialGoogle/**/*.swift'
+    sp.dependency 'SPFNMobileCompatFixture/SPFNClient'
+  end
+
 end
