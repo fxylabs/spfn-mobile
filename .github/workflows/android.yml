@@ -11,7 +11,7 @@
 #   - Gradle dependency verification against gradle/verification-metadata.xml
 #   - lint and assemble in addition to unit tests
 #   - API and binary compatibility snapshots
-#   - Keystore and WebView coverage; emulator on main, real device at candidate stage
+#   - Keystore coverage; emulator on main, real device at candidate stage
 #
 # How CI obtains and pins an Android SDK is open decision D20.
 name: android

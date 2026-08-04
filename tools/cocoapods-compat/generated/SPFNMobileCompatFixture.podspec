@@ -50,15 +50,4 @@ Pod::Spec.new do |s|
     sp.dependency 'SPFNMobileCompatFixture/SPFNGenerated'
   end
 
-  s.subspec 'SPFNPersistence' do |sp|
-    sp.source_files = 'Sources/SPFNPersistence/**/*.swift'
-    sp.dependency 'SPFNMobileCompatFixture/SPFNCore'
-  end
-
-  s.subspec 'SPFNHybrid' do |sp|
-    sp.source_files = 'Sources/SPFNHybrid/**/*.swift'
-    sp.dependency 'SPFNMobileCompatFixture/SPFNCore'
-    sp.dependency 'SPFNMobileCompatFixture/SPFNAuth'
-  end
-
 end

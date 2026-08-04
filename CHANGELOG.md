@@ -3,6 +3,36 @@
 `0.1.0-alpha.3` is the current published release and `0.1.0-alpha.2` is superseded.
 Entries under an unreleased heading describe repository state, not shipped software.
 
+## Unreleased
+
+### The empty modules are gone, and the rule that made them is written down
+
+- `SPFNPersistence` / `spfn-sync` and `SPFNHybrid` / `spfn-hybrid` are dropped. Both were
+  declared in the Step 1 scaffold from the approved layout, never implemented, and
+  published as empty coordinates through `0.1.0-alpha.3` — 21 and 30 lines of Swift whose
+  only entry point threw. A published coordinate reads as a promise, and there was
+  nothing behind these two. `0.1.0-alpha.3` keeps them because published versions are
+  immutable; the next release does not.
+- The removal settles D10 by deleting both names. The `SPFNPersistence` / `spfn-sync`
+  asymmetry was never a naming oversight: one side promised storage and the other
+  promised synchronization, because nothing had decided which the module was.
+- The hybrid guarantee got stronger by losing its module. "No bridge exists" was proven
+  by an empty allowlist literal, which one edit widens. It is now proven by refusing
+  WebView and JavaScript-bridge vocabulary anywhere in the surface, which cannot be
+  widened without adding a module.
+- `SPFNScaffoldError` and `SpfnNotImplementedInScaffoldException` are gone with their
+  only callers. A new check refuses unimplemented-entry-point vocabulary in SDK sources
+  outright, so a stub module cannot come back the way this one arrived.
+- The in-band disclaimer was lying. It claimed nothing had been committed, tagged or
+  published and that the transport did not exist, months after all four were false. It
+  now names what exists, what does not exist at all, and that no device evidence exists.
+- `docs/architecture/README.md` records the five module rules this settles: implementation
+  before module, injected protocol before module, one release train, one place where a
+  module is named, and contract before any module that needs a server round trip.
+- The module graph is the only place a module is named. The podspec generator already
+  derived from it; `rc-verify.sh` and `verify-published.sh` now do too, so their consumer
+  dependency lists, imports and Maven coordinates cannot drift from the train.
+
 ## 0.1.0-alpha.3 — published 2026-08-04
 
 Published to Maven Central (deployment `b7ae0261`) with the matching SwiftPM tag at

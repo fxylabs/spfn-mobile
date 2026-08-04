@@ -5,12 +5,10 @@
     {"id": "core", "swiftTarget": "SPFNCore", "androidModule": "spfn-core", "swiftDependsOn": [], "androidDependsOn": []},
     {"id": "generated", "swiftTarget": "SPFNGenerated", "androidModule": "spfn-generated", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"]},
     {"id": "auth", "swiftTarget": "SPFNAuth", "androidModule": "spfn-auth", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"]},
-    {"id": "client", "swiftTarget": "SPFNClient", "androidModule": "spfn-client", "swiftDependsOn": ["SPFNCore", "SPFNAuth", "SPFNGenerated"], "androidDependsOn": ["spfn-core", "spfn-auth", "spfn-generated"]},
-    {"id": "persistence", "swiftTarget": "SPFNPersistence", "androidModule": "spfn-sync", "swiftDependsOn": ["SPFNCore"], "androidDependsOn": ["spfn-core"]},
-    {"id": "hybrid", "swiftTarget": "SPFNHybrid", "androidModule": "spfn-hybrid", "swiftDependsOn": ["SPFNCore", "SPFNAuth"], "androidDependsOn": ["spfn-core", "spfn-auth"]}
+    {"id": "client", "swiftTarget": "SPFNClient", "androidModule": "spfn-client", "swiftDependsOn": ["SPFNCore", "SPFNAuth", "SPFNGenerated"], "androidDependsOn": ["spfn-core", "spfn-auth", "spfn-generated"]}
   ],
   "notes": [
-    "The Swift/Android name asymmetry (SPFNPersistence <-> spfn-sync) is carried verbatim from the approved topology artifact section 3. Renaming either side is an UNRESOLVED decision, not a scaffold choice.",
+    "A module exists here only once it carries an implementation. The persistence/sync and hybrid modules were declared in the Step 1 scaffold, never implemented, and published as empty coordinates through 0.1.0-alpha.3; they were dropped from the train instead. Adding one back means adding it with behaviour.",
     "Dependency edges are a Step 1 scaffold proposal derived from the layered design; they carry no implementation and may be revised in Step 2.",
     "The client module gained edges to auth and generated with the session change set: a session assembles a clientProofV1 proof (auth) over a generated operation and its generated request type. The transport boundary inside the same module still depends on core alone."
   ]

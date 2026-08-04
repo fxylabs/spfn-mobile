@@ -7,7 +7,7 @@
 #
 # Gates this file must implement before it becomes a required check:
 #   - swift build and swift test on a Linux runner (core, no Apple frameworks)
-#   - a separate macOS job for Keychain, Secure Enclave and WKWebView coverage
+#   - a separate macOS job for Keychain and Secure Enclave coverage
 #   - concurrency, cancellation and error-path tests
 #   - every third-party action pinned by commit SHA
 name: swift

@@ -10,27 +10,22 @@ object SpfnVersion
     const val CURRENT: String = "0.1.0-alpha.3"
 }
 
-/** Mirror of the Swift `SPFNScaffoldError.notImplementedInScaffold`. */
-class SpfnNotImplementedInScaffoldException(
-    val symbol: String,
-    val plannedStep: String
-) : IllegalStateException("$symbol is not implemented yet (planned: $plannedStep)")
-
 /** Machine-readable statement of what this checkout actually is. */
 object SpfnScaffold
 {
     /**
-     * Still true. Step 2 added a real vertical slice — canonical serialization,
-     * clientProofV1, dual codegen and a conformance gate — but nothing has been
-     * committed, tagged, published or independently reviewed, and transport,
-     * persistence and the hybrid bridge do not exist.
+     * Still true. Canonical serialization, clientProofV1 on P-256 ECDSA, the key
+     * lifecycle, dual codegen, the transport and a conformance gate exist and alpha
+     * versions are published, but nothing has run on a device and no support row in
+     * COMPATIBILITY.md claims a value.
      */
     const val IS_SCAFFOLD: Boolean = true
 
     const val DISCLAIMER: String =
-        "SPFN Mobile Step 2 vertical slice. Canonical serialization, clientProofV1 proof " +
-            "assembly, generated clients and a cross-platform conformance gate exist; " +
-            "transport, persistence and the hybrid bridge do not. There is " +
-            "no supported release, no registry publication, and no public support of any " +
+        "SPFN Mobile alpha. Canonical serialization, clientProofV1 proof assembly and " +
+            "key custody, generated clients, the transport and a cross-platform conformance " +
+            "gate exist; local persistence and a hybrid web bridge do not exist at all. " +
+            "Alpha versions are published for evaluation: there is " +
+            "no supported release, no device evidence, and no public support of any " +
             "distribution channel."
 }
