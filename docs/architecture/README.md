@@ -37,7 +37,7 @@ and Maven coordinate lists from the graph.
 | `SPFNAuth` | `spfn-auth` | core | — |
 | `SPFNClient` | `spfn-client` | core, auth, generated | OkHttp, coroutines (Android) |
 | `SPFNSocialApple` | — (iOS only) | client | — |
-| `SPFNSocialGoogle` | `spfn-social-google` | client | GoogleSignIn (trait), play-services-auth |
+| `SPFNSocialGoogle` | `spfn-social-google` | client | GoogleSignIn (trait), Credential Manager ×3 |
 
 The graph gained two keys with the provider adapters. `swiftTrait` names the SwiftPM
 trait a module's external dependency hangs off, and `externalDeps` is the allowlist the
@@ -150,6 +150,15 @@ SPFN server always compares against the raw value; an app free to pass either wo
 eventually pass the wrong one, and the refusal that follows names nothing a log could
 point at. The raw value is reachable inside the package (Swift) or behind an opt-in
 marker (Kotlin, which has no package visibility), and by an app in neither.
+
+**The Android side is Credential Manager, not play-services-auth.** Google deprecated
+the one-tap sign-in surface, and the adapter was written on it once before being moved:
+`androidx.credentials` is the API, `credentials-play-services-auth` is the provider
+behind it, and `googleid` carries the request option that holds the nonce and the
+credential that comes back. New code on a retired API buys nothing and schedules the
+same migration for a worse moment, so `validate.sh` now refuses a deprecation
+suppression anywhere in SDK sources — the point being that a suppression is precisely
+what keeps this out of a build log, so a build log cannot be what catches it.
 
 **The Apple adapter is iOS-only.** App Store guideline 4.8 requires Sign in with Apple
 on iOS and nothing requires it on Android, where Apple's own flow is a web one an app

@@ -7,11 +7,12 @@
 
 package xyz.superfunction.spfn.social.google
 
-import com.google.android.gms.common.api.ApiException
-import com.google.android.gms.common.api.CommonStatusCodes
-import com.google.android.gms.common.api.Status
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.NoCredentialException
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -31,34 +32,35 @@ class SpfnSocialGoogleTest
     }
 
     /**
-     * C6: a dismissal stays a dismissal, and every other refusal keeps its code. The
-     * dismissal is raised the way the platform raises it — Google's own exception with
-     * its own status code — so the classification is judged against the real thing.
+     * C6: a dismissal stays a dismissal, and every other refusal stays distinguishable.
+     * Both are raised the way Credential Manager raises them — its own exception types —
+     * so the classification is judged against the real thing rather than a stand-in.
      */
     @Test
     fun c6_aDismissalIsACancellation()
     {
-        val cancelled = ApiException(Status(CommonStatusCodes.CANCELED));
-        val dismissed = SpfnSocialGoogle(RecordingGoogleDriver(failure = cancelled));
+        val dismissed = SpfnSocialGoogle(
+            RecordingGoogleDriver(failure = GetCredentialCancellationException("dismissed"))
+        );
         assertThrows(SpfnSocialGoogleException.Cancelled::class.java)
         {
             runBlocking { dismissed.idToken(SpfnSocialNonce.make()) };
         }
 
-        val refused = ApiException(Status(CommonStatusCodes.DEVELOPER_ERROR));
-        val failed = SpfnSocialGoogle(RecordingGoogleDriver(failure = refused));
+        val refusal = NoCredentialException("no credential");
+        val failed = SpfnSocialGoogle(RecordingGoogleDriver(failure = refusal));
         val thrown = assertThrows(SpfnSocialGoogleException.Failed::class.java)
         {
             runBlocking { failed.idToken(SpfnSocialNonce.make()) };
         }
-        assertEquals(CommonStatusCodes.DEVELOPER_ERROR, thrown.code);
+        assertEquals(refusal.type, thrown.type);
 
         val unknown = SpfnSocialGoogle(RecordingGoogleDriver(failure = IllegalStateException("flow broke")));
-        val internal = assertThrows(SpfnSocialGoogleException.Failed::class.java)
+        val unclassified = assertThrows(SpfnSocialGoogleException.Failed::class.java)
         {
             runBlocking { unknown.idToken(SpfnSocialNonce.make()) };
         }
-        assertEquals(CommonStatusCodes.INTERNAL_ERROR, internal.code);
+        assertEquals(SpfnSocialGoogle.UNCLASSIFIED_TYPE, unclassified.type);
     }
 
     /** C7: the request's nonce field carries the RAW value, never the Apple hash. */
@@ -72,10 +74,20 @@ class SpfnSocialGoogleTest
         assertEquals(nonce.rawValue, driver.requestedNonce);
         assertNotEquals(nonce.appleRequestValue, driver.requestedNonce);
 
-        // The same value in the request Google's launcher would really be handed.
+        // The same value in the request Credential Manager would really be handed. The
+        // option is Google's own type, built the way the driver builds it, and the
+        // nonce is read back off it rather than off anything this suite constructed.
+        val option = SpfnSocialGoogle.googleIdOption("server-client-id-0001", nonce);
+        assertEquals(nonce.rawValue, option.nonce);
+        assertEquals("server-client-id-0001", option.serverClientId);
+        assertFalse(
+            "an enrollment is the first time this install meets the user",
+            option.filterByAuthorizedAccounts
+        );
+
         val request = SpfnSocialGoogle.signInRequest("server-client-id-0001", nonce);
-        assertEquals(nonce.rawValue, request.nonce);
-        assertEquals("server-client-id-0001", request.serverClientId);
+        val carried = request.credentialOptions.filterIsInstance<GetGoogleIdOption>().single();
+        assertEquals(nonce.rawValue, carried.nonce);
     }
 
     /** A sign-in that answers with no token fails explicitly (the C3 rule, other half). */

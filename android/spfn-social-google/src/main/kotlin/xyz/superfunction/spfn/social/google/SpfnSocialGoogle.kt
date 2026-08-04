@@ -5,27 +5,39 @@
 // exception lives in one place — SpfnSocialNonce.appleRequestValue — so an adapter that
 // reaches for the raw value is doing the ordinary thing rather than the risky one.
 //
-// Two things here are Google's rather than this SDK's, and both are why the artifact is
-// a dependency instead of a hand-rolled request: the sign-in request type that carries a
-// nonce at all, and the credential the launched flow returns. What the SDK owns is which
-// value goes in that request, and what a credential without a token means.
+// The API is Credential Manager, not the one-tap sign-in surface in play-services-auth,
+// which Google has deprecated. New code on a deprecated API buys nothing and schedules
+// the same migration for a worse moment; `androidx.credentials` is where a request
+// carrying a nonce lives now.
+//
+// Three things here are Google's rather than this SDK's, and they are why the artifacts
+// are dependencies instead of a hand-rolled request: the request option that carries a
+// nonce, the credential the flow returns, and the provider that serves it. What the SDK
+// owns is which value goes in that option, and what a credential without a token means.
 //
 // Sources/SPFNSocialGoogle/SPFNSocialGoogle.swift is the counterpart. Nothing here reads
-// or logs anything but the token (decision 1).
+// or logs anything but the token (decision 1) — in particular a refusal keeps Credential
+// Manager's type constant and drops its message, which is provider text.
 
 package xyz.superfunction.spfn.social.google
 
-import com.google.android.gms.auth.api.identity.GetSignInIntentRequest
-import com.google.android.gms.auth.api.identity.SignInCredential
-import com.google.android.gms.common.api.ApiException
-import com.google.android.gms.common.api.CommonStatusCodes
+import android.content.Context
+import androidx.credentials.Credential
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import xyz.superfunction.spfn.client.SpfnInternalNonceAccess
 import xyz.superfunction.spfn.client.SpfnSocialNonce
 
 /**
  * Why a Google sign-in did not produce a token. A dismissal is separate for the same
- * reason as on Apple: it is an outcome, not a failure. Google's numeric status code is
- * kept; its message text is not.
+ * reason as on Apple: it is an outcome, not a failure. Credential Manager's own type
+ * constant is kept; its message is not, because a provider message is where a token or
+ * an account identifier reaches a log.
  */
 sealed class SpfnSocialGoogleException(message: String) : Exception(message)
 {
@@ -35,13 +47,17 @@ sealed class SpfnSocialGoogleException(message: String) : Exception(message)
     /** The flow completed but carried no identity token. */
     class IdentityTokenMissing : SpfnSocialGoogleException("the Google credential carried no identity token")
 
-    /** Any other refusal, carrying Google's own status code. */
-    class Failed(val code: Int) : SpfnSocialGoogleException("the Google sign-in failed with code $code")
+    /**
+     * Any other refusal, carrying Credential Manager's type constant — a fixed
+     * identifier such as `android.credentials.GetCredentialException.TYPE_NO_CREDENTIAL`,
+     * never the provider's own text.
+     */
+    class Failed(val type: String) : SpfnSocialGoogleException("the Google sign-in failed with type $type")
 }
 
 /**
- * The launched flow, behind a seam. An app hands over whatever it uses to launch an
- * intent and read its result; this module decides what goes in and what comes out.
+ * The credential request, behind a seam. An app hands over whatever it uses to run
+ * Credential Manager; this module decides what goes in and what comes out.
  */
 fun interface SpfnSocialGoogleDriver
 {
@@ -75,31 +91,42 @@ class SpfnSocialGoogle(private val driver: SpfnSocialGoogleDriver)
     companion object
     {
         /**
-         * The request Google's launcher signs in with. The nonce field carries the raw
-         * value, and the server client id is the app's — this module never holds one.
+         * The Google request option Credential Manager is asked with. The nonce field
+         * carries the raw value, and the server client id is the app's — this module
+         * never holds one.
          *
-         * Google has deprecated this request type in favour of Credential Manager. The
-         * suppression is deliberate and narrow: `play-services-auth` is the artifact the
-         * approved design names, and moving to another one is a decision to take rather
-         * than a warning to silence by rewriting the module.
+         * Authorized accounts are not filtered: an enrollment is the first time this
+         * install meets the user, so filtering to accounts already used with this app
+         * would offer an empty list on the one flow that needs a full one.
          */
-        @Suppress("DEPRECATION")
         @OptIn(SpfnInternalNonceAccess::class)
-        fun signInRequest(serverClientId: String, nonce: SpfnSocialNonce): GetSignInIntentRequest =
-            GetSignInIntentRequest.builder()
+        fun googleIdOption(serverClientId: String, nonce: SpfnSocialNonce): GetGoogleIdOption =
+            GetGoogleIdOption.Builder()
                 .setServerClientId(serverClientId)
                 .setNonce(nonce.rawValue)
+                .setFilterByAuthorizedAccounts(false)
+                .build()
+
+        /** That option as the request Credential Manager takes. */
+        fun signInRequest(serverClientId: String, nonce: SpfnSocialNonce): GetCredentialRequest =
+            GetCredentialRequest.Builder()
+                .addCredentialOption(googleIdOption(serverClientId, nonce))
                 .build()
 
         /**
-         * The token out of the credential the launched flow returned, or a named
-         * refusal. A credential without one is not an empty string to send onward.
+         * The token out of the credential Credential Manager returned, or a named
+         * refusal. A credential of another type is not a token, and a credential
+         * without one is not an empty string to send onward.
          */
-        @Suppress("DEPRECATION")
-        fun idToken(credential: SignInCredential): String
+        fun idToken(credential: Credential): String
         {
-            val token = credential.googleIdToken;
-            if (token.isNullOrEmpty())
+            if (credential !is CustomCredential ||
+                credential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL)
+            {
+                throw SpfnSocialGoogleException.IdentityTokenMissing();
+            }
+            val token = GoogleIdTokenCredential.createFrom(credential.data).idToken;
+            if (token.isEmpty())
             {
                 throw SpfnSocialGoogleException.IdentityTokenMissing();
             }
@@ -107,16 +134,44 @@ class SpfnSocialGoogle(private val driver: SpfnSocialGoogleDriver)
         }
 
         /**
-         * Google reports a dismissal as one status code; every other refusal keeps its
-         * code and loses its text.
+         * Credential Manager reports a dismissal as its own exception type; every other
+         * refusal keeps the type constant and loses the message.
          */
-        internal fun classify(failure: Throwable): Throwable = when
+        internal fun classify(failure: Throwable): Throwable = when (failure)
         {
-            failure is SpfnSocialGoogleException -> failure
-            failure is ApiException && failure.statusCode == CommonStatusCodes.CANCELED ->
-                SpfnSocialGoogleException.Cancelled()
-            failure is ApiException -> SpfnSocialGoogleException.Failed(failure.statusCode)
-            else -> SpfnSocialGoogleException.Failed(CommonStatusCodes.INTERNAL_ERROR)
+            is SpfnSocialGoogleException -> failure
+            is GetCredentialCancellationException -> SpfnSocialGoogleException.Cancelled()
+            is GetCredentialException -> SpfnSocialGoogleException.Failed(failure.type)
+            else -> SpfnSocialGoogleException.Failed(UNCLASSIFIED_TYPE)
         }
+
+        /** What a refusal that names no Credential Manager type is reported as. */
+        internal const val UNCLASSIFIED_TYPE = "xyz.superfunction.spfn.SIGN_IN_FAILED"
+    }
+}
+
+/**
+ * The flow itself: one Credential Manager call, one credential, one token. The context
+ * is the caller's activity — Credential Manager presents from it — and nothing but the
+ * token string comes back out.
+ */
+class SpfnSocialGoogleCredentialDriver(
+    private val context: Context,
+    private val serverClientId: String
+) : SpfnSocialGoogleDriver
+{
+    override suspend fun identityToken(requestNonce: String): String?
+    {
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(
+                GetGoogleIdOption.Builder()
+                    .setServerClientId(serverClientId)
+                    .setNonce(requestNonce)
+                    .setFilterByAuthorizedAccounts(false)
+                    .build()
+            )
+            .build();
+        val response = CredentialManager.create(context).getCredential(context, request);
+        return SpfnSocialGoogle.idToken(response.credential);
     }
 }

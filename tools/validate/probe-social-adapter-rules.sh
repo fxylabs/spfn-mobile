@@ -31,6 +31,13 @@
 #   m. a graph with every androidModule removed fails instead of skipping everything;
 #   n. widening the skip so no module is Android-checked fails on the visit count.
 #
+# The Google adapter was written on a deprecated API once and migrated to Credential
+# Manager afterwards. What keeps that from recurring is a refusal rather than a memory,
+# and a refusal is only worth its line if it bites:
+#
+#   o. a deprecation suppression anywhere in SDK sources fails;
+#   p. dropping one of the three declared Android coordinates fails.
+#
 # The last three mutate a copy of the validator with its ROOT pinned, because their
 # subject is what the check does when its own input is unavailable — the one condition
 # that cannot be produced by editing the tree without destroying it.
@@ -70,6 +77,7 @@ MANIFEST=Package.swift
 GRAPH=tools/module-graph.json
 CLIENT_BUILD=android/spfn-client/build.gradle.kts
 GOOGLE_BUILD=android/spfn-social-google/build.gradle.kts
+GOOGLE_SOURCE=android/spfn-social-google/src/main/kotlin/xyz/superfunction/spfn/social/google/SpfnSocialGoogle.kt
 
 cp "$CORE_SOURCE" "$TMP/core.bak"
 cp "$APPLE_SOURCE" "$TMP/apple.bak"
@@ -77,6 +85,7 @@ cp "$MANIFEST" "$TMP/manifest.bak"
 cp "$GRAPH" "$TMP/graph.bak"
 cp "$CLIENT_BUILD" "$TMP/client-build.bak"
 cp "$GOOGLE_BUILD" "$TMP/google-build.bak"
+cp "$GOOGLE_SOURCE" "$TMP/google-source.bak"
 
 restore()
 {
@@ -88,6 +97,7 @@ restore()
         cp "$TMP/graph.bak" "$GRAPH"
         cp "$TMP/client-build.bak" "$CLIENT_BUILD"
         cp "$TMP/google-build.bak" "$GOOGLE_BUILD"
+        cp "$TMP/google-source.bak" "$GOOGLE_SOURCE"
         rm -rf "$TMP"
     fi
 }
@@ -111,6 +121,7 @@ restore_files()
     cp "$TMP/graph.bak" "$GRAPH"
     cp "$TMP/client-build.bak" "$CLIENT_BUILD"
     cp "$TMP/google-build.bak" "$GOOGLE_BUILD"
+    cp "$TMP/google-source.bak" "$GOOGLE_SOURCE"
 }
 
 # Runs the validator expecting failure on a specific rule, then restores every file.
@@ -178,15 +189,15 @@ fi
 restore_files
 
 # --- e, f, g. the Android allowlist, in both directions and in every shape ----------
-printf 'dependencies { implementation(libs.play.services.auth) }\n' >> "$CLIENT_BUILD"
+printf 'dependencies { implementation(libs.googleid) }\n' >> "$CLIENT_BUILD"
 expect_fail 'an Android dependency the module graph does not declare fails' \
-    'undeclared(play-services-auth)'
+    'undeclared(googleid)'
 
-sed '/api(libs.play.services.auth)/d' "$TMP/google-build.bak" > "$GOOGLE_BUILD"
+sed '/api(libs.googleid)/d' "$TMP/google-build.bak" > "$GOOGLE_BUILD"
 expect_fail 'a graph allowance no module actually uses fails' \
-    'declared-but-unused(play-services-auth)'
+    'declared-but-unused(googleid)'
 
-sed 's#api(libs.play.services.auth)#api("com.google.android.gms:play-services-auth:21.6.0")#' \
+sed 's#api(libs.googleid)#api("com.google.android.libraries.identity.googleid:googleid:1.2.0")#' \
     "$TMP/google-build.bak" > "$GOOGLE_BUILD"
 expect_fail 'a coordinate string instead of a catalogue alias fails' \
     'unrecognised-dependency-form'
@@ -228,6 +239,24 @@ expect_fail 'a graph with no readable androidModule at all fails instead of skip
 expect_unrunnable 'a skip widened to cover every module fails on the visit count' \
     'Android-backed modules' \
     's#^    if \[ -n "$android_module" \]#    if [ -n "" ]#'
+
+# --- o, p. the decisions this round settled are kept by a check, not by memory -----
+printf '@Suppress("DEPRECATION")\n' >> "$GOOGLE_SOURCE"
+expect_fail 'a deprecation suppression in an SDK source fails' \
+    'deprecation suppression in SDK sources'
+
+printf '// @Suppress("DEPRECATION") — describing the refusal, not performing it\n' >> "$APPLE_SOURCE"
+if sh tools/validate/validate.sh > "$TMP/run.log" 2>&1
+then
+    fail 'the refusal spares a comment that only describes it, which it must not do here'
+else
+    pass 'the deprecation refusal reads comments too, so it cannot be commented past'
+fi
+restore_files
+
+sed 's#"androidx-credentials-play-services-auth", ##' "$TMP/graph.bak" > "$GRAPH"
+expect_fail 'dropping one of the declared Android coordinates fails' \
+    'undeclared(androidx-credentials-play-services-auth)'
 
 # --- the unmodified tree still passes ----------------------------------------------
 if sh tools/validate/validate.sh > "$TMP/run.log" 2>&1

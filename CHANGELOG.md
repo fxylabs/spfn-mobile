@@ -32,6 +32,14 @@ Entries under an unreleased heading describe repository state, not shipped softw
 - The raw value is deliberately not base64. A base64url value's last character carries
   fewer than six bits, and Naver hands back a different trailing character than it was
   given (primitives #57). The shape is fixed now rather than after flows are enrolled.
+- The Android adapter runs on Credential Manager — `androidx.credentials` 1.6.0,
+  `credentials-play-services-auth` 1.6.0 and `googleid` 1.2.0 — rather than on the
+  deprecated one-tap surface in `play-services-auth`. It was written on the deprecated
+  API first, behind two suppressions, and moved before anything shipped; a suppression
+  is what keeps a retired API out of a build log, so `validate.sh` refuses one anywhere
+  in SDK sources and the probe proves the refusal bites. The nonce still rides raw, now
+  in `GetGoogleIdOption`, and a dismissal is still told apart from a failure, now by
+  `GetCredentialCancellationException` rather than by a numeric status code.
 - The manifest baseline moved to swift-tools-version 6.1 (D5 revision 3b) for package
   traits. `SocialApple` and `SocialGoogle` are declared, neither is on by default, and a
   trait-off consumer resolves nothing: a cold build creates no `Package.resolved` and no

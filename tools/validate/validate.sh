@@ -1477,6 +1477,36 @@ else
     printf '%s\n' "$STUB_HITS" | sed 's/^/          /'
 fi
 
+# And no module is built on an API its own vendor has already retired. Suppressing a
+# deprecation warning in new SDK code buys nothing: the migration still has to happen,
+# only later, on someone else's schedule, with consumers already on the old surface. The
+# Google adapter was written this way once — on the deprecated one-tap sign-in API,
+# behind two `@Suppress("DEPRECATION")` — and moving it to Credential Manager cost a day
+# it would not have cost if the suppression had never been available.
+#
+# The refusal is the whole point: a suppression is exactly what makes this invisible in
+# a build log, so the build log is not where it can be caught. Deprecating something of
+# our own is a different act and stays legal — this refuses SILENCING a vendor's notice.
+# Test sources are included: a suppression there is a suppression.
+DEPRECATION_SCANNED=$(find Sources android/*/src -type f \( -name '*.swift' -o -name '*.kt' \) 2>/dev/null | wc -l | tr -d ' ')
+DEPRECATION_HITS=$(grep -rIn --exclude-dir=build '@Suppress' Sources android/*/src 2>/dev/null \
+    | grep -i 'DEPRECAT' || true)
+
+if [ "$DEPRECATION_SCANNED" -ge 20 ]
+then
+    pass "the deprecation-suppression scan read $DEPRECATION_SCANNED SDK sources"
+else
+    fail "the deprecation-suppression scan read only $DEPRECATION_SCANNED SDK sources; it did not run"
+fi
+
+if [ -z "$DEPRECATION_HITS" ]
+then
+    pass 'no SDK source silences a deprecation warning: new code is not written on a retired API'
+else
+    fail 'deprecation suppression in SDK sources — migrate instead of silencing:'
+    printf '%s\n' "$DEPRECATION_HITS" | sed 's/^/          /'
+fi
+
 # ---------------------------------------------------------------------------
 section '9. generated sources are traceable to the pinned bundle'
 # ---------------------------------------------------------------------------

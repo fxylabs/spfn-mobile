@@ -23,9 +23,15 @@ cyclonedx = "3.3.0"
 # `mockwebserver3` ships from the same release train, so it is versioned by `okhttp`.
 okhttp = "5.4.0"
 kotlinx-coroutines = "1.11.0"
-# The Google Sign-In adapter's only dependency. Google's identity API is where a
-# sign-in request can carry a nonce, which is the whole reason that module exists.
-play-services-auth = "21.6.0"
+# The Google Sign-In adapter's dependencies. Credential Manager is the current Android
+# identity API — the one-tap `play-services-auth` sign-in surface is deprecated, and new
+# code on a deprecated API is a migration scheduled for later at a worse moment.
+# `credentials` is the API, `credentials-play-services-auth` is the provider that serves
+# a Google account behind it, and `googleid` carries the Google-specific request option
+# and the credential it returns. Latest stable as checked on 2026-08-04; the 1.7.0 line
+# is alpha and the googleid line is at 1.2.0.
+androidx-credentials = "1.6.0"
+googleid = "1.2.0"
 
 # Numeric baselines consumed by the module build scripts.
 jdk-toolchain = "21"
@@ -40,7 +46,9 @@ junit = { module = "junit:junit", version.ref = "junit" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver3", version.ref = "okhttp" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
-play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "play-services-auth" }
+androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "androidx-credentials" }
+androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "androidx-credentials" }
+googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleid" }
 
 [plugins]
 android-library = { id = "com.android.library", version.ref = "agp" }
