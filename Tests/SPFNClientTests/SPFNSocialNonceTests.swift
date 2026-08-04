@@ -6,8 +6,9 @@
 // itself, that the body always carries the fingerprint, and that the value is 64
 // lowercase hex characters. Each row below asserts exactly one of those.
 //
-// SpfnSocialNonceTest.kt mirrors the same rows in Kotlin, and the hex vector at the
-// bottom is what pins the two encoders to each other (P9).
+// SpfnSocialNonceTest.kt mirrors the same rows in Kotlin, and the guard vector at the
+// bottom is what pins the two platforms' character classification to each other (P9).
+// The byte-to-hex vector lives in SPFNCoreTests, beside the encoder it asserts against.
 
 import CryptoKit
 import Foundation
@@ -128,19 +129,16 @@ final class SPFNSocialNonceTests: XCTestCase
         XCTAssertFalse(String(reflecting: nonce).contains(nonce.fingerprint), "reflection leaks the fingerprint")
     }
 
-    /// P9: the two platforms' hex encoders answer the same for the same bytes, and the
-    /// lowercase-hex guard refuses the non-ASCII digits a Unicode-aware classification
-    /// would accept. The vector is written from the encoding rule, not read out of
-    /// either implementation, and SpfnSocialNonceTest.kt asserts the same values.
-    func test_P9_hexEncodingAndTheAsciiGuardMatchTheSharedVector() throws
+    /// P9: the lowercase-hex guard refuses the non-ASCII digits a Unicode-aware
+    /// classification would accept. `Character.isHexDigit` accepts Arabic-Indic and
+    /// full-width digits that the Kotlin counterpart's explicit range does not, so the
+    /// refused list is the shared vector and SpfnSocialNonceTest.kt carries it too.
+    ///
+    /// The byte-to-hex vector that used to sit here moved to SPFNCoreTests: it now
+    /// asserts against `SPFNDigest.hex`, the encoder a fingerprint actually goes through,
+    /// rather than against the copy this type used to carry.
+    func test_P9_theAsciiGuardMatchesTheSharedVector() throws
     {
-        XCTAssertEqual(SPFNSocialNonce.hex([]), "")
-        XCTAssertEqual(SPFNSocialNonce.hex([0x00]), "00")
-        XCTAssertEqual(SPFNSocialNonce.hex([0x0F]), "0f")
-        XCTAssertEqual(SPFNSocialNonce.hex([0x10]), "10")
-        XCTAssertEqual(SPFNSocialNonce.hex([0x7F, 0x80]), "7f80")
-        XCTAssertEqual(SPFNSocialNonce.hex([0xFF, 0x00, 0xAB]), "ff00ab")
-
         XCTAssertTrue(SPFNSocialNonce.isLowercaseHex("0123456789abcdef"))
         for refused in ["", "ABCDEF", "0x1f", "g", "00 ", "٠١٢", "０１２", "ｆ", "00\u{0000}"]
         {

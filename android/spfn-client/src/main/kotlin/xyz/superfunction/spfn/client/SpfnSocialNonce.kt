@@ -26,8 +26,14 @@
 // google, kakao, naver, github — echoes the raw value back.
 //
 // There is exactly one public value, and the SDK picked it knowing the provider. That is
-// what let the opt-in annotation this file used to carry disappear: when an app cannot
-// choose the wrong shape, nothing has to be kept out of its reach.
+// the point: an app that could choose between two shapes would eventually choose wrong,
+// and the server's refusal for that mistake is a 400 outside the contract's six error
+// codes, so it reaches the app as an unknown code naming nothing.
+//
+// This file still declares an opt-in annotation, and it guards something else now. It
+// used to keep the apple-shaped value out of an app's reach; that value is gone, and
+// what needs a gate today is minting a nonce from another Gradle module. See
+// SpfnInternalNonceAccess below.
 //
 // The fingerprint is lowercase hex and deliberately not base64. Naver drops a trailing
 // `A` from a nonce it echoes back (spfn-primitives issue #57); lowercase hex has no `A`
@@ -111,19 +117,5 @@ class SpfnSocialNonce internal constructor(
          */
         internal fun isLowercaseHex(text: String): Boolean =
             text.isNotEmpty() && text.all { it.code < 0x80 && (it in '0'..'9' || it in 'a'..'f') }
-
-        /** The hex encoder both platforms are pinned to by a shared vector in the suites. */
-        internal fun hex(bytes: ByteArray): String
-        {
-            val digits = "0123456789abcdef";
-            val out = StringBuilder(bytes.size * 2);
-            for (byte in bytes)
-            {
-                val value = byte.toInt() and 0xFF;
-                out.append(digits[value ushr 4]);
-                out.append(digits[value and 0x0F]);
-            }
-            return out.toString();
-        }
     }
 }

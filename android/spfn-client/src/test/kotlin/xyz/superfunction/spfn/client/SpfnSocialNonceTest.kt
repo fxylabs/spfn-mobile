@@ -2,8 +2,9 @@
 //
 // SPFNSocialNonceTests.swift is the counterpart and asserts the same cells with the same
 // expected values. The values come from the design's table, written by hand rather than
-// read out of either implementation (P10), and the hex vector at the bottom is what
-// pins the two encoders to each other (P9).
+// read out of either implementation (P10), and the guard vector at the bottom is what
+// pins the two platforms' character classification to each other (P9). The byte-to-hex
+// vector lives in SpfnCoreTest, beside the encoder it asserts against.
 
 package xyz.superfunction.spfn.client
 
@@ -156,39 +157,41 @@ class SpfnSocialNonceTest
     }
 
     /**
-     * P9: the two platforms' hex encoders answer the same for the same bytes, and the
-     * lowercase-hex guard refuses the non-ASCII digits a Unicode-aware classification
-     * would accept. The vector is written from the encoding rule, not read out of either
-     * implementation, and SPFNSocialNonceTests.swift asserts the same values.
+     * P9: the lowercase-hex guard refuses the non-ASCII digits a Unicode-aware
+     * classification would accept. Kotlin's `Char.isLetterOrDigit` and Swift's
+     * `Character.isHexDigit` disagree about Arabic-Indic and full-width digits, so the
+     * refused list is the shared vector and SPFNSocialNonceTests.swift carries it too.
+     *
+     * The byte-to-hex vector that used to sit here moved to SpfnCoreTest: it now asserts
+     * against [xyz.superfunction.spfn.core.SpfnDigest.hex], the encoder a fingerprint
+     * actually goes through, rather than against the copy this type used to carry.
      */
     @Test
-    fun p9_hexEncodingAndTheAsciiGuardMatchTheSharedVector()
+    fun p9_theAsciiGuardMatchesTheSharedVector()
     {
-        assertEquals("", SpfnSocialNonce.hex(byteArrayOf()));
-        assertEquals("00", SpfnSocialNonce.hex(byteArrayOf(0x00)));
-        assertEquals("0f", SpfnSocialNonce.hex(byteArrayOf(0x0F)));
-        assertEquals("10", SpfnSocialNonce.hex(byteArrayOf(0x10)));
-        assertEquals("7f80", SpfnSocialNonce.hex(byteArrayOf(0x7F, 0x80.toByte())));
-        assertEquals("ff00ab", SpfnSocialNonce.hex(byteArrayOf(0xFF.toByte(), 0x00, 0xAB.toByte())));
-
         assertTrue(SpfnSocialNonce.isLowercaseHex("0123456789abcdef"));
-        for (refused in listOf("", "ABCDEF", "0x1f", "g", "00 ", "٠١٢", "０１２", "ｆ", "00 "))
+        // The NUL is an escape rather than the character itself. Written literally it
+        // renders as a space, which is how this list came to carry "00 " twice and lose
+        // the NUL case while the Swift suite kept it: the two sides stopped being each
+        // other's check and nothing looked wrong.
+        for (refused in listOf("", "ABCDEF", "0x1f", "g", "00 ", "٠١٢", "０１２", "ｆ", "00\u0000"))
         {
             assertFalse("'$refused' was accepted as lowercase hex", SpfnSocialNonce.isLowercaseHex(refused));
         }
     }
 
     /**
-     * The Swift suite asserts the same vector, and a vector only pins the two platforms
-     * to each other if both files really carry it. Read here rather than trusted.
+     * The Swift suite refuses the same characters, and a vector only pins the two
+     * platforms to each other if both files really carry it. Read here rather than
+     * trusted — including the NUL entry this list once lost.
      */
     @Test
-    fun p9_theSwiftSuiteCarriesTheSameHexVector()
+    fun p9_theSwiftSuiteCarriesTheSameGuardVector()
     {
         val swift = File(repoRoot(), "Tests/SPFNClientTests/SPFNSocialNonceTests.swift").readText();
-        for (expected in listOf("\"00\"", "\"0f\"", "\"10\"", "\"7f80\"", "\"ff00ab\""))
+        for (expected in listOf("\"ABCDEF\"", "\"0x1f\"", "\"٠١٢\"", "\"０１２\"", "\"ｆ\"", "\\u{0000}"))
         {
-            assertTrue("the Swift suite lost the hex vector entry $expected", swift.contains(expected));
+            assertTrue("the Swift suite lost the guard vector entry $expected", swift.contains(expected));
         }
     }
 

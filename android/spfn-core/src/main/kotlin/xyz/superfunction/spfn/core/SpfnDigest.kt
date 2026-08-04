@@ -47,7 +47,15 @@ object SpfnDigest
         return difference == 0;
     }
 
-    private fun hex(bytes: ByteArray): String
+    /**
+     * The encoder every fingerprint in this SDK is spelled with.
+     *
+     * Module-visible rather than private so the shared byte-to-hex vector can assert
+     * against the encoder that actually runs. It used to assert against a second copy in
+     * `SpfnSocialNonce`, which proved the copy correct and said nothing about this one;
+     * the copy is gone and the vector moved to this module's suite.
+     */
+    internal fun hex(bytes: ByteArray): String
     {
         val out = StringBuilder(bytes.size * 2);
         for (byte in bytes)

@@ -12,8 +12,8 @@ the other side of it now.
 
 | File | Purpose | Current state |
 | --- | --- | --- |
-| `upstream.lock.json` | what is pinned, and where it came from | `RESOLVED_UPSTREAM`, `origin: spfn-primitives-ci-export`, commit `7e727310`, contract `0.3.0` |
-| `spfn-mobile-contract.json` | the vendored bundle, copied not edited | 7 operations (3 proven dev-surface, 4 REST: register, login, native social enrollment, key rotation), 14 types, 6 error codes, the canonical JSON and proof-input algorithms, the `signature` clause (ECDSA P-256, raw r‖s base16-lower, SPKI DER public keys), and the 0.3.0 sections: `operationAuthClasses`, `keyPolicy` (ttlDays 90), `restOperations`, `clientProofV1.clientIdRule` |
+| `upstream.lock.json` | what is pinned, and where it came from | `RESOLVED_UPSTREAM`, `origin: spfn-primitives-ci-export`, commit `bffe7eaa`, contract `0.4.1` |
+| `spfn-mobile-contract.json` | the vendored bundle, copied not edited | 10 operations (3 proven dev-surface, 7 REST: register, login, native social enrollment, key rotation, key list, key revoke, key revoke-all), 22 types, 6 error codes, the canonical JSON and proof-input algorithms, the `signature` clause (ECDSA P-256, raw r‖s base16-lower, SPKI DER public keys), and the sections a 0.4.x bundle carries: `operationAuthClasses`, `keyPolicy` (ttlDays 90), `restOperations`, `clientProofV1.clientIdRule`, `nativeEnrollment` (the rule binding an enrollment's nonce to its fingerprint) |
 | `upstream-provenance.json` | the exporter's own evidence, copied unmodified | names the repository, exporter version and bundle digest the lock is checked against |
 | `auth-profiles/clientProofV1.schema.json` | profile schema | shape placeholder |
 | `fixtures/` | deterministic conformance vectors | 10 files, consumed unchanged by both SDK test suites |

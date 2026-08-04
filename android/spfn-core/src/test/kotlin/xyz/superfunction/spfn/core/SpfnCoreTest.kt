@@ -49,6 +49,42 @@ class SpfnDigestTest
         );
     }
 
+    /**
+     * P9: the two platforms' hex encoders answer the same for the same bytes. The vector
+     * is written from the encoding rule rather than read out of either implementation,
+     * and SPFNCoreTests.swift asserts the same values.
+     *
+     * It asserts against [SpfnDigest.hex] — the encoder every fingerprint goes through —
+     * rather than against a copy of it. `0x00` and `0x0f` pin the zero-padded nibble, and
+     * `0x80`/`0xff` pin the byte this platform has to mask to an unsigned value, which is
+     * the half Swift has no way to get wrong.
+     */
+    @Test
+    fun hexEncodingMatchesTheSharedVector()
+    {
+        assertEquals("", SpfnDigest.hex(byteArrayOf()));
+        assertEquals("00", SpfnDigest.hex(byteArrayOf(0x00)));
+        assertEquals("0f", SpfnDigest.hex(byteArrayOf(0x0F)));
+        assertEquals("10", SpfnDigest.hex(byteArrayOf(0x10)));
+        assertEquals("7f80", SpfnDigest.hex(byteArrayOf(0x7F, 0x80.toByte())));
+        assertEquals("ff00ab", SpfnDigest.hex(byteArrayOf(0xFF.toByte(), 0x00, 0xAB.toByte())));
+    }
+
+    /**
+     * The Swift suite asserts the same vector, and a vector only pins the two platforms to
+     * each other if both files really carry it. Read here rather than trusted.
+     */
+    @Test
+    fun theSwiftSuiteCarriesTheSameHexVector()
+    {
+        val repoRoot = File(requireNotNull(System.getProperty("spfn.repoRoot")));
+        val swift = File(repoRoot, "Tests/SPFNCoreTests/SPFNCoreTests.swift").readText();
+        for (expected in listOf("\"00\"", "\"0f\"", "\"10\"", "\"7f80\"", "\"ff00ab\""))
+        {
+            assertTrue("the Swift suite lost the hex vector entry $expected", swift.contains(expected));
+        }
+    }
+
     @Test
     fun absentBodyDigestIsNotTheDigestOfTheEmptyString()
     {

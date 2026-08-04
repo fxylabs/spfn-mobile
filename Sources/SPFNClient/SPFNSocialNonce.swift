@@ -90,20 +90,6 @@ public struct SPFNSocialNonce: Sendable, CustomStringConvertible, CustomDebugStr
         }
     }
 
-    /// The hex encoder both platforms are pinned to by a shared vector in the suites.
-    package static func hex(_ bytes: [UInt8]) -> String
-    {
-        let digits = Array("0123456789abcdef".utf8)
-        var out: [UInt8] = []
-        out.reserveCapacity(bytes.count * 2)
-        for byte in bytes
-        {
-            out.append(digits[Int(byte >> 4)])
-            out.append(digits[Int(byte & 0x0F)])
-        }
-        return String(decoding: out, as: UTF8.self)
-    }
-
     /// The default reflection of a struct prints its stored properties, which would put
     /// the fingerprint in every interpolated log line that ever touches a nonce. It is
     /// not a secret — it is the hash of a public key — but it names the device's key

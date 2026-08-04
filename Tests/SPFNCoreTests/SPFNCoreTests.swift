@@ -256,6 +256,23 @@ final class SPFNDigestTests: XCTestCase
         )
     }
 
+    /// P9: the two platforms' hex encoders answer the same for the same bytes. The vector
+    /// is written from the encoding rule rather than read out of either implementation,
+    /// and SpfnCoreTest.kt asserts the same values.
+    ///
+    /// It asserts against `SPFNDigest.hex` — the encoder every fingerprint goes through —
+    /// rather than against a copy of it. `0x00` and `0x0f` pin the zero-padded nibble, and
+    /// `0x80`/`0xff` pin the byte the Kotlin side has to mask to an unsigned value.
+    func testHexEncodingMatchesTheSharedVector()
+    {
+        XCTAssertEqual(SPFNDigest.hex([]), "")
+        XCTAssertEqual(SPFNDigest.hex([0x00]), "00")
+        XCTAssertEqual(SPFNDigest.hex([0x0F]), "0f")
+        XCTAssertEqual(SPFNDigest.hex([0x10]), "10")
+        XCTAssertEqual(SPFNDigest.hex([0x7F, 0x80]), "7f80")
+        XCTAssertEqual(SPFNDigest.hex([0xFF, 0x00, 0xAB]), "ff00ab")
+    }
+
     func testAbsentBodyDigestIsNotTheDigestOfTheEmptyString()
     {
         XCTAssertNotEqual(SPFNDigest.absentBodyDigest, SPFNDigest.sha256Hex(""))
