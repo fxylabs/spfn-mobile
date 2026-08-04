@@ -1,8 +1,12 @@
 # Release policy
 
-**No release has been made.** No tag exists, no artifact has been built or signed, no
-registry has been configured, and no account or signing identity has been created. This
-repository is a scaffold with one vertical slice.
+**Two alpha releases have been made.** `0.1.0-alpha.3` (source commit `70781e4`) is
+current and `0.1.0-alpha.2` is superseded; both are on Maven Central under
+`xyz.superfunction.spfn` with matching prefix-free SwiftPM tags. Publication did not
+turn this into a finished SDK: it is still a scaffold with one vertical slice, nothing
+has run on a device, and every support row in `COMPATIBILITY.md` stays UNRESOLVED. What
+is proven is that the published coordinates resolve, verify and compile — not that the
+SDK works in the field.
 
 ## Hard boundary
 
@@ -54,11 +58,40 @@ verification goes exactly as far as a no-publish candidate — `tools/rc-verify/
 resolves a local tag through SwiftPM, stages Maven artifacts to a local `$TMPDIR`
 directory, and removes the tag when it exits. D7: alpha candidates are unsigned; the
 candidate identity is the source commit, `SHA256SUMS` and the candidate manifest, with
-CycloneDX SBOMs for both platforms. Signing and provenance are added for public releases.
+CycloneDX SBOMs for both platforms. Maven artifacts are PGP-signed at publication
+because Central requires it; contract-bundle signing and build provenance are still
+open and are added for public releases.
 
-What remains: a person accepting the RC evidence the harness produces, and the registry
-account track — creating or using any registry account, namespace or signing identity is
-a person's work under a separate approval that no candidate run implies.
+What remains: a person accepting the RC evidence the harness produces. The registry
+account track is done for Maven — the `xyz.superfunction` namespace is verified on the
+Central Portal and a signing identity exists — but creating or using any further
+registry account, namespace or signing identity stays a person's work under a separate
+approval that no candidate run implies.
+
+## Verifying a published release
+
+`rc-verify.sh` answers whether a candidate *could* be published. It stages to a local
+directory and resolves a local tag, so a passing candidate says nothing about what
+actually reached a registry. `tools/rc-verify/verify-published.sh` closes that gap from
+the other side: it reads no build output and no staging directory, only the network.
+
+    ANDROID_HOME=~/Library/Android/sdk sh tools/rc-verify/verify-published.sh [version]
+
+Per module it fetches the AAR, POM, Gradle module metadata and sources jar from
+repo1.maven.org, recomputes each published sha256 sidecar, verifies each detached PGP
+signature, checks the POM for the metadata set Central requires and the MIT license
+(D8), and opens the AAR — an AAR with no `classes.jar` resolves and checksums exactly
+like a real one. Then an Android consumer compiles against `mavenCentral()` as the only
+source for SPFN coordinates with `--refresh-dependencies`, so a warm local cache cannot
+answer for the registry, and a SwiftPM consumer resolves the public Git URL at the exact
+version, compares the resolved revision against the local tag and runs a smoke
+executable that touches one symbol in every product. Every check runs and every failure
+is printed; the exit code is non-zero if any failed.
+
+Artifacts are signed with RSA key `1CC7BD2E870BC4B2A279EB5BCB666532EB4E568A`
+(`rayim (spfn-mobile) <rayim@fxy.global>`), published on `keyserver.ubuntu.com`. That
+fingerprint is the value to compare against — a signature that verifies against a key
+fetched by its own key id proves only that one key signed everything.
 
 ## Current state of the machinery
 
@@ -67,10 +100,11 @@ A manual path to Maven Central now exists, and everything about it fails closed.
 no tag trigger — re-runs the RC verification against a person-named commit, signs with
 an in-memory PGP key injected from GitHub Actions secrets, and uploads the staged
 bundle to the Central Portal as `USER_MANAGED`, where it is held until a person
-confirms it in the Portal UI. None of the secrets (`CENTRAL_PORTAL_TOKEN`,
-`SIGNING_IN_MEMORY_KEY`, `SIGNING_IN_MEMORY_KEY_PASSWORD`) is registered, so every
-dispatch fails today; that is the designed state until a person registers them under
-their own approval. `.github/workflows/release-candidate.yml` stays inert.
+confirms it in the Portal UI. The three secrets it names (`CENTRAL_PORTAL_TOKEN`,
+`SIGNING_IN_MEMORY_KEY`, `SIGNING_IN_MEMORY_KEY_PASSWORD`) are registered in GitHub
+Actions and nowhere else; a dispatch reaching `USER_MANAGED` is as far as the machinery
+goes, and the Portal confirmation stays a person's click.
+`.github/workflows/release-candidate.yml` stays inert.
 
 Gradle itself never reaches Central. `spfn.publishing.enabled` is `false` in
 `gradle.properties` and the root build script reads that committed value from the file
