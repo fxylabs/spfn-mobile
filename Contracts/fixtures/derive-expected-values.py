@@ -990,19 +990,24 @@ def build_enrollment():
     operations = {operation["id"]: operation for operation in bundle["operations"]}
     oauth_native = operations["auth.enroll.oauthNative"]
     provider = "google"
+    # The contract's `nativeEnrollment.nonceRule`: the nonce IS the fingerprint. Google
+    # echoes the raw value, so the same string appears in the token, in `nonce` and in
+    # `fingerprint` — one local, so the three cannot drift apart here either.
+    fingerprint = spki_sha256_hex(TEST_PUBLIC_KEY_SPKI_B64)
     body = {
-        "idToken": "spfn-test-idtoken.google.user-test-0001.nonce-enroll-0001",
-        "nonce": "nonce-enroll-0001",
+        "idToken": "spfn-test-idtoken.google.user-test-0001." + fingerprint,
+        "nonce": fingerprint,
         "publicKey": TEST_PUBLIC_KEY_SPKI_B64,
         "keyId": TEST_KEY_ID,
-        "fingerprint": spki_sha256_hex(TEST_PUBLIC_KEY_SPKI_B64),
+        "fingerprint": fingerprint,
         "algorithm": "ES256",
     }
     canonical_body = canonical(body)
     return {
         "note": NOTE,
         "why": "both SDK enrollment flows must reproduce these bytes exactly: the body is "
-               "the contract's OauthNativeRequest over the fixed test keypair, and the only "
+               "the contract's OauthNativeRequest over the fixed test keypair, the nonce is "
+               "the key's fingerprint as nativeEnrollment.nonceRule requires, and the only "
                "header an unproven request carries is the content type",
         "testKeyPair": test_keypair_block(),
         "fingerprints": {

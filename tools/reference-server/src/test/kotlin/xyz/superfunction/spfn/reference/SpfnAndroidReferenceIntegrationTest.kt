@@ -229,13 +229,16 @@ class SpfnAndroidReferenceIntegrationTest
                 clock = harness.clientClock
             );
 
+            // The token is minted inside the sign-in closure because it has to carry the
+            // nonce, and the nonce is the fingerprint of a key that does not exist until
+            // the enrollment generates it. That ordering is the whole reason the entry
+            // point takes a closure. Google echoes the raw value, so `requestValue` here
+            // is the fingerprint the reference server compares the body against.
             val userId = "user-kotlin-f-0001";
-            val nonce = "nonce-kotlin-f-0001";
-            val enrolled = lifecycle.enroll(
-                provider = "google",
-                idToken = "spfn-test-idtoken.google.$userId.$nonce",
-                nonce = SpfnSocialNonce.of(nonce)
-            );
+            val enrolled = lifecycle.enroll(provider = "google")
+            { nonce ->
+                "spfn-test-idtoken.google.$userId.${nonce.requestValue}"
+            };
             assertEquals(userId, enrolled.clientId);
             assertTrue(enrolled.isNewUser);
 

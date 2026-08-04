@@ -140,6 +140,15 @@ object SpfnReferenceRestOps
         {
             return Result.Refused(SpfnReferenceRestRefusal.badRequest("fingerprint is not the SHA-256 of publicKey"));
         }
+        // The contract's `nativeEnrollment.nonceRule`, and the check the real server does
+        // in `assertNonceBindsPublicKey`. Both halves are needed: the fingerprint check
+        // above alone would let any nonce through, and this one alone would accept a
+        // fingerprint that is not the key's hash. An id_token travels, so without this a
+        // stolen one could be paired with the thief's key.
+        if (nonce != fingerprint)
+        {
+            return Result.Refused(SpfnReferenceRestRefusal.badRequest("nonce must equal fingerprint"));
+        }
 
         val isNewUser = try
         {

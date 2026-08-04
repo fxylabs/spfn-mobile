@@ -76,6 +76,16 @@ public enum SPFNKeyLifecycleError: Error, Equatable, Sendable
     /// A new enrollment or rotation was asked for while a rotation is unresolved.
     case rotationUnresolved
 
+    /// A second enrollment was asked for while the first one's sign-in is still running.
+    ///
+    /// The state checks above cannot see this: an enrollment in progress has saved
+    /// nothing yet, so both calls would read `unenrolled` and both would register a key.
+    case enrollmentInFlight
+
+    /// The sign-in closure answered with an empty token. Sending it would spend a key
+    /// generation on a request the server can only refuse.
+    case idTokenMissing
+
     /// The provider id cannot be a path segment. The id is substituted into the
     /// operation path before signing, so anything but `[a-z0-9-]` would change the
     /// route — or smuggle one — rather than name a provider.
@@ -108,6 +118,12 @@ public actor SPFNKeyLifecycle
     private let timeoutMillis: Int64
     private let newKeyID: @Sendable () -> String
     private let makeKey: @Sendable (String) -> SPFNCustodyKey
+
+    /// True from the moment `enroll` claims the flow to the moment it leaves, however it
+    /// leaves. An actor does not serialise across an `await`, and `enroll` now awaits the
+    /// app's sign-in — which lasts as long as a person takes — so this is what stands
+    /// between two concurrent calls and two registered keys.
+    private var enrollmentInFlight = false
 
     /// - Parameters:
     ///   - newKeyID: mints key identifiers; UUIDs by default. Injected so a suite can
@@ -187,19 +203,27 @@ public actor SPFNKeyLifecycle
 
     // MARK: - M1–M3: enrollment
 
-    /// Generates a key and enrolls it through the native social operation.
+    /// Generates a key, signs in with the provider, and enrolls the key — one call.
+    ///
+    /// The three steps are one call because the nonce is the key's fingerprint (the
+    /// contract's `nativeEnrollment.nonceRule`). The key therefore has to exist before
+    /// the provider is asked for a token, and a sign-in the user abandons would strand a
+    /// key nobody registered. Owning the whole flow is what lets this destroy it.
+    ///
+    /// `idToken` is handed the nonce and returns the provider's token. Everything the
+    /// closure needs to reach a provider is on the nonce: `requestValue` is already the
+    /// shape that provider expects, so a caller driving kakao or naver directly puts
+    /// that value in the request and nothing else.
     ///
     /// The request body is exact (M1): the public key as SPKI DER base64, the minted
-    /// keyId, the fingerprint as the SHA-256 of the SPKI DER in lowercase base16, and
-    /// the literal algorithm name. On success the response's `userId` is persisted as
-    /// the clientID every future proof carries (M2). On any failure the generated key
-    /// is destroyed — nothing was persisted, so no orphan outlives the throw (M3).
-    ///
-    /// The nonce arrives as `SPFNSocialNonce` rather than as a `String` because the
-    /// server compares the body against the raw value while Apple's request carries its
-    /// hash: a caller free to pass either would eventually pass the wrong one, and the
-    /// refusal that follows names nothing a log could point at.
-    public func enroll(provider: String, idToken: String, nonce: SPFNSocialNonce) async throws -> SPFNEnrollmentResult
+    /// keyId, the fingerprint as the SHA-256 of the SPKI DER in lowercase base16, the
+    /// nonce equal to that fingerprint, and the literal algorithm name. On success the
+    /// response's `userId` is persisted as the clientID every future proof carries (M2).
+    /// On any failure the generated key is destroyed (M3).
+    public func enroll(
+        provider: String,
+        idToken: @Sendable (SPFNSocialNonce) async throws -> String
+    ) async throws -> SPFNEnrollmentResult
     {
         guard Self.isProviderID(provider)
         else
@@ -215,20 +239,39 @@ public actor SPFNKeyLifecycle
         case .unenrolled:
             break
         }
+        // Claimed before the first `await`, so the two checks above and this claim are
+        // one indivisible step from any other call's point of view.
+        guard !enrollmentInFlight
+        else
+        {
+            throw SPFNKeyLifecycleError.enrollmentInFlight
+        }
+        enrollmentInFlight = true
+        defer { enrollmentInFlight = false }
 
         // On any failure from here to the save, the key was never persisted, so
         // dropping the value destroys it and no orphan outlives the throw. The Android
         // counterpart has a keystore entry to delete at the same point; the two files
         // tell one story with different amounts of work.
         let key = makeKey(newKeyID())
+        let fingerprint = SPFNDigest.sha256Hex(key.publicKeySpkiDer)
+        let token = try await idToken(SPFNSocialNonce(fingerprint: fingerprint, provider: provider))
+        guard !token.isEmpty
+        else
+        {
+            throw SPFNKeyLifecycleError.idTokenMissing
+        }
+
         let response = try await client(signingWith: nil).execute(
             Self.oauthNativeCall(provider: provider),
             request: SPFNOauthNativeRequest(
-                idToken: idToken,
-                nonce: nonce.rawValue,
+                idToken: token,
+                // The same value twice, by the contract's rule. Reading it from one
+                // local rather than recomputing it means the two fields cannot drift.
+                nonce: fingerprint,
                 publicKey: Data(key.publicKeySpkiDer).base64EncodedString(),
                 keyId: key.keyID,
-                fingerprint: SPFNDigest.sha256Hex(key.publicKeySpkiDer),
+                fingerprint: fingerprint,
                 algorithm: Self.algorithmName
             )
         )

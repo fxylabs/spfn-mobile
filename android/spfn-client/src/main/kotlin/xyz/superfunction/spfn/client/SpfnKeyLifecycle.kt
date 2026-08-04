@@ -41,6 +41,7 @@ import xyz.superfunction.spfn.generated.SpfnOauthNativeResponse
 import xyz.superfunction.spfn.generated.SpfnRotateKeyRequest
 import xyz.superfunction.spfn.generated.SpfnRotateKeyResponse
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.encoding.Base64
 
 /** The lifecycle's answer to "what key does this install hold". */
@@ -95,6 +96,20 @@ sealed class SpfnKeyLifecycleException(message: String) : IllegalStateException(
     class RotationUnresolved : SpfnKeyLifecycleException("a rotation is unresolved; call resumeRotation first")
 
     /**
+     * A second enrollment was asked for while the first one's sign-in is still running.
+     *
+     * The state checks cannot see this: an enrollment in progress has saved nothing yet,
+     * so both calls would read UNENROLLED and both would register a key.
+     */
+    class EnrollmentInFlight : SpfnKeyLifecycleException("an enrollment is already running; wait for it to finish")
+
+    /**
+     * The sign-in returned an empty token. Sending it would spend a key generation on a
+     * request the server can only refuse.
+     */
+    class IdTokenMissing : SpfnKeyLifecycleException("the sign-in produced no id_token")
+
+    /**
      * The provider id cannot be a path segment. The id is substituted into the
      * operation path before signing, so anything but `[a-z0-9-]` would change the
      * route — or smuggle one — rather than name a provider.
@@ -138,6 +153,18 @@ class SpfnKeyLifecycle(
 )
 {
     private val mutex = Mutex()
+
+    /**
+     * True from the moment [enroll] claims the flow to the moment it leaves, however it
+     * leaves.
+     *
+     * The mutex cannot serve this. `enroll` now awaits the app's sign-in — which lasts as
+     * long as a person takes — and holding the mutex across it would make every other
+     * call on this object wait behind a UI, and would deadlock outright if the sign-in
+     * closure called back into the lifecycle, because a Kotlin Mutex is not reentrant.
+     * So the mutex guards only the short critical sections and this flag guards the flow.
+     */
+    private val enrollmentInFlight = AtomicBoolean(false)
 
     // ---- observation -------------------------------------------------------
 
@@ -195,66 +222,106 @@ class SpfnKeyLifecycle(
     // ---- M1–M3: enrollment -------------------------------------------------
 
     /**
-     * Generates a key and enrolls it through the native social operation.
+     * Generates a key, signs in with the provider, and enrolls the key — one call.
+     *
+     * The three steps are one call because the nonce is the key's fingerprint (the
+     * contract's `nativeEnrollment.nonceRule`). The key therefore has to exist before the
+     * provider is asked for a token, and a sign-in the user abandons would strand a
+     * Keystore entry nobody registered. Owning the whole flow is what lets this delete it.
+     *
+     * [idToken] is handed the nonce and returns the provider's token. Everything the
+     * closure needs to reach a provider is on the nonce: `requestValue` is already the
+     * shape that provider expects, so a caller driving kakao or naver directly puts that
+     * value in the request and nothing else.
      *
      * The request body is exact (M1): the public key as SPKI DER base64, the minted
-     * keyId, the fingerprint as the SHA-256 of the SPKI DER in lowercase base16, and
-     * the literal algorithm name. On success the response's `userId` is persisted as
-     * the clientId every future proof carries (M2). On any failure the generated key —
-     * a Keystore entry by then — is destroyed, so no orphan outlives the throw (M3).
-     *
-     * The nonce arrives as [SpfnSocialNonce] rather than as a String because the server
-     * compares the body against the raw value while Apple's request carries its hash: a
-     * caller free to pass either would eventually pass the wrong one, and the refusal
-     * that follows names nothing a log could point at.
+     * keyId, the fingerprint as the SHA-256 of the SPKI DER in lowercase base16, the
+     * nonce equal to that fingerprint, and the literal algorithm name. On success the
+     * response's `userId` is persisted as the clientId every future proof carries (M2).
+     * On any failure the generated key is destroyed (M3).
      */
-    @OptIn(SpfnInternalNonceAccess::class)
-    suspend fun enroll(provider: String, idToken: String, nonce: SpfnSocialNonce): SpfnEnrollmentResult = mutex.withLock {
+    suspend fun enroll(provider: String, idToken: suspend (SpfnSocialNonce) -> String): SpfnEnrollmentResult
+    {
         if (!isProviderId(provider))
         {
             throw SpfnKeyLifecycleException.MalformedProviderId();
         }
-        when (state())
-        {
-            SpfnKeyLifecycleState.ENROLLED -> throw SpfnKeyLifecycleException.AlreadyEnrolled()
-            SpfnKeyLifecycleState.ROTATION_PENDING -> throw SpfnKeyLifecycleException.RotationUnresolved()
-            SpfnKeyLifecycleState.UNENROLLED -> Unit
+
+        // The state read and the claim are one critical section, so two callers cannot
+        // both read UNENROLLED and both proceed. The claim itself is atomic rather than
+        // mutex-held, so releasing it below never has to suspend.
+        mutex.withLock {
+            when (state())
+            {
+                SpfnKeyLifecycleState.ENROLLED -> throw SpfnKeyLifecycleException.AlreadyEnrolled()
+                SpfnKeyLifecycleState.ROTATION_PENDING -> throw SpfnKeyLifecycleException.RotationUnresolved()
+                SpfnKeyLifecycleState.UNENROLLED -> Unit
+            }
+            if (!enrollmentInFlight.compareAndSet(false, true))
+            {
+                throw SpfnKeyLifecycleException.EnrollmentInFlight();
+            }
         }
 
-        val key = SpfnKeystoreCustodyKey.generate(newKeyId(), engine, preferStrongBox);
-        val response: SpfnOauthNativeResponse;
         try
         {
-            response = client(signer = null).execute(
-                oauthNativeCall(provider),
-                SpfnOauthNativeRequest(
-                    idToken = idToken,
-                    nonce = nonce.rawValue,
-                    publicKey = Base64.encode(key.publicKeySpkiDer),
-                    keyId = key.keyId,
-                    fingerprint = SpfnDigest.sha256Hex(key.publicKeySpkiDer),
-                    algorithm = ALGORITHM_NAME
-                )
-            );
-            if (response.keyId != key.keyId)
+            val key = SpfnKeystoreCustodyKey.generate(newKeyId(), engine, preferStrongBox);
+            // One local for both fields the contract binds to each other, so they cannot
+            // drift apart in the body below.
+            val fingerprint = SpfnDigest.sha256Hex(key.publicKeySpkiDer);
+            try
             {
-                throw SpfnKeyLifecycleException.ServerNamedAnotherKey(sent = key.keyId, received = response.keyId);
-            }
-            // Persisting is inside the same guard as the request, because a save that
-            // throws leaves an enrollment the server accepted with no local metadata
-            // naming it. The key would then outlive the throw as an orphan alias and
-            // the retry would mint a second one.
-            store.save(ACTIVE_SLOT, key.metadata(clientId = response.userId, createdAtMillis = clock.nowMillis()));
-        }
-        catch (failure: Throwable)
-        {
-            // The Keystore entry already exists, so a failed enrollment must delete
-            // it here — the Swift counterpart only has a value to drop at this point.
-            key.destroy();
-            throw failure;
-        }
+                val token = idToken(SpfnSocialNonce(fingerprint = fingerprint, provider = provider));
+                if (token.isEmpty())
+                {
+                    throw SpfnKeyLifecycleException.IdTokenMissing();
+                }
 
-        SpfnEnrollmentResult(clientId = response.userId, keyId = key.keyId, isNewUser = response.isNewUser);
+                val response = client(signer = null).execute(
+                    oauthNativeCall(provider),
+                    SpfnOauthNativeRequest(
+                        idToken = token,
+                        nonce = fingerprint,
+                        publicKey = Base64.encode(key.publicKeySpkiDer),
+                        keyId = key.keyId,
+                        fingerprint = fingerprint,
+                        algorithm = ALGORITHM_NAME
+                    )
+                );
+                if (response.keyId != key.keyId)
+                {
+                    throw SpfnKeyLifecycleException.ServerNamedAnotherKey(sent = key.keyId, received = response.keyId);
+                }
+                // Persisting is inside the same guard as the request, because a save that
+                // throws leaves an enrollment the server accepted with no local metadata
+                // naming it. The key would then outlive the throw as an orphan alias and
+                // the retry would mint a second one.
+                mutex.withLock {
+                    store.save(ACTIVE_SLOT, key.metadata(clientId = response.userId, createdAtMillis = clock.nowMillis()));
+                }
+                return SpfnEnrollmentResult(
+                    clientId = response.userId,
+                    keyId = key.keyId,
+                    isNewUser = response.isNewUser
+                );
+            }
+            catch (failure: Throwable)
+            {
+                // The Keystore entry already exists, so a failed enrollment must delete
+                // it here — the Swift counterpart only has a value to drop at this point.
+                // A cancelled sign-in reaches this too, which is the case the whole
+                // closure shape exists for.
+                key.destroy();
+                throw failure;
+            }
+        }
+        finally
+        {
+            // Non-suspending on purpose: a cancelled coroutine cannot run a suspending
+            // release, and a claim that outlived its call would lock the install out of
+            // ever enrolling again.
+            enrollmentInFlight.set(false);
+        }
     }
 
     // ---- M4–M5: rotation ---------------------------------------------------

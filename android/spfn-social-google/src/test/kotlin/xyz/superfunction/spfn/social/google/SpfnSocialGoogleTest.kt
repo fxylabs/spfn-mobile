@@ -14,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -30,7 +31,7 @@ class SpfnSocialGoogleTest
     fun c5_aCompletedSignInReturnsTheToken() = runBlocking {
         val adapter = SpfnSocialGoogle(RecordingGoogleDriver(token = "google-token-0001"));
 
-        assertEquals("google-token-0001", adapter.idToken(SpfnSocialNonce.make()));
+        assertEquals("google-token-0001", adapter.idToken(googleNonce()));
     }
 
     /**
@@ -46,21 +47,21 @@ class SpfnSocialGoogleTest
         );
         assertThrows(SpfnSocialGoogleException.Cancelled::class.java)
         {
-            runBlocking { dismissed.idToken(SpfnSocialNonce.make()) };
+            runBlocking { dismissed.idToken(googleNonce()) };
         }
 
         val refusal = NoCredentialException("no credential");
         val failed = SpfnSocialGoogle(RecordingGoogleDriver(failure = refusal));
         val thrown = assertThrows(SpfnSocialGoogleException.Failed::class.java)
         {
-            runBlocking { failed.idToken(SpfnSocialNonce.make()) };
+            runBlocking { failed.idToken(googleNonce()) };
         }
         assertEquals(refusal.type, thrown.type);
 
         val unknown = SpfnSocialGoogle(RecordingGoogleDriver(failure = IllegalStateException("flow broke")));
         val unclassified = assertThrows(SpfnSocialGoogleException.Failed::class.java)
         {
-            runBlocking { unknown.idToken(SpfnSocialNonce.make()) };
+            runBlocking { unknown.idToken(googleNonce()) };
         }
         assertEquals(SpfnSocialGoogle.UNCLASSIFIED_TYPE, unclassified.type);
     }
@@ -88,7 +89,7 @@ class SpfnSocialGoogleTest
         val adapter = SpfnSocialGoogle(RecordingGoogleDriver(failure = cancellation));
         val thrown = assertThrows(CancellationException::class.java)
         {
-            runBlocking { adapter.idToken(SpfnSocialNonce.make()) };
+            runBlocking { adapter.idToken(googleNonce()) };
         }
         assertSame("the adapter must not wrap or replace it", cancellation, thrown);
 
@@ -116,22 +117,29 @@ class SpfnSocialGoogleTest
         assertEquals(android.app.Activity::class.java, presenting);
     }
 
-    /** C7: the request's nonce field carries the RAW value, never the Apple hash. */
+    /**
+     * C7 / cell 14: the request's nonce field carries the fingerprint itself, never the
+     * hash that only Apple's flow expects.
+     */
     @Test
-    fun c7_theRequestNonceIsTheRawValueNotTheHash() = runBlocking {
+    fun c7_theRequestNonceIsTheFingerprintNotTheHash() = runBlocking {
         val driver = RecordingGoogleDriver(token = "google-token-0001");
-        val nonce = SpfnSocialNonce.make();
+        val nonce = googleNonce();
 
         SpfnSocialGoogle(driver).idToken(nonce);
 
-        assertEquals(nonce.rawValue, driver.requestedNonce);
-        assertNotEquals(nonce.appleRequestValue, driver.requestedNonce);
+        assertEquals(FINGERPRINT, driver.requestedNonce);
+        assertEquals(nonce.requestValue, driver.requestedNonce);
+        assertNotEquals(
+            SpfnSocialNonce.forProvider(FINGERPRINT, "apple").requestValue,
+            driver.requestedNonce
+        );
 
         // The same value in the request Credential Manager would really be handed. The
         // option is Google's own type, built the way the driver builds it, and the
         // nonce is read back off it rather than off anything this suite constructed.
         val option = SpfnSocialGoogle.googleIdOption("server-client-id-0001", nonce);
-        assertEquals(nonce.rawValue, option.nonce);
+        assertEquals(FINGERPRINT, option.nonce);
         assertEquals("server-client-id-0001", option.serverClientId);
         assertFalse(
             "an enrollment is the first time this install meets the user",
@@ -140,7 +148,29 @@ class SpfnSocialGoogleTest
 
         val request = SpfnSocialGoogle.signInRequest("server-client-id-0001", nonce);
         val carried = request.credentialOptions.filterIsInstance<GetGoogleIdOption>().single();
-        assertEquals(nonce.rawValue, carried.nonce);
+        assertEquals(FINGERPRINT, carried.nonce);
+    }
+
+    /**
+     * Cell 18: a nonce minted for another provider is refused, and the flow never runs.
+     * An apple-minted nonce carries a hash, so Google would echo a value the SPFN server
+     * never compares against.
+     */
+    @Test
+    fun c18_aNonceMintedForAnotherProviderIsRefusedBeforeTheFlow() = runBlocking {
+        for (provider in listOf("apple", "kakao", "naver"))
+        {
+            val driver = RecordingGoogleDriver(token = "google-token-0001");
+            val thrown = failureOf {
+                SpfnSocialGoogle(driver).idToken(SpfnSocialNonce.forProvider(FINGERPRINT, provider));
+            };
+
+            assertTrue(
+                "'$provider' was accepted: $thrown",
+                thrown is SpfnSocialGoogleException.NonceProviderMismatch
+            );
+            assertNull("'$provider': the platform flow must not have been reached", driver.requestedNonce);
+        }
     }
 
     /** A sign-in that answers with no token fails explicitly (the C3 rule, other half). */
@@ -151,7 +181,7 @@ class SpfnSocialGoogleTest
             val adapter = SpfnSocialGoogle(RecordingGoogleDriver(token = token));
             assertThrows(SpfnSocialGoogleException.IdentityTokenMissing::class.java)
             {
-                runBlocking { adapter.idToken(SpfnSocialNonce.make()) };
+                runBlocking { adapter.idToken(googleNonce()) };
             }
         }
     }
@@ -164,10 +194,37 @@ class SpfnSocialGoogleTest
 
         val thrown = assertThrows(SpfnSocialGoogleException.Failed::class.java)
         {
-            runBlocking { adapter.idToken(SpfnSocialNonce.make()) };
+            runBlocking { adapter.idToken(googleNonce()) };
         }
         assertTrue(thrown.message?.contains(leaked) != true);
         assertTrue(thrown.cause == null);
+    }
+
+    /** A nonce minted the way an enrollment for this adapter mints one. */
+    private fun googleNonce(): SpfnSocialNonce =
+        SpfnSocialNonce.forProvider(FINGERPRINT, SpfnSocialGoogle.PROVIDER)
+
+    private fun failureOf(body: suspend () -> Unit): Throwable?
+    {
+        return try
+        {
+            runBlocking { body() };
+            null;
+        }
+        catch (failure: Throwable)
+        {
+            failure;
+        }
+    }
+
+    private companion object
+    {
+        /**
+         * A fingerprint shaped as one taken over a real key: 64 lowercase hex
+         * characters. Fixed, because what these rows test is the adapter's handling of
+         * it, not its value.
+         */
+        const val FINGERPRINT = "aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a"
     }
 }
 

@@ -17,21 +17,41 @@ Entries under an unreleased heading describe repository state, not shipped softw
   either a name or the literal `null`. Apple ships no native sign-in SDK for Android, so
   the Android half would have owned a one-line nonce accessor and a seam the app fills
   in anyway, while App Store guideline 4.8 requires the button on iOS alone. An Android
-  app signing in with Apple is unaffected — `SpfnSocialNonce`, `appleRequestValue` and
+  app signing in with Apple is unaffected — `SpfnSocialNonce`, its `requestValue` and
   `enroll(provider = "apple", …)` are in `spfn-client` and always were.
 - `null` is a declaration, not an omission, and the validator refuses to confuse the two:
   every module line is bucketed into Android-backed or declared-iOS-only, the buckets
   must add up to the number of lines, and each platform is counted against its own floor.
   A skip that also covers a line nobody could parse is how a graph check reports green
   having read nothing.
-- `SPFNSocialNonce` / `SpfnSocialNonce` replaces the `String` nonce on `enroll`. It mints
-  a random lowercase-hex value, hides it, and publishes only `appleRequestValue` — the
-  SHA-256 of it. Apple's request carries the hash, every other provider's carries the raw
-  value, and the server always compares against the raw value; an app that could pass
-  either would eventually pass the wrong one, and the refusal that follows names nothing.
-- The raw value is deliberately not base64. A base64url value's last character carries
-  fewer than six bits, and Naver hands back a different trailing character than it was
-  given (primitives #57). The shape is fixed now rather than after flows are enrolled.
+- The nonce is the fingerprint of the key being enrolled, not a random value. Contract
+  0.4.1's `nativeEnrollment.nonceRule` requires the body's `nonce` and `fingerprint` to be
+  the same string, and the server refuses the call when they differ. An id_token is
+  bearer-shaped, so verifying it alone would let whoever stole one register their own key
+  on the victim's account; deriving the nonce from the key means a stolen token carries
+  the victim's fingerprint and pairs with nothing else.
+- `enroll` takes a sign-in closure instead of a token, and generates the key, runs the
+  provider flow and registers the result in one call. The key has to exist before the
+  provider is asked — that is what the nonce is derived from — so a sign-in the user
+  abandons would otherwise strand a key nobody registered. Owning the whole flow is what
+  lets the SDK destroy it: a Keystore entry to delete on Android, a value to drop on iOS.
+- A second `enroll` while the first one's sign-in is up is refused with a new
+  `enrollmentInFlight` / `EnrollmentInFlight`. The state checks cannot see it — an
+  enrollment in progress has saved nothing, so both calls read unenrolled. The Android
+  half no longer holds its mutex across the sign-in either, which also removes a deadlock
+  for a closure that calls back into the lifecycle.
+- `SPFNSocialNonce` / `SpfnSocialNonce` publishes one value, `requestValue`: the SHA-256
+  of the fingerprint when the nonce was minted for Apple, and the fingerprint itself for
+  every other provider. `make()` and `appleRequestValue` are gone. One value means an app
+  cannot pick the wrong shape, and it stays public because an app driving kakao or naver
+  through their own SDKs needs it. Each adapter refuses a nonce minted for another
+  provider.
+- The fingerprint is lowercase hex and deliberately not base64. A base64url value's last
+  character carries fewer than six bits, and Naver hands back a different trailing
+  character than it was given (primitives #57).
+- The reference server now refuses an enrollment whose nonce is not the fingerprint, and
+  the enrollment fixture carries the fingerprint as its nonce. A fake server more
+  permissive than the real one is the one way a fake server does harm.
 - The Android adapter runs on Credential Manager — `androidx.credentials` 1.6.0,
   `credentials-play-services-auth` 1.6.0 and `googleid` 1.2.0 — rather than on the
   deprecated one-tap surface in `play-services-auth`. It was written on the deprecated
@@ -60,10 +80,12 @@ Entries under an unreleased heading describe repository state, not shipped softw
   had no cancellation handler at all: the sheet's dismissal arrives as a delegate
   callback, but a cancelled task arrives as nothing, and the continuation stayed
   suspended for the life of the process. It now resumes and takes the sheet down.
-- `SpfnSocialNonce.rawValue` is `@get:JvmSynthetic`. The decision behind the type says an
-  app cannot read the raw value, and `@RequiresOptIn` enforced that in Kotlin and nowhere
-  else — a Java caller saw an ordinary getter and no opt-in to write. Swift needed no
-  counterpart: `package` visibility already removes the name outside the package.
+- Nothing outside `spfn-client` mints a `SpfnSocialNonce`. Its constructor and its
+  `fingerprint` are `internal`, which Kotlin's name mangling carries across to Java, and
+  the adapter modules reach a gated factory instead — `internal` stops at the Gradle
+  module where Swift's `package` spans the whole package. What this guards changed with
+  the nonce itself: the risk is no longer an app reading a value, it is an app minting a
+  nonce for a key it does not hold, which the server can only refuse.
 - An enrollment the server accepted and the device cannot record no longer leaves a
   Keystore alias behind. Persisting moved inside the same guard as the request, so a
   store that throws destroys the key rather than orphaning an alias the retry cannot

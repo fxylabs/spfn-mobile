@@ -1,10 +1,10 @@
-// SPFN Mobile — the nonce value type, case table rows A1–A6.
+// SPFN Mobile — the nonce value type, case table cells 13–16.
 //
-// The expected values are the design's own table, copied by hand rather than read back
-// out of the implementation (P10): the table says the Apple request value is the
-// SHA-256 hex of the raw value, that it is 64 lowercase hex characters, that the raw
-// value never carries the base64 alphabet, and that no public member exposes the raw
-// value. Each row below asserts exactly one of those.
+// The expected values are the design's own table, written here rather than read back out
+// of the implementation (P10): the table says an apple-minted nonce's request value is
+// the SHA-256 hex of the fingerprint, that every other provider's is the fingerprint
+// itself, that the body always carries the fingerprint, and that the value is 64
+// lowercase hex characters. Each row below asserts exactly one of those.
 //
 // SpfnSocialNonceTest.kt mirrors the same rows in Kotlin, and the hex vector at the
 // bottom is what pins the two encoders to each other (P9).
@@ -17,72 +17,88 @@ import SPFNCore
 
 final class SPFNSocialNonceTests: XCTestCase
 {
-    /// A1: two calls, two different raw values.
-    func test_A1_twoMakeCallsProduceDifferentRawValues() throws
-    {
-        var seen: Set<String> = []
-        for _ in 0 ..< 64
-        {
-            seen.insert(SPFNSocialNonce.make().rawValue)
-        }
-        XCTAssertEqual(seen.count, 64, "make() repeated a raw value")
-    }
+    /// A fingerprint shaped exactly as one taken over a real SPKI DER: the SHA-256 of
+    /// some bytes, in lowercase hex. Fixed so every row below reads the same input.
+    private static let fingerprint = SPFNDigest.sha256Hex(Array("spfn-mobile-test-key".utf8))
 
-    /// A2: the Apple request value is the SHA-256 of the raw value, in hex.
-    func test_A2_appleRequestValueIsTheSha256HexOfTheRawValue() throws
+    /// Cell 13: apple's request value is the SHA-256 of the fingerprint, in hex.
+    func test_13_appleRequestValueIsTheSha256HexOfTheFingerprint() throws
     {
-        let nonce = SPFNSocialNonce.make()
-        let digest = SHA256.hash(data: Data(nonce.rawValue.utf8))
+        let nonce = SPFNSocialNonce(fingerprint: Self.fingerprint, provider: "apple")
+        let digest = SHA256.hash(data: Data(Self.fingerprint.utf8))
         let expected = digest.map { String(format: "%02x", $0) }.joined()
 
-        XCTAssertEqual(nonce.appleRequestValue, expected)
-        XCTAssertNotEqual(nonce.appleRequestValue, nonce.rawValue, "the request value is the hash, not the pre-image")
+        XCTAssertEqual(nonce.requestValue, expected)
+        XCTAssertNotEqual(
+            nonce.requestValue, Self.fingerprint,
+            "apple's request carries the hash, not the pre-image"
+        )
     }
 
-    /// A3: 64 characters, lowercase hex only.
-    func test_A3_appleRequestValueIs64LowercaseHexCharacters() throws
+    /// Cell 14: every other provider's request value is the fingerprint itself.
+    ///
+    /// kakao and naver are listed because they are the providers an app reaches through
+    /// its own SDK — this SDK ships no adapter for them, and the whole reason
+    /// `requestValue` is public is that such an app needs the value.
+    func test_14_everyOtherProviderCarriesTheFingerprintItself() throws
     {
-        for _ in 0 ..< 16
+        for provider in ["google", "kakao", "naver", "github"]
         {
-            let value = SPFNSocialNonce.make().appleRequestValue
-            XCTAssertEqual(value.count, 64)
-            XCTAssertTrue(SPFNSocialNonce.isLowercaseHex(value), "'\(value)' is not lowercase hex")
+            let nonce = SPFNSocialNonce(fingerprint: Self.fingerprint, provider: provider)
+            XCTAssertEqual(nonce.requestValue, Self.fingerprint, "\(provider) must carry the raw fingerprint")
+            XCTAssertEqual(nonce.provider, provider)
         }
     }
 
-    /// A4: the raw value carries no base64 alphabet — no `+`, `/` or `=`, and no
-    /// trailing `A`, the character a base64url round trip through a provider drops.
-    func test_A4_theRawValueCarriesNoBase64Alphabet() throws
+    /// Cell 15: whatever the provider, the value the enrollment body carries is the
+    /// fingerprint. Asserted on the type rather than only through a flow, because this
+    /// is the equality the server checks and the one an app can never see fail.
+    func test_15_theBodyValueIsAlwaysTheFingerprint() throws
     {
-        for _ in 0 ..< 64
+        for provider in ["apple", "google", "kakao", "naver"]
         {
-            let raw = SPFNSocialNonce.make().rawValue
-            XCTAssertFalse(raw.contains("+"))
-            XCTAssertFalse(raw.contains("/"))
-            XCTAssertFalse(raw.contains("="))
-            XCTAssertFalse(raw.hasSuffix("A"))
-            XCTAssertTrue(SPFNSocialNonce.isLowercaseHex(raw), "'\(raw)' is not lowercase hex")
+            let nonce = SPFNSocialNonce(fingerprint: Self.fingerprint, provider: provider)
+            XCTAssertEqual(nonce.fingerprint, Self.fingerprint)
         }
     }
 
-    /// A5: one instance read twice answers the same thing both times.
-    func test_A5_readingOneInstanceTwiceGivesTheSameValues() throws
+    /// Cell 16: 64 characters, lowercase hex, whichever shape the provider gets — and
+    /// no base64 alphabet in either. `+`, `/` and `=` would not survive a URL round trip,
+    /// and a trailing `A` is the character Naver drops from a nonce it echoes back
+    /// (spfn-primitives #57), which lowercase hex cannot produce.
+    func test_16_bothShapesAre64LowercaseHexCharacters() throws
     {
-        let nonce = SPFNSocialNonce.make()
+        for provider in ["apple", "google", "kakao", "naver"]
+        {
+            let value = SPFNSocialNonce(fingerprint: Self.fingerprint, provider: provider).requestValue
+            XCTAssertEqual(value.count, 64, "\(provider): expected 64 characters")
+            XCTAssertTrue(SPFNSocialNonce.isLowercaseHex(value), "\(provider): '\(value)' is not lowercase hex")
+            XCTAssertFalse(value.contains("+"))
+            XCTAssertFalse(value.contains("/"))
+            XCTAssertFalse(value.contains("="))
+            XCTAssertFalse(value.hasSuffix("A"))
+        }
+    }
 
-        XCTAssertEqual(nonce.rawValue, nonce.rawValue)
-        XCTAssertEqual(nonce.appleRequestValue, nonce.appleRequestValue)
+    /// One instance read twice answers the same thing both times.
+    func test_readingOneInstanceTwiceGivesTheSameValues() throws
+    {
+        let nonce = SPFNSocialNonce(fingerprint: Self.fingerprint, provider: "apple")
+
+        XCTAssertEqual(nonce.requestValue, nonce.requestValue)
+        XCTAssertEqual(nonce.fingerprint, nonce.fingerprint)
         XCTAssertEqual(nonce.description, nonce.description)
     }
 
-    /// A6: the public surface exposes no member that hands out the raw value.
+    /// The public surface is exactly the three members the design names, and nothing an
+    /// app can call mints a nonce.
     ///
-    /// Judged from the declaration itself rather than by reflection, because the leak
-    /// this row exists to prevent is a `public` accessor someone adds later, and a
-    /// mirror shows stored properties whatever their access level. Every `public`
-    /// declaration in the file is listed and held to an allowlist; the two descriptions
-    /// are read as text and must not contain the raw value either.
-    func test_A6_noPublicMemberExposesTheRawValue() throws
+    /// Judged from the declaration itself rather than by reflection, because what this
+    /// row exists to prevent is a `public` member someone adds later — a second value to
+    /// choose between, or an initialiser that lets an app enrol a nonce belonging to no
+    /// key it holds. A mirror shows stored properties whatever their access level, so it
+    /// would not see the difference.
+    func test_thePublicSurfaceIsTheThreeMembersTheDesignNames() throws
     {
         let source = try SocialSurface.text(at: "Sources/SPFNClient/SPFNSocialNonce.swift")
         let declarations = source
@@ -94,22 +110,22 @@ final class SPFNSocialNonceTests: XCTestCase
 
         let allowedPublic = [
             "public struct SPFNSocialNonce: Sendable, CustomStringConvertible, CustomDebugStringConvertible",
-            "public let appleRequestValue: String",
-            "public static func make() -> SPFNSocialNonce",
+            "public let provider: String",
+            "public let requestValue: String",
             "public var description: String",
             "public var debugDescription: String",
         ]
         let publicDeclarations = declarations.filter { $0.hasPrefix("public ") }
         XCTAssertEqual(
             publicDeclarations, allowedPublic,
-            "the public surface of SPFNSocialNonce changed; a raw accessor is a package member or it is nothing"
+            "the public surface of SPFNSocialNonce changed; a second value or a public initialiser is not it"
         )
 
-        let nonce = SPFNSocialNonce.make()
-        XCTAssertFalse(nonce.description.contains(nonce.rawValue), "description leaks the raw value")
-        XCTAssertFalse(nonce.debugDescription.contains(nonce.rawValue), "debugDescription leaks the raw value")
-        XCTAssertFalse(String(describing: nonce).contains(nonce.rawValue), "interpolation leaks the raw value")
-        XCTAssertFalse(String(reflecting: nonce).contains(nonce.rawValue), "reflection leaks the raw value")
+        let nonce = SPFNSocialNonce(fingerprint: Self.fingerprint, provider: "apple")
+        XCTAssertFalse(nonce.description.contains(nonce.fingerprint), "description leaks the fingerprint")
+        XCTAssertFalse(nonce.debugDescription.contains(nonce.fingerprint), "debugDescription leaks the fingerprint")
+        XCTAssertFalse(String(describing: nonce).contains(nonce.fingerprint), "interpolation leaks the fingerprint")
+        XCTAssertFalse(String(reflecting: nonce).contains(nonce.fingerprint), "reflection leaks the fingerprint")
     }
 
     /// P9: the two platforms' hex encoders answer the same for the same bytes, and the
