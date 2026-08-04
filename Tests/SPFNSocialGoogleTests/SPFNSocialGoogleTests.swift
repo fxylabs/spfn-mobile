@@ -52,6 +52,23 @@ final class SPFNSocialGoogleTests: XCTestCase
         XCTAssertEqual(SPFNSocialGoogle.errorDomain, "com.google.GIDSignIn")
     }
 
+    /// The same row the Apple adapter carries: a cancelled task passes through as a
+    /// cancellation rather than being classified into `.signInFailed(code: 0)`.
+    func test_aCancelledTaskIsNotReportedAsASignInFailure() async throws
+    {
+        let adapter = SPFNSocialGoogle(driver: RecordingGoogleDriver(outcome: .failure(CancellationError())))
+
+        let thrown = await failure
+        {
+            _ = try await adapter.idToken(nonce: SPFNSocialNonce.make())
+        }
+
+        XCTAssertTrue(
+            thrown is CancellationError,
+            "a cancellation must not be classified as a refusal, got \(String(describing: thrown))"
+        )
+    }
+
     /// C7: the request's nonce field carries the RAW value, never the Apple hash.
     func test_C7_theRequestNonceIsTheRawValueNotTheHash() async throws
     {

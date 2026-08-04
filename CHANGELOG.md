@@ -53,6 +53,25 @@ Entries under an unreleased heading describe repository state, not shipped softw
   words. Redirect and PKCE vocabulary stays refused everywhere, adapters included.
 - Kakao and Naver adapters are not here. The server has no `verifyNativeIdToken` for
   them (primitives #56, #57), and a module is added with an implementation or not at all.
+- A cancelled task now reads as a cancellation on both platforms. Both adapters caught
+  everything and classified it, so cancelling the caller — `CancellationException` in
+  Kotlin, `CancellationError` in Swift — was reported as a sign-in the provider refused,
+  while the caller's own scope believed it had never been cancelled. Apple's session also
+  had no cancellation handler at all: the sheet's dismissal arrives as a delegate
+  callback, but a cancelled task arrives as nothing, and the continuation stayed
+  suspended for the life of the process. It now resumes and takes the sheet down.
+- `SpfnSocialNonce.rawValue` is `@get:JvmSynthetic`. The decision behind the type says an
+  app cannot read the raw value, and `@RequiresOptIn` enforced that in Kotlin and nowhere
+  else — a Java caller saw an ordinary getter and no opt-in to write. Swift needed no
+  counterpart: `package` visibility already removes the name outside the package.
+- An enrollment the server accepted and the device cannot record no longer leaves a
+  Keystore alias behind. Persisting moved inside the same guard as the request, so a
+  store that throws destroys the key rather than orphaning an alias the retry cannot
+  find. This is Android-only by nature — on iOS a failed enrollment drops a value.
+- `SpfnSocialGoogleCredentialDriver` takes an `Activity` rather than a `Context`.
+  `getCredential` puts an account picker on the screen and Android asks for an activity
+  to present it from; a `Context` parameter compiled against an application context and
+  failed at the one moment a user was watching.
 
 ### The empty modules are gone, and the rule that made them is written down
 

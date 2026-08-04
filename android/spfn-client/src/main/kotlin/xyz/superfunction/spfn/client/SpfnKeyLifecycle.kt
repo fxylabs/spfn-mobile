@@ -240,6 +240,11 @@ class SpfnKeyLifecycle(
             {
                 throw SpfnKeyLifecycleException.ServerNamedAnotherKey(sent = key.keyId, received = response.keyId);
             }
+            // Persisting is inside the same guard as the request, because a save that
+            // throws leaves an enrollment the server accepted with no local metadata
+            // naming it. The key would then outlive the throw as an orphan alias and
+            // the retry would mint a second one.
+            store.save(ACTIVE_SLOT, key.metadata(clientId = response.userId, createdAtMillis = clock.nowMillis()));
         }
         catch (failure: Throwable)
         {
@@ -249,7 +254,6 @@ class SpfnKeyLifecycle(
             throw failure;
         }
 
-        store.save(ACTIVE_SLOT, key.metadata(clientId = response.userId, createdAtMillis = clock.nowMillis()));
         SpfnEnrollmentResult(clientId = response.userId, keyId = key.keyId, isNewUser = response.isNewUser);
     }
 

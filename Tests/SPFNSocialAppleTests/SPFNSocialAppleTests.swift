@@ -58,6 +58,27 @@ final class SPFNSocialAppleTests: XCTestCase
         )
     }
 
+    /// A cancelled task is not a dismissed sheet and not a refusal. `classify` reads an
+    /// unknown error as an `NSError` and would answer `CancellationError` with
+    /// `.authorizationFailed(code: 0)`, telling the caller Apple refused something the
+    /// caller itself called off. It passes through as what it is.
+    ///
+    /// The Kotlin adapter has the same row, under `CancellationException`.
+    func test_aCancelledTaskIsNotReportedAsAnAuthorizationFailure() async throws
+    {
+        let adapter = SPFNSocialApple(driver: RecordingAppleDriver(outcome: .failure(CancellationError())))
+
+        let thrown = await failure
+        {
+            _ = try await adapter.idToken(nonce: SPFNSocialNonce.make())
+        }
+
+        XCTAssertTrue(
+            thrown is CancellationError,
+            "a cancellation must not be classified as a refusal, got \(String(describing: thrown))"
+        )
+    }
+
     /// C3: an authorization that carries no identity token fails explicitly rather than
     /// returning an empty string that would be sent to the server as one.
     func test_C3_anAuthorizationWithoutAnIdentityTokenFailsExplicitly() async throws

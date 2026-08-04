@@ -14,9 +14,11 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.coroutines.cancellation.CancellationException
 import xyz.superfunction.spfn.client.SpfnInternalNonceAccess
 import xyz.superfunction.spfn.client.SpfnSocialNonce
 
@@ -61,6 +63,57 @@ class SpfnSocialGoogleTest
             runBlocking { unknown.idToken(SpfnSocialNonce.make()) };
         }
         assertEquals(SpfnSocialGoogle.UNCLASSIFIED_TYPE, unclassified.type);
+    }
+
+    /**
+     * A cancelled coroutine is not a refused sign-in. Kotlin cancels a suspended call by
+     * throwing `CancellationException` through it, so an adapter that catches everything
+     * and renames it tells the caller's scope the sign-in failed while the scope believes
+     * it was never cancelled. The exception passes through unchanged and unwrapped.
+     *
+     * Credential Manager's own dismissal type is checked alongside it, because the two
+     * are unrelated types that both read as "cancelled" in English and only one of them
+     * is a user-visible outcome.
+     */
+    @Test
+    fun aCancelledCoroutineIsNotReportedAsASignInFailure()
+    {
+        val cancellation = CancellationException("the caller's scope was cancelled");
+        assertSame(
+            "classify must return a CancellationException untouched",
+            cancellation,
+            SpfnSocialGoogle.classify(cancellation)
+        );
+
+        val adapter = SpfnSocialGoogle(RecordingGoogleDriver(failure = cancellation));
+        val thrown = assertThrows(CancellationException::class.java)
+        {
+            runBlocking { adapter.idToken(SpfnSocialNonce.make()) };
+        }
+        assertSame("the adapter must not wrap or replace it", cancellation, thrown);
+
+        // The dismissal stays what it was: an outcome, not a cancellation.
+        assertTrue(
+            SpfnSocialGoogle.classify(GetCredentialCancellationException("dismissed"))
+                is SpfnSocialGoogleException.Cancelled
+        );
+    }
+
+    /**
+     * `getCredential` puts an account picker on the screen, and Android asks for an
+     * activity to present it from. A `Context` parameter compiles against an application
+     * context and fails only when a user is watching, so the type is the check.
+     */
+    @Test
+    fun theCredentialDriverTakesAnActivityRatherThanAnyContext()
+    {
+        val presenting = SpfnSocialGoogleCredentialDriver::class.java
+            .constructors
+            .single()
+            .parameterTypes
+            .first();
+
+        assertEquals(android.app.Activity::class.java, presenting);
     }
 
     /** C7: the request's nonce field carries the RAW value, never the Apple hash. */

@@ -16,8 +16,9 @@
 //
 // Sources/SPFNClient/SPFNSocialNonce.swift is the same value in Swift. The one place
 // the two differ is how the raw value is kept out of an app's reach: Swift has package
-// visibility, Kotlin does not, so here the accessor is public and gated behind an
-// opt-in that an app has to write out before it can compile against it.
+// visibility, Kotlin does not, so here the accessor is public and gated twice — an
+// opt-in an app has to write out before Kotlin will compile against it, and
+// `@JvmSynthetic` so the getter is not in the class Java sees at all.
 
 package xyz.superfunction.spfn.client
 
@@ -48,8 +49,14 @@ class SpfnSocialNonce private constructor(private val raw: String)
     /**
      * The value the SPFN server compares against, and the value every provider other
      * than Apple puts in its own request.
+     *
+     * `@RequiresOptIn` is a Kotlin compiler rule and stops at the language boundary: a
+     * Java caller sees a plain `getRawValue()` and no opt-in to write. `@JvmSynthetic`
+     * removes the getter from the class's Java-visible surface, so the two languages
+     * refuse the same reach.
      */
     @SpfnInternalNonceAccess
+    @get:JvmSynthetic
     val rawValue: String
         get() = raw
 

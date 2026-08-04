@@ -76,6 +76,13 @@ public struct SPFNSocialGoogle: Sendable
             // The raw value, not the hash: Apple is the only provider that hashes.
             token = try await driver.identityToken(requestNonce: nonce.rawValue)
         }
+        catch let cancellation as CancellationError
+        {
+            // A cancelled task is not a refused sign-in. Classifying it would answer
+            // the caller with `.signInFailed(code: 0)` and swallow the cancellation the
+            // caller itself asked for.
+            throw cancellation
+        }
         catch
         {
             throw Self.classify(error)

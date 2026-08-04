@@ -117,6 +117,38 @@ class SpfnKeyLifecycleTest
         assertEquals(SpfnKeyLifecycleState.UNENROLLED, lifecycle.state());
     }
 
+    /**
+     * The same M3 promise on the other side of the request. A server that accepted the
+     * enrollment and a store that then refuses to write leaves the one arrangement M3
+     * exists to forbid: a Keystore alias with nothing naming it, which the retry cannot
+     * find and cannot reuse.
+     *
+     * This is the boundary Swift does not have — there a failed enrollment drops an
+     * in-memory value, while here the alias is already in the Keystore before the
+     * request is sent.
+     */
+    @Test
+    fun anEnrollmentThatCannotPersistDestroysTheGeneratedKey() = runBlocking {
+        val refusal = IllegalStateException("the keystore metadata file is unwritable");
+        val transport = ScriptedTransport(
+            listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
+        );
+        val store = RefusingKeyMetadataStore(refusal);
+        val engine = scriptedEngine(testKeyPair());
+        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
+
+        val thrown = failureOf {
+            lifecycle.enroll(provider = "google", idToken = "idtoken-test", nonce = SpfnSocialNonce.of("nonce-enroll-9999"));
+        };
+
+        assertEquals("the store's own refusal reaches the caller", refusal, thrown);
+        assertFalse(
+            "a save that threw must not leave the Keystore alias behind",
+            engine.contains("spfn-client-key-key-test-0001")
+        );
+        assertEquals(SpfnKeyLifecycleState.UNENROLLED, lifecycle.state());
+    }
+
     @Test
     fun enrollRefusesAProviderThatIsNotAPathSegment() = runBlocking {
         val transport = ScriptedTransport(emptyList());
@@ -479,5 +511,27 @@ class ScriptedKeystoreEngine(
     override fun delete(alias: String)
     {
         keys.remove(alias);
+    }
+}
+
+/**
+ * A store that reads like any other and refuses every write. It stands for the one
+ * failure the enrollment path cannot retry its way out of: the server has already
+ * accepted the key, so nothing but destroying the alias leaves the device consistent.
+ */
+class RefusingKeyMetadataStore(private val failure: Throwable) : SpfnKeyMetadataStore
+{
+    private val records = mutableMapOf<String, SpfnStoredKeyMetadata>()
+
+    override fun load(slot: String): SpfnStoredKeyMetadata? = records[slot]
+
+    override fun save(slot: String, metadata: SpfnStoredKeyMetadata)
+    {
+        throw failure;
+    }
+
+    override fun delete(slot: String)
+    {
+        records.remove(slot);
     }
 }

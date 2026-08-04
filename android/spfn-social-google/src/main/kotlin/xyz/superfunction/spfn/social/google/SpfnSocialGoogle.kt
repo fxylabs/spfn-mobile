@@ -21,7 +21,7 @@
 
 package xyz.superfunction.spfn.social.google
 
-import android.content.Context
+import android.app.Activity
 import androidx.credentials.Credential
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -32,6 +32,7 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import xyz.superfunction.spfn.client.SpfnInternalNonceAccess
 import xyz.superfunction.spfn.client.SpfnSocialNonce
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Why a Google sign-in did not produce a token. A dismissal is separate for the same
@@ -136,9 +137,16 @@ class SpfnSocialGoogle(private val driver: SpfnSocialGoogleDriver)
         /**
          * Credential Manager reports a dismissal as its own exception type; every other
          * refusal keeps the type constant and loses the message.
+         *
+         * A `CancellationException` is returned untouched and never becomes a refusal.
+         * It is how a coroutine is told to stop, not how a sign-in fails, and turning it
+         * into [SpfnSocialGoogleException.Failed] would report a failure the user never
+         * had and leave the caller's scope believing it was never cancelled. Credential
+         * Manager's own dismissal type is unrelated to it and stays a [Cancelled].
          */
         internal fun classify(failure: Throwable): Throwable = when (failure)
         {
+            is CancellationException -> failure
             is SpfnSocialGoogleException -> failure
             is GetCredentialCancellationException -> SpfnSocialGoogleException.Cancelled()
             is GetCredentialException -> SpfnSocialGoogleException.Failed(failure.type)
@@ -151,12 +159,17 @@ class SpfnSocialGoogle(private val driver: SpfnSocialGoogleDriver)
 }
 
 /**
- * The flow itself: one Credential Manager call, one credential, one token. The context
- * is the caller's activity — Credential Manager presents from it — and nothing but the
- * token string comes back out.
+ * The flow itself: one Credential Manager call, one credential, one token. Nothing but
+ * the token string comes back out.
+ *
+ * The parameter is an [Activity] rather than a `Context` because `getCredential` puts an
+ * account picker on the screen, and Android's contract asks for an activity to present
+ * it from. A `Context` parameter compiles against an application or service context and
+ * then fails at the one moment the user is watching, which is the same shape of mistake
+ * `SpfnSocialNonce` exists to prevent — so it is refused by the type here too.
  */
 class SpfnSocialGoogleCredentialDriver(
-    private val context: Context,
+    private val activity: Activity,
     private val serverClientId: String
 ) : SpfnSocialGoogleDriver
 {
@@ -171,7 +184,7 @@ class SpfnSocialGoogleCredentialDriver(
                     .build()
             )
             .build();
-        val response = CredentialManager.create(context).getCredential(context, request);
+        val response = CredentialManager.create(activity).getCredential(activity, request);
         return SpfnSocialGoogle.idToken(response.credential);
     }
 }

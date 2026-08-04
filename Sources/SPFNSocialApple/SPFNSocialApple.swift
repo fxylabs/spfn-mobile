@@ -89,6 +89,13 @@ public struct SPFNSocialApple: Sendable
         {
             token = try await driver.identityToken(requestNonce: nonce.appleRequestValue)
         }
+        catch let cancellation as CancellationError
+        {
+            // A cancelled task is not a refused sign-in. Classifying it would answer
+            // the caller with `.authorizationFailed(code: 0)` and swallow the
+            // cancellation the caller itself asked for.
+            throw cancellation
+        }
         catch
         {
             throw Self.classify(error)
@@ -128,6 +135,11 @@ public struct SPFNSocialApple: Sendable
 /// `ASAuthorizationController` does not retain its delegate, and a session that is
 /// released while the sheet is up leaves the continuation suspended forever. So a
 /// running session holds itself in `live` and drops itself the moment it answers.
+///
+/// The platform answers a dismissed sheet with a delegate callback, but it answers a
+/// cancelled *task* with nothing at all — no callback arrives, and without a handler the
+/// continuation stays suspended and the session stays in `live` for the life of the
+/// process. So cancellation is handled here rather than waited on.
 @MainActor
 final class SPFNSocialAppleAuthorizationSession: NSObject,
     ASAuthorizationControllerDelegate,
@@ -137,6 +149,7 @@ final class SPFNSocialAppleAuthorizationSession: NSObject,
 
     private let anchor: @MainActor @Sendable () -> ASPresentationAnchor
     private var continuation: CheckedContinuation<String?, any Error>?
+    private var controller: ASAuthorizationController?
 
     init(anchor: @escaping @MainActor @Sendable () -> ASPresentationAnchor)
     {
@@ -151,15 +164,37 @@ final class SPFNSocialAppleAuthorizationSession: NSObject,
         request.requestedScopes = []
         request.nonce = requestNonce
 
-        return try await withCheckedThrowingContinuation
-        { continuation in
-            self.continuation = continuation
-            Self.live.append(self)
-            let controller = ASAuthorizationController(authorizationRequests: [request])
-            controller.delegate = self
-            controller.presentationContextProvider = self
-            controller.performRequests()
+        return try await withTaskCancellationHandler
+        {
+            // A task already cancelled before the sheet goes up must not raise one.
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation
+            { continuation in
+                self.continuation = continuation
+                Self.live.append(self)
+                let controller = ASAuthorizationController(authorizationRequests: [request])
+                self.controller = controller
+                controller.delegate = self
+                controller.presentationContextProvider = self
+                controller.performRequests()
+            }
         }
+        onCancel:
+        {
+            // The handler runs off the main actor and synchronously, so the work hops
+            // rather than blocking. A resume that lost the race is already a no-op.
+            Task { @MainActor in self.cancelRunningAuthorization() }
+        }
+    }
+
+    /// Answers the caller with the cancellation it asked for, then takes the sheet down.
+    /// Resuming first means a delegate callback that arrives on the way out finds the
+    /// continuation already spent and changes nothing.
+    private func cancelRunningAuthorization()
+    {
+        let running = controller
+        finish(with: .failure(CancellationError()))
+        running?.cancel()
     }
 
     func authorizationController(
@@ -191,6 +226,7 @@ final class SPFNSocialAppleAuthorizationSession: NSObject,
             return
         }
         continuation = nil
+        controller = nil
         Self.live.removeAll { $0 === self }
         pending.resume(with: result)
     }
