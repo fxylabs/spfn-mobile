@@ -1,8 +1,16 @@
 # Architecture
 
-Scaffold-level only. The approved design lives in the topology decision artifact
-`2026-07-27-spfn-mobile-sdk-repository-topology-decision.html`; this page records what
-the skeleton actually implements.
+What this repository actually implements, as of `main`. The approved design lives in the
+topology decision artifact
+`2026-07-27-spfn-mobile-sdk-repository-topology-decision.html`; where the two differ, the
+tree is right and this page follows it.
+
+Four modules per platform, one release train, `clientProofV1` as the only auth profile,
+and a contract imported from SPFN primitives by digest. The vertical slice is complete:
+canonical serialization, proof assembly on P-256 ECDSA, hardware key custody, the key
+lifecycle, a transport, a session and one execute path, with generated clients on both
+platforms. Nothing has run on a device, so every support row in `COMPATIBILITY.md` is
+UNRESOLVED.
 
 ## Module graph
 
@@ -76,6 +84,56 @@ with server sync and push both need operations that the pinned bundle does not d
 so the module cannot exist before the operation does. Upstream is the same story from the
 other side: `@spfn/notification` names `push` in its channel union with no channel behind
 it.
+
+## What v1 does not include
+
+Three capabilities are out of scope, decided rather than postponed, and none of them
+carries an activation condition — a condition written before the requirement is known
+reads as a promise.
+
+| Capability | Why it is out | Where it is recorded |
+| --- | --- | --- |
+| Local persistence and server sync | the contract declares no sync operation, and upstream `@spfn/storage` is server-side object storage that owns no device-local store | D25 |
+| Push | `@spfn/notification` implements email, SMS and Slack; `push` is a name in its channel union with no channel behind it, so the server half does not exist either | D26 |
+| Hybrid WebView bridge | the module was dropped rather than kept empty; the validator now refuses WebView and JavaScript-bridge vocabulary anywhere in the surface | D10, COMPATIBILITY Hybrid row |
+
+Interactive-browser auth (`oidcPkceV1`) is a stronger prohibition than a scope decision:
+`validate.sh` fails on redirect and PKCE vocabulary in the surface at all.
+
+## Key custody and the key lifecycle
+
+A `clientProofV1` proof is a P-256 ECDSA signature, so the private key is the whole
+security story. It is generated on the device, never leaves it, and only the public key
+reaches the server.
+
+| Piece | Swift | What it settles |
+| --- | --- | --- |
+| Signer | `SPFNKeyProvider` | the injection point: anything that can sign over the proof input |
+| Hardware signer | `SPFNSecureEnclaveKeyProvider` | Secure Enclave on iOS, Android Keystore on the other side |
+| Persistence | `SPFNKeyStore`, `SPFNKeychainKeyStore` | where the key record lives between launches |
+| Record | `SPFNStoredKey` | key id, owner, custody, generation time, custody blob |
+| State machine | `SPFNKeyLifecycle` | enrollment, rotation, resumption, revocation, wipe |
+
+Custody is recorded, not implied. `SPFNKeyCustody` is `secureEnclave` or
+`softwareKeychain`, and the fallback is written into the record rather than hidden, so a
+caller deciding what a key protects against reads an answer instead of inferring one from
+which code path ran.
+
+The lifecycle answers one question — what key does this install hold — with three states:
+`unenrolled`, `enrolled`, `rotationPending`. Rotation is interruptible on purpose: the
+device cannot know whether a rotation the network swallowed reached the server, so it
+records that the outcome is unknown and `resumeRotation()` settles it, rather than
+minting a second key and hoping. Key TTL comes from the bundle's `keyPolicy`, counted
+from generation, which is the client-side moment closest to registration that survives a
+restart.
+
+Enrollment and rotation are contract operations, not SDK inventions: `auth.enroll.register`,
+`auth.enroll.login`, `auth.enroll.oauthNative` and `auth.keys.rotate` are the upstream
+`/_auth` surface, exported into the bundle. The three enrollment operations are the
+contract's unproven class (`authProfile: none`) because they run before a key exists to
+sign with, and the contract declares that rather than the SDK deciding it. Rotation is
+not in that class: it is proven with the key being replaced, which is what makes it a
+rotation rather than a second enrollment.
 
 ## Contract import model
 
