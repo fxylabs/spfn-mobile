@@ -12,20 +12,20 @@
   },
   "source": {
     "repository": "git.superfunction.xyz/superfunction/primitives",
-    "commit": "c041ef48e8ed8dec1fa3ecf9dd3f64c213b17d8e",
+    "commit": "bffe7eaac886e65843ac79bfc67b37997e41ca96",
     "upstreamBundlePath": "contracts/mobile/spfn-mobile-contract.json",
     "exporterVersion": "@spfn/auth/contract-bundle@3.0.0",
     "keyNamingRule": "This is not called bundlePath on purpose. The readers of this file match a key name at any depth, so two keys with the same name in different objects would resolve to whichever appears first, and the validator would digest the upstream path instead of the vendored one."
   },
   "contract": {
     "name": "spfn-mobile-contract",
-    "version": "0.3.0",
+    "version": "0.4.1",
     "major": 0,
-    "minor": 3,
+    "minor": 4,
     "bundlePath": "Contracts/spfn-mobile-contract.json",
-    "manifestSha256": "a41a3c06c9d995d4865613daa698c207ba66b53ee5c25a71015c730e7253538d",
-    "supportedRange": ">=0.3.0 <0.4.0",
-    "rangeRule": "The contract line is 0.x, so the breaking axis is the minor rather than the major. A server contract is supported only when its major AND minor both match this pin. Comparing majors alone would admit 0.4.0, which this range excludes, and the SDK would then decode a contract it does not implement."
+    "manifestSha256": "999b98b1f6c207ff0ab4f2d151bfb3d327e6079dd3f22bcd8216c92a59aec4e3",
+    "supportedRange": ">=0.4.1 <0.5.0",
+    "rangeRule": "The contract line is 0.x, so the breaking axis is the minor rather than the major. A server contract is supported only when its major AND minor match this pin AND its patch is at or above the pinned patch. The lower bound is the pinned version, not the minor floor: 0.4.1 added auth.keys.list, auth.keys.revoke and auth.keys.revokeAll, so an SDK generated from 0.4.1 would call operations a 0.4.0 server does not serve. This is why the lock range and the upstream evidence range are allowed to differ — the evidence declares the line upstream supports, the lock declares the window this SDK admits, and the second is contained in the first."
   },
   "authProfiles": {
     "allowed": ["clientProofV1"],

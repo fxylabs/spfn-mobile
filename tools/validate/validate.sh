@@ -409,7 +409,32 @@ case "$STATUS" in
             equals "$LOCK_EXPORTER" "$EV_EXPORTER" 'lock and evidence name the same exporter version'
             equals "$LOCK_REPOSITORY" "$EV_REPOSITORY" 'lock and evidence name the same source repository'
             equals "$LOCK_VERSION" "$EV_VERSION" 'lock and evidence name the same contract version'
-            equals "$LOCK_RANGE" "$EV_RANGE" 'lock and evidence declare the same supported range'
+            # The two ranges answer different questions and stop being identical the
+            # moment a pinned version carries a patch. The evidence declares the line
+            # upstream supports (">=0.4.0 <0.5.0"); the lock declares the window THIS
+            # SDK admits (">=0.4.1 <0.5.0"), whose floor is the pinned version because
+            # 0.4.1 added operations a 0.4.0 server does not serve. Requiring the two to
+            # be equal would force the lock to promise a server it would then call
+            # missing operations on.
+            #
+            # So the rule is containment, checked in the only two places it can go wrong
+            # on a 0.x line: the ceilings must agree, and the evidence floor must name
+            # the same minor the lock pins. The lock's own floor is pinned to its exact
+            # version by the range-shape check below, so a lock cannot widen itself.
+            EV_CEILING=${EV_RANGE##*<}
+            LOCK_CEILING=${LOCK_RANGE##*<}
+            EV_FLOOR=${EV_RANGE#>=}
+            EV_FLOOR=${EV_FLOOR%% *}
+            equals "$LOCK_CEILING" "$EV_CEILING" \
+                'lock and evidence declare the same upper bound'
+            if [ -z "$EV_FLOOR" ] || [ -z "$EV_CEILING" ] || [ "$EV_FLOOR" = "$EV_RANGE" ]
+            then
+                fail "the evidence range '$EV_RANGE' is not a '>=<floor> <<ceiling>' window"
+            else
+                pass 'the evidence range parses as a bounded window'
+            fi
+            equals "${EV_FLOOR%.*}" "${LOCK_VERSION%.*}" \
+                'the evidence floor names the same major.minor the lock pins'
 
             if printf '%s' "$EV_REPOSITORY" | grep -qi 'spfn-mobile'
             then
@@ -663,93 +688,27 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-section '6. forbidden interactive-browser auth surface'
+section '6. the clientProofV1 boundary'
 # ---------------------------------------------------------------------------
-# v1 is clientProofV1 only. Any appearance of redirect/browser auth vocabulary in the
-# API surface, contract data, examples or CI is a boundary violation. Documentation is
-# excluded so it can describe the prohibition.
+# v1 is clientProofV1 only, and this section checks that the code says so.
 #
-# The terms are matched as whole words. A bare substring match also fires on ordinary
-# identifiers — `INVALID_TOKEN` ends in `id_token` — and a check that cries wolf is a
-# check people start ignoring.
-AUTH_TERMS='oidc|pkce|code_verifier|code_challenge|id_token|openid|authorization_code|oauth|implicit_grant'
-HITS=$(grep -rIniE "(^|[^A-Za-z0-9_])($AUTH_TERMS)([^A-Za-z0-9_]|\$)" \
-    $SURFACE_DIRS 2>/dev/null || true)
-
-# Contract 0.3.0 declares `auth.enroll.oauthNative`: the app hands the server a
-# provider-issued token and the server verifies it — no browser, no redirect, no
-# authorization code, which is what this section prohibits. Exactly two contract
-# strings carry the prohibited vocabulary: the operation path template (and its
-# provider-substituted form in fixtures) and the operation summary's phrase
-# "native/web social id_token". Only lines carrying one of those verbatim are
-# excused; every other appearance — above all redirect/PKCE vocabulary — still fails.
-NATIVE_ENROLL_PATH='/_auth/oauth/(\{provider\}|[a-z0-9-]+)/native'
-HITS=$(printf '%s\n' "$HITS" | grep -v '^$' \
-    | grep -vE "$NATIVE_ENROLL_PATH" \
-    | grep -vF 'native/web social id_token' || true)
-
-# tools/validate/probe-social-adapter-rules.sh proves this exception is an exception and
-# not a hole: it is scoped by path AND by term, and the scan fails red when it cannot run.
+# The vocabulary ban that used to live here is gone. It arrived in the bootstrap commit
+# with no recorded rationale, from a time when a hybrid WebView adapter was still planned,
+# and it never caught anything: every tree it still governed held zero hits while its
+# exception list grew to three — the adapter modules, the contract bundle, and the
+# generated sources. It was edited five times to keep itself passing.
 #
-# The provider adapter modules are the one place where naming the provider-token
-# vocabulary is the honest thing to do: Apple hashes the request nonce because OIDC
-# says the id_token carries that hash, and a file that cannot say so has to be read
-# twice by everyone who meets it.
+# It could not have caught much either. It matched spelling, not meaning: `id_token` was
+# refused while `idToken` sat in SPFNClient untouched, naming the same value. And a
+# browser flow needs either a provider library or a WebView, both of which are refused by
+# checks that cannot be evaded by renaming an identifier:
 #
-# The exception is narrow in both directions, because an exception that is not is how
-# a prohibition dies. By PATH: only the two adapter module trees — core, client, auth,
-# generated, the contract data, the examples and CI keep the rule whole. By TERM: only
-# the provider-token words. Redirect and PKCE vocabulary stays refused everywhere,
-# including inside the adapters, because no adapter has a reason to name an
-# authorization code and naming one would be the boundary violation itself.
-ADAPTER_PATHS='^(Sources/SPFNSocial[A-Za-z]+|android/spfn-social-[a-z-]+)/'
-REDIRECT_TERMS='pkce|code_verifier|code_challenge|authorization_code|implicit_grant|oidc'
-printf '%s\n' "$HITS" | grep -v '^$' \
-    | grep -E "$ADAPTER_PATHS" \
-    | grep -vE "(^|[^A-Za-z0-9_])($REDIRECT_TERMS)([^A-Za-z0-9_]|\$)" \
-    > "$TMP/adapter-excused.txt" || true
-ADAPTER_EXCUSED=$(wc -l < "$TMP/adapter-excused.txt" | tr -d ' ')
-HITS=$(printf '%s\n' "$HITS" | grep -v '^$' | grep -vxF -f "$TMP/adapter-excused.txt" || true)
-
-# A scan that reads nothing reports the same green as a scan that read everything, so
-# what it reached is counted and floored, and the counts ride in the pass message. The
-# two floors are separate checks rather than a gate around the third: a stale scope
-# must not silence the vocabulary result, and an unreadable surface must not silence
-# the scope result (P6, P7).
-grep -rIl '' $SURFACE_DIRS 2>/dev/null > "$TMP/surface-files.txt" || true
-SURFACE_FILES=$(wc -l < "$TMP/surface-files.txt" | tr -d ' ')
-# Three trees, not four: the Apple adapter is iOS-only. Apple ships no native sign-in
-# SDK for Android, so its Android half would have owned a nonce accessor and an empty
-# seam, and everything an Android app needs to sign in with Apple — the nonce type, the
-# request value and the enrollment call — lives in spfn-client either way.
-find Sources/SPFNSocialApple Sources/SPFNSocialGoogle \
-    android/spfn-social-google/src/main \
-    -type f \( -name '*.swift' -o -name '*.kt' \) > "$TMP/adapter-files.txt" 2>/dev/null || true
-ADAPTER_FILES=$(wc -l < "$TMP/adapter-files.txt" | tr -d ' ')
-
-if [ "$SURFACE_FILES" -ge 100 ]
-then
-    pass "the auth-vocabulary scan reached $SURFACE_FILES surface files"
-else
-    fail "the auth-vocabulary scan reached only $SURFACE_FILES files; it did not run over the surface"
-fi
-
-# The exception is scoped to two module trees. If those trees stop holding sources the
-# exception stops being an exception, and nothing else in this section would notice.
-if [ "$ADAPTER_FILES" -ge 3 ]
-then
-    pass "the adapter vocabulary exception is scoped to $ADAPTER_FILES sources in the three adapter trees"
-else
-    fail "the adapter exception is scoped to paths holding only $ADAPTER_FILES sources; the scope is stale"
-fi
-
-if [ -z "$HITS" ]
-then
-    pass "no interactive-browser auth vocabulary in the public surface ($ADAPTER_EXCUSED adapter lines excused)"
-else
-    fail 'interactive-browser auth vocabulary found:'
-    printf '%s\n' "$HITS" | sed 's/^/          /'
-fi
+#   - the module graph's dependency allowlist, checked in both directions below;
+#   - the WebView and JavaScript-bridge vocabulary ban, which stays;
+#   - the single-profile allowlist, checked right here.
+#
+# What remains is the boundary itself, stated as what the code does rather than as words
+# it may not contain.
 
 SWIFT_CASES=$(grep -c '^    case ' Sources/SPFNAuth/SPFNAuthProfile.swift 2>/dev/null || printf '0')
 if [ "$SWIFT_CASES" = "1" ]

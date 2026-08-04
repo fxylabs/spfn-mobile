@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    a41a3c06c9d995d4865613daa698c207ba66b53ee5c25a71015c730e7253538d
-// contractVersion: 0.3.0
+// bundleSha256:    999b98b1f6c207ff0ab4f2d151bfb3d327e6079dd3f22bcd8216c92a59aec4e3
+// contractVersion: 0.4.1
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -518,6 +518,7 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
 {
     public var idToken: String
     public var nonce: String
+    public var accessToken: String?
     public var publicKey: String
     public var keyId: String
     public var fingerprint: String
@@ -526,6 +527,7 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
     public init(
         idToken: String,
         nonce: String,
+        accessToken: String? = nil,
         publicKey: String,
         keyId: String,
         fingerprint: String,
@@ -534,6 +536,7 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
     {
         self.idToken = idToken
         self.nonce = nonce
+        self.accessToken = accessToken
         self.publicKey = publicKey
         self.keyId = keyId
         self.fingerprint = fingerprint
@@ -548,6 +551,10 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
         var members: [String: SPFNCanonicalValue] = [:]
         members["idToken"] = .string(idToken)
         members["nonce"] = .string(nonce)
+        if let accessToken
+        {
+            members["accessToken"] = .string(accessToken)
+        }
         members["publicKey"] = .string(publicKey)
         members["keyId"] = .string(keyId)
         members["fingerprint"] = .string(fingerprint)
@@ -560,6 +567,7 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
         let members = try SPFNDecoding.object(canonical, at: path)
         self.idToken = try SPFNDecoding.string(members["idToken"], at: "\(path).idToken")
         self.nonce = try SPFNDecoding.string(members["nonce"], at: "\(path).nonce")
+        self.accessToken = try SPFNDecoding.optionalString(members["accessToken"], at: "\(path).accessToken")
         self.publicKey = try SPFNDecoding.string(members["publicKey"], at: "\(path).publicKey")
         self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
         self.fingerprint = try SPFNDecoding.string(members["fingerprint"], at: "\(path).fingerprint")
@@ -678,5 +686,282 @@ public struct SPFNRotateKeyResponse: Equatable, Sendable
         let members = try SPFNDecoding.object(canonical, at: path)
         self.success = try SPFNDecoding.boolean(members["success"], at: "\(path).success")
         self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
+    }
+}
+
+public struct SPFNListKeysRequest: Equatable, Sendable
+{
+    public var includeRevoked: Bool?
+
+    public init(
+        includeRevoked: Bool? = nil
+    )
+    {
+        self.includeRevoked = includeRevoked
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    public var canonicalValue: SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        if let includeRevoked
+        {
+            members["includeRevoked"] = .bool(includeRevoked)
+        }
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.includeRevoked = try SPFNDecoding.boolean(members["includeRevoked"], at: "\(path).includeRevoked")
+    }
+}
+
+public struct SPFNKeySummary: Equatable, Sendable
+{
+    public var keyId: String
+    public var deviceName: String?
+    public var platform: String?
+    public var algorithm: String
+    public var fingerprintPrefix: String
+    public var createdAt: String
+    public var lastUsedAt: String?
+    public var expiresAt: String?
+    public var isExpired: Bool
+    public var isActive: Bool
+    public var revokedAt: String?
+
+    public init(
+        keyId: String,
+        deviceName: String? = nil,
+        platform: String? = nil,
+        algorithm: String,
+        fingerprintPrefix: String,
+        createdAt: String,
+        lastUsedAt: String? = nil,
+        expiresAt: String? = nil,
+        isExpired: Bool,
+        isActive: Bool,
+        revokedAt: String? = nil
+    )
+    {
+        self.keyId = keyId
+        self.deviceName = deviceName
+        self.platform = platform
+        self.algorithm = algorithm
+        self.fingerprintPrefix = fingerprintPrefix
+        self.createdAt = createdAt
+        self.lastUsedAt = lastUsedAt
+        self.expiresAt = expiresAt
+        self.isExpired = isExpired
+        self.isActive = isActive
+        self.revokedAt = revokedAt
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    public var canonicalValue: SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["keyId"] = .string(keyId)
+        if let deviceName
+        {
+            members["deviceName"] = .string(deviceName)
+        }
+        if let platform
+        {
+            members["platform"] = .string(platform)
+        }
+        members["algorithm"] = .string(algorithm)
+        members["fingerprintPrefix"] = .string(fingerprintPrefix)
+        members["createdAt"] = .string(createdAt)
+        if let lastUsedAt
+        {
+            members["lastUsedAt"] = .string(lastUsedAt)
+        }
+        if let expiresAt
+        {
+            members["expiresAt"] = .string(expiresAt)
+        }
+        members["isExpired"] = .bool(isExpired)
+        members["isActive"] = .bool(isActive)
+        if let revokedAt
+        {
+            members["revokedAt"] = .string(revokedAt)
+        }
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
+        self.deviceName = try SPFNDecoding.optionalString(members["deviceName"], at: "\(path).deviceName")
+        self.platform = try SPFNDecoding.optionalString(members["platform"], at: "\(path).platform")
+        self.algorithm = try SPFNDecoding.string(members["algorithm"], at: "\(path).algorithm")
+        self.fingerprintPrefix = try SPFNDecoding.string(members["fingerprintPrefix"], at: "\(path).fingerprintPrefix")
+        self.createdAt = try SPFNDecoding.string(members["createdAt"], at: "\(path).createdAt")
+        self.lastUsedAt = try SPFNDecoding.optionalString(members["lastUsedAt"], at: "\(path).lastUsedAt")
+        self.expiresAt = try SPFNDecoding.optionalString(members["expiresAt"], at: "\(path).expiresAt")
+        self.isExpired = try SPFNDecoding.boolean(members["isExpired"], at: "\(path).isExpired")
+        self.isActive = try SPFNDecoding.boolean(members["isActive"], at: "\(path).isActive")
+        self.revokedAt = try SPFNDecoding.optionalString(members["revokedAt"], at: "\(path).revokedAt")
+    }
+}
+
+public struct SPFNListKeysResponse: Equatable, Sendable
+{
+    public var keys: [SPFNKeySummary]
+
+    public init(
+        keys: [SPFNKeySummary]
+    )
+    {
+        self.keys = keys
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    public var canonicalValue: SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["keys"] = .array(keys.map { $0.canonicalValue })
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.keys = try SPFNDecoding.array(members["keys"], at: "\(path).keys").map { try SPFNKeySummary(canonical: $0, at: "\(path).keys") }
+    }
+}
+
+public struct SPFNRevokeKeyRequest: Equatable, Sendable
+{
+    public var keyId: String
+
+    public init(
+        keyId: String
+    )
+    {
+        self.keyId = keyId
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    public var canonicalValue: SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["keyId"] = .string(keyId)
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
+    }
+}
+
+public struct SPFNRevokeKeyResponse: Equatable, Sendable
+{
+    public var keyId: String
+    public var selfRevoked: Bool
+
+    public init(
+        keyId: String,
+        selfRevoked: Bool
+    )
+    {
+        self.keyId = keyId
+        self.selfRevoked = selfRevoked
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    public var canonicalValue: SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["keyId"] = .string(keyId)
+        members["selfRevoked"] = .bool(selfRevoked)
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
+        self.selfRevoked = try SPFNDecoding.boolean(members["selfRevoked"], at: "\(path).selfRevoked")
+    }
+}
+
+public struct SPFNRevokeAllKeysRequest: Equatable, Sendable
+{
+    public var includeCurrent: Bool?
+
+    public init(
+        includeCurrent: Bool? = nil
+    )
+    {
+        self.includeCurrent = includeCurrent
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    public var canonicalValue: SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        if let includeCurrent
+        {
+            members["includeCurrent"] = .bool(includeCurrent)
+        }
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.includeCurrent = try SPFNDecoding.boolean(members["includeCurrent"], at: "\(path).includeCurrent")
+    }
+}
+
+public struct SPFNRevokeAllKeysResponse: Equatable, Sendable
+{
+    public var revokedCount: Int64
+    public var currentKeyRevoked: Bool
+
+    public init(
+        revokedCount: Int64,
+        currentKeyRevoked: Bool
+    )
+    {
+        self.revokedCount = revokedCount
+        self.currentKeyRevoked = currentKeyRevoked
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    public var canonicalValue: SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["revokedCount"] = .integer(revokedCount)
+        members["currentKeyRevoked"] = .bool(currentKeyRevoked)
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.revokedCount = try SPFNDecoding.integer(members["revokedCount"], at: "\(path).revokedCount")
+        self.currentKeyRevoked = try SPFNDecoding.boolean(members["currentKeyRevoked"], at: "\(path).currentKeyRevoked")
     }
 }

@@ -158,9 +158,18 @@ class OperationConformanceTest
         val binding = SpfnGeneratedContract.BINDING;
         binding.requireSupported(binding.importedVersion);
 
-        // 0.2.0 sits below the lower bound and 0.4.0 above the upper: on a 0.x line
-        // both neighbouring minors are breaking, in both directions.
-        for (version in listOf("0.1.0", "0.2.0", "0.4.0", "1.0.0", "1.4.0", "2.0.0"))
+        // A later patch on the pinned minor is additive and admitted: 0.4.2 carries
+        // everything 0.4.1 does. This is the direction the lower bound must not close.
+        binding.requireSupported("0.4.2");
+
+        // 0.4.0 is the case this pin introduced. It is the same minor, so a rule that
+        // compared only major and minor would admit it — and the SDK would then call
+        // auth.keys.list, auth.keys.revoke and auth.keys.revokeAll, which 0.4.1 added
+        // and a 0.4.0 server does not serve. The lower bound is the pinned version.
+        //
+        // The neighbouring minors are breaking in both directions on a 0.x line, so
+        // 0.3.x sits below and 0.5.0 above.
+        for (version in listOf("0.1.0", "0.3.0", "0.3.9", "0.4.0", "0.5.0", "1.0.0", "1.4.0", "2.0.0"))
         {
             try
             {

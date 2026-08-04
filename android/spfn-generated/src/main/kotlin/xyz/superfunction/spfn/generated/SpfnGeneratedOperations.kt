@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    a41a3c06c9d995d4865613daa698c207ba66b53ee5c25a71015c730e7253538d
-// contractVersion: 0.3.0
+// bundleSha256:    999b98b1f6c207ff0ab4f2d151bfb3d327e6079dd3f22bcd8216c92a59aec4e3
+// contractVersion: 0.4.1
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -101,6 +101,33 @@ object SpfnGeneratedOperations
         requiresSession = false
     )
 
+    /** Lists the keys registered to the caller, one per device that can sign for them. */
+    val authKeysList: SpfnOperation = SpfnOperation(
+        id = "auth.keys.list",
+        method = "POST",
+        path = "/_auth/keys/list",
+        authProfile = "clientProofV1",
+        requiresSession = false
+    )
+
+    /** Revokes one of the caller's keys, signing that device out. */
+    val authKeysRevoke: SpfnOperation = SpfnOperation(
+        id = "auth.keys.revoke",
+        method = "POST",
+        path = "/_auth/keys/revoke",
+        authProfile = "clientProofV1",
+        requiresSession = false
+    )
+
+    /** Revokes every key the caller has, sparing the calling device unless asked otherwise. */
+    val authKeysRevokeAll: SpfnOperation = SpfnOperation(
+        id = "auth.keys.revokeAll",
+        method = "POST",
+        path = "/_auth/keys/revoke-all",
+        authProfile = "clientProofV1",
+        requiresSession = false
+    )
+
     /** Every operation, in bundle order. */
     val all: List<SpfnOperation> = listOf(
         authClientProofHandshake,
@@ -109,7 +136,10 @@ object SpfnGeneratedOperations
         authEnrollRegister,
         authEnrollLogin,
         authEnrollOauthNative,
-        authKeysRotate
+        authKeysRotate,
+        authKeysList,
+        authKeysRevoke,
+        authKeysRevokeAll
     )
 
     /**
