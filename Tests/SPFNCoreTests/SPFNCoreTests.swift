@@ -31,16 +31,12 @@ final class SPFNScaffoldTests: XCTestCase
         XCTAssertTrue(SPFNScaffold.disclaimer.contains("no supported release"))
     }
 
-    func testUnimplementedEntryPointsStillCarryTheirPlannedStep() throws
+    /// The disclaimer is carried in-band with the binary, so it is the one place a
+    /// consumer can read what exists without trusting a README. A module that was
+    /// dropped from the train must be described as absent, not as pending.
+    func testDisclaimerNamesTheDroppedModulesAsAbsent() throws
     {
-        let error = SPFNScaffoldError.notImplementedInScaffold(
-            symbol: "SPFNPersistence.open(storeName:)",
-            plannedStep: "Step 3+"
-        )
-        XCTAssertEqual(
-            error,
-            .notImplementedInScaffold(symbol: "SPFNPersistence.open(storeName:)", plannedStep: "Step 3+")
-        )
+        XCTAssertTrue(SPFNScaffold.disclaimer.contains("do not exist at all"))
     }
 }
 

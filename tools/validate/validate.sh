@@ -193,7 +193,7 @@ done
 
 for path in \
     Sources Tests android Contracts/fixtures tools examples/ios-swiftui \
-    examples/android-compose examples/hybrid docs/architecture docs/migration docs/security \
+    examples/android-compose docs/architecture docs/migration docs/security \
     Tests/SPFNConformanceTests "$SWIFT_GENERATED" "$KOTLIN_GENERATED"
 do
     if [ -d "$path" ]
@@ -704,8 +704,23 @@ fi
 
 contains Sources/SPFNAuth/SPFNAuthPolicy.swift 'allowedProfiles: [SPFNAuthProfile] = [.clientProofV1]' 'Swift allowlist is exactly clientProofV1'
 contains android/spfn-auth/src/main/kotlin/xyz/superfunction/spfn/auth/SpfnAuthProfile.kt 'listOf(SpfnAuthProfile.CLIENT_PROOF_V1)' 'Kotlin allowlist is exactly clientProofV1'
-contains Sources/SPFNHybrid/SPFNHybrid.swift 'allowedBridgeMessageNames: [String] = []' 'hybrid exposes no JavaScript bridge'
-contains android/spfn-hybrid/src/main/kotlin/xyz/superfunction/spfn/hybrid/SpfnHybrid.kt 'ALLOWED_BRIDGE_MESSAGE_NAMES: List<String> = emptyList()' 'Android hybrid exposes no JavaScript bridge'
+# The hybrid module used to prove "no bridge exists" by declaring an empty allowlist.
+# The module is gone, so the claim is now proven the stronger way: no WebView or bridge
+# vocabulary appears anywhere in the surface at all. An empty allowlist can be widened
+# by editing one literal; an absent module cannot be widened without adding a module.
+BRIDGE_TERMS='WKWebView|WKScriptMessage|WKUserContentController|WebView|WebViewClient|addJavascriptInterface|JavascriptInterface|evaluateJavascript|evaluateJavaScript|postMessage'
+# Build outputs are excluded: AGP's own default ProGuard files name
+# `@android.webkit.JavascriptInterface`, so a scan that reads them fires on every
+# module after any build and a check that cries wolf is one people stop reading.
+BRIDGE_HITS=$(grep -rIniE --exclude-dir=build "(^|[^A-Za-z0-9_])($BRIDGE_TERMS)([^A-Za-z0-9_]|\$)" \
+    $SURFACE_DIRS 2>/dev/null || true)
+if [ -z "$BRIDGE_HITS" ]
+then
+    pass 'no WebView or JavaScript-bridge surface exists on either platform'
+else
+    fail 'WebView or JavaScript-bridge vocabulary found in the public surface:'
+    printf '%s\n' "$BRIDGE_HITS" | sed 's/^/          /'
+fi
 
 # Every generated operation names one of the two contract auth classes: the proven
 # clientProofV1 class, or the declared unproven class `none` for enrollment operations
@@ -1147,6 +1162,24 @@ do
         fail "$label count is $actual but module-graph.json declares $MODULE_COUNT (undeclared module?)"
     fi
 done
+
+# A module exists here only once it carries an implementation. The persistence/sync and
+# hybrid modules were declared in the Step 1 scaffold from the approved layout, never
+# implemented, and published as empty coordinates through 0.1.0-alpha.3 — a reservation
+# that a consumer reads as a promise. Stub vocabulary in SDK sources is how that starts,
+# so it is refused outright: a module is added with behaviour or not at all. Examples,
+# tools and documentation are excluded, since a placeholder example is honest about
+# being one.
+STUB_TERMS='notImplemented|not implemented|plannedStep|planned step|TODO|FIXME'
+STUB_HITS=$(grep -rIniE --exclude-dir=build "($STUB_TERMS)" \
+    Sources android/*/src/main 2>/dev/null || true)
+if [ -z "$STUB_HITS" ]
+then
+    pass 'no module ships a stub: SDK sources carry no unimplemented-entry-point vocabulary'
+else
+    fail 'stub vocabulary in SDK sources — a module is added with behaviour or not at all:'
+    printf '%s\n' "$STUB_HITS" | sed 's/^/          /'
+fi
 
 # ---------------------------------------------------------------------------
 section '9. generated sources are traceable to the pinned bundle'

@@ -40,8 +40,6 @@ include(
     ":spfn-generated",
     ":spfn-auth",
     ":spfn-client",
-    ":spfn-sync",
-    ":spfn-hybrid",
     ":contract-codegen",
     ":reference-server"
 )
@@ -50,8 +48,6 @@ project(":spfn-core").projectDir = file("android/spfn-core")
 project(":spfn-generated").projectDir = file("android/spfn-generated")
 project(":spfn-auth").projectDir = file("android/spfn-auth")
 project(":spfn-client").projectDir = file("android/spfn-client")
-project(":spfn-sync").projectDir = file("android/spfn-sync")
-project(":spfn-hybrid").projectDir = file("android/spfn-hybrid")
 
 // Not an SDK module and never published. The contract generator is a build tool that
 // lives inside the JDK/Gradle toolchain Android already requires, so the repository

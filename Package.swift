@@ -30,16 +30,12 @@ let package = Package(
         .library(name: "SPFNGenerated", targets: ["SPFNGenerated"]),
         .library(name: "SPFNAuth", targets: ["SPFNAuth"]),
         .library(name: "SPFNClient", targets: ["SPFNClient"]),
-        .library(name: "SPFNPersistence", targets: ["SPFNPersistence"]),
-        .library(name: "SPFNHybrid", targets: ["SPFNHybrid"]),
     ],
     targets: [
         .target(name: "SPFNCore"),
         .target(name: "SPFNGenerated", dependencies: ["SPFNCore"]),
         .target(name: "SPFNAuth", dependencies: ["SPFNCore"]),
         .target(name: "SPFNClient", dependencies: ["SPFNCore", "SPFNAuth", "SPFNGenerated"]),
-        .target(name: "SPFNPersistence", dependencies: ["SPFNCore"]),
-        .target(name: "SPFNHybrid", dependencies: ["SPFNCore", "SPFNAuth"]),
 
         .testTarget(name: "SPFNCoreTests", dependencies: ["SPFNCore"]),
         .testTarget(name: "SPFNAuthTests", dependencies: ["SPFNAuth", "SPFNCore"]),
@@ -49,7 +45,7 @@ let package = Package(
         ),
         .testTarget(
             name: "SPFNRepositoryTests",
-            dependencies: ["SPFNCore", "SPFNGenerated", "SPFNAuth", "SPFNClient", "SPFNPersistence", "SPFNHybrid"]
+            dependencies: ["SPFNCore", "SPFNGenerated", "SPFNAuth", "SPFNClient"]
         ),
         .testTarget(
             name: "SPFNConformanceTests",

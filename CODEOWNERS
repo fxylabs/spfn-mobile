@@ -19,9 +19,7 @@
 #   /gradle/                       <android-owner>
 #   /examples/android-compose/     <android-owner>
 #   /Sources/SPFNAuth/             <ios-owner> <security-owner>
-#   /Sources/SPFNHybrid/           <ios-owner> <security-owner>
 #   /android/spfn-auth/            <android-owner> <security-owner>
-#   /android/spfn-hybrid/          <android-owner> <security-owner>
 #   /.github/workflows/            <release-owner> <security-owner>
 #   /VERSION                       <release-owner> <security-owner>
 #   /RELEASE.md                    <release-owner> <security-owner>

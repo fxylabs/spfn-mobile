@@ -11,9 +11,10 @@ the same fixture vectors.
 
 ## What it is not
 
-- Not an SDK. There is a transport boundary, a session and one execute path above them,
-  and nothing above that: no persistence, no bridge, no key custody, and no generated
-  per-operation call descriptors.
+- Not an SDK. There is a transport boundary, a session, one execute path and key
+  custody above them, and nothing above that: local persistence and a hybrid bridge do
+  not exist at all — their modules were dropped from the train after `0.1.0-alpha.3`
+  rather than kept as empty reservations.
 - **Not verified against a deployed service.** Both SDKs complete a real HTTP round trip
   against `tools/reference-server` and against the SPFN primitives `04-mobile-contract-dev`
   server, both running the pinned upstream export. The second is the canonical

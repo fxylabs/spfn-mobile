@@ -16,22 +16,66 @@ agree with it, and the validator checks all four:
 | CocoaPods fixture subspecs | `tools/cocoapods-compat/generated/…podspec` |
 | Source directories | `Sources/*`, `android/*/src/main/kotlin` |
 
+Three more read it rather than restate it, so they cannot drift at all: the podspec
+fixture generator, `tools/rc-verify/rc-verify.sh` and
+`tools/rc-verify/verify-published.sh` derive their consumer dependency lists, imports
+and Maven coordinate lists from the graph.
+
 | Swift target | Android module | Depends on |
 | --- | --- | --- |
 | `SPFNCore` | `spfn-core` | — |
 | `SPFNGenerated` | `spfn-generated` | core |
 | `SPFNAuth` | `spfn-auth` | core |
 | `SPFNClient` | `spfn-client` | core, auth, generated |
-| `SPFNPersistence` | `spfn-sync` | core |
-| `SPFNHybrid` | `spfn-hybrid` | core, auth |
 
-The `SPFNPersistence` / `spfn-sync` name asymmetry comes from the approved layout and is
-an open decision (D10), not an oversight. One edge moved since Step 2: the client module
+A module appears here only once it carries an implementation. `SPFNPersistence` /
+`spfn-sync` and `SPFNHybrid` / `spfn-hybrid` were declared in the Step 1 scaffold from
+the approved layout, never implemented, and published as empty coordinates through
+`0.1.0-alpha.3`; they were dropped rather than kept as reservations. That also settles
+the `SPFNPersistence` / `spfn-sync` name asymmetry (D10) by removing both names. One
+edge moved since Step 2: the client module
 gained auth and generated when the session arrived, because a session signs a
 `clientProofV1` proof over a generated operation and its generated request type. That is
 the revision D13 left room for. The conformance suite needs the generated client from
 inside the auth module, but only at test time; every main edge is still exactly what
 `tools/module-graph.json` declares.
+
+## How a module is added
+
+Five rules, confirmed 2026-08-04 after the empty persistence and hybrid coordinates were
+dropped. They exist so the next capability arrives as behaviour rather than as a name.
+
+**A module is added with an implementation or not at all.** No reservations, no stub
+entry points that throw. `validate.sh` refuses unimplemented-entry-point vocabulary
+(`notImplemented`, `TODO`, `plannedStep`, …) anywhere under `Sources` or
+`android/*/src/main`; examples and tools are excluded, because a placeholder example is
+honest about being one.
+
+**The default shape of an extension is an injected protocol, not a module.** A new
+capability starts as a protocol plus a default implementation inside the module that
+uses it — `SPFNKeyProvider`, `SPFNKeyStore`, `SPFNTransport` and `SPFNClock` all live in
+`SPFNClient` for exactly this reason. A separate module is justified when it drags in a
+heavy or optional dependency, or when most consumers demonstrably will not link it. That
+is why `@spfn/storage` is its own package upstream: the AWS and GCS SDKs are optional.
+
+**One release train stays one release train.** Every module shares the `VERSION` value
+in lockstep (D9), so an untouched module still ships a new version. SwiftPM is what makes
+this the simple choice — one repository is one package is one version, and per-module
+versions would mean splitting the repository. Whether to split later is not decided in
+advance: the condition would be a guess, and a documented condition reads as a promise.
+
+**`tools/module-graph.json` is the only place a module is named.** Everything else
+derives from it: the SwiftPM manifest and Gradle settings are checked against it, and the
+podspec generator, `rc-verify.sh` and `verify-published.sh` read it directly. Adding a
+module leaves exactly two hand edits — one symbol touch in each consumer smoke, since
+only a person knows which symbol proves a module non-empty, and the CODEOWNERS sample
+block.
+
+**An extension that needs a server round trip waits for the contract.** Local persistence
+with server sync and push both need operations that the pinned bundle does not declare,
+so the module cannot exist before the operation does. Upstream is the same story from the
+other side: `@spfn/notification` names `push` in its channel union with no channel behind
+it.
 
 ## Contract import model
 
