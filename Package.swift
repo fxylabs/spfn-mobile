@@ -91,5 +91,14 @@ let package = Package(
             name: "SPFNIntegrationTests",
             dependencies: ["SPFNClient", "SPFNCore", "SPFNAuth", "SPFNGenerated"]
         ),
+
+        // Skips itself unless SPFN_VERIFY_SERVER_URL names a running scaffolded SPFN
+        // app — the published @spfn/auth on a real PostgreSQL, not the reference
+        // server. `sh tools/verify-server/run.sh` starts one, exports the variables
+        // and fails the run when a case left no receipt behind.
+        .testTarget(
+            name: "SPFNVerifyTests",
+            dependencies: ["SPFNClient", "SPFNCore", "SPFNAuth", "SPFNGenerated"]
+        ),
     ]
 )

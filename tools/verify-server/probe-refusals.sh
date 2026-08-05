@@ -100,6 +100,15 @@ make_app()
     then
         printf 'DATABASE_URL=%s\n' "$3" > "$1/.env.server"
     fi
+
+    # The seed script every real app carries. Written by default so the cases about
+    # later refusals get past the seeded-account check; the two cases about that check
+    # remove or hollow it out themselves.
+    mkdir -p "$1/scripts"
+    cat > "$1/scripts/seed-verify-user.ts" <<'EOF'
+export const VERIFY_EMAIL = 'probe@spfn-verify.local';
+export const VERIFY_PASSWORD = 'probe-password-not-a-secret';
+EOF
 }
 
 # Runs the runner in check-only mode and asserts it refused for the stated reason.
@@ -190,6 +199,19 @@ expect_refusal 'an unparseable installed manifest is refused as unreadable' \
 make_app "$WORK/drifted" '0.0.0-probe.2' "$GOOD_DB"
 expect_refusal 'a version other than the pinned one is refused' \
     "$WORK/drifted" "$LOCK_WITH_PIN" 'the contract lock names'
+
+# 5a. No seed script, so no account exists for the suite to sign in as.
+make_app "$WORK/no-seed" "$PINNED_VERSION" "$GOOD_DB"
+rm "$WORK/no-seed/scripts/seed-verify-user.ts"
+expect_refusal 'an app without the seed script is refused' \
+    "$WORK/no-seed" "$LOCK_WITH_PIN" 'no seeded account exists to sign in as'
+
+# 5b. A seed script that exports no readable credentials. The runner reads the suite's
+#     sign-in from those constants, so a run without them would prove nothing.
+make_app "$WORK/hollow-seed" "$PINNED_VERSION" "$GOOD_DB"
+printf '// no exported credentials\n' > "$WORK/hollow-seed/scripts/seed-verify-user.ts"
+expect_refusal 'a seed script with no readable credentials is refused' \
+    "$WORK/hollow-seed" "$LOCK_WITH_PIN" 'exports no readable VERIFY_EMAIL/VERIFY_PASSWORD pair'
 
 # 6. No .env.server, so no database is configured.
 make_app "$WORK/no-env" "$PINNED_VERSION" ''

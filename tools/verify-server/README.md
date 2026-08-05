@@ -61,6 +61,8 @@ while reporting real-server coverage would be the most expensive kind of green t
 | The lock names no published version | Exits: there is nothing to compare against |
 | `@spfn/auth` is not installed | Exits, naming the version to install |
 | The installed version is not the pinned one | Exits: two pins that drift make a pass meaningless |
+| No seed script in the app | Exits: no account exists for the suite to sign in as |
+| The seed script exports no readable credentials | Exits: the suite signs in with those constants |
 | No `.env.server` | Exits: no database is configured |
 | `.env.server` names no `DATABASE_URL` | Exits |
 | Nothing listening on the database port | Exits, naming the host and port |
@@ -100,9 +102,15 @@ From the directory that should hold it:
 npx spfn create spfn-verify-app
 ```
 
-Then pin the packages `publishedPackages` in `Contracts/upstream.lock.json` names, run the
-migrations, and seed the test account the suite signs in as. `run.sh` prints the expected
-version when the installed one disagrees, so the pin never has to be looked up by hand.
+Then pin the packages `publishedPackages` in `Contracts/upstream.lock.json` names and run
+the migrations. `run.sh` prints the expected version when the installed one disagrees, so
+the pin never has to be looked up by hand.
+
+The seeded account the suite signs in as belongs to the app: `scripts/seed-verify-user.ts`
+creates it through `@spfn/auth`'s own `hashPassword` and repositories, exports
+`VERIFY_EMAIL`/`VERIFY_PASSWORD` as constants, and is idempotent. `run.sh` reads the
+credentials from that script, runs it before the suite, and hands them to the suite as
+environment variables — the password is never printed.
 
 Two things about the pin are worth knowing before `npm install` runs.
 
