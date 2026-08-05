@@ -76,13 +76,30 @@ SERVER_PID=''
 
 mkdir -p "$RECEIPTS"
 
+# kill_tree begin
+# Stops a process and every descendant, deepest first. `kill "$SERVER_PID"` alone
+# reaches only the package manager: `npm run spfn:server` spawns spfn, which spawns the
+# server itself, and killing npm orphans the grandchildren with the port still held.
+# The first real run failed section 7 exactly this way. The markers around this
+# function are load-bearing: probe-refusals.sh extracts it by them and proves it kills
+# a grandchild a plain kill would leave running.
+kill_tree()
+{
+    for KT_CHILD in $(pgrep -P "$1" 2> /dev/null)
+    do
+        kill_tree "$KT_CHILD"
+    done
+    kill "$1" 2> /dev/null || true
+}
+# kill_tree end
+
 # Stops the app whatever happens next, including a failure between here and the end.
 # SERVER_PID is only ever set for a server this script started.
 cleanup()
 {
     if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2> /dev/null
     then
-        kill "$SERVER_PID" 2> /dev/null || true
+        kill_tree "$SERVER_PID"
         wait "$SERVER_PID" 2> /dev/null || true
     fi
     rm -rf "$WORK"
@@ -331,6 +348,7 @@ else
 fi
 
 require "$PM" "the app declares a $PM lockfile, so $PM is what installs and runs it"
+require pgrep 'stopping the app walks its process tree with pgrep, and an app this run cannot stop must not be started'
 
 READY_FILE=$APP_DIR/$READY_RELATIVE
 rm -f "$READY_FILE"
@@ -441,7 +459,7 @@ fi
 # ---------------------------------------------------------------------------
 printf '\n7. the app this run is responsible for\n'
 # ---------------------------------------------------------------------------
-kill "$SERVER_PID" 2> /dev/null || true
+kill_tree "$SERVER_PID"
 wait "$SERVER_PID" 2> /dev/null || true
 SERVER_PID=''
 
