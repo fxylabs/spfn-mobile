@@ -146,18 +146,23 @@ final class OperationConformanceTests: XCTestCase
         let binding = SPFNGeneratedContract.binding
         XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: binding.importedVersion))
 
-        // A later patch on the pinned minor is additive and admitted: 0.4.2 carries
-        // everything 0.4.1 does. This is the direction the lower bound must not close.
-        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.4.2"))
+        // A later patch on the pinned minor is additive and admitted: 0.6.1 would carry
+        // everything 0.6.0 does. This is the direction the lower bound must not close.
+        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.6.1"))
+        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.6.9"))
 
-        // 0.4.0 is the case this pin introduced. It is the same minor, so a rule that
-        // compared only major and minor would admit it — and the SDK would then call
-        // auth.keys.list, auth.keys.revoke and auth.keys.revokeAll, which 0.4.1 added
-        // and a 0.4.0 server does not serve. The lower bound is the pinned version.
+        // The lower bound is the pinned version and not the minor floor. That rule was
+        // written for the 0.4.1 pin, where 0.4.0 was the same minor and a major-and-minor
+        // comparison would have admitted it — while the SDK called auth.keys.list,
+        // auth.keys.revoke and auth.keys.revokeAll, which 0.4.1 added and a 0.4.0 server
+        // does not serve. At this pin 0.6.0 is the minor's first release, so no
+        // same-minor-lower-patch case exists to name; the rule is unchanged and the case
+        // list simply has nothing to put there.
         //
-        // The neighbouring minors are breaking in both directions on a 0.x line, so
-        // 0.3.x sits below and 0.5.0 above.
-        for version in ["0.1.0", "0.3.0", "0.3.9", "0.4.0", "0.5.0", "1.0.0", "1.4.0", "2.0.0"]
+        // The neighbouring minors are breaking in both directions on a 0.x line, so 0.5.x
+        // sits below and 0.7.0 above. 0.4.1 is the previous pin, which this SDK must now
+        // refuse: a server still on it does not carry the twelve REST codes or the enum.
+        for version in ["0.1.0", "0.4.1", "0.4.2", "0.5.0", "0.5.9", "0.7.0", "1.0.0", "1.6.0", "2.0.0"]
         {
             XCTAssertThrowsError(try binding.requireSupported(serverContractVersion: version))
             { error in

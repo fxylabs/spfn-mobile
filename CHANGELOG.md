@@ -5,6 +5,47 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The contract is pinned at 0.6.0, and the generator now refuses what it cannot emit
+
+- The pin moves from 0.4.1 to 0.6.0 at primitives `8c95d1b2`, the commit published to
+  npmjs as `@spfn/auth@0.2.0-beta.90` and `@spfn/core@0.2.0-beta.70`. Two breaking minors
+  landed upstream in between: 0.5.0 added enums, a floating-point scalar, a map spelling
+  and one date convention, and 0.6.0 put the contract version on both wires.
+- `Contracts/upstream.lock.json` gained `publishedPackages`. The lock names a commit,
+  which npm cannot install, and nothing in an installed `@spfn/auth` says which contract
+  it implements — the bundle is not in the package and neither is the code that builds
+  it. That mapping now exists in one written-down place instead of nowhere.
+- The registry is named too, because there are two. npmjs and the Gitea registry carry
+  `@spfn` at different versions, and `--registry` does not override an `@spfn:registry`
+  npmrc scope — only `--@spfn:registry` does. `tools/verify-server/spfn-versions.sh` asks
+  both and exits non-zero when they disagree; it has no mode that answers with one number,
+  because a single number with no registry beside it is the shape of the mistake.
+- The generator refuses a field type it cannot emit, at generation time. It used to read
+  every unrecognised spelling as a struct reference, so 0.6.0's `KeyAlgorithm` became a
+  reference to a type nothing declared and both SDKs emitted code that would not compile.
+  The contract's own grammar predicted it: "a consumer that does not recognise a container
+  spelling reads it as a type name and fails at compile time." Now an undeclared name, a
+  `number`, a map, a name declared as both type and enum, and two enum values that
+  generate one case name each stop generation with the field named.
+- `number` is refused rather than implemented. SPFN-CANON-JSON-1 carries signed 64-bit
+  integers only — "a fractional or non-finite number is a canonicalization error" — so a
+  float could not be signed at all. The grammar is shared with app contracts, which is why
+  it names a spelling this contract's own encoding refuses.
+- Error codes carry their surface. The contract declares six `clientProofV1` refusals and
+  twelve `rest` ones in a single array, and they are not interchangeable: a proven call
+  can meet the first set and never the second. `isAuthFailure` is false for every `rest`
+  code because a re-handshake re-establishes a session those operations never open — and
+  a test asserts that by surface, not by list, so a rate limit cannot be routed into the
+  re-handshake path and rate-limited again.
+- Case names are readable on both surfaces. The name generator split on underscores and
+  lowercased each part, which is right for `PROOF_INVALID` and turned
+  `NonceKeyBindingError` into `noncekeybindingerror`. A part that already carries
+  lowercase now keeps its shape.
+- The error fixture is derived from the bundle instead of restated beside it. It carried
+  six codes against a contract that declares eighteen, and the conformance gate failed for
+  a reason that had nothing to do with either SDK. The canonicalization and the signatures
+  stay independently derived; the set of codes was never something to derive.
+
 ### Native social sign-in has an SDK surface, and the nonce is no longer a string
 
 - `SPFNSocialApple` and `SPFNSocialGoogle` / `spfn-social-google` are the first modules

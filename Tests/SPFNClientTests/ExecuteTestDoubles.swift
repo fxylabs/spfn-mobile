@@ -82,7 +82,7 @@ enum ExecuteFixtures
         publicKey: "cHVibGljLWtleS10ZXN0",
         keyId: "key-test-0001",
         fingerprint: String(repeating: "0", count: 64),
-        algorithm: "ES256"
+        algorithm: .es256
     )
 
     static let registerResponse = SPFNRegisterResponse(
@@ -101,7 +101,7 @@ enum ExecuteFixtures
         publicKey: "cHVibGljLWtleS10ZXN0LTI",
         keyId: "key-test-0002",
         fingerprint: String(repeating: "1", count: 64),
-        algorithm: "ES256"
+        algorithm: .es256
     )
 
     static let rotateResponse = SPFNRotateKeyResponse(success: true, keyId: "key-test-0002")

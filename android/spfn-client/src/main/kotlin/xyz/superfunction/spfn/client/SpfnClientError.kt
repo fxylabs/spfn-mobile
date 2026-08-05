@@ -152,6 +152,13 @@ sealed class SpfnClientError(message: String, cause: Throwable? = null) : Except
  * Written as an exhaustive `when` rather than a set or a status comparison: a code added to
  * the contract stops this file compiling until someone decides which side of the line it
  * falls on. An `else` here would silently classify every future code as a server failure.
+ *
+ * Every `rest` code is false, and not because each was judged and found wanting. A
+ * re-handshake re-establishes a clientProofV1 session, and the /_auth operations carry no
+ * proof and open no session — there is nothing there to re-establish. A rate limit clears
+ * by waiting and a rejected id_token clears by getting another one; neither is something
+ * this classification can ask for. They stay listed one by one so that a code added to
+ * that surface still stops the build.
  */
 fun SpfnGeneratedErrorCode.isAuthFailure(): Boolean = when (this)
 {
@@ -162,4 +169,17 @@ fun SpfnGeneratedErrorCode.isAuthFailure(): Boolean = when (this)
 
     SpfnGeneratedErrorCode.PROFILE_REJECTED,
     SpfnGeneratedErrorCode.CONTRACT_UNSUPPORTED -> false
+
+    SpfnGeneratedErrorCode.ValidationError,
+    SpfnGeneratedErrorCode.NativeSignInUnsupportedError,
+    SpfnGeneratedErrorCode.NonceKeyBindingError,
+    SpfnGeneratedErrorCode.InvalidKeyFingerprintError,
+    SpfnGeneratedErrorCode.UnverifiedEmailLinkError,
+    SpfnGeneratedErrorCode.InvalidSocialTokenError,
+    SpfnGeneratedErrorCode.AccountDisabledError,
+    SpfnGeneratedErrorCode.AccountPendingDeletionError,
+    SpfnGeneratedErrorCode.RegistrationRejectedError,
+    SpfnGeneratedErrorCode.KeyIdAlreadyRegisteredError,
+    SpfnGeneratedErrorCode.TooManyRequestsError,
+    SpfnGeneratedErrorCode.Error -> false
 }

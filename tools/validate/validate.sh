@@ -179,6 +179,7 @@ for path in \
     tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
     tools/rc-verify/probe-trap-exit.sh tools/rc-verify/local-signed-run.sh \
     tools/cocoapods-compat/generate-podspec.sh \
+    tools/verify-server/spfn-versions.sh \
     docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md docs/IMPLEMENTATION-PITFALLS.md \
     .github/workflows/contract.yml .github/workflows/swift.yml \
     .github/workflows/android.yml .github/workflows/security.yml \

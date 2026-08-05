@@ -41,6 +41,31 @@ final class ErrorConformanceTests: XCTestCase
         XCTAssertEqual(SPFNGeneratedErrorCode.allCases.map(\.rawValue).sorted(), expected)
     }
 
+    /// Every code carries the surface the contract puts it on.
+    ///
+    /// The two sets arrive in one list and are not interchangeable: a proven call can be
+    /// met by a `clientProofV1` refusal and never by a `rest` one. A generator that read
+    /// the list as one set would build a refusal enum with twelve members that cannot
+    /// occur on the surface it guards, and nothing downstream would notice.
+    func testEveryCodeCarriesTheSurfaceTheContractPutsItOn() throws
+    {
+        let fixture = try Fixtures.load("error/envelopes.json").members()
+        let known = try fixture.list("known")
+        XCTAssertFalse(known.isEmpty)
+
+        for vector in known
+        {
+            let entry = try vector.members()
+            let raw = try entry.text("code")
+            let expectedSurface = try entry.text("surface")
+            let expectedRetryable = try entry.bool("retryable")
+            let code = try SPFNGeneratedErrorCode.decode(raw)
+
+            XCTAssertEqual(code.surface.rawValue, expectedSurface, "surface differs for '\(raw)'")
+            XCTAssertEqual(code.isRetryable, expectedRetryable, "retryable differs for '\(raw)'")
+        }
+    }
+
     func testUnknownErrorCodeIsRejectedRatherThanMapped() throws
     {
         let fixture = try Fixtures.load("error/envelopes.json").members()

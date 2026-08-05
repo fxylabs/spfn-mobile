@@ -494,7 +494,12 @@ public actor SPFNKeyLifecycle
         SPFNCustodyKey.generate(keyID: "unenrolled", preferSecureEnclave: false)
     }
 
-    private static let algorithmName = "ES256"
+    /// The signature algorithm every key this lifecycle generates is signed with.
+    ///
+    /// A generated enum case since contract 0.6.0 rather than the string it used to be.
+    /// The contract declares the set, so a value outside it is now a compile error here
+    /// instead of a refusal the server has to raise.
+    private static let algorithmName: SPFNKeyAlgorithm = .es256
 
     private static var rotateCall: SPFNCall<SPFNRotateKeyRequest, SPFNRotateKeyResponse>
     {
