@@ -46,6 +46,32 @@ Entries under an unreleased heading describe repository state, not shipped softw
   a reason that had nothing to do with either SDK. The canonicalization and the signatures
   stay independently derived; the set of codes was never something to derive.
 
+### A runner for the real server, which refuses far more than it runs
+
+- `tools/verify-server/run.sh` points the SDK at a scaffolded SPFN app — the published
+  `@spfn/auth` on a real PostgreSQL — rather than at `tools/reference-server`. The
+  reference server is two ends built from one reading of the contract, so agreeing with
+  it cannot catch a contract this repository reads correctly and no SPFN server
+  implements. The app lives outside this repository at `workspaces/spfn-verify-app`,
+  overridable with `SPFN_VERIFY_APP`, for the reasons decision `01kz6nq4ga` records.
+- Every way the setup can be wrong is an exit, never a substitution. Falling back to the
+  reference server would report real-server coverage the run did not have, which is worse
+  than no run at all. The version comparison is equality rather than a floor: a newer
+  package may serve a contract this SDK was not generated from, and the whole point is
+  that both ends read the same one.
+- The runner fails closed on a pin it cannot compare. `Contracts/upstream.lock.json`
+  names a primitives commit, which npm cannot install, so the comparison needs the
+  published versions recorded alongside it. Until that field exists the runner exits
+  rather than treat an uncomparable pin as a matching one.
+- The database password is never printed. `DATABASE_URL` is read into a variable and only
+  its host and port reach the output, which is what a reader needs in order to act.
+- `tools/verify-server/probe-refusals.sh` proves each refusal bites, asserting the reason
+  and not only the exit code — a guard that fires for the wrong reason passes an
+  exit-code check while protecting nothing. It also proves a correct setup still passes,
+  without which a runner that refused everything would satisfy the probe while blocking
+  every real run. `tools/validate/validate.sh` runs it, because these refusals fire only
+  when a setup is already wrong, which is exactly when nobody is watching them.
+
 ### Native social sign-in has an SDK surface, and the nonce is no longer a string
 
 - `SPFNSocialApple` and `SPFNSocialGoogle` / `spfn-social-google` are the first modules

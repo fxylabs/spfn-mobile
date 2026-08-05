@@ -179,7 +179,8 @@ for path in \
     tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
     tools/rc-verify/probe-trap-exit.sh tools/rc-verify/local-signed-run.sh \
     tools/cocoapods-compat/generate-podspec.sh \
-    tools/verify-server/spfn-versions.sh \
+    tools/verify-server/run.sh tools/verify-server/probe-refusals.sh \
+    tools/verify-server/README.md tools/verify-server/spfn-versions.sh \
     docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md docs/IMPLEMENTATION-PITFALLS.md \
     .github/workflows/contract.yml .github/workflows/swift.yml \
     .github/workflows/android.yml .github/workflows/security.yml \
@@ -1637,6 +1638,17 @@ then
     pass 'the D11 guardrail probe passes on both its positive and negative samples'
 else
     fail 'tools/validate/probe-d11-guardrail.sh fails; the D11 guardrail no longer holds'
+fi
+
+# The real-server runner's whole value is what it declines to run. Those refusals fire
+# only when a setup is already wrong, which is exactly when nobody is watching them, so
+# they are exercised here rather than left to the day they are needed. The probe builds
+# its own fixture apps and needs no verify app of its own.
+if sh tools/verify-server/probe-refusals.sh > /dev/null 2>&1
+then
+    pass 'the verify-server runner refuses every setup it claims to, and passes a correct one'
+else
+    fail 'tools/verify-server/probe-refusals.sh fails; the real-server runner no longer fails closed'
 fi
 
 # A build/parity baseline is not a support commitment. The compatibility matrix must not
