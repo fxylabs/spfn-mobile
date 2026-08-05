@@ -182,6 +182,13 @@ extension SPFNGeneratedErrorCode
     /// a code added to the contract stops this file compiling until someone decides
     /// which side of the line it falls on. A `default` here would silently classify
     /// every future code as a server failure.
+    ///
+    /// Every `rest` code is false, and not because each was judged and found wanting.
+    /// A re-handshake re-establishes a clientProofV1 session, and the /_auth operations
+    /// carry no proof and open no session — there is nothing there to re-establish. A
+    /// rate limit clears by waiting and a rejected id_token clears by getting another
+    /// one; neither is something this classification can ask for. They stay listed one
+    /// by one so that a code added to that surface still stops the build.
     public var isAuthFailure: Bool
     {
         switch self
@@ -189,6 +196,11 @@ extension SPFNGeneratedErrorCode
         case .proofInvalid, .proofReplayed, .proofExpired, .sessionRevoked:
             return true
         case .profileRejected, .contractUnsupported:
+            return false
+        case .validationError, .nativeSignInUnsupportedError, .nonceKeyBindingError,
+             .invalidKeyFingerprintError, .unverifiedEmailLinkError, .invalidSocialTokenError,
+             .accountDisabledError, .accountPendingDeletionError, .registrationRejectedError,
+             .keyIdAlreadyRegisteredError, .tooManyRequestsError, .error:
             return false
         }
     }

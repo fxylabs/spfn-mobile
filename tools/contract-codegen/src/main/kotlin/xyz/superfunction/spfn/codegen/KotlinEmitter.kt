@@ -86,13 +86,43 @@ object KotlinEmitter
         appendLine();
         appendLine("import xyz.superfunction.spfn.core.SpfnCanonicalValue");
         appendLine("import xyz.superfunction.spfn.core.SpfnDecoding");
+        appendLine("import xyz.superfunction.spfn.core.SpfnDecodingException");
+        bundle.enums.forEach { declaration ->
+            appendLine();
+            appendLine("/**");
+            appendLine(" * A value set the contract declares. Decoding is strict: an unknown value is");
+            appendLine(" * reported with the raw string preserved rather than mapped onto a member,");
+            appendLine(" * because the contract promises no set stays as it is — a value can be added,");
+            appendLine(" * and one can be withdrawn for a weakness found later.");
+            appendLine(" */");
+            appendLine("enum class ${Names.kotlinType(declaration.name)}(val wireValue: String)");
+            appendLine("{");
+            declaration.values.forEachIndexed { index, value ->
+                val terminator = if (index == declaration.values.size - 1) ";" else ",";
+                appendLine("    ${Names.upperSnake(Names.enumCase(value))}(\"$value\")$terminator");
+            }
+            appendLine();
+            appendLine("    fun canonicalValue(): SpfnCanonicalValue = SpfnCanonicalValue.Text(wireValue);");
+            appendLine();
+            appendLine("    companion object");
+            appendLine("    {");
+            appendLine("        fun decode(canonical: SpfnCanonicalValue, path: String = \"\\\$\"): ${Names.kotlinType(declaration.name)}");
+            appendLine("        {");
+            appendLine("            val raw = SpfnDecoding.string(canonical, path);");
+            appendLine("            return entries.firstOrNull { it.wireValue == raw }");
+            appendLine("                ?: throw SpfnDecodingException(\"TYPE_MISMATCH\", \"\$path is not a ${declaration.name}\");");
+            appendLine("        }");
+            appendLine("    }");
+            append("}");
+            appendLine();
+        }
         bundle.types.forEach { type ->
             appendLine();
             appendLine("data class ${Names.kotlinType(type.name)}(");
             type.fields.forEachIndexed { index, field ->
                 val comma = if (index == type.fields.size - 1) "" else ",";
                 val default = if (field.optional) " = null" else "";
-                appendLine("    val ${field.name}: ${kotlinType(field)}$default$comma");
+                appendLine("    val ${field.name}: ${kotlinType(bundle, field)}$default$comma");
             }
             appendLine(")");
             appendLine("{");
@@ -104,7 +134,7 @@ object KotlinEmitter
             appendLine("    fun canonicalValue(): SpfnCanonicalValue");
             appendLine("    {");
             appendLine("        val members = LinkedHashMap<String, SpfnCanonicalValue>();");
-            type.fields.forEach { field -> appendLine(kotlinEncodeField(field)) };
+            type.fields.forEach { field -> appendLine(kotlinEncodeField(bundle, field)) };
             appendLine("        return SpfnCanonicalValue.Obj(members);");
             appendLine("    }");
             appendLine();
@@ -116,7 +146,7 @@ object KotlinEmitter
             appendLine("            return ${Names.kotlinType(type.name)}(");
             type.fields.forEachIndexed { index, field ->
                 val comma = if (index == type.fields.size - 1) "" else ",";
-                appendLine("                ${field.name} = ${kotlinDecodeExpression(field)}$comma");
+                appendLine("                ${field.name} = ${kotlinDecodeExpression(bundle, field)}$comma");
             }
             appendLine("            );");
             appendLine("        }");
@@ -198,18 +228,40 @@ object KotlinEmitter
         appendLine("import xyz.superfunction.spfn.core.SpfnDecodingException");
         appendLine();
         appendLine("/**");
+        appendLine(" * Which surface answers with a given code.");
+        appendLine(" *");
+        appendLine(" * The contract carries both sets in one list and they are not interchangeable: a");
+        appendLine(" * proven call can be met by a clientProofV1 refusal and never by a rest one, and a");
+        appendLine(" * call to the /_auth surface is the reverse. Code that reasons about a refusal");
+        appendLine(" * reads this rather than the position a code happened to have.");
+        appendLine(" */");
+        appendLine("enum class SpfnGeneratedErrorSurface(val wireValue: String)");
+        appendLine("{");
+        val surfaces = bundle.errors.map { it.surface }.distinct().sorted();
+        surfaces.forEachIndexed { index, surface ->
+            val terminator = if (index == surfaces.size - 1) ";" else ",";
+            appendLine("    ${Names.upperSnake(surface)}(\"$surface\")$terminator");
+        }
+        append("}");
+        appendLine();
+        appendLine();
+        appendLine("/**");
         appendLine(" * Every error code the contract declares. A code outside this list is rejected");
         appendLine(" * rather than mapped onto a neighbouring one.");
         appendLine(" */");
         appendLine("enum class SpfnGeneratedErrorCode(");
         appendLine("    val wireCode: String,");
         appendLine("    val httpStatus: Int,");
-        appendLine("    val isRetryable: Boolean");
+        appendLine("    val isRetryable: Boolean,");
+        appendLine("    val surface: SpfnGeneratedErrorSurface");
         appendLine(")");
         appendLine("{");
         bundle.errors.forEachIndexed { index, error ->
             val terminator = if (index == bundle.errors.size - 1) ";" else ",";
-            appendLine("    ${error.code}(\"${error.code}\", ${error.httpStatus}, ${error.retryable})$terminator");
+            appendLine(
+                "    ${error.code}(\"${error.code}\", ${error.httpStatus}, ${error.retryable}, " +
+                    "SpfnGeneratedErrorSurface.${Names.upperSnake(error.surface)})$terminator"
+            );
         }
         appendLine();
         appendLine("    companion object");
@@ -223,9 +275,18 @@ object KotlinEmitter
         appendLine();
     }
 
-    private fun kotlinType(field: Field): String
+    /**
+     * The cases `Bundle.checkDeclarations` has already refused. They are unreachable
+     * here, and they still get a branch: an emitter that quietly produced something for
+     * one of them is the failure the 0.6.0 pin walked into, and Kotlin's exhaustiveness
+     * check is what keeps a future case from being answered with a guess.
+     */
+    private fun unemittable(type: FieldType): Nothing =
+        throw JsonException("the Kotlin emitter reached $type, which generation should have refused")
+
+    private fun kotlinType(bundle: Bundle, field: Field): String
     {
-        val base = kotlinType(FieldType.parse(field.type));
+        val base = kotlinType(bundle.fieldType(field));
         return if (field.optional) "$base?" else base;
     }
 
@@ -235,12 +296,14 @@ object KotlinEmitter
         is FieldType.IntegerType -> "Long"
         is FieldType.BooleanType -> "Boolean"
         is FieldType.Named -> Names.kotlinType(type.name)
+        is FieldType.EnumRef -> Names.kotlinType(type.name)
         is FieldType.ArrayOf -> "List<${kotlinType(type.element)}>"
+        is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
     }
 
-    private fun kotlinEncodeField(field: Field): String
+    private fun kotlinEncodeField(bundle: Bundle, field: Field): String
     {
-        val expression = kotlinEncodeExpression(FieldType.parse(field.type), field.name);
+        val expression = kotlinEncodeExpression(bundle.fieldType(field), field.name);
         if (!field.optional)
         {
             return "        members[\"${field.name}\"] = $expression;";
@@ -248,7 +311,7 @@ object KotlinEmitter
         return buildString {
             appendLine("        if (${field.name} != null)");
             appendLine("        {");
-            appendLine("            members[\"${field.name}\"] = ${kotlinEncodeExpression(FieldType.parse(field.type), field.name)};");
+            appendLine("            members[\"${field.name}\"] = $expression;");
             append("        }");
         };
     }
@@ -259,15 +322,17 @@ object KotlinEmitter
         is FieldType.IntegerType -> "SpfnCanonicalValue.Integer($accessor)"
         is FieldType.BooleanType -> "SpfnCanonicalValue.Bool($accessor)"
         is FieldType.Named -> "$accessor.canonicalValue()"
+        is FieldType.EnumRef -> "$accessor.canonicalValue()"
         is FieldType.ArrayOf -> "SpfnCanonicalValue.Arr($accessor.map { it.canonicalValue() })"
+        is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
     }
 
-    private fun kotlinDecodeExpression(field: Field): String
+    private fun kotlinDecodeExpression(bundle: Bundle, field: Field): String
     {
         // Emits `$path.<field>` so the generated decoder reports the position it failed at.
         val path = "\$path.${field.name}";
         val member = "members[\"${field.name}\"]";
-        return when (val type = FieldType.parse(field.type))
+        return when (val type = bundle.fieldType(field))
         {
             is FieldType.StringType ->
                 if (field.optional) "SpfnDecoding.optionalString($member, \"$path\")"
@@ -276,10 +341,18 @@ object KotlinEmitter
                 if (field.optional) "SpfnDecoding.optionalInteger($member, \"$path\")"
                 else "SpfnDecoding.integer($member, \"$path\")"
             is FieldType.BooleanType -> "SpfnDecoding.boolean($member, \"$path\")"
-            is FieldType.Named ->
-                "${Names.kotlinType(type.name)}.decode($member ?: SpfnCanonicalValue.Null, \"$path\")"
+            // An optional composite reads absent and null alike as nothing, which is what
+            // the encoder writes: it omits an absent optional rather than spelling it
+            // null. Passing `?: Null` for an optional field instead would hand the decoder
+            // a null it is bound to refuse, turning "not sent" into a failure.
+            is FieldType.Named, is FieldType.EnumRef ->
+                if (field.optional)
+                    "$member?.takeIf { it !is SpfnCanonicalValue.Null }" +
+                        "?.let { ${kotlinType(type)}.decode(it, \"$path\") }"
+                else "${kotlinType(type)}.decode($member ?: SpfnCanonicalValue.Null, \"$path\")"
             is FieldType.ArrayOf ->
                 "SpfnDecoding.array($member, \"$path\").map { ${kotlinType(type.element)}.decode(it, \"$path\") }"
+            is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
         };
     }
 }

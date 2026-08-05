@@ -4,9 +4,9 @@
   "originStatement": "Generated from the route and contract definitions in SPFN primitives (packages/auth/src/server/client-proof) and published from that repository. This file is generated output: edit the source modules and re-export, never this file.",
   "contractName": "spfn-mobile-contract",
   "contractMajor": 0,
-  "contractVersion": "0.4.1",
-  "supportedRange": ">=0.4.0 <0.5.0",
-  "exporterVersion": "@spfn/auth/contract-bundle@3.0.0",
+  "contractVersion": "0.6.0",
+  "supportedRange": ">=0.6.0 <0.7.0",
+  "exporterVersion": "@spfn/auth/contract-bundle@4.0.0",
   "authProfiles": { "allowed": ["clientProofV1"], "unknownProfilePolicy": "reject", "mixingWithinSession": "prohibited" },
   "operationAuthClasses": {
     "none": "the unproven class: the operation is accepted with neither proof headers nor a session header, because it is called before any key exists to sign with (enrollment and login)",
@@ -28,7 +28,7 @@
     "appliesTo": "every operation whose path starts with /_auth",
     "requestBody": "plain JSON of the request type, validated server-side; canonical-JSON encoding is required only when the call is proven (the proof binds the canonical bytes)",
     "responseBody": "the response type as plain JSON, with no envelope around it",
-    "errorEnvelope": "the SPFN error shape {\"error\": {...}} with HTTP status semantics, not the six-code contract envelope; only proven calls can receive the contract refusal codes, via the middleware",
+    "errorEnvelope": "the same {\"error\":{\"code\",\"message\",\"requestId\"}} envelope every operation uses, carried alongside the SPFN web fields (__type and the error class's own public fields) in one body: the web client restores an error class from __type while a generated client reads error.code and ignores the rest. The codes are the server error class names listed under errors with surface \"rest\", not the six clientProofV1 refusal codes — those reach only proven calls",
     "pathTemplate": "a {name} segment is a path parameter the client substitutes before signing or sending; {provider} is the social provider id (google, apple, kakao, naver)",
     "policy": "rate limits and other route policies are server posture, not contract surface: this bundle states wire shapes only"
   },
@@ -78,13 +78,44 @@
     },
     "headerOrder": ["profile", "clientId", "keyId", "nonce", "issuedAtMillis", "proof", "session"],
     "contentTypeRule": "the content-type header is present exactly when the request carries a body, and the body is always the canonical JSON of the request type",
-    "sessionRule": "requiresSession operations carry x-spfn-session; the handshake never does"
+    "sessionRule": "requiresSession operations carry x-spfn-session; the handshake never does",
+    "clientIdentity": {
+      "headers": {
+        "kind": "x-spfn-client-kind",
+        "version": "x-spfn-client-version",
+        "contractVersion": "x-spfn-client-contract-version"
+      },
+      "kinds": ["web", "ios", "android"],
+      "appliesTo": "every operation, proven or not — enrollment and login are where a stale client is met first, and they carry no proof",
+      "kindRule": "ios and android ship independently of the server and state the contract version they were generated from; web does not, because a browser bundle is deployed with the server that serves it and has no second version to reconcile",
+      "versionRule": "the client version is the client's own release — a store version for an app, a build for a browser bundle. It is unauthenticated and nothing is authorized by it",
+      "refusalRule": "an ios or android client that states no contract version, or one outside the range in the response headers, is refused CONTRACT_UNSUPPORTED; a request naming no kind is not a deployed client and passes",
+      "proofRule": "none of these headers enters the proof input: they are diagnostic, and PROOF_INPUT_FIELDS is unchanged from 0.5.0"
+    },
+    "serverAnnouncement": {
+      "headers": {
+        "version": "x-spfn-server-contract-version",
+        "supportedRange": "x-spfn-supported-contract-range"
+      },
+      "appliesTo": "every response, including a refusal",
+      "rule": "the server states the contract version it serves and the range it accepts. It states no more than that: comparing those against its own version and deciding what a user should be told is the client's judgment, made in the client"
+    }
+  },
+  "compatibilityPolicy": {
+    "policy": "allOrNothing",
+    "rule": "one contract version is this whole surface's pass or refusal. Partial compatibility in an auth primitive would mean admitting a client that agrees about some of the admission sequence and not the rest",
+    "contrast": "an app contract generated from SPFN routes uses perOperation instead, where availability is recorded per operation and the verdict narrows to the operations a client actually calls. The two share this bundle format, so the policy is stated rather than inferred"
   },
   "typeGrammar": {
-    "scalars": ["string", "integer", "boolean"],
+    "scalars": ["string", "integer", "number", "boolean"],
+    "integerVersusNumber": "integer is a whole number and number is floating point. A price, a coordinate and a rating are number; a count and a millisecond timestamp are integer.",
     "array": "array<T>, where T is itself a field type. This is the only array spelling.",
-    "named": "any other value names one of the types below",
-    "rule": "a field type outside this grammar is a contract error, not something to guess at: a consumer that does not recognise an array spelling reads it as a type name and fails at compile time"
+    "map": "map<string,T>, where T is itself a field type. The key is always string because JSON has no other key type. This is the only map spelling.",
+    "named": "any other value names one of the types or enums below",
+    "enumRule": "a name listed in \"enums\" is a set of string values rather than an object: its declaration carries values instead of fields. The values are the ones the server accepts and sends now; no set is promised to stay as it is, since a value can be added and one can be withdrawn for a weakness found later. What a consumer does with a value outside the set is the consumer's decision",
+    "dateConvention": "there is no date type. A moment in time is an integer of milliseconds since the Unix epoch and its field name ends in AtMillis — issuedAtMillis, expiresAtMillis, createdAtMillis. A second representation would leave a consumer choosing between two spellings of the same value.",
+    "dateConventionExceptions": "none — every moment in this contract is an AtMillis integer",
+    "rule": "a field type outside this grammar is a contract error, not something to guess at: a consumer that does not recognise a container spelling reads it as a type name and fails at compile time"
   },
   "types": [
     {
@@ -150,7 +181,7 @@
         { "name": "publicKey", "type": "string", "optional": false },
         { "name": "keyId", "type": "string", "optional": false },
         { "name": "fingerprint", "type": "string", "optional": false },
-        { "name": "algorithm", "type": "string", "optional": false }
+        { "name": "algorithm", "type": "KeyAlgorithm", "optional": false }
       ]
     },
     {
@@ -171,7 +202,7 @@
         { "name": "publicKey", "type": "string", "optional": false },
         { "name": "keyId", "type": "string", "optional": false },
         { "name": "fingerprint", "type": "string", "optional": false },
-        { "name": "algorithm", "type": "string", "optional": false },
+        { "name": "algorithm", "type": "KeyAlgorithm", "optional": false },
         { "name": "oldKeyId", "type": "string", "optional": true }
       ]
     },
@@ -194,7 +225,7 @@
         { "name": "publicKey", "type": "string", "optional": false },
         { "name": "keyId", "type": "string", "optional": false },
         { "name": "fingerprint", "type": "string", "optional": false },
-        { "name": "algorithm", "type": "string", "optional": false }
+        { "name": "algorithm", "type": "KeyAlgorithm", "optional": false }
       ]
     },
     {
@@ -211,7 +242,7 @@
         { "name": "publicKey", "type": "string", "optional": false },
         { "name": "keyId", "type": "string", "optional": false },
         { "name": "fingerprint", "type": "string", "optional": false },
-        { "name": "algorithm", "type": "string", "optional": false }
+        { "name": "algorithm", "type": "KeyAlgorithm", "optional": false }
       ]
     },
     {
@@ -228,14 +259,14 @@
         { "name": "keyId", "type": "string", "optional": false },
         { "name": "deviceName", "type": "string", "optional": true },
         { "name": "platform", "type": "string", "optional": true },
-        { "name": "algorithm", "type": "string", "optional": false },
+        { "name": "algorithm", "type": "KeyAlgorithm", "optional": false },
         { "name": "fingerprintPrefix", "type": "string", "optional": false },
-        { "name": "createdAt", "type": "string", "optional": false },
-        { "name": "lastUsedAt", "type": "string", "optional": true },
-        { "name": "expiresAt", "type": "string", "optional": true },
+        { "name": "createdAtMillis", "type": "integer", "optional": false },
+        { "name": "lastUsedAtMillis", "type": "integer", "optional": true },
+        { "name": "expiresAtMillis", "type": "integer", "optional": true },
         { "name": "isExpired", "type": "boolean", "optional": false },
         { "name": "isActive", "type": "boolean", "optional": false },
-        { "name": "revokedAt", "type": "string", "optional": true }
+        { "name": "revokedAtMillis", "type": "integer", "optional": true }
       ]
     },
     {
@@ -262,6 +293,7 @@
       ]
     }
   ],
+  "enums": [{ "name": "KeyAlgorithm", "values": ["ES256", "RS256"] }],
   "operations": [
     {
       "id": "auth.clientProof.handshake",
@@ -366,6 +398,7 @@
   ],
   "errorEnvelope": {
     "shape": "{\"error\":{\"code\":<string>,\"message\":<string>,\"requestId\":<string>}}",
+    "additionalFields": "the body carries further top-level fields — __type, message, and the error class's own public fields — which a decoder must ignore rather than reject; only error.code classifies the failure",
     "unknownCodePolicy": "reject",
     "unknownCodeRule": "a code outside this list is never mapped to a neighbouring code; it surfaces as an unknown-code failure carrying the raw string"
   },
@@ -374,37 +407,127 @@
       "code": "PROOF_INVALID",
       "httpStatus": 401,
       "retryable": false,
-      "summary": "the client proof did not verify"
+      "summary": "the client proof did not verify",
+      "surface": "clientProofV1"
     },
     {
       "code": "PROOF_REPLAYED",
       "httpStatus": 401,
       "retryable": false,
-      "summary": "the nonce was already used inside the replay window"
+      "summary": "the nonce was already used inside the replay window",
+      "surface": "clientProofV1"
     },
     {
       "code": "PROOF_EXPIRED",
       "httpStatus": 401,
       "retryable": false,
-      "summary": "issuedAtMillis falls outside the replay window"
+      "summary": "issuedAtMillis falls outside the replay window",
+      "surface": "clientProofV1"
     },
     {
       "code": "SESSION_REVOKED",
       "httpStatus": 401,
       "retryable": false,
-      "summary": "the key or session was revoked"
+      "summary": "the key or session was revoked",
+      "surface": "clientProofV1"
     },
     {
       "code": "PROFILE_REJECTED",
       "httpStatus": 400,
       "retryable": false,
-      "summary": "an auth profile outside the allowlist was named"
+      "summary": "an auth profile outside the allowlist was named",
+      "surface": "clientProofV1"
     },
     {
       "code": "CONTRACT_UNSUPPORTED",
       "httpStatus": 409,
       "retryable": false,
-      "summary": "the request is not the shape this contract describes"
+      "summary": "the request is not the shape this contract describes",
+      "surface": "clientProofV1"
+    },
+    {
+      "code": "ValidationError",
+      "httpStatus": 400,
+      "retryable": false,
+      "summary": "the request body is not the shape the operation declares",
+      "surface": "rest"
+    },
+    {
+      "code": "NativeSignInUnsupportedError",
+      "httpStatus": 400,
+      "retryable": false,
+      "summary": "this provider has no native id_token sign-in — a server configuration fact, not a user error",
+      "surface": "rest"
+    },
+    {
+      "code": "NonceKeyBindingError",
+      "httpStatus": 400,
+      "retryable": false,
+      "summary": "the nonce is not the fingerprint of the submitted public key",
+      "surface": "rest"
+    },
+    {
+      "code": "InvalidKeyFingerprintError",
+      "httpStatus": 400,
+      "retryable": false,
+      "summary": "the fingerprint is not the hash of the submitted public key",
+      "surface": "rest"
+    },
+    {
+      "code": "UnverifiedEmailLinkError",
+      "httpStatus": 400,
+      "retryable": false,
+      "summary": "that email already has an account and the provider never verified it, so linking is refused",
+      "surface": "rest"
+    },
+    {
+      "code": "InvalidSocialTokenError",
+      "httpStatus": 401,
+      "retryable": false,
+      "summary": "the id_token failed signature, issuer, audience, expiry, nonce or subject verification",
+      "surface": "rest"
+    },
+    {
+      "code": "AccountDisabledError",
+      "httpStatus": 403,
+      "retryable": false,
+      "summary": "the account cannot open a session in its current status",
+      "surface": "rest"
+    },
+    {
+      "code": "AccountPendingDeletionError",
+      "httpStatus": 403,
+      "retryable": false,
+      "summary": "the account is scheduled for deletion and must be restored before it can sign in",
+      "surface": "rest"
+    },
+    {
+      "code": "RegistrationRejectedError",
+      "httpStatus": 403,
+      "retryable": false,
+      "summary": "the app refused this sign-up in its own beforeRegister check — reached only when the identity would create a new account, never when it links to an existing one",
+      "surface": "rest"
+    },
+    {
+      "code": "KeyIdAlreadyRegisteredError",
+      "httpStatus": 409,
+      "retryable": false,
+      "summary": "that keyId is taken or was revoked — generate a fresh keyId and retry",
+      "surface": "rest"
+    },
+    {
+      "code": "TooManyRequestsError",
+      "httpStatus": 429,
+      "retryable": true,
+      "summary": "the rate limit for this endpoint was exceeded; the same request succeeds after the window",
+      "surface": "rest"
+    },
+    {
+      "code": "Error",
+      "httpStatus": 500,
+      "retryable": false,
+      "summary": "the server failed for a reason it does not describe to the client",
+      "surface": "rest"
     }
   ],
   "notes": [

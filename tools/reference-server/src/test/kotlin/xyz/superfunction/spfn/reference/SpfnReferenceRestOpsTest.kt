@@ -15,6 +15,7 @@ import xyz.superfunction.spfn.auth.SpfnEcdsa
 import xyz.superfunction.spfn.auth.SpfnProofInput
 import xyz.superfunction.spfn.core.SpfnCanonicalJson
 import xyz.superfunction.spfn.core.SpfnDigest
+import xyz.superfunction.spfn.generated.SpfnKeyAlgorithm
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import xyz.superfunction.spfn.generated.SpfnHandshakeRequest
 import xyz.superfunction.spfn.generated.SpfnOauthNativeRequest
@@ -337,7 +338,7 @@ class SpfnReferenceRestOpsTest
             publicKey = Base64.getEncoder().encodeToString(keyPair.public.encoded),
             keyId = keyId,
             fingerprint = fingerprint,
-            algorithm = "ES256"
+            algorithm = SpfnKeyAlgorithm.ES256
         ).canonicalValue()
     )
 
@@ -411,7 +412,7 @@ class SpfnReferenceRestOpsTest
                 publicKey = Base64.getEncoder().encodeToString(newPair.public.encoded),
                 keyId = newKeyId,
                 fingerprint = SpfnDigest.sha256Hex(newPair.public.encoded),
-                algorithm = "ES256"
+                algorithm = SpfnKeyAlgorithm.ES256
             ).canonicalValue()
         );
         return harness.send(

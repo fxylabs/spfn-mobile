@@ -28,6 +28,7 @@ package xyz.superfunction.spfn.reference
 import xyz.superfunction.spfn.core.SpfnCanonicalJson
 import xyz.superfunction.spfn.core.SpfnDigest
 import xyz.superfunction.spfn.core.SpfnErrorEnvelope
+import xyz.superfunction.spfn.generated.SpfnKeyAlgorithm
 import java.util.Base64
 
 /**
@@ -89,7 +90,15 @@ class SpfnReferenceTestIdToken(val provider: String, val userId: String, val non
 
 object SpfnReferenceRestOps
 {
-    const val ALGORITHM: String = "ES256"
+    /**
+     * The one algorithm this server registers keys under.
+     *
+     * A generated enum since contract 0.6.0, which changes what this check means. The
+     * contract now decides what an algorithm may be and the decoder refuses anything
+     * else; what is left here is this server posture — it verifies P-256 and not RSA,
+     * so it declines a member the contract allows.
+     */
+    val ALGORITHM: SpfnKeyAlgorithm = SpfnKeyAlgorithm.ES256
 
     sealed interface Result
     {
@@ -112,7 +121,7 @@ object SpfnReferenceRestOps
         publicKeyBase64: String,
         keyId: String,
         fingerprint: String,
-        algorithm: String
+        algorithm: SpfnKeyAlgorithm
     ): Result
     {
         val token = SpfnReferenceTestIdToken.parse(idToken)
@@ -132,7 +141,7 @@ object SpfnReferenceRestOps
         };
         if (algorithm != ALGORITHM)
         {
-            return Result.Refused(SpfnReferenceRestRefusal.badRequest("algorithm must be $ALGORITHM"));
+            return Result.Refused(SpfnReferenceRestRefusal.badRequest("algorithm must be ${ALGORITHM.wireValue}"));
         }
         // The fingerprint binds the base64 the server stores to the bytes the client
         // hashed; a mismatch means the two halves of the request disagree about the key.
@@ -172,7 +181,7 @@ object SpfnReferenceRestOps
         publicKeyBase64: String,
         newKeyId: String,
         fingerprint: String,
-        algorithm: String
+        algorithm: SpfnKeyAlgorithm
     ): SpfnReferenceRestRefusal?
     {
         val spkiDer = try
@@ -185,7 +194,7 @@ object SpfnReferenceRestOps
         };
         if (algorithm != ALGORITHM)
         {
-            return SpfnReferenceRestRefusal.badRequest("algorithm must be $ALGORITHM");
+            return SpfnReferenceRestRefusal.badRequest("algorithm must be ${ALGORITHM.wireValue}");
         }
         if (fingerprint != SpfnDigest.sha256Hex(spkiDer))
         {

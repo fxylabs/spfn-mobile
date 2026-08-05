@@ -34,6 +34,7 @@ import xyz.superfunction.spfn.auth.SpfnAuthException
 import xyz.superfunction.spfn.core.SpfnDigest
 import xyz.superfunction.spfn.core.SpfnOperation
 import xyz.superfunction.spfn.generated.SpfnGeneratedContract
+import xyz.superfunction.spfn.generated.SpfnKeyAlgorithm
 import xyz.superfunction.spfn.generated.SpfnGeneratedErrorCode
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import xyz.superfunction.spfn.generated.SpfnOauthNativeRequest
@@ -572,7 +573,14 @@ class SpfnKeyLifecycle(
         const val ACTIVE_SLOT: String = "active"
         const val CANDIDATE_SLOT: String = "rotation-candidate"
 
-        private const val ALGORITHM_NAME = "ES256"
+        /**
+         * The signature algorithm every key this lifecycle generates is signed with.
+         *
+         * A generated enum since contract 0.6.0 rather than the string it used to be.
+         * The contract declares the set, so a value outside it is now a compile error
+         * here instead of a refusal the server has to raise.
+         */
+        private val ALGORITHM_NAME: SpfnKeyAlgorithm = SpfnKeyAlgorithm.ES256
 
         /**
          * The set the validator's own path exemption names: lowercase alphanumerics

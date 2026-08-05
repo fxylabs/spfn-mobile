@@ -43,6 +43,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -599,14 +600,36 @@ RESPONSE_VECTORS = [
     },
 ]
 
-ERROR_VECTORS = [
-    ("PROOF_INVALID", 401, False),
-    ("PROOF_REPLAYED", 401, False),
-    ("PROOF_EXPIRED", 401, False),
-    ("SESSION_REVOKED", 401, False),
-    ("PROFILE_REJECTED", 400, False),
-    ("CONTRACT_UNSUPPORTED", 409, False),
-]
+def error_vectors():
+    """Every error code the contract declares, read from the bundle.
+
+    This list used to be written out here, and it fell behind: contract 0.6.0 added
+    twelve codes for the /_auth surface and the fixture still carried six, so the
+    conformance gate compared a generated enum of eighteen against a fixture of six and
+    failed for a reason that had nothing to do with either SDK.
+
+    Reading the bundle is not a loss of independence. What has to be independent is the
+    canonicalization, the proof assembly and the signatures — the things an SDK could be
+    wrong about in the same way twice. The set of codes is not something to be derived at
+    all: it is the contract, and restating it by hand only creates a second copy to
+    disagree with.
+    """
+    return [
+        (entry["code"], entry["httpStatus"], entry["retryable"], entry["surface"])
+        for entry in load_bundle()["errors"]
+    ]
+
+
+def vector_name(code: str) -> str:
+    """`PROOF_INVALID` and `NonceKeyBindingError` both become readable kebab case.
+
+    The two surfaces spell their codes differently — SCREAMING_SNAKE for the proven
+    refusals, the error class name for the /_auth ones — and lowercasing a PascalCase
+    code as a unit produced `noncekeybindingerror`, which no reader can split back into
+    words.
+    """
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "-", code)
+    return spaced.replace("_", "-").lower()
 
 BASE_PROOF = {
     "method": "POST",
@@ -1031,15 +1054,21 @@ def build_enrollment():
 
 def build_errors():
     known = []
-    for code, status, retryable in ERROR_VECTORS:
+    for code, status, retryable, surface in error_vectors():
+        name = vector_name(code)
         envelope = {"error": {"code": code, "message": "test vector for " + code,
-                              "requestId": "req-" + code.lower().replace("_", "-")}}
+                              "requestId": "req-" + name}}
         known.append({
-            "name": code.lower().replace("_", "-"),
+            "name": name,
             "wire": canonical(envelope),
             "code": code,
             "httpStatus": status,
             "retryable": retryable,
+            # Which surface answers with this code. A proven call can be met by a
+            # clientProofV1 refusal and never by a rest one, so a consumer that read the
+            # list as one set would build a refusal enum with members that cannot occur
+            # on the surface it guards.
+            "surface": surface,
             "sha256": sha256_hex(canonical(envelope)),
         })
 

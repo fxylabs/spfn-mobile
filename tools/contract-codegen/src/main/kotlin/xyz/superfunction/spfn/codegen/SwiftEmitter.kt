@@ -71,19 +71,47 @@ object SwiftEmitter
         appendLine(header(bundle));
         appendLine();
         appendLine("import SPFNCore");
+        bundle.enums.forEach { declaration ->
+            appendLine();
+            appendLine("/// A value set the contract declares. Decoding is strict: an unknown value is");
+            appendLine("/// reported with the raw string preserved rather than mapped onto a member,");
+            appendLine("/// because the contract promises no set stays as it is — a value can be added,");
+            appendLine("/// and one can be withdrawn for a weakness found later.");
+            appendLine("public enum ${Names.swiftType(declaration.name)}: String, CaseIterable, Sendable");
+            appendLine("{");
+            declaration.values.forEach { appendLine("    case ${Names.enumCase(it)} = \"$it\"") };
+            appendLine();
+            appendLine("    public var canonicalValue: SPFNCanonicalValue");
+            appendLine("    {");
+            appendLine("        .string(rawValue)");
+            appendLine("    }");
+            appendLine();
+            appendLine("    public init(canonical: SPFNCanonicalValue, at path: String = \"\$\") throws");
+            appendLine("    {");
+            appendLine("        let raw = try SPFNDecoding.string(canonical, at: path)");
+            appendLine("        guard let value = ${Names.swiftType(declaration.name)}(rawValue: raw)");
+            appendLine("        else");
+            appendLine("        {");
+            appendLine("            throw SPFNDecodingError.typeMismatch(path: path, expected: \"${declaration.name}\")");
+            appendLine("        }");
+            appendLine("        self = value");
+            appendLine("    }");
+            append("}");
+            appendLine();
+        }
         bundle.types.forEach { type ->
             appendLine();
             appendLine("public struct ${Names.swiftType(type.name)}: Equatable, Sendable");
             appendLine("{");
             type.fields.forEach { field ->
-                appendLine("    public var ${field.name}: ${swiftType(field)}");
+                appendLine("    public var ${field.name}: ${swiftType(bundle, field)}");
             }
             appendLine();
             appendLine("    public init(");
             type.fields.forEachIndexed { index, field ->
                 val comma = if (index == type.fields.size - 1) "" else ",";
                 val default = if (field.optional) " = nil" else "";
-                appendLine("        ${field.name}: ${swiftType(field)}$default$comma");
+                appendLine("        ${field.name}: ${swiftType(bundle, field)}$default$comma");
             }
             appendLine("    )");
             appendLine("    {");
@@ -96,14 +124,14 @@ object SwiftEmitter
             appendLine("    public var canonicalValue: SPFNCanonicalValue");
             appendLine("    {");
             appendLine("        var members: [String: SPFNCanonicalValue] = [:]");
-            type.fields.forEach { field -> appendLine(swiftEncodeField(field)) };
+            type.fields.forEach { field -> appendLine(swiftEncodeField(bundle, field)) };
             appendLine("        return .object(members)");
             appendLine("    }");
             appendLine();
             appendLine("    public init(canonical: SPFNCanonicalValue, at path: String = \"\$\") throws");
             appendLine("    {");
             appendLine("        let members = try SPFNDecoding.object(canonical, at: path)");
-            type.fields.forEach { field -> appendLine(swiftDecodeField(field)) };
+            type.fields.forEach { field -> appendLine(swiftDecodeField(bundle, field)) };
             appendLine("    }");
             append("}");
             appendLine();
@@ -167,11 +195,36 @@ object SwiftEmitter
         appendLine();
         appendLine("import SPFNCore");
         appendLine();
+        appendLine("/// Which surface answers with a given code.");
+        appendLine("///");
+        appendLine("/// The contract carries both sets in one list and they are not interchangeable: a");
+        appendLine("/// proven call can be met by a `clientProofV1` refusal and never by a `rest` one,");
+        appendLine("/// and a call to the /_auth surface is the reverse. Code that reasons about a");
+        appendLine("/// refusal reads this rather than the position a code happened to have.");
+        appendLine("public enum SPFNGeneratedErrorSurface: String, CaseIterable, Sendable");
+        appendLine("{");
+        bundle.errors.map { it.surface }.distinct().sorted().forEach {
+            appendLine("    case ${Names.lowerCamel(it)} = \"$it\"");
+        }
+        appendLine("}");
+        appendLine();
         appendLine("/// Every error code the contract declares. A code outside this list is rejected");
         appendLine("/// rather than mapped onto a neighbouring one.");
         appendLine("public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable");
         appendLine("{");
         bundle.errors.forEach { appendLine("    case ${Names.enumCase(it.code)} = \"${it.code}\"") };
+        appendLine();
+        appendLine("    /// The surface that answers with this code.");
+        appendLine("    public var surface: SPFNGeneratedErrorSurface");
+        appendLine("    {");
+        appendLine("        switch self");
+        appendLine("        {");
+        bundle.errors.forEach { error ->
+            appendLine("        case .${Names.enumCase(error.code)}:");
+            appendLine("            return .${Names.lowerCamel(error.surface)}");
+        }
+        appendLine("        }");
+        appendLine("    }");
         appendLine();
         appendLine("    public var httpStatus: Int");
         appendLine("    {");
@@ -209,9 +262,18 @@ object SwiftEmitter
         appendLine();
     }
 
-    private fun swiftType(field: Field): String
+    /**
+     * The cases `Bundle.checkDeclarations` has already refused. They are unreachable
+     * here, and they still get a branch: an emitter that quietly produced something for
+     * one of them is the failure the 0.6.0 pin walked into, and Kotlin's exhaustiveness
+     * check is what keeps a future case from being answered with a guess.
+     */
+    private fun unemittable(type: FieldType): Nothing =
+        throw JsonException("the Swift emitter reached $type, which generation should have refused")
+
+    private fun swiftType(bundle: Bundle, field: Field): String
     {
-        val base = swiftType(FieldType.parse(field.type));
+        val base = swiftType(bundle.fieldType(field));
         return if (field.optional) "$base?" else base;
     }
 
@@ -221,12 +283,14 @@ object SwiftEmitter
         is FieldType.IntegerType -> "Int64"
         is FieldType.BooleanType -> "Bool"
         is FieldType.Named -> Names.swiftType(type.name)
+        is FieldType.EnumRef -> Names.swiftType(type.name)
         is FieldType.ArrayOf -> "[${swiftType(type.element)}]"
+        is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
     }
 
-    private fun swiftEncodeField(field: Field): String
+    private fun swiftEncodeField(bundle: Bundle, field: Field): String
     {
-        val expression = swiftEncodeExpression(FieldType.parse(field.type), field.name);
+        val expression = swiftEncodeExpression(bundle.fieldType(field), field.name);
         if (!field.optional)
         {
             return "        members[\"${field.name}\"] = $expression";
@@ -245,14 +309,16 @@ object SwiftEmitter
         is FieldType.IntegerType -> ".integer($accessor)"
         is FieldType.BooleanType -> ".bool($accessor)"
         is FieldType.Named -> "$accessor.canonicalValue"
+        is FieldType.EnumRef -> "$accessor.canonicalValue"
         is FieldType.ArrayOf -> ".array($accessor.map { \$0.canonicalValue })"
+        is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
     }
 
-    private fun swiftDecodeField(field: Field): String
+    private fun swiftDecodeField(bundle: Bundle, field: Field): String
     {
         val path = "\\(path).${field.name}";
         val member = "members[\"${field.name}\"]";
-        return when (val type = FieldType.parse(field.type))
+        return when (val type = bundle.fieldType(field))
         {
             is FieldType.StringType ->
                 if (field.optional) "        self.${field.name} = try SPFNDecoding.optionalString($member, at: \"$path\")"
@@ -262,10 +328,18 @@ object SwiftEmitter
                 else "        self.${field.name} = try SPFNDecoding.integer($member, at: \"$path\")"
             is FieldType.BooleanType ->
                 "        self.${field.name} = try SPFNDecoding.boolean($member, at: \"$path\")"
-            is FieldType.Named ->
-                "        self.${field.name} = try ${Names.swiftType(type.name)}(canonical: $member ?? .null, at: \"$path\")"
+            // An optional composite reads absent and null alike as nothing, which is what
+            // the encoder writes: it omits an absent optional rather than spelling it
+            // null. Decoding `?? .null` for an optional field instead would hand the
+            // decoder a null it is bound to refuse, turning "not sent" into a failure.
+            is FieldType.Named, is FieldType.EnumRef ->
+                if (field.optional)
+                    "        self.${field.name} = try $member.flatMap { \$0 == .null ? nil : \$0 }" +
+                        ".map { try ${swiftType(type)}(canonical: \$0, at: \"$path\") }"
+                else "        self.${field.name} = try ${swiftType(type)}(canonical: $member ?? .null, at: \"$path\")"
             is FieldType.ArrayOf ->
                 "        self.${field.name} = try SPFNDecoding.array($member, at: \"$path\").map { try ${swiftType(type.element)}(canonical: \$0, at: \"$path\") }"
+            is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
         };
     }
 }

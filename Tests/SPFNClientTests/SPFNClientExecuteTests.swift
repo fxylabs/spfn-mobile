@@ -319,7 +319,38 @@ final class SPFNClientExecuteTests: XCTestCase
         XCTAssertEqual(auth, ["PROOF_INVALID", "PROOF_REPLAYED", "PROOF_EXPIRED", "SESSION_REVOKED"])
 
         let server = SPFNGeneratedErrorCode.allCases.filter { !$0.isAuthFailure }.map(\.rawValue)
-        XCTAssertEqual(server, ["PROFILE_REJECTED", "CONTRACT_UNSUPPORTED"])
+        XCTAssertEqual(
+            server,
+            [
+                "PROFILE_REJECTED", "CONTRACT_UNSUPPORTED",
+                "ValidationError", "NativeSignInUnsupportedError", "NonceKeyBindingError",
+                "InvalidKeyFingerprintError", "UnverifiedEmailLinkError", "InvalidSocialTokenError",
+                "AccountDisabledError", "AccountPendingDeletionError", "RegistrationRejectedError",
+                "KeyIdAlreadyRegisteredError", "TooManyRequestsError", "Error",
+            ]
+        )
+    }
+
+    /// A re-handshake re-establishes a clientProofV1 session, and the /_auth operations
+    /// carry no proof and open no session — so no code from that surface can be cleared
+    /// by one, whatever the list above happens to say today.
+    ///
+    /// Stated against the surface rather than against a spelled-out list because the two
+    /// fail differently: the list catches a code nobody classified, and this catches a
+    /// code somebody classified wrongly. A rate limit routed into the re-handshake path
+    /// would re-open a session, resend, and be rate-limited again.
+    func testNoRestSurfaceCodeIsTreatedAsAnAuthFailure() throws
+    {
+        let rest = SPFNGeneratedErrorCode.allCases.filter { $0.surface == .rest }
+        XCTAssertFalse(rest.isEmpty, "the contract declares a rest surface, so this must have something to check")
+
+        for code in rest
+        {
+            XCTAssertFalse(
+                code.isAuthFailure,
+                "\(code.rawValue) is answered by the /_auth surface, and a re-handshake cannot clear one"
+            )
+        }
     }
 
     // MARK: - The one retry

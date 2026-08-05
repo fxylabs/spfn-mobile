@@ -12,20 +12,28 @@
   },
   "source": {
     "repository": "git.superfunction.xyz/superfunction/primitives",
-    "commit": "bffe7eaac886e65843ac79bfc67b37997e41ca96",
+    "commit": "8c95d1b238f83fe35341981aef75dfb96bc51e6f",
     "upstreamBundlePath": "contracts/mobile/spfn-mobile-contract.json",
-    "exporterVersion": "@spfn/auth/contract-bundle@3.0.0",
+    "exporterVersion": "@spfn/auth/contract-bundle@4.0.0",
     "keyNamingRule": "This is not called bundlePath on purpose. The readers of this file match a key name at any depth, so two keys with the same name in different objects would resolve to whichever appears first, and the validator would digest the upstream path instead of the vendored one."
+  },
+  "publishedPackages": {
+    "registry": "https://registry.npmjs.org/",
+    "@spfn/auth": "0.2.0-beta.90",
+    "@spfn/core": "0.2.0-beta.70",
+    "rule": "The npm versions published from source.commit. A commit is not something npm can install, and nothing in an installed @spfn/auth says which contract it implements — the bundle is not shipped in the package and neither is the code that builds it. So the mapping from a package version to a contract version exists only here, written by hand from the commit history, and tools/verify-server/run.sh compares an app's installed tree against it.",
+    "registryRule": "npmjs.org, not the Gitea registry at git.superfunction.xyz — the two carry @spfn at different versions. A machine whose npmrc scopes @spfn to Gitea resolves the lagging one, and --registry does not override a scope: only --@spfn:registry does. tools/verify-server/spfn-versions.sh asks both and refuses to answer with a single number.",
+    "peerRangeWarning": "@spfn/auth declares @spfn/core >=0.2.0-beta.54, which a much older core satisfies while lacking the error envelope this contract's codes ride in. The consumer pins @spfn/core exactly rather than letting resolution choose."
   },
   "contract": {
     "name": "spfn-mobile-contract",
-    "version": "0.4.1",
+    "version": "0.6.0",
     "major": 0,
-    "minor": 4,
+    "minor": 6,
     "bundlePath": "Contracts/spfn-mobile-contract.json",
-    "manifestSha256": "999b98b1f6c207ff0ab4f2d151bfb3d327e6079dd3f22bcd8216c92a59aec4e3",
-    "supportedRange": ">=0.4.1 <0.5.0",
-    "rangeRule": "The contract line is 0.x, so the breaking axis is the minor rather than the major. A server contract is supported only when its major AND minor match this pin AND its patch is at or above the pinned patch. The lower bound is the pinned version, not the minor floor: 0.4.1 added auth.keys.list, auth.keys.revoke and auth.keys.revokeAll, so an SDK generated from 0.4.1 would call operations a 0.4.0 server does not serve. This is why the lock range and the upstream evidence range are allowed to differ — the evidence declares the line upstream supports, the lock declares the window this SDK admits, and the second is contained in the first."
+    "manifestSha256": "0a91612158aaf9917be8487cf70e1df9ab4c12ac6c1106973afa99122e458795",
+    "supportedRange": ">=0.6.0 <0.7.0",
+    "rangeRule": "The contract line is 0.x, so the breaking axis is the minor rather than the major. A server contract is supported only when its major AND minor match this pin AND its patch is at or above the pinned patch. Here the lock range and the upstream evidence range are identical, because 0.6.0 is the minor's first release and adds no operation over a hypothetical earlier patch. They are allowed to differ — the evidence declares the line upstream supports and the lock declares the window this SDK admits, the second contained in the first — and at the 0.4.1 pin they did."
   },
   "authProfiles": {
     "allowed": ["clientProofV1"],

@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    999b98b1f6c207ff0ab4f2d151bfb3d327e6079dd3f22bcd8216c92a59aec4e3
-// contractVersion: 0.4.1
+// bundleSha256:    0a91612158aaf9917be8487cf70e1df9ab4c12ac6c1106973afa99122e458795
+// contractVersion: 0.6.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -15,6 +15,31 @@ package xyz.superfunction.spfn.generated
 
 import xyz.superfunction.spfn.core.SpfnCanonicalValue
 import xyz.superfunction.spfn.core.SpfnDecoding
+import xyz.superfunction.spfn.core.SpfnDecodingException
+
+/**
+ * A value set the contract declares. Decoding is strict: an unknown value is
+ * reported with the raw string preserved rather than mapped onto a member,
+ * because the contract promises no set stays as it is — a value can be added,
+ * and one can be withdrawn for a weakness found later.
+ */
+enum class SpfnKeyAlgorithm(val wireValue: String)
+{
+    ES256("ES256"),
+    RS256("RS256");
+
+    fun canonicalValue(): SpfnCanonicalValue = SpfnCanonicalValue.Text(wireValue);
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnKeyAlgorithm
+        {
+            val raw = SpfnDecoding.string(canonical, path);
+            return entries.firstOrNull { it.wireValue == raw }
+                ?: throw SpfnDecodingException("TYPE_MISMATCH", "$path is not a KeyAlgorithm");
+        }
+    }
+}
 
 data class SpfnHandshakeRequest(
     val clientId: String,
@@ -259,7 +284,7 @@ data class SpfnRegisterRequest(
     val publicKey: String,
     val keyId: String,
     val fingerprint: String,
-    val algorithm: String
+    val algorithm: SpfnKeyAlgorithm
 )
 {
     /**
@@ -283,7 +308,7 @@ data class SpfnRegisterRequest(
         members["publicKey"] = SpfnCanonicalValue.Text(publicKey);
         members["keyId"] = SpfnCanonicalValue.Text(keyId);
         members["fingerprint"] = SpfnCanonicalValue.Text(fingerprint);
-        members["algorithm"] = SpfnCanonicalValue.Text(algorithm);
+        members["algorithm"] = algorithm.canonicalValue();
         return SpfnCanonicalValue.Obj(members);
     }
 
@@ -300,7 +325,7 @@ data class SpfnRegisterRequest(
                 publicKey = SpfnDecoding.string(members["publicKey"], "$path.publicKey"),
                 keyId = SpfnDecoding.string(members["keyId"], "$path.keyId"),
                 fingerprint = SpfnDecoding.string(members["fingerprint"], "$path.fingerprint"),
-                algorithm = SpfnDecoding.string(members["algorithm"], "$path.algorithm")
+                algorithm = SpfnKeyAlgorithm.decode(members["algorithm"] ?: SpfnCanonicalValue.Null, "$path.algorithm")
             );
         }
     }
@@ -356,7 +381,7 @@ data class SpfnLoginRequest(
     val publicKey: String,
     val keyId: String,
     val fingerprint: String,
-    val algorithm: String,
+    val algorithm: SpfnKeyAlgorithm,
     val oldKeyId: String? = null
 )
 {
@@ -380,7 +405,7 @@ data class SpfnLoginRequest(
         members["publicKey"] = SpfnCanonicalValue.Text(publicKey);
         members["keyId"] = SpfnCanonicalValue.Text(keyId);
         members["fingerprint"] = SpfnCanonicalValue.Text(fingerprint);
-        members["algorithm"] = SpfnCanonicalValue.Text(algorithm);
+        members["algorithm"] = algorithm.canonicalValue();
         if (oldKeyId != null)
         {
             members["oldKeyId"] = SpfnCanonicalValue.Text(oldKeyId);
@@ -400,7 +425,7 @@ data class SpfnLoginRequest(
                 publicKey = SpfnDecoding.string(members["publicKey"], "$path.publicKey"),
                 keyId = SpfnDecoding.string(members["keyId"], "$path.keyId"),
                 fingerprint = SpfnDecoding.string(members["fingerprint"], "$path.fingerprint"),
-                algorithm = SpfnDecoding.string(members["algorithm"], "$path.algorithm"),
+                algorithm = SpfnKeyAlgorithm.decode(members["algorithm"] ?: SpfnCanonicalValue.Null, "$path.algorithm"),
                 oldKeyId = SpfnDecoding.optionalString(members["oldKeyId"], "$path.oldKeyId")
             );
         }
@@ -460,7 +485,7 @@ data class SpfnOauthNativeRequest(
     val publicKey: String,
     val keyId: String,
     val fingerprint: String,
-    val algorithm: String
+    val algorithm: SpfnKeyAlgorithm
 )
 {
     /**
@@ -480,7 +505,7 @@ data class SpfnOauthNativeRequest(
         members["publicKey"] = SpfnCanonicalValue.Text(publicKey);
         members["keyId"] = SpfnCanonicalValue.Text(keyId);
         members["fingerprint"] = SpfnCanonicalValue.Text(fingerprint);
-        members["algorithm"] = SpfnCanonicalValue.Text(algorithm);
+        members["algorithm"] = algorithm.canonicalValue();
         return SpfnCanonicalValue.Obj(members);
     }
 
@@ -496,7 +521,7 @@ data class SpfnOauthNativeRequest(
                 publicKey = SpfnDecoding.string(members["publicKey"], "$path.publicKey"),
                 keyId = SpfnDecoding.string(members["keyId"], "$path.keyId"),
                 fingerprint = SpfnDecoding.string(members["fingerprint"], "$path.fingerprint"),
-                algorithm = SpfnDecoding.string(members["algorithm"], "$path.algorithm")
+                algorithm = SpfnKeyAlgorithm.decode(members["algorithm"] ?: SpfnCanonicalValue.Null, "$path.algorithm")
             );
         }
     }
@@ -540,7 +565,7 @@ data class SpfnRotateKeyRequest(
     val publicKey: String,
     val keyId: String,
     val fingerprint: String,
-    val algorithm: String
+    val algorithm: SpfnKeyAlgorithm
 )
 {
     /**
@@ -554,7 +579,7 @@ data class SpfnRotateKeyRequest(
         members["publicKey"] = SpfnCanonicalValue.Text(publicKey);
         members["keyId"] = SpfnCanonicalValue.Text(keyId);
         members["fingerprint"] = SpfnCanonicalValue.Text(fingerprint);
-        members["algorithm"] = SpfnCanonicalValue.Text(algorithm);
+        members["algorithm"] = algorithm.canonicalValue();
         return SpfnCanonicalValue.Obj(members);
     }
 
@@ -567,7 +592,7 @@ data class SpfnRotateKeyRequest(
                 publicKey = SpfnDecoding.string(members["publicKey"], "$path.publicKey"),
                 keyId = SpfnDecoding.string(members["keyId"], "$path.keyId"),
                 fingerprint = SpfnDecoding.string(members["fingerprint"], "$path.fingerprint"),
-                algorithm = SpfnDecoding.string(members["algorithm"], "$path.algorithm")
+                algorithm = SpfnKeyAlgorithm.decode(members["algorithm"] ?: SpfnCanonicalValue.Null, "$path.algorithm")
             );
         }
     }
@@ -639,14 +664,14 @@ data class SpfnKeySummary(
     val keyId: String,
     val deviceName: String? = null,
     val platform: String? = null,
-    val algorithm: String,
+    val algorithm: SpfnKeyAlgorithm,
     val fingerprintPrefix: String,
-    val createdAt: String,
-    val lastUsedAt: String? = null,
-    val expiresAt: String? = null,
+    val createdAtMillis: Long,
+    val lastUsedAtMillis: Long? = null,
+    val expiresAtMillis: Long? = null,
     val isExpired: Boolean,
     val isActive: Boolean,
-    val revokedAt: String? = null
+    val revokedAtMillis: Long? = null
 )
 {
     /**
@@ -666,22 +691,22 @@ data class SpfnKeySummary(
         {
             members["platform"] = SpfnCanonicalValue.Text(platform);
         }
-        members["algorithm"] = SpfnCanonicalValue.Text(algorithm);
+        members["algorithm"] = algorithm.canonicalValue();
         members["fingerprintPrefix"] = SpfnCanonicalValue.Text(fingerprintPrefix);
-        members["createdAt"] = SpfnCanonicalValue.Text(createdAt);
-        if (lastUsedAt != null)
+        members["createdAtMillis"] = SpfnCanonicalValue.Integer(createdAtMillis);
+        if (lastUsedAtMillis != null)
         {
-            members["lastUsedAt"] = SpfnCanonicalValue.Text(lastUsedAt);
+            members["lastUsedAtMillis"] = SpfnCanonicalValue.Integer(lastUsedAtMillis);
         }
-        if (expiresAt != null)
+        if (expiresAtMillis != null)
         {
-            members["expiresAt"] = SpfnCanonicalValue.Text(expiresAt);
+            members["expiresAtMillis"] = SpfnCanonicalValue.Integer(expiresAtMillis);
         }
         members["isExpired"] = SpfnCanonicalValue.Bool(isExpired);
         members["isActive"] = SpfnCanonicalValue.Bool(isActive);
-        if (revokedAt != null)
+        if (revokedAtMillis != null)
         {
-            members["revokedAt"] = SpfnCanonicalValue.Text(revokedAt);
+            members["revokedAtMillis"] = SpfnCanonicalValue.Integer(revokedAtMillis);
         }
         return SpfnCanonicalValue.Obj(members);
     }
@@ -695,14 +720,14 @@ data class SpfnKeySummary(
                 keyId = SpfnDecoding.string(members["keyId"], "$path.keyId"),
                 deviceName = SpfnDecoding.optionalString(members["deviceName"], "$path.deviceName"),
                 platform = SpfnDecoding.optionalString(members["platform"], "$path.platform"),
-                algorithm = SpfnDecoding.string(members["algorithm"], "$path.algorithm"),
+                algorithm = SpfnKeyAlgorithm.decode(members["algorithm"] ?: SpfnCanonicalValue.Null, "$path.algorithm"),
                 fingerprintPrefix = SpfnDecoding.string(members["fingerprintPrefix"], "$path.fingerprintPrefix"),
-                createdAt = SpfnDecoding.string(members["createdAt"], "$path.createdAt"),
-                lastUsedAt = SpfnDecoding.optionalString(members["lastUsedAt"], "$path.lastUsedAt"),
-                expiresAt = SpfnDecoding.optionalString(members["expiresAt"], "$path.expiresAt"),
+                createdAtMillis = SpfnDecoding.integer(members["createdAtMillis"], "$path.createdAtMillis"),
+                lastUsedAtMillis = SpfnDecoding.optionalInteger(members["lastUsedAtMillis"], "$path.lastUsedAtMillis"),
+                expiresAtMillis = SpfnDecoding.optionalInteger(members["expiresAtMillis"], "$path.expiresAtMillis"),
                 isExpired = SpfnDecoding.boolean(members["isExpired"], "$path.isExpired"),
                 isActive = SpfnDecoding.boolean(members["isActive"], "$path.isActive"),
-                revokedAt = SpfnDecoding.optionalString(members["revokedAt"], "$path.revokedAt")
+                revokedAtMillis = SpfnDecoding.optionalInteger(members["revokedAtMillis"], "$path.revokedAtMillis")
             );
         }
     }

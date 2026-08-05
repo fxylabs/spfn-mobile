@@ -13,6 +13,7 @@ package xyz.superfunction.spfn.client
 import kotlinx.coroutines.CompletableDeferred
 import xyz.superfunction.spfn.core.SpfnCanonicalJson
 import xyz.superfunction.spfn.core.SpfnOperation
+import xyz.superfunction.spfn.generated.SpfnKeyAlgorithm
 import xyz.superfunction.spfn.generated.SpfnEchoRequest
 import xyz.superfunction.spfn.generated.SpfnEchoResponse
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
@@ -80,7 +81,7 @@ object ExecuteFixtures
         publicKey = "cHVibGljLWtleS10ZXN0",
         keyId = "key-test-0001",
         fingerprint = "0".repeat(64),
-        algorithm = "ES256"
+        algorithm = SpfnKeyAlgorithm.ES256
     )
 
     val REGISTER_RESPONSE = SpfnRegisterResponse(
@@ -97,7 +98,7 @@ object ExecuteFixtures
         publicKey = "cHVibGljLWtleS10ZXN0LTI",
         keyId = "key-test-0002",
         fingerprint = "1".repeat(64),
-        algorithm = "ES256"
+        algorithm = SpfnKeyAlgorithm.ES256
     )
 
     val ROTATE_RESPONSE = SpfnRotateKeyResponse(success = true, keyId = "key-test-0002")

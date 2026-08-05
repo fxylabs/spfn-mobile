@@ -35,6 +35,7 @@ import xyz.superfunction.spfn.auth.SpfnAuthException
 import xyz.superfunction.spfn.core.SpfnCanonicalJson
 import xyz.superfunction.spfn.core.SpfnErrorEnvelope
 import xyz.superfunction.spfn.generated.SpfnGeneratedErrorCode
+import xyz.superfunction.spfn.generated.SpfnGeneratedErrorSurface
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import xyz.superfunction.spfn.generated.SpfnHandshakeRequest
 import java.io.PrintWriter
@@ -362,9 +363,40 @@ class SpfnClientExecuteTest
             SpfnGeneratedErrorCode.entries.filter { it.isAuthFailure() }.map { it.wireCode }
         );
         assertEquals(
-            listOf("PROFILE_REJECTED", "CONTRACT_UNSUPPORTED"),
+            listOf(
+                "PROFILE_REJECTED", "CONTRACT_UNSUPPORTED",
+                "ValidationError", "NativeSignInUnsupportedError", "NonceKeyBindingError",
+                "InvalidKeyFingerprintError", "UnverifiedEmailLinkError", "InvalidSocialTokenError",
+                "AccountDisabledError", "AccountPendingDeletionError", "RegistrationRejectedError",
+                "KeyIdAlreadyRegisteredError", "TooManyRequestsError", "Error"
+            ),
             SpfnGeneratedErrorCode.entries.filterNot { it.isAuthFailure() }.map { it.wireCode }
         );
+    }
+
+    /**
+     * A re-handshake re-establishes a clientProofV1 session, and the /_auth operations
+     * carry no proof and open no session — so no code from that surface can be cleared by
+     * one, whatever the list above happens to say today.
+     *
+     * Stated against the surface rather than against a spelled-out list because the two
+     * fail differently: the list catches a code nobody classified, and this catches a code
+     * somebody classified wrongly. A rate limit routed into the re-handshake path would
+     * re-open a session, resend, and be rate-limited again.
+     */
+    @Test
+    fun noRestSurfaceCodeIsTreatedAsAnAuthFailure()
+    {
+        val rest = SpfnGeneratedErrorCode.entries.filter { it.surface == SpfnGeneratedErrorSurface.REST };
+        assertTrue("the contract declares a rest surface, so this must have something to check", rest.isNotEmpty());
+
+        for (code in rest)
+        {
+            assertFalse(
+                "${code.wireCode} is answered by the /_auth surface, and a re-handshake cannot clear one",
+                code.isAuthFailure()
+            );
+        }
     }
 
     // ---- the one retry -----------------------------------------------------

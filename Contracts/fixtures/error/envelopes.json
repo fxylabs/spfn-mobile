@@ -7,6 +7,7 @@
       "code": "PROOF_INVALID",
       "httpStatus": 401,
       "retryable": false,
+      "surface": "clientProofV1",
       "sha256": "0402cb7b7c571f888a0f58faaad47d1e217ded15a9be4d4352b7064eac63e306"
     },
     {
@@ -15,6 +16,7 @@
       "code": "PROOF_REPLAYED",
       "httpStatus": 401,
       "retryable": false,
+      "surface": "clientProofV1",
       "sha256": "1d34e78aed6e5a43bb1548082fba79995b557e846ad8f4fe99fbd95c1f79680a"
     },
     {
@@ -23,6 +25,7 @@
       "code": "PROOF_EXPIRED",
       "httpStatus": 401,
       "retryable": false,
+      "surface": "clientProofV1",
       "sha256": "013b2c08ad3a98c9c948d7e553594ff544a81dc95a0cfda4e8ecc39b90cc75e6"
     },
     {
@@ -31,6 +34,7 @@
       "code": "SESSION_REVOKED",
       "httpStatus": 401,
       "retryable": false,
+      "surface": "clientProofV1",
       "sha256": "7cf916592365d52f14ac63fb9036776a36ff4c07147be3a9da97e9475716f288"
     },
     {
@@ -39,6 +43,7 @@
       "code": "PROFILE_REJECTED",
       "httpStatus": 400,
       "retryable": false,
+      "surface": "clientProofV1",
       "sha256": "14496cd2757cd3d8120574c60ca7e19562599d6e1c669e37196ed2ed36a7a780"
     },
     {
@@ -47,7 +52,116 @@
       "code": "CONTRACT_UNSUPPORTED",
       "httpStatus": 409,
       "retryable": false,
+      "surface": "clientProofV1",
       "sha256": "281f6d6e911267c4cf77c829e4645241a35e4be62e423b8ea176e1b14ffe91d8"
+    },
+    {
+      "name": "validation-error",
+      "wire": "{\"error\":{\"code\":\"ValidationError\",\"message\":\"test vector for ValidationError\",\"requestId\":\"req-validation-error\"}}",
+      "code": "ValidationError",
+      "httpStatus": 400,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "c3851f509958feb739659319678446fe999817b702c1f2f7787926d7675e7466"
+    },
+    {
+      "name": "native-sign-in-unsupported-error",
+      "wire": "{\"error\":{\"code\":\"NativeSignInUnsupportedError\",\"message\":\"test vector for NativeSignInUnsupportedError\",\"requestId\":\"req-native-sign-in-unsupported-error\"}}",
+      "code": "NativeSignInUnsupportedError",
+      "httpStatus": 400,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "a6742eadc0625da4d5258b575edc61817047b6100f6d1cae3ec77efa6f691b20"
+    },
+    {
+      "name": "nonce-key-binding-error",
+      "wire": "{\"error\":{\"code\":\"NonceKeyBindingError\",\"message\":\"test vector for NonceKeyBindingError\",\"requestId\":\"req-nonce-key-binding-error\"}}",
+      "code": "NonceKeyBindingError",
+      "httpStatus": 400,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "026c69cc9b1417aea6496845d99b54f69066ed1fa94f4ae06536fa260e401419"
+    },
+    {
+      "name": "invalid-key-fingerprint-error",
+      "wire": "{\"error\":{\"code\":\"InvalidKeyFingerprintError\",\"message\":\"test vector for InvalidKeyFingerprintError\",\"requestId\":\"req-invalid-key-fingerprint-error\"}}",
+      "code": "InvalidKeyFingerprintError",
+      "httpStatus": 400,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "274872bfb3d776d88a40eb1518caa1f7d30ee61f96ebd808347e356c6034ef6f"
+    },
+    {
+      "name": "unverified-email-link-error",
+      "wire": "{\"error\":{\"code\":\"UnverifiedEmailLinkError\",\"message\":\"test vector for UnverifiedEmailLinkError\",\"requestId\":\"req-unverified-email-link-error\"}}",
+      "code": "UnverifiedEmailLinkError",
+      "httpStatus": 400,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "3a445dbbf6c330d025735eb1543e7d2d2c566404d1088f2ca84efa0811726373"
+    },
+    {
+      "name": "invalid-social-token-error",
+      "wire": "{\"error\":{\"code\":\"InvalidSocialTokenError\",\"message\":\"test vector for InvalidSocialTokenError\",\"requestId\":\"req-invalid-social-token-error\"}}",
+      "code": "InvalidSocialTokenError",
+      "httpStatus": 401,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "4da8d7137a8649a8f8c4d7825eece571a8dced2f9a6b0c47f5c92929130ba8a8"
+    },
+    {
+      "name": "account-disabled-error",
+      "wire": "{\"error\":{\"code\":\"AccountDisabledError\",\"message\":\"test vector for AccountDisabledError\",\"requestId\":\"req-account-disabled-error\"}}",
+      "code": "AccountDisabledError",
+      "httpStatus": 403,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "ce9640eb725b37806b9007622284f07a8b0237ec807fdddbffa33bae2c3b345f"
+    },
+    {
+      "name": "account-pending-deletion-error",
+      "wire": "{\"error\":{\"code\":\"AccountPendingDeletionError\",\"message\":\"test vector for AccountPendingDeletionError\",\"requestId\":\"req-account-pending-deletion-error\"}}",
+      "code": "AccountPendingDeletionError",
+      "httpStatus": 403,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "172991c066083985d724e1ae24d002c68f24635c992654861027c0a2e0655285"
+    },
+    {
+      "name": "registration-rejected-error",
+      "wire": "{\"error\":{\"code\":\"RegistrationRejectedError\",\"message\":\"test vector for RegistrationRejectedError\",\"requestId\":\"req-registration-rejected-error\"}}",
+      "code": "RegistrationRejectedError",
+      "httpStatus": 403,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "b3c37b51eb1f7b3853d96b8d10551ef1539ef510c42fa5c6b21ffba13c4b5328"
+    },
+    {
+      "name": "key-id-already-registered-error",
+      "wire": "{\"error\":{\"code\":\"KeyIdAlreadyRegisteredError\",\"message\":\"test vector for KeyIdAlreadyRegisteredError\",\"requestId\":\"req-key-id-already-registered-error\"}}",
+      "code": "KeyIdAlreadyRegisteredError",
+      "httpStatus": 409,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "fca851bdbe10034e3f5bd1b5c7f2acbd9dffb434160429917afeb8de53dbcf52"
+    },
+    {
+      "name": "too-many-requests-error",
+      "wire": "{\"error\":{\"code\":\"TooManyRequestsError\",\"message\":\"test vector for TooManyRequestsError\",\"requestId\":\"req-too-many-requests-error\"}}",
+      "code": "TooManyRequestsError",
+      "httpStatus": 429,
+      "retryable": true,
+      "surface": "rest",
+      "sha256": "190c6295ed645ae2ac51ac14f792ada2a47c833090ae9e135077dce9d6cb0e86"
+    },
+    {
+      "name": "error",
+      "wire": "{\"error\":{\"code\":\"Error\",\"message\":\"test vector for Error\",\"requestId\":\"req-error\"}}",
+      "code": "Error",
+      "httpStatus": 500,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "a7b1b0cf7737faa6b2a46154ea1e993619ae425febf1f88fe905a2b92969416e"
     }
   ],
   "rejected": [

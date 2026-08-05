@@ -17,6 +17,20 @@ data class TypeDefinition(
     val fields: List<Field>
 )
 
+/**
+ * A named set of string values, declared in `enums` rather than in `types`: its
+ * declaration carries values instead of fields.
+ *
+ * The set is what the server accepts and sends now, and the contract promises no set
+ * stays as it is — a value can be added, and one can be withdrawn for a weakness found
+ * later. That is why a generated enum decodes strictly and reports the raw string it
+ * refused rather than falling back to a nearest member.
+ */
+data class EnumDefinition(
+    val name: String,
+    val values: List<String>
+)
+
 data class Operation(
     val id: String,
     val method: String,
@@ -32,6 +46,16 @@ data class ErrorDefinition(
     val code: String,
     val httpStatus: Long,
     val retryable: Boolean,
+    /**
+     * Which surface answers with this code: `clientProofV1` for the proven middleware's
+     * six, `rest` for the /_auth operations' own.
+     *
+     * The two sets sit in one array and mean different things. A proven call can be met
+     * by a clientProofV1 refusal and never by a REST one; a REST call is the reverse. A
+     * consumer that read the array as one list would build a refusal enum with twelve
+     * members that cannot occur on the surface it guards.
+     */
+    val surface: String,
     val summary: String
 )
 
@@ -53,6 +77,8 @@ data class Bundle(
     /** `clientProofV1.clientIdRule`: what a clientId must identify on the REST surface. */
     val clientIdRule: String,
     val types: List<TypeDefinition>,
+    /** `enums`: named string sets a field type can name, declared beside `types`. */
+    val enums: List<EnumDefinition>,
     val operations: List<Operation>,
     val errors: List<ErrorDefinition>
 )
@@ -60,6 +86,16 @@ data class Bundle(
     fun typeNamed(name: String): TypeDefinition =
         types.firstOrNull { it.name == name }
             ?: throw JsonException("operation references unknown type '$name'")
+
+    /**
+     * A field's type, resolved against this bundle's declarations.
+     *
+     * Every emitter goes through here rather than calling `FieldType.parse` with the raw
+     * text, because only the bundle knows which names are enums. An emitter that parsed
+     * on its own would read `KeyAlgorithm` as a struct reference and emit a call to a
+     * decoder that does not exist.
+     */
+    fun fieldType(field: Field): FieldType = FieldType.parse(field.type, enums.map { it.name }.toSet())
 
     companion object
     {
@@ -116,6 +152,15 @@ data class Bundle(
                 );
             }
 
+            // Contract 0.5.0 declares enums beside types. Required rather than defaulted,
+            // like every other section: a bundle without the key is an older contract, and
+            // treating its absence as "no enums" would let an emitter read an enum name as
+            // a struct reference — which is exactly the failure below refuses.
+            val enums = root.required("enums").arr().map { readEnum(it) };
+            val types = root.required("types").arr().map { readType(it) };
+
+            checkDeclarations(types, enums);
+
             return Bundle(
                 contractVersion = root.required("contractVersion").text(),
                 contractMajor = contractMajor,
@@ -129,10 +174,104 @@ data class Bundle(
                 keyPolicyTtlDays = keyPolicy.required("ttlDays").number(),
                 keyRotationOperationId = rotationOperationId,
                 clientIdRule = proof.required("clientIdRule").text(),
-                types = root.required("types").arr().map { readType(it) },
+                types = types,
+                enums = enums,
                 operations = operations,
                 errors = root.required("errors").arr().map { readError(it) }
             );
+        }
+
+        /**
+         * Refuses a bundle this generator cannot turn into compiling clients.
+         *
+         * The contract's own type grammar states the rule this enforces: "a field type
+         * outside this grammar is a contract error, not something to guess at: a consumer
+         * that does not recognise a container spelling reads it as a type name and fails
+         * at compile time." That is not hypothetical. The 0.6.0 pin introduced the enum
+         * `KeyAlgorithm`, `FieldType.parse` read it as a struct reference because it read
+         * everything unrecognised that way, and both SDKs emitted references to a type
+         * nothing declared. Swift failed with "cannot find type in scope" — a build error
+         * for a contract error, one stage too late and in the wrong repository's language.
+         *
+         * So an unresolvable field type stops generation here, where the message can name
+         * the field and the contract.
+         */
+        private fun checkDeclarations(types: List<TypeDefinition>, enums: List<EnumDefinition>)
+        {
+            val typeNames = types.map { it.name }.toSet();
+            val enumNames = enums.map { it.name }.toSet();
+
+            val collisions = typeNames.intersect(enumNames);
+            if (collisions.isNotEmpty())
+            {
+                throw JsonException(
+                    "'${collisions.sorted().joinToString("', '")}' is declared as both a type and an enum"
+                );
+            }
+
+            // Two values that differ only in the separators a generated case name drops
+            // would emit the same case twice, which is a compile error in a file nobody
+            // wrote by hand. Caught here so the message names the enum.
+            enums.forEach { declaration ->
+                val cases = declaration.values.groupBy { Names.enumCase(it) }.filterValues { it.size > 1 };
+                if (cases.isNotEmpty())
+                {
+                    throw JsonException(
+                        "enum '${declaration.name}' has values that generate one case name: " +
+                            cases.values.flatten().sorted().joinToString(", ")
+                    );
+                }
+            }
+
+            types.forEach { type ->
+                type.fields.forEach { field ->
+                    checkFieldType(FieldType.parse(field.type, enumNames), "${type.name}.${field.name}", typeNames);
+                }
+            }
+        }
+
+        private fun checkFieldType(type: FieldType, where: String, typeNames: Set<String>): Unit = when (type)
+        {
+            is FieldType.StringType, is FieldType.IntegerType, is FieldType.BooleanType -> Unit
+            is FieldType.EnumRef -> Unit
+            is FieldType.ArrayOf -> checkFieldType(type.element, where, typeNames)
+            // Declared by the grammar and not emitted on purpose. SPFN-CANON-JSON-1
+            // carries signed 64-bit integers only — "a fractional or non-finite number is
+            // a canonicalization error" — so a float in a proven body could not be signed
+            // at all. The grammar is shared with app contracts, which is why it names a
+            // spelling this contract's own encoding refuses. Nothing in the 0.6.0 pin uses
+            // it, and the day something does is a decision about canonical JSON rather
+            // than a line to add to an emitter.
+            is FieldType.NumberType -> throw JsonException(
+                "$where is 'number', which SPFN-CANON-JSON-1 cannot encode: it carries " +
+                    "signed 64-bit integers only, and a fractional number is a canonicalization error"
+            )
+            // Same reason, different gap: no map appears in this contract, and guessing an
+            // encoding for one would fix a wire shape nothing has agreed on.
+            is FieldType.MapOf -> throw JsonException(
+                "$where is a map, which this generator does not emit; no operation in this contract uses one"
+            )
+            is FieldType.Named ->
+                if (type.name in typeNames) Unit
+                else throw JsonException(
+                    "$where names '${type.name}', which the contract declares as neither a type nor an enum"
+                )
+        }
+
+        private fun readEnum(value: JsonValue): EnumDefinition
+        {
+            val members = value.obj();
+            val name = members.required("name").text();
+            val values = members.required("values").arr().map { it.text() };
+            if (values.isEmpty())
+            {
+                throw JsonException("enum '$name' declares no values");
+            }
+            if (values.size != values.toSet().size)
+            {
+                throw JsonException("enum '$name' repeats a value");
+            }
+            return EnumDefinition(name = name, values = values);
         }
 
         private fun readType(value: JsonValue): TypeDefinition
@@ -173,6 +312,7 @@ data class Bundle(
                 code = members.required("code").text(),
                 httpStatus = members.required("httpStatus").number(),
                 retryable = members.required("retryable").bool(),
+                surface = members.required("surface").text(),
                 summary = members.required("summary").text()
             );
         }
@@ -188,19 +328,41 @@ sealed interface FieldType
 
     data object BooleanType : FieldType
 
+    /** Floating point. Parsed so it can be refused by name; never emitted. */
+    data object NumberType : FieldType
+
     data class Named(val name: String) : FieldType
+
+    /** A name the bundle declares in `enums` rather than in `types`. */
+    data class EnumRef(val name: String) : FieldType
 
     data class ArrayOf(val element: FieldType) : FieldType
 
+    /** `map<string,T>`. The key is always string because JSON has no other key type. */
+    data class MapOf(val value: FieldType) : FieldType
+
     companion object
     {
-        fun parse(text: String): FieldType = when
+        private const val MAP_PREFIX = "map<string,";
+
+        /**
+         * Resolves the bundle's spelling of a field type.
+         *
+         * `enumNames` is not optional and has no default: the whole point is that a name
+         * cannot be classified without knowing what the bundle declared, and a default
+         * empty set would silently restore the behaviour this parameter exists to remove.
+         */
+        fun parse(text: String, enumNames: Set<String>): FieldType = when
         {
             text == "string" -> StringType
             text == "integer" -> IntegerType
+            text == "number" -> NumberType
             text == "boolean" -> BooleanType
             text.startsWith("array<") && text.endsWith(">") ->
-                ArrayOf(parse(text.substring("array<".length, text.length - 1)))
+                ArrayOf(parse(text.substring("array<".length, text.length - 1), enumNames))
+            text.startsWith(MAP_PREFIX) && text.endsWith(">") ->
+                MapOf(parse(text.substring(MAP_PREFIX.length, text.length - 1).trim(), enumNames))
+            text in enumNames -> EnumRef(text)
             else -> Named(text)
         }
     }
@@ -218,13 +380,26 @@ object Names
         }.joinToString("");
     }
 
-    /** `PROOF_INVALID` becomes `proofInvalid`. */
+    /**
+     * `PROOF_INVALID` becomes `proofInvalid`, and `NonceKeyBindingError` becomes
+     * `nonceKeyBindingError`.
+     *
+     * Two spellings arrive here because the contract carries two surfaces. The
+     * clientProofV1 refusals are SCREAMING_SNAKE and the /_auth codes are the error
+     * class names themselves, which are PascalCase. Lowercasing a whole part is right
+     * for the first and destroys the second: this function used to do it unconditionally
+     * and produced `noncekeybindingerror`, a name no reader can split back into words.
+     *
+     * So a part that is already mixed case keeps its shape, and only a part that carries
+     * no lowercase letter — `PROOF`, `ES256` — is lowered as a unit.
+     */
     fun enumCase(code: String): String
     {
         val parts = code.split('_').filter { it.isNotEmpty() };
         return parts.mapIndexed { index, part ->
-            if (index == 0) part.lowercase()
-            else part.lowercase().replaceFirstChar { it.uppercase() }
+            val word = if (part.none { it.isLowerCase() }) part.lowercase() else part;
+            if (index == 0) word.replaceFirstChar { it.lowercase() }
+            else word.replaceFirstChar { it.uppercase() }
         }.joinToString("");
     }
 

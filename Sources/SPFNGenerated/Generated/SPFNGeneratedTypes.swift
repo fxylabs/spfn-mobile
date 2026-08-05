@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    999b98b1f6c207ff0ab4f2d151bfb3d327e6079dd3f22bcd8216c92a59aec4e3
-// contractVersion: 0.4.1
+// bundleSha256:    0a91612158aaf9917be8487cf70e1df9ab4c12ac6c1106973afa99122e458795
+// contractVersion: 0.6.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -12,6 +12,32 @@
 // Verified by:     ./gradlew :contract-codegen:spfnCodegenVerify
 
 import SPFNCore
+
+/// A value set the contract declares. Decoding is strict: an unknown value is
+/// reported with the raw string preserved rather than mapped onto a member,
+/// because the contract promises no set stays as it is — a value can be added,
+/// and one can be withdrawn for a weakness found later.
+public enum SPFNKeyAlgorithm: String, CaseIterable, Sendable
+{
+    case es256 = "ES256"
+    case rs256 = "RS256"
+
+    public var canonicalValue: SPFNCanonicalValue
+    {
+        .string(rawValue)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let raw = try SPFNDecoding.string(canonical, at: path)
+        guard let value = SPFNKeyAlgorithm(rawValue: raw)
+        else
+        {
+            throw SPFNDecodingError.typeMismatch(path: path, expected: "KeyAlgorithm")
+        }
+        self = value
+    }
+}
 
 public struct SPFNHandshakeRequest: Equatable, Sendable
 {
@@ -279,7 +305,7 @@ public struct SPFNRegisterRequest: Equatable, Sendable
     public var publicKey: String
     public var keyId: String
     public var fingerprint: String
-    public var algorithm: String
+    public var algorithm: SPFNKeyAlgorithm
 
     public init(
         email: String? = nil,
@@ -289,7 +315,7 @@ public struct SPFNRegisterRequest: Equatable, Sendable
         publicKey: String,
         keyId: String,
         fingerprint: String,
-        algorithm: String
+        algorithm: SPFNKeyAlgorithm
     )
     {
         self.email = email
@@ -321,7 +347,7 @@ public struct SPFNRegisterRequest: Equatable, Sendable
         members["publicKey"] = .string(publicKey)
         members["keyId"] = .string(keyId)
         members["fingerprint"] = .string(fingerprint)
-        members["algorithm"] = .string(algorithm)
+        members["algorithm"] = algorithm.canonicalValue
         return .object(members)
     }
 
@@ -335,7 +361,7 @@ public struct SPFNRegisterRequest: Equatable, Sendable
         self.publicKey = try SPFNDecoding.string(members["publicKey"], at: "\(path).publicKey")
         self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
         self.fingerprint = try SPFNDecoding.string(members["fingerprint"], at: "\(path).fingerprint")
-        self.algorithm = try SPFNDecoding.string(members["algorithm"], at: "\(path).algorithm")
+        self.algorithm = try SPFNKeyAlgorithm(canonical: members["algorithm"] ?? .null, at: "\(path).algorithm")
     }
 }
 
@@ -396,7 +422,7 @@ public struct SPFNLoginRequest: Equatable, Sendable
     public var publicKey: String
     public var keyId: String
     public var fingerprint: String
-    public var algorithm: String
+    public var algorithm: SPFNKeyAlgorithm
     public var oldKeyId: String?
 
     public init(
@@ -406,7 +432,7 @@ public struct SPFNLoginRequest: Equatable, Sendable
         publicKey: String,
         keyId: String,
         fingerprint: String,
-        algorithm: String,
+        algorithm: SPFNKeyAlgorithm,
         oldKeyId: String? = nil
     )
     {
@@ -438,7 +464,7 @@ public struct SPFNLoginRequest: Equatable, Sendable
         members["publicKey"] = .string(publicKey)
         members["keyId"] = .string(keyId)
         members["fingerprint"] = .string(fingerprint)
-        members["algorithm"] = .string(algorithm)
+        members["algorithm"] = algorithm.canonicalValue
         if let oldKeyId
         {
             members["oldKeyId"] = .string(oldKeyId)
@@ -455,7 +481,7 @@ public struct SPFNLoginRequest: Equatable, Sendable
         self.publicKey = try SPFNDecoding.string(members["publicKey"], at: "\(path).publicKey")
         self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
         self.fingerprint = try SPFNDecoding.string(members["fingerprint"], at: "\(path).fingerprint")
-        self.algorithm = try SPFNDecoding.string(members["algorithm"], at: "\(path).algorithm")
+        self.algorithm = try SPFNKeyAlgorithm(canonical: members["algorithm"] ?? .null, at: "\(path).algorithm")
         self.oldKeyId = try SPFNDecoding.optionalString(members["oldKeyId"], at: "\(path).oldKeyId")
     }
 }
@@ -522,7 +548,7 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
     public var publicKey: String
     public var keyId: String
     public var fingerprint: String
-    public var algorithm: String
+    public var algorithm: SPFNKeyAlgorithm
 
     public init(
         idToken: String,
@@ -531,7 +557,7 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
         publicKey: String,
         keyId: String,
         fingerprint: String,
-        algorithm: String
+        algorithm: SPFNKeyAlgorithm
     )
     {
         self.idToken = idToken
@@ -558,7 +584,7 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
         members["publicKey"] = .string(publicKey)
         members["keyId"] = .string(keyId)
         members["fingerprint"] = .string(fingerprint)
-        members["algorithm"] = .string(algorithm)
+        members["algorithm"] = algorithm.canonicalValue
         return .object(members)
     }
 
@@ -571,7 +597,7 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
         self.publicKey = try SPFNDecoding.string(members["publicKey"], at: "\(path).publicKey")
         self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
         self.fingerprint = try SPFNDecoding.string(members["fingerprint"], at: "\(path).fingerprint")
-        self.algorithm = try SPFNDecoding.string(members["algorithm"], at: "\(path).algorithm")
+        self.algorithm = try SPFNKeyAlgorithm(canonical: members["algorithm"] ?? .null, at: "\(path).algorithm")
     }
 }
 
@@ -618,13 +644,13 @@ public struct SPFNRotateKeyRequest: Equatable, Sendable
     public var publicKey: String
     public var keyId: String
     public var fingerprint: String
-    public var algorithm: String
+    public var algorithm: SPFNKeyAlgorithm
 
     public init(
         publicKey: String,
         keyId: String,
         fingerprint: String,
-        algorithm: String
+        algorithm: SPFNKeyAlgorithm
     )
     {
         self.publicKey = publicKey
@@ -642,7 +668,7 @@ public struct SPFNRotateKeyRequest: Equatable, Sendable
         members["publicKey"] = .string(publicKey)
         members["keyId"] = .string(keyId)
         members["fingerprint"] = .string(fingerprint)
-        members["algorithm"] = .string(algorithm)
+        members["algorithm"] = algorithm.canonicalValue
         return .object(members)
     }
 
@@ -652,7 +678,7 @@ public struct SPFNRotateKeyRequest: Equatable, Sendable
         self.publicKey = try SPFNDecoding.string(members["publicKey"], at: "\(path).publicKey")
         self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
         self.fingerprint = try SPFNDecoding.string(members["fingerprint"], at: "\(path).fingerprint")
-        self.algorithm = try SPFNDecoding.string(members["algorithm"], at: "\(path).algorithm")
+        self.algorithm = try SPFNKeyAlgorithm(canonical: members["algorithm"] ?? .null, at: "\(path).algorithm")
     }
 }
 
@@ -725,27 +751,27 @@ public struct SPFNKeySummary: Equatable, Sendable
     public var keyId: String
     public var deviceName: String?
     public var platform: String?
-    public var algorithm: String
+    public var algorithm: SPFNKeyAlgorithm
     public var fingerprintPrefix: String
-    public var createdAt: String
-    public var lastUsedAt: String?
-    public var expiresAt: String?
+    public var createdAtMillis: Int64
+    public var lastUsedAtMillis: Int64?
+    public var expiresAtMillis: Int64?
     public var isExpired: Bool
     public var isActive: Bool
-    public var revokedAt: String?
+    public var revokedAtMillis: Int64?
 
     public init(
         keyId: String,
         deviceName: String? = nil,
         platform: String? = nil,
-        algorithm: String,
+        algorithm: SPFNKeyAlgorithm,
         fingerprintPrefix: String,
-        createdAt: String,
-        lastUsedAt: String? = nil,
-        expiresAt: String? = nil,
+        createdAtMillis: Int64,
+        lastUsedAtMillis: Int64? = nil,
+        expiresAtMillis: Int64? = nil,
         isExpired: Bool,
         isActive: Bool,
-        revokedAt: String? = nil
+        revokedAtMillis: Int64? = nil
     )
     {
         self.keyId = keyId
@@ -753,12 +779,12 @@ public struct SPFNKeySummary: Equatable, Sendable
         self.platform = platform
         self.algorithm = algorithm
         self.fingerprintPrefix = fingerprintPrefix
-        self.createdAt = createdAt
-        self.lastUsedAt = lastUsedAt
-        self.expiresAt = expiresAt
+        self.createdAtMillis = createdAtMillis
+        self.lastUsedAtMillis = lastUsedAtMillis
+        self.expiresAtMillis = expiresAtMillis
         self.isExpired = isExpired
         self.isActive = isActive
-        self.revokedAt = revokedAt
+        self.revokedAtMillis = revokedAtMillis
     }
 
     /// The canonical form of this value. An absent optional field is omitted,
@@ -776,22 +802,22 @@ public struct SPFNKeySummary: Equatable, Sendable
         {
             members["platform"] = .string(platform)
         }
-        members["algorithm"] = .string(algorithm)
+        members["algorithm"] = algorithm.canonicalValue
         members["fingerprintPrefix"] = .string(fingerprintPrefix)
-        members["createdAt"] = .string(createdAt)
-        if let lastUsedAt
+        members["createdAtMillis"] = .integer(createdAtMillis)
+        if let lastUsedAtMillis
         {
-            members["lastUsedAt"] = .string(lastUsedAt)
+            members["lastUsedAtMillis"] = .integer(lastUsedAtMillis)
         }
-        if let expiresAt
+        if let expiresAtMillis
         {
-            members["expiresAt"] = .string(expiresAt)
+            members["expiresAtMillis"] = .integer(expiresAtMillis)
         }
         members["isExpired"] = .bool(isExpired)
         members["isActive"] = .bool(isActive)
-        if let revokedAt
+        if let revokedAtMillis
         {
-            members["revokedAt"] = .string(revokedAt)
+            members["revokedAtMillis"] = .integer(revokedAtMillis)
         }
         return .object(members)
     }
@@ -802,14 +828,14 @@ public struct SPFNKeySummary: Equatable, Sendable
         self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
         self.deviceName = try SPFNDecoding.optionalString(members["deviceName"], at: "\(path).deviceName")
         self.platform = try SPFNDecoding.optionalString(members["platform"], at: "\(path).platform")
-        self.algorithm = try SPFNDecoding.string(members["algorithm"], at: "\(path).algorithm")
+        self.algorithm = try SPFNKeyAlgorithm(canonical: members["algorithm"] ?? .null, at: "\(path).algorithm")
         self.fingerprintPrefix = try SPFNDecoding.string(members["fingerprintPrefix"], at: "\(path).fingerprintPrefix")
-        self.createdAt = try SPFNDecoding.string(members["createdAt"], at: "\(path).createdAt")
-        self.lastUsedAt = try SPFNDecoding.optionalString(members["lastUsedAt"], at: "\(path).lastUsedAt")
-        self.expiresAt = try SPFNDecoding.optionalString(members["expiresAt"], at: "\(path).expiresAt")
+        self.createdAtMillis = try SPFNDecoding.integer(members["createdAtMillis"], at: "\(path).createdAtMillis")
+        self.lastUsedAtMillis = try SPFNDecoding.optionalInteger(members["lastUsedAtMillis"], at: "\(path).lastUsedAtMillis")
+        self.expiresAtMillis = try SPFNDecoding.optionalInteger(members["expiresAtMillis"], at: "\(path).expiresAtMillis")
         self.isExpired = try SPFNDecoding.boolean(members["isExpired"], at: "\(path).isExpired")
         self.isActive = try SPFNDecoding.boolean(members["isActive"], at: "\(path).isActive")
-        self.revokedAt = try SPFNDecoding.optionalString(members["revokedAt"], at: "\(path).revokedAt")
+        self.revokedAtMillis = try SPFNDecoding.optionalInteger(members["revokedAtMillis"], at: "\(path).revokedAtMillis")
     }
 }
 
