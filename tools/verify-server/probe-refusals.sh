@@ -293,6 +293,47 @@ fi
 kill "$LISTENER_PID" 2> /dev/null || true
 wait "$LISTENER_PID" 2> /dev/null || true
 
+# 11. Stopping the app must reach the whole process tree. run.sh starts the app through
+#     a package manager, so the server is a grandchild: a plain kill of $SERVER_PID
+#     reaches only npm and orphans the process holding the port — the first real run
+#     failed section 7 exactly this way. The function under test is extracted from
+#     run.sh by its markers rather than copied, so this case fails closed when the
+#     markers or the function disappear, and cannot drift from the shipped code.
+KT_SRC=$(sed -n '/# kill_tree begin/,/# kill_tree end/p' "$RUNNER")
+if [ -z "$KT_SRC" ]
+then
+    fail 'run.sh no longer carries the marked kill_tree function, so tree cleanup is unproved'
+else
+    eval "$KT_SRC"
+    sh -c "sleep 300 & printf '%s' \$! > '$WORK/kt-grandchild.pid'; wait" &
+    KT_PARENT=$!
+
+    ATTEMPT=0
+    while [ "$ATTEMPT" -lt 30 ] && [ ! -s "$WORK/kt-grandchild.pid" ]
+    do
+        ATTEMPT=$((ATTEMPT + 1))
+        sleep 0.1
+    done
+
+    KT_GRANDCHILD=$(cat "$WORK/kt-grandchild.pid" 2> /dev/null)
+    if [ -z "$KT_GRANDCHILD" ]
+    then
+        fail 'the probe could not start a nested process tree, so tree cleanup was not proved'
+        kill "$KT_PARENT" 2> /dev/null || true
+    else
+        kill_tree "$KT_PARENT"
+        wait "$KT_PARENT" 2> /dev/null || true
+        sleep 0.3
+        if kill -0 "$KT_GRANDCHILD" 2> /dev/null
+        then
+            fail 'kill_tree left the grandchild running, so a stopped run still holds the port'
+            kill "$KT_GRANDCHILD" 2> /dev/null || true
+        else
+            pass 'kill_tree stops the grandchild a plain kill would orphan'
+        fi
+    fi
+fi
+
 printf '\n'
 if [ "$FAILURES" -eq 0 ]
 then
