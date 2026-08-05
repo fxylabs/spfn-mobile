@@ -80,7 +80,7 @@ mkdir -p "$RECEIPTS"
 # Stops a process and every descendant, deepest first. `kill "$SERVER_PID"` alone
 # reaches only the package manager: `npm run spfn:server` spawns spfn, which spawns the
 # server itself, and killing npm orphans the grandchildren with the port still held.
-# The first real run failed section 7 exactly this way. The markers around this
+# The first real run failed the final section exactly this way. The markers around this
 # function are load-bearing: probe-refusals.sh extracts it by them and proves it kills
 # a grandchild a plain kill would leave running.
 kill_tree()
@@ -266,7 +266,37 @@ fi
 pass "$APP_PACKAGE@$INSTALLED_VERSION matches the contract lock"
 
 # ---------------------------------------------------------------------------
-printf '\n3. PostgreSQL\n'
+printf '\n3. the seeded account\n'
+# ---------------------------------------------------------------------------
+# The suite signs in through /_auth/login, which needs an account that already exists.
+# The app owns the script that creates it (the scoping brief's rule: the account is
+# created through @spfn/auth's own hashPassword and repositories, never raw SQL), and
+# this runner reads the credentials from that script rather than keeping a second copy
+# that could drift. The password is exported to the suite and never printed.
+SEED_RELATIVE=scripts/seed-verify-user.ts
+SEED_SCRIPT=$APP_DIR/$SEED_RELATIVE
+
+if [ ! -f "$SEED_SCRIPT" ]
+then
+    fail "$APP_DIR carries no $SEED_RELATIVE, so no seeded account exists to sign in as"
+    fail 'the verify app owns the seed script; see tools/verify-server/README.md'
+    exit 1
+fi
+
+SEED_EMAIL=$(sed -n "s/^export const VERIFY_EMAIL = '\([^']*\)';\$/\1/p" "$SEED_SCRIPT" | head -1)
+SEED_PASSWORD=$(sed -n "s/^export const VERIFY_PASSWORD = '\([^']*\)';\$/\1/p" "$SEED_SCRIPT" | head -1)
+
+if [ -z "$SEED_EMAIL" ] || [ -z "$SEED_PASSWORD" ]
+then
+    fail "$SEED_RELATIVE exports no readable VERIFY_EMAIL/VERIFY_PASSWORD pair"
+    fail 'the suite signs in with those constants, so a run without them proves nothing'
+    exit 1
+fi
+
+pass "seed account source: $SEED_EMAIL (password read, not printed)"
+
+# ---------------------------------------------------------------------------
+printf '\n4. PostgreSQL\n'
 # ---------------------------------------------------------------------------
 # A real server needs a real database, and the answer to an absent one is an exit with
 # the reason. Starting the app's docker compose here would be this script reaching into
@@ -328,8 +358,29 @@ then
 fi
 
 # ---------------------------------------------------------------------------
-printf '\n4. starting the app\n'
+printf '\n5. starting the app\n'
 # ---------------------------------------------------------------------------
+# The seed runs first, and with the app's own tsx: it is idempotent, so an account that
+# already exists is a pass, and a database the migrations never reached is a refusal
+# here rather than a failing suite twenty seconds later.
+SEED_RUNNER=$APP_DIR/node_modules/.bin/tsx
+
+if [ ! -x "$SEED_RUNNER" ]
+then
+    fail "$APP_DIR installs no tsx, so the seed script cannot run"
+    exit 1
+fi
+
+SEED_LOG="$WORK/seed.log"
+if ! (cd "$APP_DIR" && "$SEED_RUNNER" "$SEED_RELATIVE") > "$SEED_LOG" 2>&1
+then
+    fail 'the seed script failed, so the account the suite signs in as may not exist'
+    sed 's/^/      /' "$SEED_LOG"
+    exit 1
+fi
+
+pass "seed account ensured: $SEED_EMAIL"
+
 # `spfn dev --server-only` runs the SPFN API without Next.js and writes the port it
 # actually bound to into .spfn/server-ready. The port is read rather than assumed: a
 # fixed port is either wrong on a machine already running the app or silently right
@@ -411,12 +462,14 @@ fi
 pass "verify app ready at $BASE_URL (pid $SERVER_PID)"
 
 # ---------------------------------------------------------------------------
-printf '\n5. the real-server suite\n'
+printf '\n6. the real-server suite\n'
 # ---------------------------------------------------------------------------
 # No pipe: a pipeline reports the exit status of its last command, and `| tee` would
 # turn every failing suite into a passing run.
 set +e
 SPFN_VERIFY_SERVER_URL="$BASE_URL" \
+    SPFN_VERIFY_EMAIL="$SEED_EMAIL" \
+    SPFN_VERIFY_PASSWORD="$SEED_PASSWORD" \
     SPFN_INTEGRATION_RECEIPTS="$RECEIPTS" \
     swift test --filter SPFNVerifyTests > "$SWIFT_LOG" 2>&1
 SWIFT_STATUS=$?
@@ -431,7 +484,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-printf '\n6. every case really ran\n'
+printf '\n7. every case really ran\n'
 # ---------------------------------------------------------------------------
 # The receipts are the safety, not the skip. A skipped XCTest is reported as a passing
 # XCTest, so a suite that skipped everything leaves an empty directory that this
@@ -457,7 +510,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-printf '\n7. the app this run is responsible for\n'
+printf '\n8. the app this run is responsible for\n'
 # ---------------------------------------------------------------------------
 kill_tree "$SERVER_PID"
 wait "$SERVER_PID" 2> /dev/null || true
