@@ -78,10 +78,18 @@ network mid-rotation, through a harness button over the injected transport. Noth
 SDK changed to allow it — the transport is injected, which is what the boundary is for.
 
 **The emulator's `127.0.0.1` is the emulator.** The reference server binds to the host's
-loopback address. An iOS simulator shares the host's network stack and reaches it directly;
-an Android emulator reaches it at `10.0.2.2`, and the runner rewrites the base URL for
-that. A physical device reaches it at neither, so the runner refuses a device run against
-the local server rather than reporting a failure that looks like the SDK's.
+loopback address, and how a target reaches that address is different for each kind:
+
+| Target | How it reaches the reference server |
+| --- | --- |
+| iOS simulator | shares the host's network stack; `127.0.0.1` already works |
+| Android emulator | `10.0.2.2`, its own alias for the host loopback — the runner rewrites the URL |
+| Android device | `adb reverse`, opened by the runner and removed when the run ends |
+| iOS device | nothing; name a reachable server with `SPFN_HARNESS_TARGET_URL` or the run is refused |
+
+`adb reverse` is why an Android phone needs no extra setup: the device's own `127.0.0.1`
+arrives at the host's over the debugging connection, so the server stays on loopback and
+is never exposed to the network.
 
 ## Sign-in, and why it is a launch argument
 
@@ -118,6 +126,31 @@ most expensive kind of green there is.
 The runner uses the one booted simulator or the one attached device. Two of either and it
 refuses rather than guessing — name one with `SPFN_HARNESS_TARGET`.
 
-Google sign-in on an emulator needs a `google_apis_playstore` system image. The
-`google_apis` image has no Play Store and cannot update its own Play services, which
-`GetGoogleIdOption` expects to be reasonably current.
+## On a real Android phone
+
+```sh
+ANDROID_HOME=$HOME/Library/Android/sdk sh tools/harness/run-harness.sh android
+```
+
+Plug it in with USB debugging on and accept the prompt — an unauthorized device is not
+listed as `device` by `adb`, so the runner refuses it rather than picking it. Everything
+else is the same as an emulator run: the runner opens the reverse route, builds, installs
+the debug APK, and removes the route afterwards.
+
+The debug build signs with the machine's own `~/.android/debug.keystore`, which is why
+no signing material lives in this repository and none is needed to install on a phone.
+
+**Wake it first.** A sleeping or locked Android target does not fail the run, it hangs it:
+`am instrument` is refused while the user's storage is locked, and Maestro waits forever
+with nothing in its log after `Selected device`. The runner wakes the target and refuses
+when it cannot, but a phone with a PIN has to be unlocked by hand.
+
+That refusal was written from an emulator that could not be woken at all: it stayed in
+direct-boot with user 0 `RUNNING_LOCKED` through two reboots and a disabled lock screen,
+and every instrumentation start answered `Package dev.mobile.maestro is not encryption
+aware`. If a target ever does that, it is the target, not the harness.
+
+Google sign-in on an emulator additionally needs a `google_apis_playstore` system image.
+The `google_apis` image has no Play Store and cannot update its own Play services, which
+`GetGoogleIdOption` expects to be reasonably current. A real phone has neither problem,
+which is the other reason device runs are the ones that settle provider sign-in.

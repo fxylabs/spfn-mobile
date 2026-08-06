@@ -89,6 +89,12 @@ LAUNCH_FILE="$WORK/reference-server.json"
 SERVER_LOG="$WORK/reference-server.log"
 SERVER_PID=''
 
+# Both are read by cleanup, which is armed before either is decided. Under `set -u` an
+# unset one would turn any early exit into an error about the cleanup rather than about
+# whatever actually went wrong.
+TARGET=''
+REVERSED_PORT=''
+
 mkdir -p "$RECEIPTS"
 
 cleanup()
@@ -97,6 +103,12 @@ cleanup()
     then
         kill "$SERVER_PID" 2> /dev/null || true
         wait "$SERVER_PID" 2> /dev/null || true
+    fi
+    # A reverse route outlives this script and the port it names is reused by the next
+    # run, so leaving one behind points a later run's app at a server that is gone.
+    if [ -n "$REVERSED_PORT" ]
+    then
+        adb -s "$TARGET" reverse --remove "tcp:$REVERSED_PORT" > /dev/null 2>&1 || true
     fi
     rm -rf "$WORK"
 }
@@ -311,9 +323,14 @@ then
     fi
     pass "external target at $BASE_URL (started by something other than this script)"
 else
-    if [ "$IS_PHYSICAL_DEVICE" -eq 1 ]
+    # An iOS device is refused here and an Android one is not, and the difference is real
+    # rather than a preference: `adb reverse` gives a USB-attached Android device a route
+    # to the host's loopback, which is the interface the reference server binds to. iOS
+    # has no equivalent, so an iPhone needs a server it can reach over the network and
+    # has to be told which one.
+    if [ "$IS_PHYSICAL_DEVICE" -eq 1 ] && [ "$PLATFORM" = ios ]
     then
-        fail 'a physical device cannot reach the reference server'
+        fail 'a physical iOS device cannot reach the reference server'
         fail 'it binds to the loopback address, which is the host machine and not the device'
         fail 'name a server the device can reach: SPFN_HARNESS_TARGET_URL=http://<host>:<port>'
         exit 1
@@ -376,18 +393,44 @@ else
     pass "reference server ready at $BASE_URL (pid $SERVER_PID)"
 fi
 
-# The address the APP uses, which is not always the address this script uses. An Android
-# emulator's own 127.0.0.1 is the emulator, and 10.0.2.2 is the alias its network stack
-# gives the host's loopback — the exact interface the reference server bound to. An iOS
-# simulator shares the host's network stack, so its 127.0.0.1 is already the right one.
+# The address the APP uses, which is not always the address this script uses. Three cases,
+# and each one is about how that particular target reaches the host's loopback:
+#
+#   iOS simulator     shares the host's network stack, so its 127.0.0.1 is already right
+#   Android emulator  reaches the host's loopback at 10.0.2.2, its own alias for it
+#   Android device    reaches nothing by itself; `adb reverse` gives it a route
+#
+# An external target is none of these — the caller named an address that is already
+# reachable — so nothing is rewritten and no route is opened.
 APP_BASE_URL=$BASE_URL
-if [ "$PLATFORM" = android ] && [ "$IS_PHYSICAL_DEVICE" -eq 0 ]
+
+if [ -z "$TARGET_URL" ] && [ "$PLATFORM" = android ]
 then
-    APP_BASE_URL=$(printf '%s' "$BASE_URL" | sed 's|//127\.0\.0\.1:|//10.0.2.2:|; s|//localhost:|//10.0.2.2:|')
-fi
-if [ "$APP_BASE_URL" != "$BASE_URL" ]
-then
-    pass "the app will use $APP_BASE_URL (the emulator's alias for the host loopback)"
+    if [ "$IS_PHYSICAL_DEVICE" -eq 0 ]
+    then
+        APP_BASE_URL=$(printf '%s' "$BASE_URL" | sed 's|//127\.0\.0\.1:|//10.0.2.2:|; s|//localhost:|//10.0.2.2:|')
+        pass "the app will use $APP_BASE_URL (the emulator's alias for the host loopback)"
+    else
+        # `adb reverse tcp:N tcp:N` makes the DEVICE's own 127.0.0.1:N arrive at the
+        # host's 127.0.0.1:N over the debugging connection. So the app keeps the base URL
+        # this script already has, and the loopback-bound reference server needs no
+        # second interface and no exposure to the network.
+        REVERSED_PORT=$(printf '%s' "$BASE_URL" | sed -n 's|.*:\([0-9][0-9]*\)$|\1|p')
+        if [ -z "$REVERSED_PORT" ]
+        then
+            fail "no port could be read from $BASE_URL, so no route to it can be opened"
+            exit 1
+        fi
+        if ! adb -s "$TARGET" reverse "tcp:$REVERSED_PORT" "tcp:$REVERSED_PORT" > /dev/null 2>&1
+        then
+            REVERSED_PORT=''
+            fail "the device refused a reverse route for port $REVERSED_PORT"
+            fail 'without it the device reaches nothing on this machine'
+            fail 'name a server it can reach instead: SPFN_HARNESS_TARGET_URL=http://<host>:<port>'
+            exit 1
+        fi
+        pass "the device reaches $BASE_URL through an adb reverse route on port $REVERSED_PORT"
+    fi
 fi
 
 # Which cases this run is required to complete, decided here where both the target and
