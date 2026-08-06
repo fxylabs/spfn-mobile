@@ -18,11 +18,21 @@ import kotlinx.coroutines.withContext
  * The harness screen.
  *
  * Buttons and three labels, built in code. This is not a sample app and not a design:
- * every view exists because a flow needs to tap it or read it, and each one carries a
- * content description because that is what Maestro matches on.
+ * every view exists because a flow needs to tap it or read it.
  *
- * The identifiers are the same strings the iOS harness uses, so one flow file drives both
- * (tools/harness/ios/Sources/HarnessView.swift).
+ * How a flow finds them is split, and the split is forced by the platforms rather than
+ * chosen. A flow's `id:` matches an accessibility identifier on iOS and a RESOURCE id on
+ * Android, and a resource id is fixed at build time — so a button, whose identity never
+ * changes, is found by id on both, while a readout, whose whole point is that its value
+ * changes, is found by its text. The label rides in that text (`state=unenrolled`) so the
+ * match names which readout it means.
+ *
+ * The first run on a real phone is what settled this: all nine cases failed with
+ * "Element not found: Id matching regex: wipe" while the screen was on and correct,
+ * because content descriptions are not resource ids.
+ *
+ * tools/harness/ios/Sources/HarnessView.swift is the same screen in SwiftUI, with the
+ * same button ids and the same readout text.
  */
 class HarnessActivity : Activity()
 {
@@ -69,20 +79,21 @@ class HarnessActivity : Activity()
     }
 
     /**
-     * Every button the flows tap, paired with what it does. The name is both the visible
-     * text and the content description, so a flow's `tapOn: id: "rotate"` reads as the
-     * action it performs.
+     * Every button the flows tap: its resource id, its visible text, and what it does.
+     *
+     * The text is lowercase and `isAllCaps` is turned off, so what a reader sees on the
+     * phone is the same word the flow file names.
      */
-    private fun actions(): List<Pair<String, suspend () -> Unit>> = listOf(
-        "enroll" to { model.enroll() },
-        "rotate" to { model.rotate() },
-        "resume" to { model.resumeRotation() },
-        "revoke" to { model.revokeActiveKey() },
-        "proven-call" to { model.provenCall() },
-        "note-revoked" to { model.noteSessionRevoked() },
-        "wipe" to { model.wipe() },
-        "block-network" to { model.setNetworkBlocked(true) },
-        "open-network" to { model.setNetworkBlocked(false) }
+    private fun actions(): List<Triple<Int, String, suspend () -> Unit>> = listOf(
+        Triple(R.id.btn_enroll, "enroll") { model.enroll() },
+        Triple(R.id.btn_rotate, "rotate") { model.rotate() },
+        Triple(R.id.btn_resume, "resume") { model.resumeRotation() },
+        Triple(R.id.btn_revoke, "revoke") { model.revokeActiveKey() },
+        Triple(R.id.btn_proven_call, "proven-call") { model.provenCall() },
+        Triple(R.id.btn_note_revoked, "note-revoked") { model.noteSessionRevoked() },
+        Triple(R.id.btn_wipe, "wipe") { model.wipe() },
+        Triple(R.id.btn_block_network, "block-network") { model.setNetworkBlocked(true) },
+        Triple(R.id.btn_open_network, "open-network") { model.setNetworkBlocked(false) }
     );
 
     private fun label(parent: ViewGroup): TextView
@@ -93,36 +104,21 @@ class HarnessActivity : Activity()
         return view;
     }
 
-    /**
-     * Writes one readout, with the value in the identifier as well as in the text.
-     *
-     * The obvious spelling — an identifier naming the label and the text carrying the
-     * value — does not survive the trip on iOS: setting an accessibility identifier on a
-     * SwiftUI `Text` leaves the automation hierarchy with the identifier and an empty
-     * text, so a flow matching on both matches nothing. The first real run found it.
-     *
-     * Android does not have that problem, but the flows are shared, so this half spells it
-     * the same way. One flow file, one field to match.
-     */
-    private fun readout(view: TextView, id: String, value: String)
-    {
-        view.text = value;
-        view.contentDescription = "$id:$value";
-    }
-
-    private fun button(action: Pair<String, suspend () -> Unit>): Button
+    private fun button(action: Triple<Int, String, suspend () -> Unit>): Button
     {
         val view = Button(this);
-        view.text = action.first;
-        view.contentDescription = action.first;
-        view.setOnClickListener { perform(action.second) };
+        view.id = action.first;
+        view.text = action.second;
+        view.isAllCaps = false;
+        view.setOnClickListener { perform(action.third) };
         return view;
     }
 
     /**
      * The network work leaves the main thread; the labels are written back on it. A flow
-     * waits for `busy-label` to read `ready` rather than sleeping for a guessed number of
-     * seconds.
+     * waits for `busy=ready` rather than sleeping for a guessed number of seconds, and
+     * `render(busy = true)` runs HERE, synchronously inside the click, so there is no
+     * window where a started action still reads as finished.
      */
     private fun perform(action: suspend () -> Unit)
     {
@@ -135,8 +131,8 @@ class HarnessActivity : Activity()
 
     private fun render(busy: Boolean)
     {
-        readout(stateLabel, "state-label", model.state);
-        readout(outcomeLabel, "outcome-label", model.outcome);
-        readout(busyLabel, "busy-label", if (busy) "busy" else "ready");
+        stateLabel.text = "state=${model.state}";
+        outcomeLabel.text = "outcome=${model.outcome}";
+        busyLabel.text = if (busy) "busy=busy" else "busy=ready";
     }
 }

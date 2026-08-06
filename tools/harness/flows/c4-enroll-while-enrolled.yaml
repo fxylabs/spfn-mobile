@@ -10,15 +10,15 @@ name: c4-enroll-while-enrolled
 - runFlow: reach-enrolled.yaml
 
 - tapOn:
-    id: "enroll"
+    id: "btn_enroll"
 
 - extendedWaitUntil:
     visible:
-      id: "busy-label:ready"
+      text: "busy=ready"
     timeout: 20000
 
 - assertVisible:
-    id: "outcome-label:err:alreadyEnrolled"
+    text: "outcome=err:alreadyEnrolled"
 
 - assertVisible:
-    id: "state-label:enrolled"
+    text: "state=enrolled"

@@ -23,12 +23,12 @@ appId: ${APP_ID}
       SPFN_HARNESS_TEST_USER: ${TEST_USER}
 
 - tapOn:
-    id: "wipe"
+    id: "btn_wipe"
 
 - extendedWaitUntil:
     visible:
-      id: "busy-label:ready"
+      text: "busy=ready"
     timeout: 20000
 
 - assertVisible:
-    id: "state-label:unenrolled"
+    text: "state=unenrolled"

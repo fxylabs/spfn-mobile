@@ -11,4 +11,4 @@ name: c1-enroll-from-unenrolled
 - runFlow: reach-enrolled.yaml
 
 - assertVisible:
-    id: "outcome-label:ok:enrolled.*"
+    text: "outcome=ok:enrolled.*"

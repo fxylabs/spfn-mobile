@@ -14,15 +14,15 @@ name: c9-resume-while-rotation-pending
 - runFlow: reach-rotation-pending.yaml
 
 - tapOn:
-    id: "resume"
+    id: "btn_resume"
 
 - extendedWaitUntil:
     visible:
-      id: "busy-label:ready"
+      text: "busy=ready"
     timeout: 20000
 
 - assertVisible:
-    id: "outcome-label:ok:resumed.*"
+    text: "outcome=ok:resumed.*"
 
 - assertVisible:
-    id: "state-label:enrolled"
+    text: "state=enrolled"

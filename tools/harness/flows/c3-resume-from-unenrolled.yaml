@@ -10,15 +10,15 @@ name: c3-resume-from-unenrolled
 - runFlow: prelude-clean.yaml
 
 - tapOn:
-    id: "resume"
+    id: "btn_resume"
 
 - extendedWaitUntil:
     visible:
-      id: "busy-label:ready"
+      text: "busy=ready"
     timeout: 20000
 
 - assertVisible:
-    id: "outcome-label:err:notEnrolled"
+    text: "outcome=err:notEnrolled"
 
 - assertVisible:
-    id: "state-label:unenrolled"
+    text: "state=unenrolled"

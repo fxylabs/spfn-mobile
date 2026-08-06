@@ -13,15 +13,15 @@ name: c5-rotate-while-enrolled
 - runFlow: reach-enrolled.yaml
 
 - tapOn:
-    id: "rotate"
+    id: "btn_rotate"
 
 - extendedWaitUntil:
     visible:
-      id: "busy-label:ready"
+      text: "busy=ready"
     timeout: 20000
 
 - assertVisible:
-    id: "outcome-label:ok:rotated.*"
+    text: "outcome=ok:rotated.*"
 
 - assertVisible:
-    id: "state-label:enrolled"
+    text: "state=enrolled"

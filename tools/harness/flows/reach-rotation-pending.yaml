@@ -17,21 +17,21 @@ appId: ${APP_ID}
 - runFlow: reach-enrolled.yaml
 
 - tapOn:
-    id: "block-network"
+    id: "btn_block_network"
 
 - tapOn:
-    id: "rotate"
+    id: "btn_rotate"
 
 - extendedWaitUntil:
     visible:
-      id: "busy-label:ready"
+      text: "busy=ready"
     timeout: 20000
 
 - assertVisible:
-    id: "outcome-label:err:connectivity"
+    text: "outcome=err:connectivity"
 
 - tapOn:
-    id: "open-network"
+    id: "btn_open_network"
 
 - assertVisible:
-    id: "state-label:rotationPending"
+    text: "state=rotationPending"

@@ -10,15 +10,15 @@ name: c7-enroll-while-rotation-pending
 - runFlow: reach-rotation-pending.yaml
 
 - tapOn:
-    id: "enroll"
+    id: "btn_enroll"
 
 - extendedWaitUntil:
     visible:
-      id: "busy-label:ready"
+      text: "busy=ready"
     timeout: 20000
 
 - assertVisible:
-    id: "outcome-label:err:rotationUnresolved"
+    text: "outcome=err:rotationUnresolved"
 
 - assertVisible:
-    id: "state-label:rotationPending"
+    text: "state=rotationPending"

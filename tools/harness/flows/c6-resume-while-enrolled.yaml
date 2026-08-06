@@ -10,15 +10,15 @@ name: c6-resume-while-enrolled
 - runFlow: reach-enrolled.yaml
 
 - tapOn:
-    id: "resume"
+    id: "btn_resume"
 
 - extendedWaitUntil:
     visible:
-      id: "busy-label:ready"
+      text: "busy=ready"
     timeout: 20000
 
 - assertVisible:
-    id: "outcome-label:err:notEnrolled"
+    text: "outcome=err:notEnrolled"
 
 - assertVisible:
-    id: "state-label:enrolled"
+    text: "state=enrolled"

@@ -10,15 +10,15 @@ name: c8-rotate-while-rotation-pending
 - runFlow: reach-rotation-pending.yaml
 
 - tapOn:
-    id: "rotate"
+    id: "btn_rotate"
 
 - extendedWaitUntil:
     visible:
-      id: "busy-label:ready"
+      text: "busy=ready"
     timeout: 20000
 
 - assertVisible:
-    id: "outcome-label:err:rotationUnresolved"
+    text: "outcome=err:rotationUnresolved"
 
 - assertVisible:
-    id: "state-label:rotationPending"
+    text: "state=rotationPending"

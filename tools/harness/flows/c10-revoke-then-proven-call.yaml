@@ -19,34 +19,34 @@ name: c10-revoke-then-proven-call
 - runFlow: reach-enrolled.yaml
 
 - tapOn:
-    id: "revoke"
+    id: "btn_revoke"
 
 - extendedWaitUntil:
     visible:
-      id: "busy-label:ready"
+      text: "busy=ready"
     timeout: 20000
 
 - assertVisible:
-    id: "outcome-label:ok:revoked.*"
+    text: "outcome=ok:revoked.*"
 
 - tapOn:
-    id: "proven-call"
+    id: "btn_proven_call"
 
 - extendedWaitUntil:
     visible:
-      id: "busy-label:ready"
+      text: "busy=ready"
     timeout: 20000
 
 - assertVisible:
-    id: "outcome-label:err:SESSION_REVOKED"
+    text: "outcome=err:SESSION_REVOKED"
 
 - tapOn:
-    id: "note-revoked"
+    id: "btn_note_revoked"
 
 - extendedWaitUntil:
     visible:
-      id: "busy-label:ready"
+      text: "busy=ready"
     timeout: 20000
 
 - assertVisible:
-    id: "state-label:unenrolled"
+    text: "state=unenrolled"
