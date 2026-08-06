@@ -143,6 +143,13 @@ Then tap `custody-probe` and read the `custody=` label.
 | `custody=secureEnclave` | the phone's enclave generated and holds the key |
 | `custody=softwareKeychain` | it fell back. The SDK is behaving correctly and saying so, but the enclave path did not happen on this phone — and a simulator on this machine does reach it, so the fallback is the phone's own answer |
 
+**Write down which phone.** `custody=secureEnclave` is a fact about the hardware that
+answered, and a simulator on this Mac answers the same word, so a reading with no target
+beside it is not evidence of anything. `run-harness.sh` states its own target twice —
+once at the top and once beside `RESULT:` — precisely so a pasted transcript carries it;
+a manual reading has no run to do that, so the model and iOS version belong in the report
+next to the word.
+
 The probe generates a key through the same call `SPFNKeyLifecycle` uses, reads which
 custody it landed in, and drops it. It stores nothing and sends nothing, which is what
 makes it runnable on a phone with no route to the reference server. `xcrun devicectl list

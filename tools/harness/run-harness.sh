@@ -97,6 +97,7 @@ SERVER_PID=''
 # whatever actually went wrong.
 TARGET=''
 REVERSED_PORT=''
+TARGET_DESCRIPTION='the target was never resolved'
 
 mkdir -p "$RECEIPTS"
 
@@ -148,6 +149,66 @@ require()
 names_a_simulator()
 {
     sed -n 's/.*"udid" : "\([^"]*\)".*/\1/p' | grep -qxF "$1"
+}
+
+# One line naming what this run actually drove, model and OS version included.
+#
+# A result is a fact about a target, not about the SDK alone, and the two are easy to
+# confuse afterwards. The clearest case is key custody: `secureEnclave` means the phone's
+# own enclave on a phone, and the host Mac's on a simulator, because an Apple silicon Mac
+# lends its enclave to the simulator it hosts. A transcript saying only `ios` cannot tell
+# those apart later, and the receipts do not survive the run to say it instead — they live
+# under a mktemp directory this script deletes on the way out, because their job is to
+# prove within one run that every case really ran.
+#
+# So the run says it out loud, at the top and again at the end, where whoever pastes the
+# result into a report or a COMPATIBILITY row will carry it along.
+#
+# The device list goes through a file rather than a pipe, for the same reason
+# `case_status` takes a path: the heredoc below IS this python's stdin, so anything piped
+# in would be swallowed by the script and the lookup would silently find nothing. It did,
+# the first time this ran.
+describe_ios_target()
+{
+    xcrun simctl list devices -j > "$WORK/simctl-devices.json" 2> /dev/null || true
+    python3 - "$WORK/simctl-devices.json" "$1" <<'DESCRIBE'
+import json
+import sys
+
+path, udid = sys.argv[1], sys.argv[2]
+try:
+    with open(path) as handle:
+        devices = json.load(handle)["devices"]
+except Exception:
+    devices = {}
+
+for runtime, entries in devices.items():
+    for entry in entries:
+        if entry.get("udid") == udid:
+            print("iOS simulator, %s on %s, udid %s" % (
+                entry.get("name", "unnamed"),
+                runtime.rsplit(".", 1)[-1],
+                udid,
+            ))
+            sys.exit(0)
+# Unreachable through run-harness.sh, which refuses a target the list does not hold.
+# Named anyway rather than left blank: a description that quietly says nothing is worse
+# than one that says it could not look.
+print("iOS target %s, not described (the simulator list could not be read)" % udid)
+DESCRIBE
+}
+
+describe_android_target()
+{
+    MODEL=$(adb -s "$1" shell getprop ro.product.model 2> /dev/null | tr -d '\r' || true)
+    RELEASE=$(adb -s "$1" shell getprop ro.build.version.release 2> /dev/null | tr -d '\r' || true)
+    API=$(adb -s "$1" shell getprop ro.build.version.sdk 2> /dev/null | tr -d '\r' || true)
+    case "$1" in
+        emulator-*) KIND=emulator ;;
+        *) KIND=device ;;
+    esac
+    printf 'Android %s, %s on Android %s (API %s), serial %s\n' \
+        "$KIND" "${MODEL:-unnamed}" "${RELEASE:-unknown}" "${API:-unknown}" "$1"
 }
 
 # Whether the JUnit report says this case ran and did not fail.
@@ -263,7 +324,8 @@ then
         fail 'iOS device verification is manual — see tools/harness/README.md'
         exit 1
     fi
-    pass "iOS target $TARGET"
+    TARGET_DESCRIPTION=$(describe_ios_target "$TARGET")
+    pass "$TARGET_DESCRIPTION"
 else
     if [ -z "${ANDROID_HOME-}" ] && [ -z "${ANDROID_SDK_ROOT-}" ]
     then
@@ -297,7 +359,8 @@ else
         emulator-*) ;;
         *) IS_PHYSICAL_DEVICE=1 ;;
     esac
-    pass "Android target $TARGET"
+    TARGET_DESCRIPTION=$(describe_android_target "$TARGET")
+    pass "$TARGET_DESCRIPTION"
 
     # A sleeping Android target does not fail the run — it HANGS it. Maestro selects the
     # device, starts its driver, and then waits forever with nothing in its log after
@@ -555,7 +618,7 @@ else
         # which are different events with the same correct outcome here: no receipt.
         if case_status "$REPORT" "$CASE"
         then
-            printf '%s\n' "$PLATFORM" > "$RECEIPTS/$PLATFORM-$CASE"
+            printf '%s\n%s\n' "$PLATFORM" "$TARGET_DESCRIPTION" > "$RECEIPTS/$PLATFORM-$CASE"
             pass "$CASE"
         else
             FLOW_STATUS=1
@@ -596,6 +659,8 @@ else
 fi
 
 printf '\n'
+# Repeated here rather than left at the top, because this is the part that gets pasted.
+printf 'target: %s\n' "$TARGET_DESCRIPTION"
 if [ "$FLOW_STATUS" -eq 0 ] && [ "$RECEIPT_STATUS" -eq 0 ]
 then
     printf 'RESULT: PASS\n'
