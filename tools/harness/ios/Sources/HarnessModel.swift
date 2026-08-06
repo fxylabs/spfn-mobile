@@ -1,11 +1,15 @@
 // SPFN Mobile — the harness's whole behaviour.
 //
 // One lifecycle over the real keychain store and the real URLSession transport, driven
-// by seven buttons. Nothing is faked except the sign-in token and the network switch,
+// by ten buttons. Nothing is faked except the sign-in token and the network switch,
 // and both of those are seams the SDK already has.
 //
 // Two labels carry everything a flow asserts on: the lifecycle's own state, and the last
 // action's outcome under a stable short name. A flow never reads a sentence.
+//
+// A third, `custody`, is read by a person rather than a flow. It names which hardware
+// holds a key, which is the one question a simulator cannot answer for us — see
+// `probeCustody()`.
 
 import Foundation
 import SPFNAuth
@@ -22,6 +26,9 @@ final class HarnessModel: ObservableObject
 
     /// `idle` before anything runs, then `ok:<detail>` or `err:<name>`.
     @Published private(set) var outcome = "idle"
+
+    /// `unread` until probed, then the custody a freshly generated key actually landed in.
+    @Published private(set) var custody = "unread"
 
     @Published private(set) var networkBlocked = false
 
@@ -159,6 +166,29 @@ final class HarnessModel: ObservableObject
         {
             try await self.lifecycle.wipe()
             return "wiped"
+        }
+    }
+
+    /// Which custody this device actually gives a client key.
+    ///
+    /// Generated through the same call and the same default `SPFNKeyLifecycle` uses for
+    /// its own keys, read, and then dropped: nothing is stored and no request is sent.
+    /// That last part is the point. Hardware custody is the one thing a real iPhone
+    /// proves that a simulator cannot, and Maestro ships no driver for a physical iOS
+    /// device — so this has to be a check a person can run by hand, on a phone with no
+    /// route to the reference server.
+    ///
+    /// Whether a simulator answers `softwareKeychain` here is not assumed. An Apple
+    /// silicon Mac has an enclave of its own, and if the simulator lends it out then both
+    /// targets report `secureEnclave` and this readout stops separating them. Reading it
+    /// settles that; guessing it would have put a wrong expectation in a flow.
+    func probeCustody() async
+    {
+        await run
+        {
+            let probe = SPFNCustodyKey.generate(keyID: "custody-probe")
+            self.custody = probe.custody.rawValue
+            return "custody:\(probe.custody.rawValue)"
         }
     }
 

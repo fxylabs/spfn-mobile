@@ -5,6 +5,7 @@ import xyz.superfunction.spfn.client.SpfnAndroidKeystoreEngine
 import xyz.superfunction.spfn.client.SpfnClient
 import xyz.superfunction.spfn.client.SpfnKeyLifecycle
 import xyz.superfunction.spfn.client.SpfnKeyLifecycleState
+import xyz.superfunction.spfn.client.SpfnKeystoreCustodyKey
 import xyz.superfunction.spfn.client.SpfnKeystoreKeyProvider
 import xyz.superfunction.spfn.client.SpfnSession
 import xyz.superfunction.spfn.client.SpfnSharedPreferencesKeyMetadataStore
@@ -19,7 +20,7 @@ import xyz.superfunction.spfn.generated.SpfnRevokeKeyResponse
  * The harness's whole behaviour.
  *
  * One lifecycle over the real SharedPreferences store, the real Android Keystore engine
- * and the real OkHttp transport, driven by nine buttons. Nothing is faked except the
+ * and the real OkHttp transport, driven by ten buttons. Nothing is faked except the
  * sign-in token and the network switch, and both of those are seams the SDK already has.
  *
  * tools/harness/ios/Sources/HarnessModel.swift is the same behaviour in Swift, with the
@@ -42,15 +43,22 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
     var outcome: String = "idle"
         private set;
 
+    /** `unread` until probed, then the custody a freshly generated key actually landed in. */
+    var custody: String = "unread"
+        private set;
+
     var networkBlocked: Boolean = false
         private set;
 
     private val transport = HarnessTransport();
 
+    /** Held rather than passed inline, because [probeCustody] generates through it too. */
+    private val engine = SpfnAndroidKeystoreEngine();
+
     private val lifecycle = SpfnKeyLifecycle(
         transport = transport,
         store = SpfnSharedPreferencesKeyMetadataStore(context, "xyz.superfunction.spfn.harness"),
-        engine = SpfnAndroidKeystoreEngine(),
+        engine = engine,
         baseUrl = configuration.baseUrl
     );
 
@@ -121,6 +129,27 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
     suspend fun wipe() = run {
         lifecycle.wipe();
         "wiped";
+    };
+
+    /**
+     * Which custody this device actually gives a client key.
+     *
+     * Generated through the same engine and the same default `SpfnKeyLifecycle` uses for
+     * its own keys, read, and then destroyed: the Keystore entry does not outlive the
+     * check and no request is sent. That last part is the point. Hardware custody is the
+     * one thing a real phone proves that an emulator cannot, and on iOS it has to be
+     * checkable by hand — Maestro ships no driver for a physical iOS device, so the
+     * iPhone half of this is a person tapping the button and reading the label.
+     *
+     * The two platforms answer in their own vocabularies (`strongBox` here,
+     * `secureEnclave` on Apple) because they name different hardware. A flow that ever
+     * asserts on this asserts per platform.
+     */
+    suspend fun probeCustody() = run {
+        val probe = SpfnKeystoreCustodyKey.generate("custody-probe", engine);
+        custody = probe.custody.wireName;
+        probe.destroy();
+        "custody:${probe.custody.wireName}";
     };
 
     fun setNetworkBlocked(value: Boolean)

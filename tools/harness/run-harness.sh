@@ -9,9 +9,12 @@
 # launches anything. That is fine for the proof algorithm and the state machine. It stops
 # being fine the moment the question is whether a person can get through enrolment.
 #
-# So this script builds the harness app, installs it on a simulator, emulator or device,
-# and runs the Maestro flows against it. Ten flows, one per cell of the lifecycle's case
-# table; tools/harness/README.md carries the table.
+# So this script builds the harness app, installs it on an iOS simulator, an Android
+# emulator or an Android device, and runs the Maestro flows against it. Ten flows, one per
+# cell of the lifecycle's case table; tools/harness/README.md carries the table.
+#
+# A physical iPhone is not on that list and cannot be: maestro ships no driver for one.
+# tools/harness/README.md carries the manual procedure that covers what a phone is for.
 #
 # ---------------------------------------------------------------------------
 # What this script refuses to do
@@ -28,7 +31,7 @@
 #   - maestro is not installed          -> print the install command, exit non-zero
 #   - no target is running              -> print how to start one, exit non-zero
 #   - two targets and no choice made    -> exit; a guessed target is a guessed result
-#   - a device against a local server   -> exit; the reference server binds to loopback
+#   - a physical iPhone                 -> exit; maestro ships no iOS device driver
 #
 # It also never prints a secret. The reference server's control token is read into a
 # variable and never echoed, and the id token the flows use is a test-user name rather
@@ -137,6 +140,16 @@ require()
     fi
 }
 
+# Whether $1 names a simulator, reading `xcrun simctl list devices -j` from stdin.
+#
+# The membership test is whole-line and literal on purpose. A udid that is a prefix of
+# another one must not match, and `grep` without -x would let it — which would hand a
+# physical iPhone the run that the caller above refuses it.
+names_a_simulator()
+{
+    sed -n 's/.*"udid" : "\([^"]*\)".*/\1/p' | grep -qxF "$1"
+}
+
 # Whether the JUnit report says this case ran and did not fail.
 #
 # Written with python rather than sed because the two answers this has to tell apart —
@@ -232,6 +245,24 @@ then
         fi
         TARGET=$BOOTED
     fi
+
+    # A named target is whatever the caller typed, and an iPhone is the one thing this
+    # script cannot drive. Maestro has no physical-device driver: in maestro-ios.jar,
+    # every method of `ios/devicectl/DeviceControlIOSDevice` throws NotImplementedError
+    # except uninstall, stop and setPermissions. It cannot install an app, launch one,
+    # read a view hierarchy or tap. Upstream's own attempt (mobile-dev-inc/Maestro#2856)
+    # was closed unmerged on 2026-06-15.
+    #
+    # So the refusal belongs here, at the target, and not later at the server: no base
+    # URL and no cable changes it. Verifying the SDK on a real iPhone is a manual
+    # procedure and tools/harness/README.md carries it.
+    if ! xcrun simctl list devices -j 2> /dev/null | names_a_simulator "$TARGET"
+    then
+        fail "$TARGET is not a simulator this machine knows about"
+        fail 'if it is a physical iPhone, maestro cannot drive one: it ships no device driver'
+        fail 'iOS device verification is manual — see tools/harness/README.md'
+        exit 1
+    fi
     pass "iOS target $TARGET"
 else
     if [ -z "${ANDROID_HOME-}" ] && [ -z "${ANDROID_SDK_ROOT-}" ]
@@ -323,19 +354,12 @@ then
     fi
     pass "external target at $BASE_URL (started by something other than this script)"
 else
-    # An iOS device is refused here and an Android one is not, and the difference is real
-    # rather than a preference: `adb reverse` gives a USB-attached Android device a route
-    # to the host's loopback, which is the interface the reference server binds to. iOS
-    # has no equivalent, so an iPhone needs a server it can reach over the network and
-    # has to be told which one.
-    if [ "$IS_PHYSICAL_DEVICE" -eq 1 ] && [ "$PLATFORM" = ios ]
-    then
-        fail 'a physical iOS device cannot reach the reference server'
-        fail 'it binds to the loopback address, which is the host machine and not the device'
-        fail 'name a server the device can reach: SPFN_HARNESS_TARGET_URL=http://<host>:<port>'
-        exit 1
-    fi
-
+    # Only an Android target can be physical by the time execution reaches here, because
+    # section 1 refuses a physical iOS one outright. That asymmetry is not a preference:
+    # `adb reverse` gives a USB-attached Android device a route to the host's loopback,
+    # which is the interface the reference server binds to, so the server never has to
+    # leave the host. iOS has no equivalent — but the missing route is not why an iPhone
+    # is refused, and putting the refusal here once said it was.
     require java
     ./gradlew --console=plain -q :reference-server:spfnReferenceServerLaunchInfo
 

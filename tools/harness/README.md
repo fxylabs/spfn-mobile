@@ -18,10 +18,12 @@ sh tools/harness/run-harness.sh android
 | Path | What it is |
 | --- | --- |
 | `ios/project.yml` | the iOS app's project, as data. `SPFNHarness.xcodeproj` is generated from it and gitignored |
-| `ios/Sources/` | the iOS harness: a screen with nine buttons and three labels |
+| `ios/Sources/` | the iOS harness: a screen with ten buttons and four labels |
 | `android/` | the same app in Kotlin, as the one application module in this repository |
 | `flows/` | the Maestro flows, one per cell of the case table below |
 | `run-harness.sh` | builds, installs, runs every flow, and fails unless every case left a receipt |
+| `probe-receipts.sh` | proves a receipt cannot be earned by a case that did not pass |
+| `probe-target-refusal.sh` | proves a physical iPhone cannot be mistaken for a simulator |
 
 ## The case table
 
@@ -64,6 +66,13 @@ there. So the split is real rather than a pretence.
 | a real Secure Enclave or StrongBox key | every screen, every transition, every refusal |
 | a real Apple or Google sign-in | the whole enrol / rotate / revoke sequence |
 
+That first row is thinner than it looks on iOS, and the harness measured it rather than
+assuming it. Tapping `custody-probe` on an iPhone 16 Pro simulator, on an Apple silicon
+Mac, reports `custody=secureEnclave` — the Mac has an enclave of its own and the simulator
+lends it out. So the enclave code path is exercised without a phone, and what a phone adds
+is that the enclave answering is the phone's, under its own device-bound key. The readout
+cannot tell those two apart; only knowing which target you ran on can.
+
 ## The three things worth knowing before you touch this
 
 **A cleared app is not a clean app.** On iOS the keychain survives the app's data being
@@ -85,11 +94,64 @@ loopback address, and how a target reaches that address is different for each ki
 | iOS simulator | shares the host's network stack; `127.0.0.1` already works |
 | Android emulator | `10.0.2.2`, its own alias for the host loopback — the runner rewrites the URL |
 | Android device | `adb reverse`, opened by the runner and removed when the run ends |
-| iOS device | nothing; name a reachable server with `SPFN_HARNESS_TARGET_URL` or the run is refused |
 
 `adb reverse` is why an Android phone needs no extra setup: the device's own `127.0.0.1`
 arrives at the host's over the debugging connection, so the server stays on loopback and
 is never exposed to the network.
+
+A physical iPhone is missing from that table because it never gets that far — the next
+section is why.
+
+## Maestro does not drive a physical iPhone, so that half is done by hand
+
+This is not a gap in the runner and no cable closes it. Maestro ships no driver for a real
+iOS device. In `maestro-ios.jar`, every method of `ios/devicectl/DeviceControlIOSDevice`
+throws `NotImplementedError` except `uninstall`, `stop` and `setPermissions`: it cannot
+install an app, launch one, read a view hierarchy or tap. The two dependencies it
+downloads for iOS are named `applesimutils` and `simulator-server`. Upstream's own attempt
+at device support, mobile-dev-inc/Maestro#2856, was closed unmerged on 2026-06-15 as a
+partial implementation that was not advancing.
+
+The parts that are missing are the parts Apple only opens for a simulator. `simctl` grants
+media, location and permissions from outside the app; a real device has no equivalent, so
+`addMedia`, `setLocation` and `permissions` have no answer at all and `clearState` becomes
+a reinstall. So the runner refuses a physical iPhone at the target, where the reason is,
+rather than later at the server, where it is not.
+
+**What a real iPhone is actually for.** One thing: hardware custody, and less of it than
+the split above first suggested. The ten cells are the same code on both targets, and the
+simulator already reaches the enclave — the Mac's. What is left for the phone is that its
+own enclave generates and holds the key. That is a small check, so the procedure is small:
+
+```sh
+# 1. build and sign for the device — the team id is yours, not this repository's
+xcodegen generate --spec tools/harness/ios/project.yml
+xcodebuild -project tools/harness/ios/SPFNHarness.xcodeproj -scheme SPFNHarness \
+    -destination "platform=iOS,id=<device udid>" \
+    -derivedDataPath /tmp/spfn-harness DEVELOPMENT_TEAM=<your team id> build
+
+# 2. install and launch it
+xcrun devicectl device install app --device <device udid> \
+    /tmp/spfn-harness/Build/Products/Debug-iphoneos/SPFNHarness.app
+xcrun devicectl device process launch --device <device udid> xyz.superfunction.spfn.harness
+```
+
+Then tap `custody-probe` and read the `custody=` label.
+
+| Reading | What it means |
+| --- | --- |
+| `custody=secureEnclave` | the phone's enclave generated and holds the key |
+| `custody=softwareKeychain` | it fell back. The SDK is behaving correctly and saying so, but the enclave path did not happen on this phone — and a simulator on this machine does reach it, so the fallback is the phone's own answer |
+
+The probe generates a key through the same call `SPFNKeyLifecycle` uses, reads which
+custody it landed in, and drops it. It stores nothing and sends nothing, which is what
+makes it runnable on a phone with no route to the reference server. `xcrun devicectl list
+devices` names the udid; a device that reads `unavailable` is paired but not currently
+reachable, so unlock it and put it on this machine's network.
+
+Android has the same button for the same reason, and it answers in its own vocabulary:
+`strongBox` or `trustedEnvironment`. The two platforms name different hardware, so a flow
+that ever asserts on this asserts per platform.
 
 ## Sign-in, and why it is a launch argument
 
@@ -106,8 +168,8 @@ The test token cannot be a fixed string. That server checks the token's nonce ag
 fingerprint of the key being enrolled, and the fingerprint does not exist until the key
 does — which is exactly why the SDK hands the nonce to the closure.
 
-A device run leaves both out, takes the real sheet by hand, and everything on either side
-of that one tap stays automatic.
+An Android device run leaves both out, takes the real sheet by hand, and everything on
+either side of that one tap stays automatic.
 
 ## Running against something other than the reference server
 

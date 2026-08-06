@@ -24,6 +24,7 @@
     <item type="id" name="btn_proven_call" />
     <item type="id" name="btn_note_revoked" />
     <item type="id" name="btn_wipe" />
+    <item type="id" name="btn_custody_probe" />
     <item type="id" name="btn_block_network" />
     <item type="id" name="btn_open_network" />
 </resources>

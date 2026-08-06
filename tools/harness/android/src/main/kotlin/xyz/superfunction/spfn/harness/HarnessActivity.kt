@@ -17,7 +17,7 @@ import kotlinx.coroutines.withContext
 /**
  * The harness screen.
  *
- * Buttons and three labels, built in code. This is not a sample app and not a design:
+ * Buttons and four labels, built in code. This is not a sample app and not a design:
  * every view exists because a flow needs to tap it or read it.
  *
  * How a flow finds them is split, and the split is forced by the platforms rather than
@@ -42,6 +42,7 @@ class HarnessActivity : Activity()
     private lateinit var stateLabel: TextView;
     private lateinit var outcomeLabel: TextView;
     private lateinit var busyLabel: TextView;
+    private lateinit var custodyLabel: TextView;
 
     override fun onCreate(savedInstanceState: Bundle?)
     {
@@ -67,6 +68,7 @@ class HarnessActivity : Activity()
         stateLabel = label(column);
         outcomeLabel = label(column);
         busyLabel = label(column);
+        custodyLabel = label(column);
 
         for (action in actions())
         {
@@ -92,6 +94,7 @@ class HarnessActivity : Activity()
         Triple(R.id.btn_proven_call, "proven-call") { model.provenCall() },
         Triple(R.id.btn_note_revoked, "note-revoked") { model.noteSessionRevoked() },
         Triple(R.id.btn_wipe, "wipe") { model.wipe() },
+        Triple(R.id.btn_custody_probe, "custody-probe") { model.probeCustody() },
         Triple(R.id.btn_block_network, "block-network") { model.setNetworkBlocked(true) },
         Triple(R.id.btn_open_network, "open-network") { model.setNetworkBlocked(false) }
     );
@@ -134,5 +137,6 @@ class HarnessActivity : Activity()
         stateLabel.text = "state=${model.state}";
         outcomeLabel.text = "outcome=${model.outcome}";
         busyLabel.text = if (busy) "busy=busy" else "busy=ready";
+        custodyLabel.text = "custody=${model.custody}";
     }
 }

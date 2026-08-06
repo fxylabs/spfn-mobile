@@ -1,6 +1,6 @@
 // SPFN Mobile — the harness screen.
 //
-// Buttons and three labels. This is not a sample app and not a design: every element
+// Buttons and four labels. This is not a sample app and not a design: every element
 // exists because a flow needs to tap it or read it.
 //
 // How a flow finds them is split, and the split is forced by the platforms rather than
@@ -50,6 +50,7 @@ struct HarnessView: View
             readout("state", model.state)
             readout("outcome", model.outcome)
             readout("busy", model.busy ? "busy" : "ready")
+            readout("custody", model.custody)
         }
         .font(.system(.body, design: .monospaced))
     }
@@ -72,6 +73,7 @@ struct HarnessView: View
             asyncButton("btn_proven_call", "proven-call") { await model.provenCall() }
             asyncButton("btn_note_revoked", "note-revoked") { await model.noteSessionRevoked() }
             asyncButton("btn_wipe", "wipe") { await model.wipe() }
+            asyncButton("btn_custody_probe", "custody-probe") { await model.probeCustody() }
             syncButton("btn_block_network", "block-network") { model.setNetworkBlocked(true) }
             syncButton("btn_open_network", "open-network") { model.setNetworkBlocked(false) }
         }
