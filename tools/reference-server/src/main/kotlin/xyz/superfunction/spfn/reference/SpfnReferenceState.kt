@@ -281,6 +281,15 @@ class SpfnReferenceState(
      * The proven rotation: replaces [oldKeyId] with [newKeyId] under the same owner.
      * The caller has already admitted a proof by the old key. Sessions the old key
      * opened are dropped with it, so only the new key can prove anything afterwards.
+     *
+     * The replaced key enters the revocation ledger rather than merely vanishing.
+     * The real server records rotation as a revocation of the old key, so a proof by
+     * it is refused at the revocation step — SESSION_REVOKED, never PROOF_INVALID,
+     * exactly as `clientProofV1.revocationRule` states for any revoked keyId. The
+     * first real-server run against `@spfn/auth@0.2.0-beta.91` caught this state
+     * answering PROOF_INVALID instead, which is the self-verification gap that run
+     * exists to close.
+     *
      * A false return means the request was not one this state can apply — the old key
      * vanished between admission and here, the new keyId already exists, or the two
      * are the same — and the caller answers with a shape refusal.
@@ -296,6 +305,7 @@ class SpfnReferenceState(
                 return false;
             }
             registeredKeys.remove(oldKeyId);
+            revokedKeyIds.add(oldKeyId);
             registeredKeys[newKeyId] = RegisteredKey(parsed, old.ownerId);
             sessions.entries.removeIf { it.value.keyId == oldKeyId };
             return true;

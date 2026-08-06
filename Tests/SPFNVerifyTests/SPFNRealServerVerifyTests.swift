@@ -8,7 +8,7 @@
 //   (r1) /_auth/login with the seeded account enrolls a freshly generated key
 //   (r2) a proven auth.keys.list under the enrolled key names it, active
 //   (r3) auth.keys.rotate under the old key registers the candidate
-//   (r4) the new key proves a call while the replaced key is refused with PROOF_INVALID
+//   (r4) the new key proves a call while the replaced key is refused with SESSION_REVOKED
 //   (r5) auth.keys.revoke removes a named key and auth.keys.revokeAll spares the caller
 //
 // No /control surface and no social enrolment: a real server has no test hooks and
@@ -112,8 +112,11 @@ final class SPFNRealServerVerifyTests: XCTestCase
         )
         XCTAssertNotNil(listed.keys.first { $0.keyId == rotated.keyID })
 
-        // The replaced key is refused, and the refusal discloses nothing: the same
-        // PROOF_INVALID an unregistered key answers.
+        // The replaced key is refused at the revocation step. Rotation records the old
+        // key as revoked, and `clientProofV1.revocationRule` fixes the outcome for any
+        // revoked keyId: SESSION_REVOKED, never PROOF_INVALID. The first run against
+        // `@spfn/auth@0.2.0-beta.91` answered exactly that while this test still
+        // expected PROOF_INVALID from the pre-contract-envelope server.
         do
         {
             _ = try await fixture.client(signingWith: enrolled.provider).execute(
@@ -124,7 +127,7 @@ final class SPFNRealServerVerifyTests: XCTestCase
         }
         catch SPFNClientError.auth(let refusal)
         {
-            XCTAssertEqual(refusal.code, .proofInvalid)
+            XCTAssertEqual(refusal.code, .sessionRevoked)
         }
 
         try fixture.environment.record("swift-r4")

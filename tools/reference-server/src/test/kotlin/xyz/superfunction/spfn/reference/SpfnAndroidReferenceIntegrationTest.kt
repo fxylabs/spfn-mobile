@@ -199,7 +199,8 @@ class SpfnAndroidReferenceIntegrationTest
     /**
      * The REST enrollment surface end to end (case f): enrollment, a proof round trip
      * with the enrolled key, a rotation proved by it, and a proof round trip with the
-     * new key — while the replaced key is refused with the non-disclosing PROOF_INVALID.
+     * new key — while the replaced key is refused at the revocation step with
+     * SESSION_REVOKED.
      *
      * In process the surface always exists — the server is this repository's own. An
      * external target carries it only when the run says so (`spfn.integrationRestOps`),
@@ -265,8 +266,8 @@ class SpfnAndroidReferenceIntegrationTest
 
             // The replaced key cannot prove anything. On this platform the swap also
             // deleted the Keystore entry, so the stale provider fails before a byte is
-            // sent — the server-side half of the same rule (the non-disclosing
-            // PROOF_INVALID for a rotated-away key) is pinned by
+            // sent — the server-side half of the same rule (SESSION_REVOKED at the
+            // revocation step for a rotated-away key, per revocationRule) is pinned by
             // SpfnReferenceRestOpsTest, where the key material is test-owned.
             try
             {
@@ -278,7 +279,7 @@ class SpfnAndroidReferenceIntegrationTest
             }
             catch (refused: SpfnClientError.Auth)
             {
-                assertEquals(SpfnGeneratedErrorCode.PROOF_INVALID, refused.failure.code);
+                assertEquals(SpfnGeneratedErrorCode.SESSION_REVOKED, refused.failure.code);
             }
             catch (destroyed: IllegalStateException)
             {
