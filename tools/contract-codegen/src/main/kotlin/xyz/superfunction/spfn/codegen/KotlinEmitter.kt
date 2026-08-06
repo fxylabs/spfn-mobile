@@ -298,7 +298,7 @@ object KotlinEmitter
         is FieldType.Named -> Names.kotlinType(type.name)
         is FieldType.EnumRef -> Names.kotlinType(type.name)
         is FieldType.ArrayOf -> "List<${kotlinType(type.element)}>"
-        is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
+        is FieldType.NumberType, is FieldType.DecimalType, is FieldType.MapOf -> unemittable(type)
     }
 
     private fun kotlinEncodeField(bundle: Bundle, field: Field): String
@@ -324,7 +324,7 @@ object KotlinEmitter
         is FieldType.Named -> "$accessor.canonicalValue()"
         is FieldType.EnumRef -> "$accessor.canonicalValue()"
         is FieldType.ArrayOf -> "SpfnCanonicalValue.Arr($accessor.map { it.canonicalValue() })"
-        is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
+        is FieldType.NumberType, is FieldType.DecimalType, is FieldType.MapOf -> unemittable(type)
     }
 
     private fun kotlinDecodeExpression(bundle: Bundle, field: Field): String
@@ -352,7 +352,7 @@ object KotlinEmitter
                 else "${kotlinType(type)}.decode($member ?: SpfnCanonicalValue.Null, \"$path\")"
             is FieldType.ArrayOf ->
                 "SpfnDecoding.array($member, \"$path\").map { ${kotlinType(type.element)}.decode(it, \"$path\") }"
-            is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
+            is FieldType.NumberType, is FieldType.DecimalType, is FieldType.MapOf -> unemittable(type)
         };
     }
 }

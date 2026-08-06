@@ -285,7 +285,7 @@ object SwiftEmitter
         is FieldType.Named -> Names.swiftType(type.name)
         is FieldType.EnumRef -> Names.swiftType(type.name)
         is FieldType.ArrayOf -> "[${swiftType(type.element)}]"
-        is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
+        is FieldType.NumberType, is FieldType.DecimalType, is FieldType.MapOf -> unemittable(type)
     }
 
     private fun swiftEncodeField(bundle: Bundle, field: Field): String
@@ -311,7 +311,7 @@ object SwiftEmitter
         is FieldType.Named -> "$accessor.canonicalValue"
         is FieldType.EnumRef -> "$accessor.canonicalValue"
         is FieldType.ArrayOf -> ".array($accessor.map { \$0.canonicalValue })"
-        is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
+        is FieldType.NumberType, is FieldType.DecimalType, is FieldType.MapOf -> unemittable(type)
     }
 
     private fun swiftDecodeField(bundle: Bundle, field: Field): String
@@ -339,7 +339,7 @@ object SwiftEmitter
                 else "        self.${field.name} = try ${swiftType(type)}(canonical: $member ?? .null, at: \"$path\")"
             is FieldType.ArrayOf ->
                 "        self.${field.name} = try SPFNDecoding.array($member, at: \"$path\").map { try ${swiftType(type.element)}(canonical: \$0, at: \"$path\") }"
-            is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
+            is FieldType.NumberType, is FieldType.DecimalType, is FieldType.MapOf -> unemittable(type)
         };
     }
 }
