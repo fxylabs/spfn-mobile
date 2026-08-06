@@ -107,7 +107,7 @@ final class SPFNClientExecuteTests: XCTestCase
         )
         XCTAssertEqual(
             sent.body ?? [],
-            SPFNCanonicalJSON.encode(ExecuteFixtures.registerRequest.canonicalValue)
+            SPFNCanonicalJSON.encode(try ExecuteFixtures.registerRequest.canonicalValue())
         )
     }
 
@@ -247,7 +247,7 @@ final class SPFNClientExecuteTests: XCTestCase
         let sent = try XCTUnwrap(recorded.last)
         XCTAssertEqual(
             sent.body ?? [],
-            SPFNCanonicalJSON.encode(ExecuteFixtures.listRequest.canonicalValue)
+            SPFNCanonicalJSON.encode(try ExecuteFixtures.listRequest.canonicalValue())
         )
         XCTAssertEqual(sent.headers.map(\.0), [
             SPFNWireHeaders.contentType,

@@ -62,7 +62,11 @@ public struct SPFNHandshakeRequest: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["clientId"] = .string(clientId)
@@ -99,7 +103,11 @@ public struct SPFNHandshakeResponse: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["sessionId"] = .string(sessionId)
@@ -132,7 +140,11 @@ public struct SPFNEchoRequest: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["message"] = .string(message)
@@ -168,7 +180,11 @@ public struct SPFNEchoResponse: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["message"] = .string(message)
@@ -203,7 +219,11 @@ public struct SPFNListItemsRequest: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["limit"] = .integer(limit)
@@ -242,7 +262,11 @@ public struct SPFNItem: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["id"] = .string(id)
@@ -277,10 +301,14 @@ public struct SPFNListItemsResponse: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
-        members["items"] = .array(items.map { $0.canonicalValue })
+        members["items"] = .array(try items.map { try $0.canonicalValue() })
         if let nextCursor
         {
             members["nextCursor"] = .string(nextCursor)
@@ -331,7 +359,11 @@ public struct SPFNRegisterRequest: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         if let email
@@ -388,7 +420,11 @@ public struct SPFNRegisterResponse: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["userId"] = .string(userId)
@@ -449,7 +485,11 @@ public struct SPFNLoginRequest: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         if let email
@@ -512,7 +552,11 @@ public struct SPFNLoginResponse: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["userId"] = .string(userId)
@@ -572,7 +616,11 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["idToken"] = .string(idToken)
@@ -621,7 +669,11 @@ public struct SPFNOauthNativeResponse: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["userId"] = .string(userId)
@@ -662,7 +714,11 @@ public struct SPFNRotateKeyRequest: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["publicKey"] = .string(publicKey)
@@ -699,7 +755,11 @@ public struct SPFNRotateKeyResponse: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["success"] = .bool(success)
@@ -729,7 +789,11 @@ public struct SPFNListKeysRequest: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         if let includeRevoked
@@ -790,7 +854,11 @@ public struct SPFNKeySummary: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["keyId"] = .string(keyId)
@@ -853,10 +921,14 @@ public struct SPFNListKeysResponse: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
-        members["keys"] = .array(keys.map { $0.canonicalValue })
+        members["keys"] = .array(try keys.map { try $0.canonicalValue() })
         return .object(members)
     }
 
@@ -881,7 +953,11 @@ public struct SPFNRevokeKeyRequest: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["keyId"] = .string(keyId)
@@ -912,7 +988,11 @@ public struct SPFNRevokeKeyResponse: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["keyId"] = .string(keyId)
@@ -942,7 +1022,11 @@ public struct SPFNRevokeAllKeysRequest: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         if let includeCurrent
@@ -976,7 +1060,11 @@ public struct SPFNRevokeAllKeysResponse: Equatable, Sendable
     /// The canonical form of this value. An absent optional field is omitted,
     /// never written as null, so the digest of a value never depends on how a
     /// caller happened to spell "nothing".
-    public var canonicalValue: SPFNCanonicalValue
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
         members["revokedCount"] = .integer(revokedCount)

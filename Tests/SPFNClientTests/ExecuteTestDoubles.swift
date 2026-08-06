@@ -69,7 +69,7 @@ enum ExecuteFixtures
 
     static var echoResponseBody: String
     {
-        String(decoding: SPFNCanonicalJSON.encode(echoResponse.canonicalValue), as: UTF8.self)
+        String(decoding: SPFNCanonicalJSON.encode(try! echoResponse.canonicalValue()), as: UTF8.self)
     }
 
     /// A register request for the contract's unproven class. Every value is a synthetic
@@ -94,7 +94,7 @@ enum ExecuteFixtures
 
     static var registerResponseBody: String
     {
-        String(decoding: SPFNCanonicalJSON.encode(registerResponse.canonicalValue), as: UTF8.self)
+        String(decoding: SPFNCanonicalJSON.encode(try! registerResponse.canonicalValue()), as: UTF8.self)
     }
 
     static let rotateRequest = SPFNRotateKeyRequest(
@@ -108,7 +108,7 @@ enum ExecuteFixtures
 
     static var rotateResponseBody: String
     {
-        String(decoding: SPFNCanonicalJSON.encode(rotateResponse.canonicalValue), as: UTF8.self)
+        String(decoding: SPFNCanonicalJSON.encode(try! rotateResponse.canonicalValue()), as: UTF8.self)
     }
 
     static let listRequest = SPFNListItemsRequest(limit: 2, cursor: "cursor-1")
@@ -120,7 +120,7 @@ enum ExecuteFixtures
 
     static var listResponseBody: String
     {
-        String(decoding: SPFNCanonicalJSON.encode(listResponse.canonicalValue), as: UTF8.self)
+        String(decoding: SPFNCanonicalJSON.encode(try! listResponse.canonicalValue()), as: UTF8.self)
     }
 }
 
@@ -134,13 +134,13 @@ enum ExecuteCalls
 {
     static let echo = SPFNCall<SPFNEchoRequest, SPFNEchoResponse>(
         operation: SPFNGeneratedOperations.echoSend,
-        encode: { $0.canonicalValue },
+        encode: { try $0.canonicalValue() },
         decode: { try SPFNEchoResponse(canonical: $0) }
     )
 
     static let list = SPFNCall<SPFNListItemsRequest, SPFNListItemsResponse>(
         operation: SPFNGeneratedOperations.itemsList,
-        encode: { $0.canonicalValue },
+        encode: { try $0.canonicalValue() },
         decode: { try SPFNListItemsResponse(canonical: $0) }
     )
 
@@ -148,14 +148,14 @@ enum ExecuteCalls
     /// `execute` refuses it on the operation rather than on how it was described.
     static let handshake = SPFNCall<SPFNHandshakeRequest, SPFNHandshakeResponse>(
         operation: SPFNGeneratedOperations.authClientProofHandshake,
-        encode: { $0.canonicalValue },
+        encode: { try $0.canonicalValue() },
         decode: { try SPFNHandshakeResponse(canonical: $0) }
     )
 
     /// The contract's unproven class, as generated: no proof, no session, no handshake.
     static let register = SPFNCall<SPFNRegisterRequest, SPFNRegisterResponse>(
         operation: SPFNGeneratedOperations.authEnrollRegister,
-        encode: { $0.canonicalValue },
+        encode: { try $0.canonicalValue() },
         decode: { try SPFNRegisterResponse(canonical: $0) }
     )
 
@@ -163,7 +163,7 @@ enum ExecuteCalls
     /// alone, so it carries every proof header and never a session header.
     static let rotate = SPFNCall<SPFNRotateKeyRequest, SPFNRotateKeyResponse>(
         operation: SPFNGeneratedOperations.authKeysRotate,
-        encode: { $0.canonicalValue },
+        encode: { try $0.canonicalValue() },
         decode: { try SPFNRotateKeyResponse(canonical: $0) }
     )
 
@@ -177,7 +177,7 @@ enum ExecuteCalls
             authProfile: "mysteryV9",
             requiresSession: true
         ),
-        encode: { $0.canonicalValue },
+        encode: { try $0.canonicalValue() },
         decode: { try SPFNEchoResponse(canonical: $0) }
     )
 }

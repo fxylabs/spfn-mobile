@@ -133,7 +133,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let fixture = try await Fixture.start()
 
         let operation = SPFNGeneratedOperations.echoSend
-        let body = SPFNCanonicalJSON.encode(SPFNEchoRequest(message: "replay me", sequence: 3).canonicalValue)
+        let body = SPFNCanonicalJSON.encode(try SPFNEchoRequest(message: "replay me", sequence: 3).canonicalValue())
 
         // Assembled through the session, so the nonce, the timestamp and the proof are the
         // ones the SDK would really have sent. Replaying is then the SDK's own request sent
@@ -404,13 +404,13 @@ final class SPFNReferenceIntegrationTests: XCTestCase
     {
         static let echo = SPFNCall<SPFNEchoRequest, SPFNEchoResponse>(
             operation: SPFNGeneratedOperations.echoSend,
-            encode: { $0.canonicalValue },
+            encode: { try $0.canonicalValue() },
             decode: { try SPFNEchoResponse(canonical: $0) }
         )
 
         static let listItems = SPFNCall<SPFNListItemsRequest, SPFNListItemsResponse>(
             operation: SPFNGeneratedOperations.itemsList,
-            encode: { $0.canonicalValue },
+            encode: { try $0.canonicalValue() },
             decode: { try SPFNListItemsResponse(canonical: $0) }
         )
     }

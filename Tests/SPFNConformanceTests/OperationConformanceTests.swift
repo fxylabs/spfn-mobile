@@ -190,17 +190,17 @@ final class OperationConformanceTests: XCTestCase
         switch type
         {
         case "HandshakeRequest":
-            return try SPFNHandshakeRequest(canonical: value).canonicalValue
+            return try SPFNHandshakeRequest(canonical: value).canonicalValue()
         case "HandshakeResponse":
-            return try SPFNHandshakeResponse(canonical: value).canonicalValue
+            return try SPFNHandshakeResponse(canonical: value).canonicalValue()
         case "EchoRequest":
-            return try SPFNEchoRequest(canonical: value).canonicalValue
+            return try SPFNEchoRequest(canonical: value).canonicalValue()
         case "EchoResponse":
-            return try SPFNEchoResponse(canonical: value).canonicalValue
+            return try SPFNEchoResponse(canonical: value).canonicalValue()
         case "ListItemsRequest":
-            return try SPFNListItemsRequest(canonical: value).canonicalValue
+            return try SPFNListItemsRequest(canonical: value).canonicalValue()
         case "ListItemsResponse":
-            return try SPFNListItemsResponse(canonical: value).canonicalValue
+            return try SPFNListItemsResponse(canonical: value).canonicalValue()
         default:
             XCTFail("fixture names an unknown type '\(type)'")
             throw ConformanceFailure.shape

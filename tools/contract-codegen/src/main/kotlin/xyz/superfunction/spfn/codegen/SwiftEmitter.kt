@@ -70,6 +70,10 @@ object SwiftEmitter
     private fun types(bundle: Bundle): String = buildString {
         appendLine(header(bundle));
         appendLine();
+        if (bundle.usesDecimal())
+        {
+            appendLine("import Foundation");
+        }
         appendLine("import SPFNCore");
         bundle.enums.forEach { declaration ->
             appendLine();
@@ -121,7 +125,11 @@ object SwiftEmitter
             appendLine("    /// The canonical form of this value. An absent optional field is omitted,");
             appendLine("    /// never written as null, so the digest of a value never depends on how a");
             appendLine("    /// caller happened to spell \"nothing\".");
-            appendLine("    public var canonicalValue: SPFNCanonicalValue");
+            appendLine("    ///");
+            appendLine("    /// Throwing, because encoding is where an impossible value is refused —");
+            appendLine("    /// a decimal finer than its declared scale fails here, before the proof");
+            appendLine("    /// is signed and before a byte leaves the device.");
+            appendLine("    public func canonicalValue() throws -> SPFNCanonicalValue");
             appendLine("    {");
             appendLine("        var members: [String: SPFNCanonicalValue] = [:]");
             type.fields.forEach { field -> appendLine(swiftEncodeField(bundle, field)) };
@@ -285,12 +293,15 @@ object SwiftEmitter
         is FieldType.Named -> Names.swiftType(type.name)
         is FieldType.EnumRef -> Names.swiftType(type.name)
         is FieldType.ArrayOf -> "[${swiftType(type.element)}]"
-        is FieldType.NumberType, is FieldType.DecimalType, is FieldType.MapOf -> unemittable(type)
+        // The scale lives in the coding calls, not the type, per the contract's
+        // decimalScaleRule (a changed scale renames the field rather than remeasuring it).
+        is FieldType.DecimalType -> "Decimal"
+        is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
     }
 
     private fun swiftEncodeField(bundle: Bundle, field: Field): String
     {
-        val expression = swiftEncodeExpression(bundle.fieldType(field), field.name);
+        val expression = swiftEncodeExpression(bundle.fieldType(field), field.name, "$.${field.name}");
         if (!field.optional)
         {
             return "        members[\"${field.name}\"] = $expression";
@@ -303,15 +314,35 @@ object SwiftEmitter
         };
     }
 
-    private fun swiftEncodeExpression(type: FieldType, accessor: String): String = when (type)
+    /** Whether encoding a value of this type can throw — a `try` is emitted exactly then. */
+    private fun encodingThrows(type: FieldType): Boolean = when (type)
+    {
+        is FieldType.Named, is FieldType.DecimalType -> true
+        is FieldType.ArrayOf -> encodingThrows(type.element)
+        else -> false
+    }
+
+    /** `fieldPath` is the position the generated refusal names — `$.price`. */
+    private fun swiftEncodeExpression(type: FieldType, accessor: String, fieldPath: String): String = when (type)
     {
         is FieldType.StringType -> ".string($accessor)"
         is FieldType.IntegerType -> ".integer($accessor)"
         is FieldType.BooleanType -> ".bool($accessor)"
-        is FieldType.Named -> "$accessor.canonicalValue"
+        is FieldType.Named -> "try $accessor.canonicalValue()"
         is FieldType.EnumRef -> "$accessor.canonicalValue"
-        is FieldType.ArrayOf -> ".array($accessor.map { \$0.canonicalValue })"
-        is FieldType.NumberType, is FieldType.DecimalType, is FieldType.MapOf -> unemittable(type)
+        // `try` on the map only when the element encoding can actually throw; a spurious
+        // `try` is a Swift warning in a file nobody can edit.
+        is FieldType.ArrayOf ->
+        {
+            val element = swiftEncodeExpression(type.element, "\$0", fieldPath);
+            if (encodingThrows(type.element)) ".array(try $accessor.map { $element })"
+            else ".array($accessor.map { $element })"
+        }
+        // The refusal — finer than the scale, or past the Int64 wire — happens inside
+        // the helper, before the value reaches the canonical tree that gets signed.
+        is FieldType.DecimalType ->
+            ".integer(try SPFNDecimalCoding.scaledInteger($accessor, scale: ${type.scale}, at: \"$fieldPath\"))"
+        is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
     }
 
     private fun swiftDecodeField(bundle: Bundle, field: Field): String
@@ -338,8 +369,13 @@ object SwiftEmitter
                         ".map { try ${swiftType(type)}(canonical: \$0, at: \"$path\") }"
                 else "        self.${field.name} = try ${swiftType(type)}(canonical: $member ?? .null, at: \"$path\")"
             is FieldType.ArrayOf ->
-                "        self.${field.name} = try SPFNDecoding.array($member, at: \"$path\").map { try ${swiftType(type.element)}(canonical: \$0, at: \"$path\") }"
-            is FieldType.NumberType, is FieldType.DecimalType, is FieldType.MapOf -> unemittable(type)
+                if (type.element is FieldType.DecimalType)
+                    "        self.${field.name} = try SPFNDecoding.array($member, at: \"$path\").map { try SPFNDecimalCoding.decimal(\$0, scale: ${type.element.scale}, at: \"$path\") }"
+                else "        self.${field.name} = try SPFNDecoding.array($member, at: \"$path\").map { try ${swiftType(type.element)}(canonical: \$0, at: \"$path\") }"
+            is FieldType.DecimalType ->
+                if (field.optional) "        self.${field.name} = try SPFNDecimalCoding.optionalDecimal($member, scale: ${type.scale}, at: \"$path\")"
+                else "        self.${field.name} = try SPFNDecimalCoding.decimal($member, scale: ${type.scale}, at: \"$path\")"
+            is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
         };
     }
 }

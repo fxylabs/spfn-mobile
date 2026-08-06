@@ -26,12 +26,12 @@ import SPFNGenerated
 public struct SPFNCall<Request: Sendable, Response: Sendable>: Sendable
 {
     public let operation: SPFNOperation
-    public let encode: @Sendable (Request) -> SPFNCanonicalValue
+    public let encode: @Sendable (Request) throws -> SPFNCanonicalValue
     public let decode: @Sendable (SPFNCanonicalValue) throws -> Response
 
     public init(
         operation: SPFNOperation,
-        encode: @escaping @Sendable (Request) -> SPFNCanonicalValue,
+        encode: @escaping @Sendable (Request) throws -> SPFNCanonicalValue,
         decode: @escaping @Sendable (SPFNCanonicalValue) throws -> Response
     )
     {
@@ -100,7 +100,7 @@ public struct SPFNClient: Sendable
 
         // Encoded once, for both attempts. The proof is not: the re-sent request carries
         // the same bytes under a new nonce, a new timestamp and a new proof over them.
-        let canonicalBody = SPFNCanonicalJSON.encode(call.encode(request))
+        let canonicalBody = SPFNCanonicalJSON.encode(try call.encode(request))
 
         switch authClass
         {
