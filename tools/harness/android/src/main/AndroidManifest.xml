@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPFN Mobile — the Android harness manifest.
+
+  INTERNET is the only permission: the harness sends real requests to whatever base URL
+  its launch names. `usesCleartextTraffic` is on because the reference server and the
+  verify app both run over plain HTTP on a developer machine, and this app is never
+  published to a place where that would matter.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:label="SPFN Harness"
+        android:usesCleartextTraffic="true"
+        android:supportsRtl="true">
+
+        <activity
+            android:name=".HarnessActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>

@@ -1,0 +1,24 @@
+# SPFN Mobile — case c4-enroll-while-enrolled: enrolling over a live key is refused
+#
+# One cell of the lifecycle's case table. The table is three states by three operations,
+# closed before any of this was written, and every cell has a flow: tools/harness/README.md
+# carries it. This file asserts one cell and nothing else.
+
+appId: ${APP_ID}
+name: c4-enroll-while-enrolled
+---
+- runFlow: reach-enrolled.yaml
+
+- tapOn:
+    id: "enroll"
+
+- extendedWaitUntil:
+    visible:
+      id: "busy-label:ready"
+    timeout: 20000
+
+- assertVisible:
+    id: "outcome-label:err:alreadyEnrolled"
+
+- assertVisible:
+    id: "state-label:enrolled"

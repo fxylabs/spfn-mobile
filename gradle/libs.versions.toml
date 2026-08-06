@@ -37,8 +37,8 @@ googleid = "1.2.0"
 jdk-toolchain = "21"
 min-sdk = "24"
 compile-sdk = "36"
-# targetSdk applies to applications only. No example application module exists yet,
-# so this value is recorded rather than applied.
+# targetSdk applies to applications only. The Maestro harness at tools/harness/android
+# is the one application in this repository, and it applies this value.
 target-sdk = "36"
 
 [libraries]
@@ -52,6 +52,9 @@ googleid = { module = "com.google.android.libraries.identity.googleid:googleid",
 
 [plugins]
 android-library = { id = "com.android.library", version.ref = "agp" }
+# Applied by the Maestro harness only (tools/harness/android). No SDK module is an
+# application, and nothing this plugin builds is published.
+android-application = { id = "com.android.application", version.ref = "agp" }
 cyclonedx-bom = { id = "org.cyclonedx.bom", version.ref = "cyclonedx" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

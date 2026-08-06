@@ -42,7 +42,8 @@ include(
     ":spfn-client",
     ":spfn-social-google",
     ":contract-codegen",
-    ":reference-server"
+    ":reference-server",
+    ":harness-android"
 )
 
 project(":spfn-core").projectDir = file("android/spfn-core")
@@ -60,3 +61,13 @@ project(":contract-codegen").projectDir = file("tools/contract-codegen")
 // pinned contract so both SDKs can be exercised over real HTTP on a developer machine.
 // It is a test fixture, not a deployment: nothing here is a real endpoint.
 project(":reference-server").projectDir = file("tools/reference-server")
+
+// Also not an SDK module and never published. The Maestro harness is an application that
+// drives the SDK through a screen so a flow has something to tap; everything else this
+// repository proves, it proves without one.
+//
+// It lives under tools/ rather than android/ because the validator counts the
+// directories under android/ and the `file("android/…")` mappings above against
+// tools/module-graph.json: an application there would read as an undeclared SDK module
+// (decision 01kzb8tjxp, D-1).
+project(":harness-android").projectDir = file("tools/harness/android")

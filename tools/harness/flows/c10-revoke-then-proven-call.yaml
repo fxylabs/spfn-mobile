@@ -1,0 +1,52 @@
+# SPFN Mobile — case c10: a revoked key is refused, and the SDK lets go of it.
+#
+# The one cell that is not in the three-by-three table, because revocation is not a
+# lifecycle operation — the SDK exposes enrolment and rotation, and revocation is a
+# contract operation the app sends. So this flow is the sequence an app actually performs:
+#
+#   revoke this key  ->  make a proven call  ->  meet SESSION_REVOKED  ->  drop the key
+#
+# `revokeAll` cannot stand in for the first step: it spares the caller on purpose, so it
+# would leave this key working and prove nothing.
+#
+# The last two steps are the point. SESSION_REVOKED is the contract's own code arriving
+# through the SDK's classification, and `note-revoked` is the SDK's own answer to it —
+# both slots go, and the machine is back at `unenrolled` with nothing able to sign.
+
+appId: ${APP_ID}
+name: c10-revoke-then-proven-call
+---
+- runFlow: reach-enrolled.yaml
+
+- tapOn:
+    id: "revoke"
+
+- extendedWaitUntil:
+    visible:
+      id: "busy-label:ready"
+    timeout: 20000
+
+- assertVisible:
+    id: "outcome-label:ok:revoked.*"
+
+- tapOn:
+    id: "proven-call"
+
+- extendedWaitUntil:
+    visible:
+      id: "busy-label:ready"
+    timeout: 20000
+
+- assertVisible:
+    id: "outcome-label:err:SESSION_REVOKED"
+
+- tapOn:
+    id: "note-revoked"
+
+- extendedWaitUntil:
+    visible:
+      id: "busy-label:ready"
+    timeout: 20000
+
+- assertVisible:
+    id: "state-label:unenrolled"

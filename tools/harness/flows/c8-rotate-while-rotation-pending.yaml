@@ -1,0 +1,24 @@
+# SPFN Mobile — case c8-rotate-while-rotation-pending: rotating over an unresolved rotation is refused
+#
+# One cell of the lifecycle's case table. The table is three states by three operations,
+# closed before any of this was written, and every cell has a flow: tools/harness/README.md
+# carries it. This file asserts one cell and nothing else.
+
+appId: ${APP_ID}
+name: c8-rotate-while-rotation-pending
+---
+- runFlow: reach-rotation-pending.yaml
+
+- tapOn:
+    id: "rotate"
+
+- extendedWaitUntil:
+    visible:
+      id: "busy-label:ready"
+    timeout: 20000
+
+- assertVisible:
+    id: "outcome-label:err:rotationUnresolved"
+
+- assertVisible:
+    id: "state-label:rotationPending"

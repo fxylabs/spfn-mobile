@@ -1,0 +1,78 @@
+# SPFN Mobile — the iOS harness app's project, as data.
+#
+#   xcodegen generate --spec tools/harness/ios/project.yml
+#
+# This file is the source; SPFNHarness.xcodeproj is the generated artifact and is
+# gitignored (.gitignore already ignores *.xcodeproj/). The repository keeps one
+# hand-edited project file nowhere: the CocoaPods fixture is generated from
+# tools/module-graph.json for the same reason, and a committed project.pbxproj is a
+# thousand lines nobody can review.
+#
+# The harness is not a sample and is never published. It exists so a Maestro flow has
+# an app to drive — decision 01kzb8tjxp (D-1, D-2).
+#
+# No signing identity is configured here on purpose: the validator forbids credential
+# and provisioning files in the tree. A simulator build passes CODE_SIGNING_ALLOWED=NO
+# and a device build passes DEVELOPMENT_TEAM, both from the runner's command line.
+
+name: SPFNHarness
+
+options:
+  bundleIdPrefix: xyz.superfunction.spfn
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+packages:
+  SPFNMobile:
+    path: ../../..
+
+targets:
+  SPFNHarness:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    dependencies:
+      - package: SPFNMobile
+        product: SPFNCore
+      - package: SPFNMobile
+        product: SPFNAuth
+      - package: SPFNMobile
+        product: SPFNGenerated
+      - package: SPFNMobile
+        product: SPFNClient
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: SPFN Harness
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+    # The harness stores its key in the real keychain, and the keychain answers nothing to
+    # an app with no entitlements. An unsigned simulator build has none, so every store
+    # call failed with -34018 and the state label read `unreadable` — the first run after
+    # the identifier fix spent itself finding exactly this.
+    #
+    # The group is the bundle id with no team prefix, which is what an ad-hoc signature
+    # can carry: there is no provisioning profile here to supply an AppIdentifierPrefix,
+    # and asking for one would put a signing identity in a repository that must not hold
+    # one.
+    entitlements:
+      path: Generated/SPFNHarness.entitlements
+      properties:
+        keychain-access-groups:
+          - xyz.superfunction.spfn.harness
+    settings:
+      base:
+        # Ad-hoc. Enough for a simulator to grant the entitlement above, and it names no
+        # identity, so nothing here is a credential. A device build overrides these from
+        # the runner's command line with a real team.
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.superfunction.spfn.harness
+        MARKETING_VERSION: "0.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.1"
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO

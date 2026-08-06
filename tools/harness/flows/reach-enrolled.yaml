@@ -1,0 +1,20 @@
+# SPFN Mobile — reaching `enrolled`, for the cases that start there.
+#
+# One enrolment against whatever base URL the run named, from a state the prelude just
+# proved is `unenrolled`. The assertion at the end is not decoration: a case that went on
+# to tap `rotate` without it would report `notEnrolled` and read as a rotation bug.
+
+appId: ${APP_ID}
+---
+- runFlow: prelude-clean.yaml
+
+- tapOn:
+    id: "enroll"
+
+- extendedWaitUntil:
+    visible:
+      id: "busy-label:ready"
+    timeout: 20000
+
+- assertVisible:
+    id: "state-label:enrolled"
