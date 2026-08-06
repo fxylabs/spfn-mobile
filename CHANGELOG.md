@@ -5,6 +5,28 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The contract is pinned at 0.8.0, and the generator reads the decimal grammar
+
+- The pin moves from 0.6.0 to 0.8.0 at primitives `22a1abea`, the commit published to
+  npmjs as `@spfn/auth@0.2.0-beta.91` and `@spfn/core@0.2.0-beta.71`. Three contract
+  versions landed upstream in between: 0.6.1 put `since`/`deprecatedIn`/`removedIn` on
+  every operation, 0.7.0 removed `number` from the grammar and added `decimal<scale>`,
+  and 0.8.0 removed the envelope's decoder instructions (`unknownCodePolicy`,
+  `unknownCodeRule`) in favour of the fact behind them, `unlistedCodes`.
+- The generator parses `decimal<scale>` and bounds-checks the scale (1..18), and still
+  refuses to emit it: no field in this contract uses one, and the encode-time rejection
+  path into the integer-only canonical value model — reject, never round, per the #95
+  decision — is a design decision to make before the first emission, not a line to add
+  to an emitter. A malformed scale (`decimal<2x>`) is refused at parse rather than read
+  as a type name, which is the P8 failure shape.
+- `number` is still refused, and the refusal now names its replacement: the grammar
+  dropped the spelling in 0.7.0, and `decimal<scale>` is how a fractional value is
+  declared. The availability keys are read past, and a test holds the parser to that.
+- The SDKs' own decoding behaviour does not change with the envelope: neither SDK ever
+  read `unknownCodePolicy` from the bundle — an unknown code already surfaced as an
+  unknown-code failure carrying the raw string, which remains this decoder's own
+  decision now that the contract states none.
+
 ### The contract is pinned at 0.6.0, and the generator now refuses what it cannot emit
 
 - The pin moves from 0.4.1 to 0.6.0 at primitives `8c95d1b2`, the commit published to

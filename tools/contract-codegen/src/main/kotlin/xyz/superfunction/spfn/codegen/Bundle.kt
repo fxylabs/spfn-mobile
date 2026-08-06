@@ -235,17 +235,35 @@ data class Bundle(
             is FieldType.StringType, is FieldType.IntegerType, is FieldType.BooleanType -> Unit
             is FieldType.EnumRef -> Unit
             is FieldType.ArrayOf -> checkFieldType(type.element, where, typeNames)
-            // Declared by the grammar and not emitted on purpose. SPFN-CANON-JSON-1
-            // carries signed 64-bit integers only — "a fractional or non-finite number is
-            // a canonicalization error" — so a float in a proven body could not be signed
-            // at all. The grammar is shared with app contracts, which is why it names a
-            // spelling this contract's own encoding refuses. Nothing in the 0.6.0 pin uses
-            // it, and the day something does is a decision about canonical JSON rather
-            // than a line to add to an emitter.
+            // Contract 0.7.0 removed `number` from the grammar: canonical JSON was never
+            // able to carry a float, and `decimal<scale>` is the spelling that replaced
+            // it. Parsed so the refusal can say that, instead of reading `number` as the
+            // name of an undeclared type.
             is FieldType.NumberType -> throw JsonException(
-                "$where is 'number', which SPFN-CANON-JSON-1 cannot encode: it carries " +
-                    "signed 64-bit integers only, and a fractional number is a canonicalization error"
+                "$where is 'number', which contract 0.7.0 removed from the grammar: " +
+                    "SPFN-CANON-JSON-1 carries signed 64-bit integers only, and decimal<scale> " +
+                    "is the spelling for a fractional value"
             )
+            // The wire shape is agreed — #95 fixed it as a scaled integer, decimal<2>
+            // carrying 1999 for 19.99 — but no field in this contract uses it yet, and
+            // the generated encoding path (a throwing conversion at the boundary of the
+            // integer-only canonical value model, rejecting rather than rounding a value
+            // finer than the scale) is a decision about SPFN-CANON-JSON-1's Swift and
+            // Kotlin surface, not a line to add to an emitter. Refused here so the first
+            // contract that ships a decimal field stops generation with this sentence
+            // instead of compiling a guess.
+            is FieldType.DecimalType ->
+                if (type.scale < 1 || type.scale > 18) throw JsonException(
+                    "$where declares decimal<${type.scale}>, whose scale is outside 1..18: " +
+                        "0 is integer written the long way, and above 18 no integer part " +
+                        "fits a signed 64-bit wire value"
+                )
+                else throw JsonException(
+                    "$where is decimal<${type.scale}>, which this generator does not emit yet; " +
+                        "no field in this contract used one before, and the encode-time " +
+                        "rejection path into the integer-only canonical value model is a " +
+                        "design decision to make before the first emission"
+                )
             // Same reason, different gap: no map appears in this contract, and guessing an
             // encoding for one would fix a wire shape nothing has agreed on.
             is FieldType.MapOf -> throw JsonException(
@@ -328,8 +346,20 @@ sealed interface FieldType
 
     data object BooleanType : FieldType
 
-    /** Floating point. Parsed so it can be refused by name; never emitted. */
+    /**
+     * Floating point, which contract 0.7.0 removed from the grammar. Parsed so it can
+     * be refused by name — with the spelling that replaced it — rather than read as an
+     * undeclared type; never emitted.
+     */
     data object NumberType : FieldType
+
+    /**
+     * `decimal<scale>`: a scaled integer on the wire, meaning that integer divided by
+     * 10^scale. The scale is part of the type — changing it is a breaking change that
+     * renames the field. Parsed and bounds-checked; not emitted yet, because the
+     * encode-time rejection path is a canonical-value design decision still to make.
+     */
+    data class DecimalType(val scale: Long) : FieldType
 
     data class Named(val name: String) : FieldType
 
@@ -344,6 +374,7 @@ sealed interface FieldType
     companion object
     {
         private const val MAP_PREFIX = "map<string,";
+        private const val DECIMAL_PREFIX = "decimal<";
 
         /**
          * Resolves the bundle's spelling of a field type.
@@ -362,6 +393,17 @@ sealed interface FieldType
                 ArrayOf(parse(text.substring("array<".length, text.length - 1), enumNames))
             text.startsWith(MAP_PREFIX) && text.endsWith(">") ->
                 MapOf(parse(text.substring(MAP_PREFIX.length, text.length - 1).trim(), enumNames))
+            // A malformed scale is refused here rather than falling through to Named:
+            // `decimal<2x>` read as a type name is exactly the P8 failure — a plausible
+            // client emitted from a spelling the parser never understood.
+            text.startsWith(DECIMAL_PREFIX) && text.endsWith(">") ->
+                DecimalType(
+                    text.substring(DECIMAL_PREFIX.length, text.length - 1).trim().toLongOrNull()
+                        ?: throw JsonException(
+                            "'$text' is not a decimal spelling: the scale must be an integer, " +
+                                "as in decimal<2>"
+                        )
+                )
             text in enumNames -> EnumRef(text)
             else -> Named(text)
         }

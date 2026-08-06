@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    0a91612158aaf9917be8487cf70e1df9ab4c12ac6c1106973afa99122e458795
-// contractVersion: 0.6.0
+// bundleSha256:    a42af88aac46b827d19a702e322fc82c8f089ff45605d05d75fadeb1d953b60b
+// contractVersion: 0.8.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.

@@ -191,9 +191,12 @@ class SpfnReferenceRestOpsTest
             assertTrue(response.success);
             assertEquals("key-n2-new", response.keyId);
 
-            // The old key is gone — indistinguishable from never having existed.
+            // The old key is revoked, not merely gone: rotation records it in the
+            // revocation ledger, as the real server does, and the revocation step
+            // answers before the proof check ever runs — SESSION_REVOKED, never
+            // PROOF_INVALID, per `clientProofV1.revocationRule`.
             val oldAgain = handshake(harness, oldPair, "user-n2-0001", "key-n2-old");
-            assertEquals("PROOF_INVALID", oldAgain.errorCode());
+            assertEquals("SESSION_REVOKED", oldAgain.errorCode());
 
             // The session the old key opened died with it.
             val echoBody = SpfnCanonicalJson.encode(

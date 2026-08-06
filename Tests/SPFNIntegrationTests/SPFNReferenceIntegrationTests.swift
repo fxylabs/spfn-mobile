@@ -226,7 +226,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
 
     /// The REST enrollment surface end to end: enrollment, a proof round trip with the
     /// enrolled key, a rotation proved by it, and a proof round trip with the new key —
-    /// while the replaced key is refused with the non-disclosing PROOF_INVALID.
+    /// while the replaced key is refused at the revocation step with SESSION_REVOKED.
     ///
     /// Runs only when the runner says the target implements the REST surface
     /// (`SPFN_INTEGRATION_REST_OPS=1`, which run-integration.sh sets in local mode).
@@ -290,8 +290,10 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         )
         XCTAssertEqual(again.message, "rotated key proves")
 
-        // The replaced key is gone, and the refusal discloses nothing: the same
-        // PROOF_INVALID an unregistered key answers.
+        // The replaced key is refused at the revocation step. Rotation records the old
+        // key as revoked — the real server writes it as one, with a reason — and
+        // `clientProofV1.revocationRule` fixes the outcome for a revoked keyId:
+        // SESSION_REVOKED, never PROOF_INVALID.
         do
         {
             _ = try await fixture.client(signingWith: firstProvider).execute(
@@ -302,7 +304,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         }
         catch SPFNClientError.auth(let refusal)
         {
-            XCTAssertEqual(refusal.code, .proofInvalid)
+            XCTAssertEqual(refusal.code, .sessionRevoked)
         }
 
         try fixture.environment.record("swift-f")
