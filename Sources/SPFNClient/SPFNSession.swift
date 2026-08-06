@@ -187,7 +187,7 @@ public actor SPFNSession
         // Encoded exactly once. The bytes the proof is taken over and the bytes that go
         // on the wire are the same array, so they cannot drift apart the way two
         // separate encodings of the same value can.
-        let canonicalBody = SPFNCanonicalJSON.encode(body.canonicalValue)
+        let canonicalBody = SPFNCanonicalJSON.encode(try body.canonicalValue())
 
         let headers = try proofHeaders(
             operation: operation,

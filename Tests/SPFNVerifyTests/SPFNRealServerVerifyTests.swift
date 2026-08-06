@@ -302,25 +302,25 @@ final class SPFNRealServerVerifyTests: XCTestCase
     {
         static let login = SPFNCall<SPFNLoginRequest, SPFNLoginResponse>(
             operation: SPFNGeneratedOperations.authEnrollLogin,
-            encode: { $0.canonicalValue },
+            encode: { try $0.canonicalValue() },
             decode: { try SPFNLoginResponse(canonical: $0) }
         )
 
         static let keysList = SPFNCall<SPFNListKeysRequest, SPFNListKeysResponse>(
             operation: SPFNGeneratedOperations.authKeysList,
-            encode: { $0.canonicalValue },
+            encode: { try $0.canonicalValue() },
             decode: { try SPFNListKeysResponse(canonical: $0) }
         )
 
         static let keysRevoke = SPFNCall<SPFNRevokeKeyRequest, SPFNRevokeKeyResponse>(
             operation: SPFNGeneratedOperations.authKeysRevoke,
-            encode: { $0.canonicalValue },
+            encode: { try $0.canonicalValue() },
             decode: { try SPFNRevokeKeyResponse(canonical: $0) }
         )
 
         static let keysRevokeAll = SPFNCall<SPFNRevokeAllKeysRequest, SPFNRevokeAllKeysResponse>(
             operation: SPFNGeneratedOperations.authKeysRevokeAll,
-            encode: { $0.canonicalValue },
+            encode: { try $0.canonicalValue() },
             decode: { try SPFNRevokeAllKeysResponse(canonical: $0) }
         )
     }

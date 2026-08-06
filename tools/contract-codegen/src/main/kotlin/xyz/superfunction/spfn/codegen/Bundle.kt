@@ -97,6 +97,23 @@ data class Bundle(
      */
     fun fieldType(field: Field): FieldType = FieldType.parse(field.type, enums.map { it.name }.toSet())
 
+    /**
+     * Whether any declared field carries a decimal, at any nesting. Both emitters ask
+     * this to decide whether the generated file needs the decimal imports, so a bundle
+     * without one keeps its output free of an import nothing uses.
+     */
+    fun usesDecimal(): Boolean = types.any { type ->
+        type.fields.any { containsDecimal(fieldType(it)) }
+    }
+
+    private fun containsDecimal(type: FieldType): Boolean = when (type)
+    {
+        is FieldType.DecimalType -> true
+        is FieldType.ArrayOf -> containsDecimal(type.element)
+        is FieldType.MapOf -> containsDecimal(type.value)
+        else -> false
+    }
+
     companion object
     {
         fun read(
@@ -244,26 +261,18 @@ data class Bundle(
                     "SPFN-CANON-JSON-1 carries signed 64-bit integers only, and decimal<scale> " +
                     "is the spelling for a fractional value"
             )
-            // The wire shape is agreed — #95 fixed it as a scaled integer, decimal<2>
-            // carrying 1999 for 19.99 — but no field in this contract uses it yet, and
-            // the generated encoding path (a throwing conversion at the boundary of the
-            // integer-only canonical value model, rejecting rather than rounding a value
-            // finer than the scale) is a decision about SPFN-CANON-JSON-1's Swift and
-            // Kotlin surface, not a line to add to an emitter. Refused here so the first
-            // contract that ships a decimal field stops generation with this sentence
-            // instead of compiling a guess.
+            // The wire shape is #95's: a scaled integer, decimal<2> carrying 1999 for
+            // 19.99. Emission goes through SPFNDecimalCoding / SpfnDecimalCoding, whose
+            // encode side rejects — never rounds — a value finer than the scale, before
+            // the proof is signed. Only the scale bounds are checked here; the grammar
+            // fixes them, and a bundle outside them is a contract error to refuse.
             is FieldType.DecimalType ->
                 if (type.scale < 1 || type.scale > 18) throw JsonException(
                     "$where declares decimal<${type.scale}>, whose scale is outside 1..18: " +
                         "0 is integer written the long way, and above 18 no integer part " +
                         "fits a signed 64-bit wire value"
                 )
-                else throw JsonException(
-                    "$where is decimal<${type.scale}>, which this generator does not emit yet; " +
-                        "no field in this contract used one before, and the encode-time " +
-                        "rejection path into the integer-only canonical value model is a " +
-                        "design decision to make before the first emission"
-                )
+                else Unit
             // Same reason, different gap: no map appears in this contract, and guessing an
             // encoding for one would fix a wire shape nothing has agreed on.
             is FieldType.MapOf -> throw JsonException(
@@ -356,8 +365,9 @@ sealed interface FieldType
     /**
      * `decimal<scale>`: a scaled integer on the wire, meaning that integer divided by
      * 10^scale. The scale is part of the type — changing it is a breaking change that
-     * renames the field. Parsed and bounds-checked; not emitted yet, because the
-     * encode-time rejection path is a canonical-value design decision still to make.
+     * renames the field. Emitted as Swift `Decimal` / Kotlin `BigDecimal`, with the
+     * scale conversions in SPFNDecimalCoding / SpfnDecimalCoding: encode refuses a
+     * value finer than the scale rather than rounding it, before the proof is signed.
      */
     data class DecimalType(val scale: Long) : FieldType
 

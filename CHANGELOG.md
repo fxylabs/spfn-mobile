@@ -5,6 +5,25 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Decimal fields are emitted, and encoding is where an impossible value fails
+
+- The generator now emits `decimal<scale>` fields as Swift `Decimal` and Kotlin
+  `BigDecimal`, wired through `SPFNDecimalCoding`/`SpfnDecimalCoding` in the core
+  modules. The wire form is #95's scaled integer — `decimal<2>` carries 1999 for 19.99 —
+  and the canonical value model stays integer-only: nothing about the wire, canonical
+  JSON or the proof input changed.
+- A value finer than the declared scale is refused at encoding time, never rounded, and
+  so is a value whose scaled integer leaves the Int64 range. The refusal happens before
+  the proof is signed and before a byte leaves the device: generated Swift encoding
+  became `func canonicalValue() throws` (Kotlin's was already a function; its exceptions
+  are unchecked), so an impossible value fails the call that tried to encode it. A
+  shared case table holds both platforms to the same vectors, row for row.
+- The pinned contract declares no decimal field yet, so the only visible change in the
+  generated sources is the throwing Swift boundary. The first bundle that ships one now
+  generates working clients instead of stopping the build.
+- Android lint caught `BigInteger.longValueExact` at API 31 against minSdk 24 — the P14
+  trap, replaced with an explicit bounds comparison. The desktop JVM tests had passed.
+
 ### The contract is pinned at 0.8.0, and the generator reads the decimal grammar
 
 - The pin moves from 0.6.0 to 0.8.0 at primitives `22a1abea`, the commit published to

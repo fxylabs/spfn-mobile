@@ -87,6 +87,10 @@ object KotlinEmitter
         appendLine("import xyz.superfunction.spfn.core.SpfnCanonicalValue");
         appendLine("import xyz.superfunction.spfn.core.SpfnDecoding");
         appendLine("import xyz.superfunction.spfn.core.SpfnDecodingException");
+        if (bundle.usesDecimal())
+        {
+            appendLine("import xyz.superfunction.spfn.core.SpfnDecimalCoding");
+        }
         bundle.enums.forEach { declaration ->
             appendLine();
             appendLine("/**");
@@ -298,12 +302,16 @@ object KotlinEmitter
         is FieldType.Named -> Names.kotlinType(type.name)
         is FieldType.EnumRef -> Names.kotlinType(type.name)
         is FieldType.ArrayOf -> "List<${kotlinType(type.element)}>"
-        is FieldType.NumberType, is FieldType.DecimalType, is FieldType.MapOf -> unemittable(type)
+        // Fully qualified so the type position needs no import bookkeeping; the scale
+        // lives in the coding calls, not the type, per the contract's decimalScaleRule
+        // (a changed scale renames the field rather than remeasuring it).
+        is FieldType.DecimalType -> "java.math.BigDecimal"
+        is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
     }
 
     private fun kotlinEncodeField(bundle: Bundle, field: Field): String
     {
-        val expression = kotlinEncodeExpression(bundle.fieldType(field), field.name);
+        val expression = kotlinEncodeExpression(bundle.fieldType(field), field.name, "\\\$.${field.name}");
         if (!field.optional)
         {
             return "        members[\"${field.name}\"] = $expression;";
@@ -316,15 +324,24 @@ object KotlinEmitter
         };
     }
 
-    private fun kotlinEncodeExpression(type: FieldType, accessor: String): String = when (type)
+    /**
+     * `fieldPath` is the position the generated refusal names — `\$.price` — escaped so
+     * the generated file carries a literal dollar rather than an interpolation.
+     */
+    private fun kotlinEncodeExpression(type: FieldType, accessor: String, fieldPath: String): String = when (type)
     {
         is FieldType.StringType -> "SpfnCanonicalValue.Text($accessor)"
         is FieldType.IntegerType -> "SpfnCanonicalValue.Integer($accessor)"
         is FieldType.BooleanType -> "SpfnCanonicalValue.Bool($accessor)"
         is FieldType.Named -> "$accessor.canonicalValue()"
         is FieldType.EnumRef -> "$accessor.canonicalValue()"
-        is FieldType.ArrayOf -> "SpfnCanonicalValue.Arr($accessor.map { it.canonicalValue() })"
-        is FieldType.NumberType, is FieldType.DecimalType, is FieldType.MapOf -> unemittable(type)
+        is FieldType.ArrayOf ->
+            "SpfnCanonicalValue.Arr($accessor.map { ${kotlinEncodeExpression(type.element, "it", fieldPath)} })"
+        // The refusal — finer than the scale, or past the Int64 wire — happens inside
+        // the helper, before the value reaches the canonical tree that gets signed.
+        is FieldType.DecimalType ->
+            "SpfnCanonicalValue.Integer(SpfnDecimalCoding.scaledInteger($accessor, ${type.scale}, \"$fieldPath\"))"
+        is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
     }
 
     private fun kotlinDecodeExpression(bundle: Bundle, field: Field): String
@@ -351,8 +368,13 @@ object KotlinEmitter
                         "?.let { ${kotlinType(type)}.decode(it, \"$path\") }"
                 else "${kotlinType(type)}.decode($member ?: SpfnCanonicalValue.Null, \"$path\")"
             is FieldType.ArrayOf ->
-                "SpfnDecoding.array($member, \"$path\").map { ${kotlinType(type.element)}.decode(it, \"$path\") }"
-            is FieldType.NumberType, is FieldType.DecimalType, is FieldType.MapOf -> unemittable(type)
+                if (type.element is FieldType.DecimalType)
+                    "SpfnDecoding.array($member, \"$path\").map { SpfnDecimalCoding.decimal(it, ${type.element.scale}, \"$path\") }"
+                else "SpfnDecoding.array($member, \"$path\").map { ${kotlinType(type.element)}.decode(it, \"$path\") }"
+            is FieldType.DecimalType ->
+                if (field.optional) "SpfnDecimalCoding.optionalDecimal($member, ${type.scale}, \"$path\")"
+                else "SpfnDecimalCoding.decimal($member, ${type.scale}, \"$path\")"
+            is FieldType.NumberType, is FieldType.MapOf -> unemittable(type)
         };
     }
 }

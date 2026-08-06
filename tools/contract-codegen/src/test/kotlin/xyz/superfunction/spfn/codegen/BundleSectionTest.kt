@@ -122,14 +122,35 @@ class BundleSectionTest
         );
     }
 
-    // The 0.7.0/0.8.0 grammar: decimal<scale> is parsed and bounds-checked, and still
-    // refused for emission — the encode-time rejection path into the integer-only
-    // canonical value model is a design decision the generator must not guess at.
+    // The 0.7.0/0.8.0 grammar: decimal<scale> is parsed, bounds-checked and emitted as
+    // Swift Decimal / Kotlin BigDecimal through the SPFNDecimalCoding helpers, whose
+    // encode side refuses — never rounds — a value finer than the scale.
 
     @Test
-    fun aDecimalFieldIsRefusedUntilTheEmitterLearnsIt()
+    fun aDecimalFieldEmitsTheDecimalTypesAndTheCodingCalls()
     {
-        assertRefusedSaying("decimal<2> field", withFieldType("decimal<2>"), "does not emit yet");
+        val bundle = read(withFieldType("decimal<2>"));
+
+        val swift = SwiftEmitter.emit(bundle).values.joinToString("\n");
+        assertTrue(swift.contains(": Decimal"));
+        assertTrue(swift.contains("try SPFNDecimalCoding.scaledInteger("));
+        assertTrue(swift.contains("SPFNDecimalCoding.decimal("));
+        assertTrue(swift.contains("import Foundation"));
+
+        val kotlin = KotlinEmitter.emit(bundle).values.joinToString("\n");
+        assertTrue(kotlin.contains(": java.math.BigDecimal"));
+        assertTrue(kotlin.contains("SpfnDecimalCoding.scaledInteger("));
+        assertTrue(kotlin.contains("SpfnDecimalCoding.decimal("));
+        assertTrue(kotlin.contains("import xyz.superfunction.spfn.core.SpfnDecimalCoding"));
+    }
+
+    /** A bundle with no decimal keeps its output free of the decimal imports. */
+    @Test
+    fun aBundleWithoutDecimalEmitsNoDecimalImport()
+    {
+        val bundle = read(bundleText);
+        assertTrue(!SwiftEmitter.emit(bundle).values.joinToString("\n").contains("import Foundation"));
+        assertTrue(!KotlinEmitter.emit(bundle).values.joinToString("\n").contains("SpfnDecimalCoding"));
     }
 
     @Test

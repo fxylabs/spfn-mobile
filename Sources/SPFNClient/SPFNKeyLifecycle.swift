@@ -505,7 +505,7 @@ public actor SPFNKeyLifecycle
     {
         SPFNCall(
             operation: SPFNGeneratedOperations.authKeysRotate,
-            encode: { $0.canonicalValue },
+            encode: { try $0.canonicalValue() },
             decode: { try SPFNRotateKeyResponse(canonical: $0) }
         )
     }
@@ -521,7 +521,7 @@ public actor SPFNKeyLifecycle
                 authProfile: template.authProfile,
                 requiresSession: template.requiresSession
             ),
-            encode: { $0.canonicalValue },
+            encode: { try $0.canonicalValue() },
             decode: { try SPFNOauthNativeResponse(canonical: $0) }
         )
     }
