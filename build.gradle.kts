@@ -27,6 +27,11 @@ buildscript {
 // build or check, and `tools/rc-verify/rc-verify.sh` asserts that stays true.
 plugins {
     alias(libs.plugins.android.library) apply false
+    // The Maestro harness is the one application module. Its version is resolved HERE
+    // rather than in tools/harness/android/build.gradle.kts: AGP puts both plugins on one
+    // classpath, and a second versioned request for a plugin already resolved fails with
+    // "already on the classpath with an unknown version".
+    alias(libs.plugins.android.application) apply false
     alias(libs.plugins.kotlin.jvm) apply false
     alias(libs.plugins.cyclonedx.bom)
 }

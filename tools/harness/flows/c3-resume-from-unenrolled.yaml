@@ -1,0 +1,24 @@
+# SPFN Mobile — case c3-resume-from-unenrolled: resuming with no candidate is refused
+#
+# One cell of the lifecycle's case table. The table is three states by three operations,
+# closed before any of this was written, and every cell has a flow: tools/harness/README.md
+# carries it. This file asserts one cell and nothing else.
+
+appId: ${APP_ID}
+name: c3-resume-from-unenrolled
+---
+- runFlow: prelude-clean.yaml
+
+- tapOn:
+    id: "btn_resume"
+
+- extendedWaitUntil:
+    visible:
+      text: "busy=ready"
+    timeout: 20000
+
+- assertVisible:
+    text: "outcome=err:notEnrolled"
+
+- assertVisible:
+    text: "state=unenrolled"

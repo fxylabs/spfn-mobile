@@ -1,0 +1,14 @@
+# SPFN Mobile — case c1: enrolling from `unenrolled` succeeds.
+#
+# The one cell in the table that is not a refusal, and the one every other cell that
+# starts from `enrolled` depends on. Its assertions are the reach flow's assertions, so it
+# runs that flow and adds only the outcome check: `reach-enrolled` proves the state moved,
+# and this proves the SDK said so.
+
+appId: ${APP_ID}
+name: c1-enroll-from-unenrolled
+---
+- runFlow: reach-enrolled.yaml
+
+- assertVisible:
+    text: "outcome=ok:enrolled.*"

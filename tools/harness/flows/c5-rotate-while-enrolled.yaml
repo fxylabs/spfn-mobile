@@ -1,0 +1,27 @@
+# SPFN Mobile — case c5: rotating from `enrolled` succeeds.
+#
+# The rotation the other two rotationPending cases are the failure of. It ends back at
+# `enrolled` — a completed rotation leaves exactly one signable key, the new one, which is
+# the invariant the whole lifecycle is built around.
+#
+# The outcome carries the new key id. The flow does not assert which id it is: the SDK
+# mints it, and a flow that pinned it would be asserting on a UUID.
+
+appId: ${APP_ID}
+name: c5-rotate-while-enrolled
+---
+- runFlow: reach-enrolled.yaml
+
+- tapOn:
+    id: "btn_rotate"
+
+- extendedWaitUntil:
+    visible:
+      text: "busy=ready"
+    timeout: 20000
+
+- assertVisible:
+    text: "outcome=ok:rotated.*"
+
+- assertVisible:
+    text: "state=enrolled"

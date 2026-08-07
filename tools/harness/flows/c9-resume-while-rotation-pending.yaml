@@ -1,0 +1,28 @@
+# SPFN Mobile — case c9: resuming an unresolved rotation completes it.
+#
+# The only way out of `rotationPending`, and the reason the state exists. The reach flow
+# blocked the network mid-rotation, so the server never saw the request; the resume
+# re-sends the same candidate under the old key's proof, the server applies it, and the
+# candidate is promoted.
+#
+# The network is already open again when this runs — the reach flow reopens it — so a
+# failure here is the server's answer, not the harness's switch.
+
+appId: ${APP_ID}
+name: c9-resume-while-rotation-pending
+---
+- runFlow: reach-rotation-pending.yaml
+
+- tapOn:
+    id: "btn_resume"
+
+- extendedWaitUntil:
+    visible:
+      text: "busy=ready"
+    timeout: 20000
+
+- assertVisible:
+    text: "outcome=ok:resumed.*"
+
+- assertVisible:
+    text: "state=enrolled"

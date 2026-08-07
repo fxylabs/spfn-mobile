@@ -7,6 +7,10 @@
 Package.resolved
 *.xcodeproj/
 *.xcworkspace/
+# XcodeGen writes the harness app's Info.plist and entitlements from
+# tools/harness/ios/project.yml, the same way the CocoaPods fixture is written from the
+# module graph. The spec is the source; these are its output.
+tools/harness/ios/Generated/
 DerivedData/
 *.xcuserstate
 

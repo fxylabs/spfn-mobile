@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPFN Mobile — the harness buttons' resource ids.
+
+  These exist because the two platforms answer "id" with different things. On iOS an
+  accessibility identifier is what a flow's `id:` matches; on Android it is the view's
+  RESOURCE id, and a content description is not a substitute — the first run on a real
+  phone failed all nine cases with "Element not found: Id matching regex: wipe" while the
+  screen was on and correct, because every view carried a content description and no
+  resource id at all.
+
+  A resource id cannot be created in code, only referenced, so the names live here and
+  HarnessActivity attaches them.
+
+  The `btn_` prefix is not decoration. A flow's selector is a REGEX, so an id that is a
+  substring of another id matches both: plain `revoke` would also match `note_revoked`.
+  With the prefix no name contains another.
+-->
+<resources>
+    <item type="id" name="btn_enroll" />
+    <item type="id" name="btn_rotate" />
+    <item type="id" name="btn_resume" />
+    <item type="id" name="btn_revoke" />
+    <item type="id" name="btn_proven_call" />
+    <item type="id" name="btn_note_revoked" />
+    <item type="id" name="btn_wipe" />
+    <item type="id" name="btn_custody_probe" />
+    <item type="id" name="btn_block_network" />
+    <item type="id" name="btn_open_network" />
+</resources>

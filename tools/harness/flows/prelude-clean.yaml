@@ -1,0 +1,34 @@
+# SPFN Mobile — the state every case starts from.
+#
+# `clearState` is not enough on its own and never will be. On iOS the keychain survives
+# an app's data being cleared and survives the app being deleted, so a run that trusted
+# clearState would start its second case holding the first case's key. The wipe button
+# exists for exactly this: it calls the SDK's own `wipe()`, which deletes both slots.
+#
+# So the order is: clear what the platform can clear, then ask the SDK to drop what it
+# holds, then assert the machine really is at `unenrolled` before the case begins. A case
+# that started somewhere else would report a refusal about the wrong state.
+#
+# Shared by both platforms. The identifiers are identical on iOS and Android, which is
+# what makes one file enough (decision 01kzb8tjxp, D-6).
+
+appId: ${APP_ID}
+---
+- launchApp:
+    clearState: true
+    arguments:
+      SPFN_HARNESS_BASE_URL: ${BASE_URL}
+      SPFN_HARNESS_PROVIDER: ${PROVIDER}
+      SPFN_HARNESS_ID_TOKEN: ${ID_TOKEN}
+      SPFN_HARNESS_TEST_USER: ${TEST_USER}
+
+- tapOn:
+    id: "btn_wipe"
+
+- extendedWaitUntil:
+    visible:
+      text: "busy=ready"
+    timeout: 20000
+
+- assertVisible:
+    text: "state=unenrolled"

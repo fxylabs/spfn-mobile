@@ -1,0 +1,24 @@
+# SPFN Mobile — case c7-enroll-while-rotation-pending: enrolling over an unresolved rotation is refused
+#
+# One cell of the lifecycle's case table. The table is three states by three operations,
+# closed before any of this was written, and every cell has a flow: tools/harness/README.md
+# carries it. This file asserts one cell and nothing else.
+
+appId: ${APP_ID}
+name: c7-enroll-while-rotation-pending
+---
+- runFlow: reach-rotation-pending.yaml
+
+- tapOn:
+    id: "btn_enroll"
+
+- extendedWaitUntil:
+    visible:
+      text: "busy=ready"
+    timeout: 20000
+
+- assertVisible:
+    text: "outcome=err:rotationUnresolved"
+
+- assertVisible:
+    text: "state=rotationPending"
