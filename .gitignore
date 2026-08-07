@@ -37,3 +37,11 @@ Pods/
 .netrc
 .env
 .env.*
+
+# Agent-tool state, which belongs to whoever is running the tool rather than to this
+# repository. AGENTS.md and CLAUDE.md here were written entirely by one CLI and carried
+# nothing hand-written: a contributor who does not run it got sixty lines about a command
+# they do not have, and every upgrade of it churned a version stamp. The rules that bind
+# a contributor are in CONTRIBUTING.md, which needs no tool to read.
+/AGENTS.md
+/CLAUDE.md
