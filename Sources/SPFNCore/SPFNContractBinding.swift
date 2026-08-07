@@ -188,6 +188,19 @@ public enum SPFNSemVer
         return Version(core: core, preRelease: preRelease)
     }
 
+    /// Whether this text is a version at all, without saying which one.
+    ///
+    /// The parser and its result stay internal on purpose — nothing outside this module
+    /// has business comparing versions itself. This asks the one question a caller
+    /// outside it does have: a version string that arrived from a server is text the
+    /// server chose, and `SPFNClientError` forbids carrying such text into a failure
+    /// value. Asking here first is what makes carrying it afterwards safe, because what
+    /// survives is a string this SDK validated rather than whatever arrived.
+    public static func isVersion(_ text: String) -> Bool
+    {
+        parse(text) != nil
+    }
+
     /// True when `candidate` is at or above `lower` and strictly below `upper`, and
     /// carries the same pre-release as `lower` (usually none).
     static func satisfies(candidate: String, atOrAbove lower: String, below upper: String) -> Bool

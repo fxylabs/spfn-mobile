@@ -29,6 +29,18 @@ object SpfnWireHeaders
     const val PROOF: String = "x-spfn-proof"
     const val SESSION: String = "x-spfn-session"
 
+    // `wireMapping.clientIdentity`. Four of these names begin `x-spfn-client`, and only
+    // the first is a proof field: CLIENT_ID above is the enrolled client's identifier and
+    // is signed, while the three below are diagnostic and are not. Match a full name,
+    // never a prefix (docs/IMPLEMENTATION-PITFALLS.md P5).
+    const val CLIENT_KIND: String = "x-spfn-client-kind"
+    const val CLIENT_VERSION: String = "x-spfn-client-version"
+    const val CLIENT_CONTRACT_VERSION: String = "x-spfn-client-contract-version"
+
+    // `wireMapping.serverAnnouncement`, which every response carries, refusals included.
+    const val SERVER_CONTRACT_VERSION: String = "x-spfn-server-contract-version"
+    const val SUPPORTED_CONTRACT_RANGE: String = "x-spfn-supported-contract-range"
+
     /**
      * Contract field names in the order a request carries them, exactly as
      * `wireMapping.headerOrder` fixes it. `content-type` precedes all of them and is not

@@ -148,7 +148,12 @@ public struct SPFNClient: Sendable
                 SPFNTransportRequest(
                     method: call.operation.method,
                     url: session.baseURL + call.operation.path,
-                    headers: [(SPFNWireHeaders.contentType, SPFNWireHeaders.requestContentType)],
+                    // The identity headers ride here too. The contract applies them to
+                    // every operation "proven or not — enrolment and login are where a
+                    // stale client is met first, and they carry no proof", and this is
+                    // that path.
+                    headers: [(SPFNWireHeaders.contentType, SPFNWireHeaders.requestContentType)]
+                        + SPFNClientIdentity.headers,
                     body: canonicalBody,
                     timeoutMillis: timeoutMillis
                 )
@@ -173,7 +178,10 @@ public struct SPFNClient: Sendable
                 SPFNTransportRequest(
                     method: operation.method,
                     url: session.baseURL + operation.path,
-                    headers: headers,
+                    // Appended rather than assembled inside `proofHeaders`, because these
+                    // are not proof fields: none of them enters the proof input, and the
+                    // wire fixture pins what that function returns.
+                    headers: headers + SPFNClientIdentity.headers,
                     body: canonicalBody,
                     timeoutMillis: timeoutMillis
                 )
@@ -235,6 +243,17 @@ public struct SPFNClient: Sendable
         with decode: (SPFNCanonicalValue) throws -> Response
     ) throws -> Response
     {
+        // Before the body is looked at. A server refusing on contract grounds announces
+        // its version on that refusal, so classifying first would return the refusal and
+        // throw away the two numbers that say which end is stale.
+        if let mismatch = SPFNClientIdentity.mismatch(
+            in: response,
+            against: SPFNGeneratedContract.binding
+        )
+        {
+            throw SPFNClientError.contract(mismatch)
+        }
+
         guard let parsed = try? SPFNCanonicalJSON.parse(response.body)
         else
         {

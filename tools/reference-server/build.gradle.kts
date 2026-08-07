@@ -40,14 +40,17 @@ sourceSets {
         // The integration suite drives the shipped client, so it compiles the shipped
         // client rather than a copy of it. Test-only: the server itself never sees it.
         //
-        // Two files are excluded by name: they are the platform halves of the custody
-        // seams (the real Keystore engine and the SharedPreferences store), and they
-        // import android.* classes a plain JVM compilation has no stubs for. The seams
-        // themselves — SpfnKeystoreEngine, SpfnKeyMetadataStore — compile here, and the
-        // integration suite injects software implementations of both.
+        // Three files are excluded by name: they are the platform halves of seams whose
+        // framework-free side compiles here, and they import android.* classes a plain
+        // JVM compilation has no stubs for. The seams themselves — SpfnKeystoreEngine,
+        // SpfnKeyMetadataStore, SpfnClientIdentity — compile here, and the integration
+        // suite injects software implementations of the first two. The third needs no
+        // implementation injected: leaving the app version unset is a supported state,
+        // and the two identity headers the server's gate judges do not depend on it.
         kotlin.srcDir("../../android/spfn-client/src/main/kotlin")
         kotlin.exclude("**/SpfnAndroidKeystoreEngine.kt")
         kotlin.exclude("**/SpfnSharedPreferencesKeyMetadataStore.kt")
+        kotlin.exclude("**/SpfnClientIdentityContext.kt")
     }
 }
 

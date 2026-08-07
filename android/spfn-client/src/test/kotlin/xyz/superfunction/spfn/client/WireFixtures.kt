@@ -79,13 +79,27 @@ fun Map<String, SpfnCanonicalValue>.headerPairs(key: String): List<Pair<String, 
  * public key — and the fixture's own recorded proof must verify the same way, which
  * proves this platform's verifier accepts a signature produced outside either SDK.
  */
+/**
+ * [identity] is what the sender appends after the pinned headers. It defaults to what a
+ * request leaving the SDK carries; a test that checks `proofHeaders` on its own passes an
+ * empty list, because that function returns the proof headers and never the identity.
+ */
 fun assertHeadersMatchWireVector(
     sent: List<Pair<String, String>>,
     expected: List<Pair<String, String>>,
-    vector: Map<String, SpfnCanonicalValue>
+    vector: Map<String, SpfnCanonicalValue>,
+    identity: List<Pair<String, String>> = SpfnClientIdentity.headers
 )
 {
-    assertEquals("header names or order differ", expected.map { it.first }, sent.map { it.first });
+    // The vector pins the proof headers, which is all it was ever about: none of the
+    // identity headers enters the proof input, so the fixture has nothing to say about
+    // them. They follow the pinned ones, and that they are there at all is asserted by
+    // the cells in SpfnClientIdentityTest rather than here.
+    assertEquals(
+        "header names or order differ",
+        expected.map { it.first } + identity.map { it.first },
+        sent.map { it.first }
+    );
     for ((sentPair, expectedPair) in sent.zip(expected))
     {
         if (sentPair.first != SpfnWireHeaders.PROOF)

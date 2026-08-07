@@ -131,7 +131,9 @@ class SpfnWireConformanceTest
             vector.text("canonicalBody").toByteArray(Charsets.UTF_8)
         )
 
-        assertHeadersMatchWireVector(headers, expected, vector)
+        // `proofHeaders` on its own, so no identity: the identity is appended where the
+        // request is handed to the transport, not where the proof is assembled.
+        assertHeadersMatchWireVector(headers, expected, vector, identity = emptyList())
         assertEquals("one handshake, then the request itself", 1, transport.callCount)
         assertEquals(SessionFixtureValues.SESSION_ID, vector.text("sessionId"))
     }
