@@ -7,6 +7,7 @@
 
 import Foundation
 import SPFNClient
+import SPFNGenerated
 
 /// A clock a test moves by hand.
 final class FakeClock: SPFNClock, @unchecked Sendable
@@ -111,13 +112,31 @@ actor ScriptedTransport: SPFNTransport
 extension SPFNTransportResponse
 {
     /// A JSON answer, spelled the way a server would put it on the wire.
+    ///
+    /// The contract announcement is part of "the way a server would put it": contract
+    /// 0.8.0 puts it on every response including a refusal, and this SDK refuses a
+    /// response without it. A double that omitted it would make every test in this
+    /// directory assert the refusal rather than what it was written to assert.
     static func json(_ statusCode: Int, _ text: String) -> SPFNTransportResponse
     {
         SPFNTransportResponse(
             statusCode: statusCode,
-            headers: [("content-type", "application/json")],
+            headers: [("content-type", "application/json")] + announcement(),
             body: Array(text.utf8)
         )
+    }
+
+    /// The server's own announcement, defaulting to the version this build was generated
+    /// from. A test that is about the announcement passes its own.
+    static func announcement(
+        version: String = SPFNGeneratedContract.binding.importedVersion,
+        range: String = SPFNGeneratedContract.binding.supportedRange
+    ) -> [(String, String)]
+    {
+        [
+            (SPFNWireHeaders.serverContractVersion, version),
+            (SPFNWireHeaders.supportedContractRange, range),
+        ]
     }
 }
 

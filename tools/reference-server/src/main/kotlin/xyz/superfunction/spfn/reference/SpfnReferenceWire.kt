@@ -25,6 +25,14 @@ object SpfnReferenceWire
     const val PROOF: String = "x-spfn-proof"
     const val SESSION: String = "x-spfn-session"
 
+    /**
+     * `wireMapping.serverAnnouncement`. The server states the contract version it serves
+     * and the range it accepts, on every response including a refusal, and states no more
+     * than that: what to do about a gap is the client's judgment, made in the client.
+     */
+    const val SERVER_CONTRACT_VERSION: String = "x-spfn-server-contract-version"
+    const val SUPPORTED_CONTRACT_RANGE: String = "x-spfn-supported-contract-range"
+
     /** The only auth profile this contract allows. */
     const val PROFILE_NAME: String = "clientProofV1"
 

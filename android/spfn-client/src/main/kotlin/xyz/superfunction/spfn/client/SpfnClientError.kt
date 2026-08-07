@@ -127,6 +127,21 @@ sealed class SpfnClientError(message: String, cause: Throwable? = null) : Except
         SpfnClientError("the response was not what the contract describes: $failure")
 
     /**
+     * This client and the server that answered do not hold the same contract, so the
+     * answer is not read at all. Raised before the response is classified: a server
+     * refusing on contract grounds announces its version on that refusal, and reading it
+     * as [Server] instead would keep the refusal and lose the reason.
+     *
+     * [SpfnContractMismatch.serverVersion] is present only when this SDK parsed the
+     * announced value as a version, so the no-server-text rule above holds.
+     */
+    class Contract(val mismatch: SpfnContractMismatch) :
+        SpfnClientError(
+            "this client and the server do not hold the same contract: ${mismatch.reason}, "
+                + "server ${mismatch.serverVersion ?: "<unread>"}, admits ${mismatch.admittedRange}"
+        )
+
+    /**
      * The operation does not go through `execute`. Only the handshake is in this position:
      * it is what opens the session every other operation presents, so running it here would
      * send it without the session bookkeeping that gives it its point. [operationId] is the

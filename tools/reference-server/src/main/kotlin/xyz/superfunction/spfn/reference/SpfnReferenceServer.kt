@@ -22,6 +22,7 @@ import xyz.superfunction.spfn.core.SpfnCanonicalValue
 import xyz.superfunction.spfn.core.SpfnDigest
 import xyz.superfunction.spfn.core.SpfnOperation
 import xyz.superfunction.spfn.generated.SpfnEchoRequest
+import xyz.superfunction.spfn.generated.SpfnGeneratedContract
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import xyz.superfunction.spfn.generated.SpfnHandshakeRequest
 import xyz.superfunction.spfn.generated.SpfnHandshakeResponse
@@ -595,6 +596,17 @@ class SpfnReferenceServer(
     private fun respond(exchange: HttpExchange, answer: SpfnReferenceAnswer)
     {
         exchange.responseHeaders.set(SpfnReferenceWire.CONTENT_TYPE, SpfnReferenceWire.REQUEST_CONTENT_TYPE);
+        // Every response, refusals included, and set here because this is the one place
+        // an answer becomes bytes. A refusal that announced nothing would be the one
+        // response a stale client most needs the numbers from.
+        exchange.responseHeaders.set(
+            SpfnReferenceWire.SERVER_CONTRACT_VERSION,
+            SpfnGeneratedContract.BINDING.importedVersion
+        );
+        exchange.responseHeaders.set(
+            SpfnReferenceWire.SUPPORTED_CONTRACT_RANGE,
+            SpfnGeneratedContract.BINDING.supportedRange
+        );
         exchange.sendResponseHeaders(answer.statusCode, answer.body.size.toLong());
         exchange.responseBody.write(answer.body);
         exchange.responseBody.flush();

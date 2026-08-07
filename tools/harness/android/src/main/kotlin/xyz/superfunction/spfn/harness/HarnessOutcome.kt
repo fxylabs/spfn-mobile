@@ -54,6 +54,10 @@ object HarnessOutcome
         is SpfnClientError.Auth -> error.failure.code.wireCode
         is SpfnClientError.Server -> error.failure.code.wireCode
         is SpfnClientError.Decoding -> "decoding:${error.failure.name}"
+        // The reason alone. The server's version is in the error and is deliberately not
+        // put on a readout a flow asserts on: a readout that carried it would make every
+        // assertion depend on which server answered.
+        is SpfnClientError.Contract -> "contract:${error.mismatch.reason.name}"
         is SpfnClientError.UnsupportedOperation -> "unsupportedOperation"
         is SpfnClientError.UndeclaredAuthClass -> "undeclaredAuthClass"
     };

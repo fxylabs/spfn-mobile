@@ -101,6 +101,16 @@ public enum SPFNClientError: Error, Equatable, Sendable
     /// A response arrived that the contract cannot describe.
     case decoding(SPFNDecodingFailure)
 
+    /// This client and the server that answered do not hold the same contract, so the
+    /// answer is not read at all. Raised before the response is classified: a server
+    /// refusing on contract grounds announces its version on that refusal, and reading
+    /// it as `.server` instead would keep the refusal and lose the reason.
+    ///
+    /// The associated value carries the server's version only when this SDK parsed it as
+    /// one, so the no-server-text rule above holds: what is carried is a string this SDK
+    /// validated, and an unparseable announcement carries nothing.
+    case contract(SPFNContractMismatch)
+
     /// The operation does not go through `execute`. Only the handshake is in this
     /// position: it is what opens the session every other operation presents, so running
     /// it here would send it without the session bookkeeping that gives it its point.
@@ -133,6 +143,10 @@ extension SPFNClientError: CustomStringConvertible, CustomDebugStringConvertible
             return "SPFNClientError.server(\(failure))"
         case .decoding(let failure):
             return "SPFNClientError.decoding(\(failure.rawValue))"
+        case .contract(let mismatch):
+            let server = mismatch.serverVersion ?? "<unread>"
+            return "SPFNClientError.contract(\(mismatch.reason.rawValue),"
+                + " server: \(server), admits: \(mismatch.admittedRange))"
         case .unsupportedOperation(let id):
             return "SPFNClientError.unsupportedOperation(\(id))"
         case .undeclaredAuthClass(let authProfile):

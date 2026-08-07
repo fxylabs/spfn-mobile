@@ -75,6 +75,11 @@ enum HarnessOutcome
             return failure.code.rawValue
         case .decoding(let failure):
             return "decoding:\(failure.rawValue)"
+        // The reason alone. The server's version is in the error and is deliberately not
+        // put on a readout a flow asserts on: a readout that carried it would make every
+        // assertion depend on which server answered.
+        case .contract(let mismatch):
+            return "contract:\(mismatch.reason.rawValue)"
         case .unsupportedOperation:
             return "unsupportedOperation"
         case .undeclaredAuthClass:

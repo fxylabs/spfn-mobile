@@ -125,7 +125,9 @@ final class SPFNWireConformanceTests: XCTestCase
             canonicalBody: Array((try vector.text("canonicalBody")).utf8)
         )
 
-        try assertHeadersMatchWireVector(headers, expected: expected, vector: vector)
+        // `proofHeaders` on its own, so no identity: the identity is appended where the
+        // request is handed to the transport, not where the proof is assembled.
+        try assertHeadersMatchWireVector(headers, expected: expected, vector: vector, identity: [])
         let calls = await transport.callCount
         XCTAssertEqual(calls, 1, "one handshake, then the request itself")
         XCTAssertEqual(try vector.text("sessionId"), SessionFixtureValues.sessionID)

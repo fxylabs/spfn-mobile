@@ -102,8 +102,9 @@ final class SPFNClientExecuteTests: XCTestCase
         XCTAssertEqual(sent.url, baseURL + SPFNGeneratedOperations.authEnrollRegister.path)
         XCTAssertEqual(
             sent.headers.map { "\($0.0): \($0.1)" },
-            ["\(SPFNWireHeaders.contentType): \(SPFNWireHeaders.requestContentType)"],
-            "the content type is the only header an unproven request carries"
+            ["\(SPFNWireHeaders.contentType): \(SPFNWireHeaders.requestContentType)"]
+                + SPFNClientIdentity.headers.map { "\($0.0): \($0.1)" },
+            "an unproven request carries the content type and the identity, and no proof"
         )
         XCTAssertEqual(
             sent.body ?? [],
@@ -177,7 +178,7 @@ final class SPFNClientExecuteTests: XCTestCase
             SPFNWireHeaders.nonce,
             SPFNWireHeaders.issuedAtMillis,
             SPFNWireHeaders.proof,
-        ])
+        ] + SPFNClientIdentity.headers.map(\.0))
     }
 
     /// K4. An operation naming an auth class outside the generated enum is refused
@@ -258,7 +259,7 @@ final class SPFNClientExecuteTests: XCTestCase
             SPFNWireHeaders.issuedAtMillis,
             SPFNWireHeaders.proof,
             SPFNWireHeaders.session,
-        ])
+        ] + SPFNClientIdentity.headers.map(\.0))
     }
 
     // MARK: - Reading the answer

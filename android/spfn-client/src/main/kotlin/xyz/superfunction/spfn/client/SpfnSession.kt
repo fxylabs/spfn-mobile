@@ -163,7 +163,10 @@ class SpfnSession(
             SpfnTransportRequest(
                 method = operation.method,
                 url = baseUrl + operation.path,
-                headers = headers,
+                // The handshake is the third path a request leaves by, and it does not go
+                // through SpfnClient.execute. A change that adds the identity headers
+                // only where execute sends would open every session anonymously.
+                headers = headers + SpfnClientIdentity.headers,
                 body = canonicalBody,
                 timeoutMillis = timeoutMillis
             )
@@ -359,6 +362,12 @@ class SpfnSession(
      */
     private fun readSession(response: SpfnTransportResponse): SpfnSessionState
     {
+        // The same check SpfnClient.read makes, and it throws the same type rather than a
+        // session-shaped restatement of it: two ends disagreeing about the contract is
+        // one condition, and execute passes an error it did not produce through as
+        // itself, so the caller sees it whichever path met it first.
+        SpfnClientIdentity.mismatchIn(response)?.let { throw SpfnClientError.Contract(it) };
+
         val opened = response.statusCode in 200..299;
         val reason = if (opened)
         {

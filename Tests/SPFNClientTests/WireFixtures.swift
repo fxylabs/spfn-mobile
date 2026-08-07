@@ -58,15 +58,29 @@ enum WireFixtures
 /// verification instead — over the exact proof input the vector pins, under the fixture
 /// public key — and the fixture's own recorded proof must verify the same way, which
 /// proves this platform's verifier accepts a signature produced outside either SDK.
+/// `identity` is what the sender appends after the pinned headers. It defaults to what a
+/// request leaving the SDK carries; a test that checks `proofHeaders` on its own passes
+/// `[]`, because that function returns the proof headers and never the identity.
 func assertHeadersMatchWireVector(
     _ sent: [(String, String)],
     expected: [(String, String)],
     vector: [String: SPFNCanonicalValue],
+    identity: [(String, String)] = SPFNClientIdentity.headers,
     file: StaticString = #filePath,
     line: UInt = #line
 ) throws
 {
-    XCTAssertEqual(sent.map(\.0), expected.map(\.0), "header names or order differ", file: file, line: line)
+    // The vector pins the proof headers, which is all it was ever about: none of the
+    // identity headers enters the proof input, so the fixture has nothing to say about
+    // them. They follow the pinned ones, and that they are there at all is asserted by
+    // the cells in SPFNClientIdentityTests rather than here.
+    XCTAssertEqual(
+        sent.map(\.0),
+        expected.map(\.0) + identity.map(\.0),
+        "header names or order differ",
+        file: file,
+        line: line
+    )
     for (sentPair, expectedPair) in zip(sent, expected) where sentPair.0 != SPFNWireHeaders.proof
     {
         XCTAssertEqual(sentPair.1, expectedPair.1, "header '\(sentPair.0)' differs", file: file, line: line)
