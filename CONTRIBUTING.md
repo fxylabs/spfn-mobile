@@ -62,6 +62,13 @@ sends anything over a socket, and it is deliberately not wired into `./gradlew b
 the unit gates stay fast, and this one is run on its own. It fails when either suite
 skipped rather than ran — see `tools/reference-server/README.md`.
 
+Then read the row for whatever you are about to touch in `docs/IMPLEMENTATION-PITFALLS.md`.
+It holds only traps this repository has actually sprung, written as "when it looks like
+this, suspect that" rather than as a list of past bugs, and it is cheaper to read a row
+than to rediscover it in review. If a review here finds something that can recur, it goes
+in — as a new entry, or as a sharpening of the entry that already covers it. Duplicates
+are what kill a document like that one.
+
 ## Rules that the validator enforces
 
 - **Never hand-edit a generated file.** `tools/cocoapods-compat/generated/`,
