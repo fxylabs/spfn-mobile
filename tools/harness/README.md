@@ -128,7 +128,9 @@ own enclave generates and holds the key. That is a small check, so the procedure
 xcodegen generate --spec tools/harness/ios/project.yml
 xcodebuild -project tools/harness/ios/SPFNHarness.xcodeproj -scheme SPFNHarness \
     -destination "platform=iOS,id=<device udid>" \
-    -derivedDataPath /tmp/spfn-harness DEVELOPMENT_TEAM=<your team id> build
+    -derivedDataPath /tmp/spfn-harness -allowProvisioningUpdates \
+    DEVELOPMENT_TEAM=<your team id> CODE_SIGN_STYLE=Automatic \
+    CODE_SIGN_IDENTITY="Apple Development" build
 
 # 2. install and launch it
 xcrun devicectl device install app --device <device udid> \
@@ -136,7 +138,23 @@ xcrun devicectl device install app --device <device udid> \
 xcrun devicectl device process launch --device <device udid> xyz.superfunction.spfn.harness
 ```
 
+Three of those arguments are not decoration, and the first run of this procedure spent
+itself on them. `project.yml` pins manual signing and an ad-hoc identity because that is
+what a simulator build needs and it keeps every credential out of this repository, so a
+device build has to override both on the command line — `DEVELOPMENT_TEAM` alone leaves
+manual signing in place and fails asking for a profile it was never going to find.
+`-allowProvisioningUpdates` is what registers the device and issues the profile; without
+it the same build fails with the device unregistered. A free personal team registers a
+device this way on its own, and a paid team may still answer `isn't registered in your
+developer account`, which means adding the udid at developer.apple.com first.
+
 Then tap `custody-probe` and read the `custody=` label.
+
+The first launch on a device is refused — `invalid code signature, inadequate
+entitlements or its profile has not been explicitly trusted by the user` — until the
+developer certificate is trusted on the phone itself, under Settings → General → VPN &
+Device Management. That is a per-device, per-certificate consent that no flag from this
+side can grant.
 
 | Reading | What it means |
 | --- | --- |
@@ -148,13 +166,25 @@ answered, and a simulator on this Mac answers the same word, so a reading with n
 beside it is not evidence of anything. `run-harness.sh` states its own target twice —
 once at the top and once beside `RESULT:` — precisely so a pasted transcript carries it;
 a manual reading has no run to do that, so the model and iOS version belong in the report
-next to the word.
+next to the word. The reading this procedure has actually produced is one: an iPhone 14
+Pro (iPhone15,2) on iOS 26.5.2 answers `custody=secureEnclave`. So the phone's own enclave
+does generate and hold the key, and the one thing a simulator could not settle is settled.
 
 The probe generates a key through the same call `SPFNKeyLifecycle` uses, reads which
 custody it landed in, and drops it. It stores nothing and sends nothing, which is what
 makes it runnable on a phone with no route to the reference server. `xcrun devicectl list
-devices` names the udid; a device that reads `unavailable` is paired but not currently
-reachable, so unlock it and put it on this machine's network.
+devices` names the udid.
+
+**Put it on the same wifi and it still will not appear.** A device that reads
+`unavailable` with no `transportType` is paired and not connected, and the network is
+usually not what is missing. `devicectl` connects over CoreDevice, which finds a phone by
+its `_remotepairing._tcp` advertisement, and a phone only advertises that once wireless
+debugging has been turned on for this Mac — which is done from Xcode's Devices window
+while the phone is attached by cable. A phone that has been wirelessly debugged by
+something older advertises `_apple-mobdev2._tcp` instead, which looks like presence and
+is not the service `devicectl` browses for, so `dns-sd -B _remotepairing._tcp local`
+answering nothing while `_apple-mobdev2._tcp` answers is the shape of this exact
+misreading. Attach the cable, and the entry turns `wired` and `connected`.
 
 Android has the same button for the same reason, and it answers in its own vocabulary:
 `strongBox` or `trustedEnvironment`. The two platforms name different hardware, so a flow
@@ -194,6 +224,15 @@ most expensive kind of green there is.
 
 The runner uses the one booted simulator or the one attached device. Two of either and it
 refuses rather than guessing — name one with `SPFN_HARNESS_TARGET`.
+
+**A signed-in simulator can fail all nine cells at once.** A simulator carrying an Apple
+account eventually raises the system alert asking for that account's password, and it
+sits above the harness. Every flow then dies identically on `Element not found: Id
+matching regex: btn_wipe`, which reads like the app failed to render and is not that —
+the app is behind the alert, showing every button. `xcrun simctl io <udid> screenshot`
+answers the question in one command, and `xcrun simctl erase <udid>` clears the account
+along with everything else. A run that begins with nine identical element-not-found
+failures is worth one screenshot before it is worth any debugging.
 
 ## On a real Android phone
 

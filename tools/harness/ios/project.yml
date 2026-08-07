@@ -54,20 +54,29 @@ targets:
     # call failed with -34018 and the state label read `unreadable` — the first run after
     # the identifier fix spent itself finding exactly this.
     #
-    # The group is the bundle id with no team prefix, which is what an ad-hoc signature
-    # can carry: there is no provisioning profile here to supply an AppIdentifierPrefix,
-    # and asking for one would put a signing identity in a repository that must not hold
-    # one.
+    # The group is written with $(AppIdentifierPrefix) because a device's provisioning
+    # profile grants `<team id>.*` and rejects any group outside it: a bare group fails
+    # the build with a keychain-access-groups mismatch, which is what the first device
+    # run met. The prefix resolves to the team id there, and no team id is written here —
+    # the runner supplies it, and the repository still holds no signing material.
+    #
+    # This changes nothing for a simulator, which was measured rather than assumed. An
+    # ad-hoc simulator build embeds an empty entitlements dictionary and always did: the
+    # processed `.xcent` is `{}` with the prefix and `{}` without it. The keychain still
+    # answers there because an app with no access group gets its bundle id as one. So
+    # this file's entitlement is a device concern, and the simulator is unaffected.
     entitlements:
       path: Generated/SPFNHarness.entitlements
       properties:
         keychain-access-groups:
-          - xyz.superfunction.spfn.harness
+          - $(AppIdentifierPrefix)xyz.superfunction.spfn.harness
     settings:
       base:
-        # Ad-hoc. Enough for a simulator to grant the entitlement above, and it names no
-        # identity, so nothing here is a credential. A device build overrides these from
-        # the runner's command line with a real team.
+        # Ad-hoc, and it is the signature rather than the entitlement above that makes a
+        # simulator run work: signing at all is what gives the app an identifier for the
+        # keychain to answer. It names no identity, so nothing here is a credential. A
+        # device build overrides both of these from the runner's command line with a real
+        # team and automatic signing — see the device procedure in the README.
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual
         PRODUCT_BUNDLE_IDENTIFIER: xyz.superfunction.spfn.harness
