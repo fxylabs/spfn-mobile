@@ -63,5 +63,7 @@ kotlin {
 
 dependencies {
     implementation(project(":spfn-client"))
-    implementation(libs.kotlinx.coroutines.core)
+    // HarnessActivity launches its button actions on Dispatchers.Main. The core
+    // artifact contains the coroutine machinery but no Android Main dispatcher.
+    implementation(libs.kotlinx.coroutines.android)
 }
