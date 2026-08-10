@@ -1,6 +1,7 @@
 package xyz.superfunction.spfn.harness
 
 import xyz.superfunction.spfn.client.SpfnClientError
+import xyz.superfunction.spfn.client.SpfnClockSynchronizationException
 import xyz.superfunction.spfn.client.SpfnKeyLifecycleException
 import xyz.superfunction.spfn.client.SpfnTransportError
 
@@ -27,9 +28,20 @@ object HarnessOutcome
     {
         is SpfnKeyLifecycleException -> lifecycleName(error)
         is SpfnClientError -> clientName(error)
+        is SpfnClockSynchronizationException -> clockName(error)
         is SpfnTransportError -> transportName(error)
         is HarnessException -> harnessName(error)
         else -> "unclassified"
+    };
+
+    private fun clockName(error: SpfnClockSynchronizationException): String = when (error)
+    {
+        is SpfnClockSynchronizationException.ContractIncompatible -> "clockSynchronization:contractIncompatible"
+        is SpfnClockSynchronizationException.UntrustedBaseUrl -> "clockSynchronization:untrustedBaseURL"
+        is SpfnClockSynchronizationException.RequestFailed -> "clockSynchronization:requestFailed"
+        is SpfnClockSynchronizationException.InvalidResponse -> "clockSynchronization:invalidResponse"
+        is SpfnClockSynchronizationException.MonotonicClockInvalid -> "clockSynchronization:monotonicClockInvalid"
+        is SpfnClockSynchronizationException.ClockOverflow -> "clockSynchronization:clockOverflow"
     };
 
     private fun lifecycleName(error: SpfnKeyLifecycleException): String = when (error)

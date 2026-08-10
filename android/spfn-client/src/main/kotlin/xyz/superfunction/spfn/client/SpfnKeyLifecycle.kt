@@ -147,6 +147,7 @@ class SpfnKeyLifecycle(
     private val engine: SpfnKeystoreEngine,
     private val baseUrl: String,
     private val clock: SpfnClock = SpfnSystemClock(),
+    private val proofClock: SpfnProofClock = SpfnProcessServerClock.shared,
     private val nonceGenerator: SpfnNonceGenerator = SpfnRandomNonceGenerator(),
     private val timeoutMillis: Long = 15_000,
     private val preferStrongBox: Boolean = true,
@@ -527,7 +528,7 @@ class SpfnKeyLifecycle(
                 transport = transport,
                 keyProvider = provider,
                 baseUrl = baseUrl,
-                clock = clock,
+                clock = proofClock,
                 nonceGenerator = nonceGenerator,
                 timeoutMillis = timeoutMillis
             ),

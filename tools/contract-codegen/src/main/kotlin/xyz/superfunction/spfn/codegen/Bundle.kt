@@ -37,7 +37,8 @@ data class Operation(
     val path: String,
     val authProfile: String,
     val requiresSession: Boolean,
-    val requestType: String,
+    /** Absent only for a contract-declared bodyless operation such as `core.time`. */
+    val requestType: String?,
     val responseType: String,
     val summary: String
 )
@@ -68,6 +69,10 @@ data class Bundle(
     val sha256: String,
     val replayWindowMillis: Long,
     val proofInputFields: List<String>,
+    /** `clockSynchronization.operation`: the unproven operation used before the first proof. */
+    val clockSynchronizationOperationId: String,
+    /** `clockSynchronization.epochField`: the integer response field anchoring proof time. */
+    val clockSynchronizationEpochField: String,
     /** The declared operation auth classes, sorted for deterministic emission. */
     val authClasses: List<String>,
     /** `keyPolicy.ttlDays`: how long a registered key stays usable. */
@@ -127,6 +132,26 @@ data class Bundle(
             val root = Json.parse(bundleText).obj();
             val proof = root.required("clientProofV1").obj();
             val proofInput = proof.required("proofInput").obj();
+            val clockSynchronization = root.required("clockSynchronization").obj();
+
+            val clockOperationId = clockSynchronization.required("operation").text();
+            val clockEpochField = clockSynchronization.required("epochField").text();
+            if (clockSynchronization.required("appliesTo").text() != "clientProofV1")
+            {
+                throw JsonException("clockSynchronization applies to an unsupported auth profile");
+            }
+            if (clockSynchronization.required("requestBody").text() != "none")
+            {
+                throw JsonException("clockSynchronization requestBody must be 'none'");
+            }
+            if (clockSynchronization.required("unavailableBehavior").text() != "failClosed")
+            {
+                throw JsonException("clockSynchronization unavailableBehavior must be 'failClosed'");
+            }
+            if (clockSynchronization.required("fallbackClock").text() != "prohibited")
+            {
+                throw JsonException("clockSynchronization fallbackClock must be 'prohibited'");
+            }
 
             // Contract 0.3.0 sections. Each is required rather than defaulted: a bundle
             // without one is an older or foreign contract, and generating plausible
@@ -177,6 +202,7 @@ data class Bundle(
             val types = root.required("types").arr().map { readType(it) };
 
             checkDeclarations(types, enums);
+            checkOperationTypes(operations, types, clockOperationId, clockEpochField);
 
             return Bundle(
                 contractVersion = root.required("contractVersion").text(),
@@ -187,6 +213,8 @@ data class Bundle(
                 sha256 = sha256,
                 replayWindowMillis = proof.required("replayWindowMillis").number(),
                 proofInputFields = proofInput.required("fields").arr().map { it.text() },
+                clockSynchronizationOperationId = clockOperationId,
+                clockSynchronizationEpochField = clockEpochField,
                 authClasses = authClasses,
                 keyPolicyTtlDays = keyPolicy.required("ttlDays").number(),
                 keyRotationOperationId = rotationOperationId,
@@ -244,6 +272,70 @@ data class Bundle(
                 type.fields.forEach { field ->
                     checkFieldType(FieldType.parse(field.type, enumNames), "${type.name}.${field.name}", typeNames);
                 }
+            }
+        }
+
+        /**
+         * Resolves every operation type and closes the one intentional request-body gap.
+         * A missing request type is valid only for the exact operation the synchronization
+         * policy names, whose requestBody is `none`; every other omission is a contract
+         * error rather than a bodyless operation inferred by the generator.
+         */
+        private fun checkOperationTypes(
+            operations: List<Operation>,
+            types: List<TypeDefinition>,
+            clockOperationId: String,
+            clockEpochField: String
+        )
+        {
+            val typesByName = types.associateBy { it.name };
+            val clockOperation = operations.firstOrNull { it.id == clockOperationId }
+                ?: throw JsonException(
+                    "clockSynchronization.operation names '$clockOperationId', which is not an operation"
+                );
+            operations.forEach { operation ->
+                val requestType = operation.requestType;
+                if (requestType != null)
+                {
+                    if (requestType !in typesByName)
+                    {
+                        throw JsonException("operation '${operation.id}' references unknown request type '$requestType'");
+                    }
+                }
+                else if (operation.id != clockOperationId)
+                {
+                    throw JsonException("operation '${operation.id}' is missing required key 'requestType'");
+                }
+
+                if (operation.responseType !in typesByName)
+                {
+                    throw JsonException(
+                        "operation '${operation.id}' references unknown response type '${operation.responseType}'"
+                    );
+                }
+            }
+
+            if (clockOperation.requestType != null)
+            {
+                throw JsonException("clock synchronization operation '$clockOperationId' must have no requestType");
+            }
+            if (clockOperation.authProfile != "none" || clockOperation.requiresSession)
+            {
+                throw JsonException(
+                    "clock synchronization operation '$clockOperationId' must be unproven and session-free"
+                );
+            }
+
+            val response = typesByName.getValue(clockOperation.responseType);
+            val epoch = response.fields.firstOrNull { it.name == clockEpochField }
+                ?: throw JsonException(
+                    "clock synchronization response '${response.name}' has no epoch field '$clockEpochField'"
+                );
+            if (epoch.type != "integer" || epoch.optional)
+            {
+                throw JsonException(
+                    "clock synchronization epoch '${response.name}.$clockEpochField' must be a required integer"
+                );
             }
         }
 
@@ -326,7 +418,7 @@ data class Bundle(
                 path = members.required("path").text(),
                 authProfile = members.required("authProfile").text(),
                 requiresSession = members.required("requiresSession").bool(),
-                requestType = members.required("requestType").text(),
+                requestType = members["requestType"]?.text(),
                 responseType = members.required("responseType").text(),
                 summary = members.required("summary").text()
             );

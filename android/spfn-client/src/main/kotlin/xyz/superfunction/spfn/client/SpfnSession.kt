@@ -103,7 +103,7 @@ class SpfnSession(
     private val transport: SpfnTransport,
     private val keyProvider: SpfnKeyProvider,
     baseUrl: String,
-    private val clock: SpfnClock = SpfnSystemClock(),
+    private val clock: SpfnProofClock = SpfnProcessServerClock.shared,
     private val nonceGenerator: SpfnNonceGenerator = SpfnRandomNonceGenerator(),
     private val timeoutMillis: Long = 15_000
 )
@@ -142,7 +142,7 @@ class SpfnSession(
     {
         val operation = SpfnGeneratedOperations.authClientProofHandshake;
         val nonce = nonceGenerator.nextNonce();
-        val issuedAtMillis = clock.nowMillis();
+        val issuedAtMillis = clock.nowMillis(transport, baseUrl, timeoutMillis);
 
         val body = SpfnHandshakeRequest(
             clientId = keyProvider.clientId,
@@ -226,7 +226,7 @@ class SpfnSession(
             operation = operation,
             canonicalBody = canonicalBody,
             nonce = nonceGenerator.nextNonce(),
-            issuedAtMillis = clock.nowMillis(),
+            issuedAtMillis = clock.nowMillis(transport, baseUrl, timeoutMillis),
             sessionId = sessionId
         );
     }
@@ -333,7 +333,7 @@ class SpfnSession(
      */
     private suspend fun claim(): Claim = mutex.withLock {
         val current = state;
-        if (current != null && clock.nowMillis() < current.expiresAtMillis)
+        if (current != null && clock.nowMillis(transport, baseUrl, timeoutMillis) < current.expiresAtMillis)
         {
             return@withLock Claim.Cached(current);
         }
