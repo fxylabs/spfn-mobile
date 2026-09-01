@@ -14,53 +14,102 @@
 // file follows, it is a rule its shape enforces: the fields below are booleans, integers,
 // a timestamp, an SDK-classified error name and two version constants. There is no field
 // a token could be placed in, and nothing here is handed a provider's message text — the
-// adapters keep numeric codes and drop the text before this file ever sees an error.
+// adapters keep numeric codes and drop the text before this file ever sees an error. The
+// one value that does arrive from the network — `serverCommit` — is filtered by
+// `HarnessServerCommit` before it reaches this type at all.
 
 import Foundation
 import SPFNCore
 import SPFNGenerated
 
 /// What happened, in the spec's three words.
-enum HarnessReceiptOutcome: String, Sendable
+public enum HarnessReceiptOutcome: String, Sendable
 {
     case enrolled
     case cancelled
     case failed
 }
 
-struct HarnessReceipt: Sendable
+/// What the harness itself refuses while writing evidence, as opposed to what the SDK
+/// refuses while earning it.
+public enum HarnessReceiptError: Error, Equatable, Sendable
 {
-    static let schema = "spfn-device-receipt/1"
+    /// No Documents directory, so the receipt has nowhere to go. Thrown rather than
+    /// swallowed: a receipt that could not be written is not a case that did not run.
+    case noDocumentsDirectory
+}
 
-    let provider: HarnessProvider
-    let deviceCase: HarnessDeviceCase
-    let outcome: HarnessReceiptOutcome
+public struct HarnessReceipt: Sendable
+{
+    public static let schema = "spfn-device-receipt/1"
+
+    public let provider: HarnessProvider
+    public let deviceCase: HarnessDeviceCase
+    public let outcome: HarnessReceiptOutcome
 
     /// The status of the last response the transport actually saw, or nil when no
     /// response existed — which is itself the answer for the network-failure cell.
-    let responseCode: Int?
+    public let responseCode: Int?
 
     /// The SDK's own classification, never a translation of it, and nil on success.
-    let errorCode: String?
+    public let errorCode: String?
 
-    let isNewUser: Bool
-    let keyIDMatch: Bool
-    let keyRemainsAfterFailure: Bool
-    let serverBaseURL: String
-    let serverCommit: String?
-    let recordedAt: Date
+    public let isNewUser: Bool
+    public let keyIDMatch: Bool
+    public let keyRemainsAfterFailure: Bool
+    public let serverBaseURL: String
+
+    /// Already filtered — see `HarnessServerCommit.accepted`. Nothing else may be put here.
+    public let serverCommit: String?
+
+    public let recordedAt: Date
+
+    public init(
+        provider: HarnessProvider,
+        deviceCase: HarnessDeviceCase,
+        outcome: HarnessReceiptOutcome,
+        responseCode: Int?,
+        errorCode: String?,
+        isNewUser: Bool,
+        keyIDMatch: Bool,
+        keyRemainsAfterFailure: Bool,
+        serverBaseURL: String,
+        serverCommit: String?,
+        recordedAt: Date
+    )
+    {
+        self.provider = provider
+        self.deviceCase = deviceCase
+        self.outcome = outcome
+        self.responseCode = responseCode
+        self.errorCode = errorCode
+        self.isNewUser = isNewUser
+        self.keyIDMatch = keyIDMatch
+        self.keyRemainsAfterFailure = keyRemainsAfterFailure
+        self.serverBaseURL = serverBaseURL
+        self.serverCommit = serverCommit
+        self.recordedAt = recordedAt
+    }
 
     /// The file this receipt belongs in. Lowercase ASCII and decimal digits only, so the
     /// name is the same on any device in any locale.
     ///
-    /// Whole seconds, which is the shared spec's own granularity and not a choice made
-    /// here. Two attempts at the same case with the same provider inside one second would
-    /// therefore land on one name — reachable only by dismissing a sheet twice in a
-    /// second, and not worth departing from a schema both platforms write.
-    var fileName: String
+    /// Milliseconds since the epoch, which is the shared spec's granularity. It was whole
+    /// seconds, and it changed because two attempts at the same case that finished inside
+    /// one second landed on one name and the second write destroyed the first attempt's
+    /// evidence — a cancelled sheet takes well under a second to dismiss twice.
+    public var fileName: String
     {
-        let seconds = Int64(recordedAt.timeIntervalSince1970)
-        return "receipt-\(provider.rawValue)-\(deviceCase.rawValue)-\(seconds).json"
+        "receipt-\(provider.rawValue)-\(deviceCase.rawValue)-\(Self.epochMillis(recordedAt)).json"
+    }
+
+    /// Whole milliseconds, rounded rather than truncated, so a time a hair under a
+    /// boundary and a time a hair over it do not both belong to the lower millisecond.
+    /// `Int64` because a Double large enough to be a timestamp has already lost the
+    /// sub-millisecond digits it would need to be trusted as one.
+    static func epochMillis(_ date: Date) -> Int64
+    {
+        Int64((date.timeIntervalSince1970 * 1000).rounded())
     }
 
     /// The receipt as the spec's object. `NSNull` rather than an absent key: a reader
@@ -104,7 +153,7 @@ struct HarnessReceipt: Sendable
     /// that produced no receipt: the first is a broken harness and the second is a case
     /// that was never run, and the screen has to be able to say which one happened.
     @discardableResult
-    func write(into directory: URL? = nil) throws -> URL
+    public func write(into directory: URL? = nil) throws -> URL
     {
         let folder = try directory ?? Self.documentsDirectory()
         let destination = folder.appendingPathComponent(fileName, isDirectory: false)
@@ -121,7 +170,7 @@ struct HarnessReceipt: Sendable
         guard let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
         else
         {
-            throw HarnessError.noDocumentsDirectory
+            throw HarnessReceiptError.noDocumentsDirectory
         }
         return url
     }

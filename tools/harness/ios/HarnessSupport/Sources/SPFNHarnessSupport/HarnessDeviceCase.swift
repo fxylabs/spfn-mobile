@@ -25,7 +25,7 @@
 import Foundation
 
 /// Spelled as the shared spec spells it, because this string is a receipt field.
-enum HarnessDeviceCase: String, CaseIterable, Sendable
+public enum HarnessDeviceCase: String, CaseIterable, Sendable
 {
     case firstEnroll = "first-enroll"
     case reLogin = "re-login"
@@ -34,19 +34,19 @@ enum HarnessDeviceCase: String, CaseIterable, Sendable
     case serverReject = "server-reject"
 
     /// True when the harness must drop the network around the attempt.
-    var blocksNetwork: Bool
+    public var blocksNetwork: Bool
     {
         self == .networkFailure
     }
 
     /// True when the token handed to the SDK must be one the server will refuse.
-    var rejectsAtServer: Bool
+    public var rejectsAtServer: Bool
     {
         self == .serverReject
     }
 
     /// What a person has to do before tapping, in the fewest words that are still true.
-    var precondition: String
+    public var precondition: String
     {
         switch self
         {
@@ -66,7 +66,7 @@ enum HarnessDeviceCase: String, CaseIterable, Sendable
 
 /// The two providers this platform has an adapter for. The raw value is the provider id
 /// the SDK enrols under and the receipt records.
-enum HarnessProvider: String, CaseIterable, Sendable
+public enum HarnessProvider: String, CaseIterable, Sendable
 {
     case apple
     case google
@@ -77,11 +77,11 @@ enum HarnessProvider: String, CaseIterable, Sendable
 /// Appended rather than substituted: a wholly invented token would be refused before the
 /// server ever looked at a signature, and the cell is about the server rejecting a
 /// provider token, not about the server rejecting nonsense.
-enum HarnessTokenSabotage
+public enum HarnessTokenSabotage
 {
-    static let rejectMarker = "-spfn-harness-server-reject"
+    public static let rejectMarker = "-spfn-harness-server-reject"
 
-    static func applied(to token: String, for deviceCase: HarnessDeviceCase) -> String
+    public static func applied(to token: String, for deviceCase: HarnessDeviceCase) -> String
     {
         deviceCase.rejectsAtServer ? token + rejectMarker : token
     }

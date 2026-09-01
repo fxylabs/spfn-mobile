@@ -20,7 +20,7 @@ sh tools/harness/run-harness.sh android
 | `ios/project.yml` | the iOS app's project, as data. `SPFNHarness.xcodeproj` is generated from it and gitignored |
 | `ios/Sources/` | the iOS harness: a screen of buttons and readouts |
 | `ios/Harness.xcconfig` | the device mode's keys, declared empty, plus an optional include of the gitignored `Local.xcconfig` |
-| `ios/HarnessSupport/` | a one-file SwiftPM package whose only job is to enable the two adapter traits |
+| `ios/HarnessSupport/` | a SwiftPM package that enables the two adapter traits, and holds the harness rules that have tests |
 | `android/` | the same app in Kotlin, as the one application module in this repository |
 | `flows/` | the Maestro flows, one per cell of the case table below |
 | `run-harness.sh` | builds, installs, runs every flow, and fails unless every case left a receipt |
@@ -240,10 +240,14 @@ and the signature the server checks is not. Neither touches the SDK.
 
 ### What a receipt says
 
-`Documents/receipt-<provider>-<case>-<epochSeconds>.json`, one per attempt, the schema
+`Documents/receipt-<provider>-<case>-<epochMillis>.json`, one per attempt, the schema
 shared with the Android half. Read them off the phone with Finder — the app declares
 `UIFileSharingEnabled`, so it appears under the device's Files tab — or through the Files
 app on the phone itself.
+
+Milliseconds, not seconds. Two attempts at the same case that finished inside one second
+used to land on one name, and the second write destroyed the first attempt's evidence —
+which a cancelled sheet reaches easily.
 
 **A receipt never carries a token, an email address or a name.** That is enforced by
 shape rather than by care: every field is a boolean, an integer, a timestamp, an
@@ -258,8 +262,15 @@ Two fields are worth reading closely:
   `/_auth/oauth/:provider/native` sits outside the clientProof middleware and answers with
   something the contract's error envelope does not describe. That is the expected reading,
   not a bug in the harness.
-- `serverCommit` is `null` against every server in this repository. None of them states a
-  build in a response header yet; the field exists for one that does.
+- `serverCommit` is the one field whose value arrives from the network, so it is the one
+  place PII could enter a file that leaves the phone. It is kept only when it matches
+  `^[0-9a-f]{7,40}$` after lowercasing, and is `null` otherwise — including against every
+  server in this repository, none of which states a build in a header yet.
+
+Both rules have tests. `swift test --package-path tools/harness/ios/HarnessSupport` runs
+them: the file name at millisecond granularity, and the commit filter against hashes,
+length boundaries, uppercase hex, non-ASCII lookalike digits and a handful of strings a
+misconfigured header could carry instead.
 
 ### Configuring it, and what happens when you have not
 
@@ -303,14 +314,19 @@ xcodebuild -project tools/harness/ios/SPFNHarness.xcodeproj -scheme SPFNHarness 
 
 ### Why there is a second Package.swift
 
-`ios/HarnessSupport/` is a package with one file in it, and it exists because a package
-trait can only be turned on by a manifest. `SPFNSocialGoogle` links Google's SDK and
+`ios/HarnessSupport/` is a small package, and it exists because a package trait can only
+be turned on by a manifest. `SPFNSocialGoogle` links Google's SDK and
 exposes `init(presenting:)` only under the `SocialGoogle` trait, and an Xcode app target
 has no manifest to enable it from. XcodeGen will write `traits = (...)` into the
 generated project and Xcode 26.2 ignores it — measured with a probe project, which
 resolved zero remote packages and could not see `SPFNGooglePresentingContext`. So the
 trait is declared in `HarnessSupport/Package.swift`, which the app depends on; adding it
 to the graph turns the traits on for every copy of the SDK in that graph.
+
+It carries three of the harness's own types too — the receipt, the case and provider
+names, and the server-commit filter — for a reason that is not tidiness. An Xcode app
+target has no suite `swift test` can run, and those two rules have expected values worth
+pinning, so they live where a test can reach them. The app imports them unchanged.
 
 Nothing in the SDK changed for any of this.
 

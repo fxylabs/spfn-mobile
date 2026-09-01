@@ -19,6 +19,7 @@
 // android/.../HarnessActivity.kt is the same screen in Views, with the same button ids
 // and the same readout text.
 
+import SPFNHarnessSupport
 import SwiftUI
 
 struct HarnessView: View

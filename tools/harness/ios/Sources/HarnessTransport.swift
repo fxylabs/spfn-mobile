@@ -15,8 +15,9 @@
 
 import Foundation
 import SPFNClient
+import SPFNHarnessSupport
 
-/// What the wire said, for a receipt to record.
+/// What the wire said, for a receipt to record — filtered, never raw.
 ///
 /// The SDK's own errors carry an HTTP status where one exists, but only some of them do,
 /// and a success carries none at all. A receipt needs the same field filled the same way
@@ -33,6 +34,10 @@ final class HarnessTransport: SPFNTransport, @unchecked Sendable
     /// Header names a server might state its build under, lowercased. None of the SPFN
     /// servers in this repository emits one today, so a receipt recording `null` here is
     /// the expected reading rather than a gap — the field exists for a server that does.
+    ///
+    /// Finding one of these names is not the same as believing what it says: whatever is
+    /// under it goes through `HarnessServerCommit` before it is kept, because a header is
+    /// written by whatever is at the other end and a receipt leaves the phone.
     private static let commitHeaders = ["x-spfn-commit", "x-spfn-server-commit", "x-commit"]
 
     private let inner: any SPFNTransport
@@ -92,9 +97,10 @@ final class HarnessTransport: SPFNTransport, @unchecked Sendable
 
     private func record(_ response: SPFNTransportResponse)
     {
-        let commit = response.headers
+        let header = response.headers
             .first { Self.commitHeaders.contains($0.0.lowercased()) }?
             .1
+        let commit = HarnessServerCommit.accepted(header)
         lock.lock()
         lastObservation = HarnessWireObservation(statusCode: response.statusCode, serverCommit: commit)
         lock.unlock()

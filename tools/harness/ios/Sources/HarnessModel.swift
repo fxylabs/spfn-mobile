@@ -16,6 +16,7 @@ import SPFNAuth
 import SPFNClient
 import SPFNCore
 import SPFNGenerated
+import SPFNHarnessSupport
 
 @MainActor
 final class HarnessModel: ObservableObject
@@ -482,8 +483,4 @@ enum HarnessError: Error
     /// No foreground window to present a provider sheet from. Refused before the sheet
     /// is asked for rather than after it fails to appear.
     case noPresentationAnchor
-
-    /// No Documents directory, so the receipt has nowhere to go. Reported rather than
-    /// swallowed: a receipt that could not be written is not a case that did not run.
-    case noDocumentsDirectory
 }

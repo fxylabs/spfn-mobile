@@ -44,6 +44,8 @@ enum HarnessOutcome
             return "keystore:\(error.status)"
         case let error as HarnessError:
             return name(forHarness: error)
+        case let error as HarnessReceiptError:
+            return name(forReceipt: error)
         default:
             return "unclassified"
         }
@@ -166,6 +168,13 @@ enum HarnessOutcome
             return "harness:notConfigured"
         case .noPresentationAnchor:
             return "harness:noPresentationAnchor"
+        }
+    }
+
+    private static func name(forReceipt error: HarnessReceiptError) -> String
+    {
+        switch error
+        {
         case .noDocumentsDirectory:
             return "harness:noDocumentsDirectory"
         }
