@@ -123,7 +123,12 @@ class SpfnClient(
                 SpfnTransportRequest(
                     method = call.operation.method,
                     url = session.baseUrl + call.operation.path,
-                    headers = listOf(SpfnWireHeaders.CONTENT_TYPE to SpfnWireHeaders.REQUEST_CONTENT_TYPE),
+                    // The identity headers ride here too. The contract applies them to
+                    // every operation "proven or not — enrolment and login are where a
+                    // stale client is met first, and they carry no proof", and this is
+                    // that path.
+                    headers = listOf(SpfnWireHeaders.CONTENT_TYPE to SpfnWireHeaders.REQUEST_CONTENT_TYPE)
+                        + SpfnClientIdentity.headers,
                     body = canonicalBody,
                     timeoutMillis = timeoutMillis
                 )
@@ -152,7 +157,10 @@ class SpfnClient(
                 SpfnTransportRequest(
                     method = operation.method,
                     url = session.baseUrl + operation.path,
-                    headers = headers,
+                    // Appended rather than assembled inside `proofHeaders`, because these
+                    // are not proof fields: none of them enters the proof input, and the
+                    // wire fixture pins what that function returns.
+                    headers = headers + SpfnClientIdentity.headers,
                     body = canonicalBody,
                     timeoutMillis = timeoutMillis
                 )
@@ -212,6 +220,11 @@ class SpfnClient(
     /** Turns one response into a value, or into the failure it describes. */
     private fun <Resp> read(response: SpfnTransportResponse, decode: (SpfnCanonicalValue) -> Resp): Resp
     {
+        // Before the body is looked at. A server refusing on contract grounds announces
+        // its version on that refusal, so classifying first would return the refusal and
+        // throw away the two numbers that say which end is stale.
+        SpfnClientIdentity.mismatchIn(response)?.let { throw SpfnClientError.Contract(it) };
+
         val parsed = try
         {
             SpfnCanonicalJson.parse(response.body)

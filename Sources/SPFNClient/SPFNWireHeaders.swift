@@ -27,6 +27,18 @@ public enum SPFNWireHeaders
     public static let proof = "x-spfn-proof"
     public static let session = "x-spfn-session"
 
+    // `wireMapping.clientIdentity`. Four of these names begin `x-spfn-client`, and only
+    // the first is a proof field: `clientID` above is the enrolled client's identifier
+    // and is signed, while the three below are diagnostic and are not. Match a full
+    // name, never a prefix (docs/IMPLEMENTATION-PITFALLS.md P5).
+    public static let clientKind = "x-spfn-client-kind"
+    public static let clientVersion = "x-spfn-client-version"
+    public static let clientContractVersion = "x-spfn-client-contract-version"
+
+    // `wireMapping.serverAnnouncement`, which every response carries, refusals included.
+    public static let serverContractVersion = "x-spfn-server-contract-version"
+    public static let supportedContractRange = "x-spfn-supported-contract-range"
+
     /// Contract field names in the order a request carries them, exactly as
     /// `wireMapping.headerOrder` fixes it. `content-type` precedes all of them and is
     /// not part of this list, because it belongs to the body rather than to the proof.

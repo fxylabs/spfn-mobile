@@ -156,8 +156,9 @@ class SpfnClientExecuteTest
         assertEquals("POST", sent.method);
         assertEquals(baseUrl + SpfnGeneratedOperations.authEnrollRegister.path, sent.url);
         assertEquals(
-            "the content type is the only header an unproven request carries",
-            listOf(SpfnWireHeaders.CONTENT_TYPE to SpfnWireHeaders.REQUEST_CONTENT_TYPE),
+            "an unproven request carries the content type and the identity, and no proof",
+            listOf(SpfnWireHeaders.CONTENT_TYPE to SpfnWireHeaders.REQUEST_CONTENT_TYPE)
+                + SpfnClientIdentity.headers,
             sent.headers
         );
         assertEquals(
@@ -222,7 +223,7 @@ class SpfnClientExecuteTest
                 SpfnWireHeaders.NONCE,
                 SpfnWireHeaders.ISSUED_AT_MILLIS,
                 SpfnWireHeaders.PROOF
-            ),
+            ) + SpfnClientIdentity.headers.map { it.first },
             sent.headers.map { it.first }
         );
     }
@@ -297,7 +298,7 @@ class SpfnClientExecuteTest
                 SpfnWireHeaders.ISSUED_AT_MILLIS,
                 SpfnWireHeaders.PROOF,
                 SpfnWireHeaders.SESSION
-            ),
+            ) + SpfnClientIdentity.headers.map { it.first },
             sent.headers.map { it.first }
         );
     }

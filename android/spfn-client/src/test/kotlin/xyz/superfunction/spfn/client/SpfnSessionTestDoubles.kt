@@ -8,6 +8,7 @@
 package xyz.superfunction.spfn.client
 
 import kotlinx.coroutines.delay
+import xyz.superfunction.spfn.generated.SpfnGeneratedContract
 
 /** A clock a test moves by hand. */
 class FakeClock(millis: Long) : SpfnClock, SpfnProofClock
@@ -86,12 +87,32 @@ class ScriptedTransport(
     }
 }
 
-/** A JSON answer, spelled the way a server would put it on the wire. */
+/**
+ * A JSON answer, spelled the way a server would put it on the wire.
+ *
+ * The contract announcement is part of "the way a server would put it": contract 0.8.0
+ * puts it on every response including a refusal, and this SDK refuses a response without
+ * it. A double that omitted it would make every test in this directory assert the refusal
+ * rather than what it was written to assert.
+ */
 fun jsonResponse(statusCode: Int, text: String): SpfnTransportResponse =
     SpfnTransportResponse(
         statusCode = statusCode,
-        headers = listOf("content-type" to "application/json"),
+        headers = listOf("content-type" to "application/json") + announcementHeaders(),
         body = text.toByteArray(Charsets.UTF_8)
+    )
+
+/**
+ * The server's own announcement, defaulting to the version this build was generated from.
+ * A test that is about the announcement passes its own.
+ */
+fun announcementHeaders(
+    version: String = SpfnGeneratedContract.BINDING.importedVersion,
+    range: String = SpfnGeneratedContract.BINDING.supportedRange
+): List<Pair<String, String>> =
+    listOf(
+        SpfnWireHeaders.SERVER_CONTRACT_VERSION to version,
+        SpfnWireHeaders.SUPPORTED_CONTRACT_RANGE to range
     )
 
 /**

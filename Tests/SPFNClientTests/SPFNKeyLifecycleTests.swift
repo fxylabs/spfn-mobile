@@ -49,8 +49,9 @@ final class SPFNKeyLifecycleTests: XCTestCase
         XCTAssertEqual(sent.url, baseURL + (try oauthNative.text("path")))
         XCTAssertEqual(
             sent.headers.map { [$0.0, $0.1] },
-            try oauthNative.headerPairs("headers").map { [$0.0, $0.1] },
-            "an unproven enrollment carries exactly the fixture's headers"
+            try oauthNative.headerPairs("headers").map { [$0.0, $0.1] }
+                + SPFNClientIdentity.headers.map { [$0.0, $0.1] },
+            "an unproven enrollment carries the fixture's headers and then the identity"
         )
         XCTAssertEqual(
             String(decoding: sent.body ?? [], as: UTF8.self),

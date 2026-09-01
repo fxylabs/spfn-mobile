@@ -61,8 +61,8 @@ class SpfnKeyLifecycleTest
         assertEquals("POST", sent.method);
         assertEquals(baseUrl + oauthNative.text("path"), sent.url);
         assertEquals(
-            "an unproven enrollment carries exactly the fixture's headers",
-            oauthNative.headerPairs("headers"),
+            "an unproven enrollment carries the fixture's headers and then the identity",
+            oauthNative.headerPairs("headers") + SpfnClientIdentity.headers,
             sent.headers
         );
         assertEquals(

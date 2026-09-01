@@ -206,7 +206,10 @@ public actor SPFNSession
             SPFNTransportRequest(
                 method: operation.method,
                 url: baseURL + operation.path,
-                headers: headers,
+                // The handshake is the third path a request leaves by, and it does not
+                // go through `SPFNClient.execute`. A change that adds the identity
+                // headers only where execute sends would open every session anonymously.
+                headers: headers + SPFNClientIdentity.headers,
                 body: canonicalBody,
                 timeoutMillis: timeoutMillis
             )
@@ -375,6 +378,18 @@ public actor SPFNSession
     /// the server sent into an error, and from there into a log.
     private static func readSession(from response: SPFNTransportResponse) throws -> SPFNSessionState
     {
+        // The same check `SPFNClient.read` makes, and it throws the same type rather than
+        // a session-shaped restatement of it: two ends disagreeing about the contract is
+        // one condition, and `execute` passes an error it did not produce through as
+        // itself, so the caller sees it whichever path met it first.
+        if let mismatch = SPFNClientIdentity.mismatch(
+            in: response,
+            against: SPFNGeneratedContract.binding
+        )
+        {
+            throw SPFNClientError.contract(mismatch)
+        }
+
         let opened = (200 ... 299).contains(response.statusCode)
         let reason = opened
             ? SPFNSessionError.notAHandshakeResponse
