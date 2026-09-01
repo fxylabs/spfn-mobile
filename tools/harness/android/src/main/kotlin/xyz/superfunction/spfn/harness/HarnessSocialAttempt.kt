@@ -36,6 +36,12 @@ class HarnessSocialAttempt(
      * The Activity is a parameter rather than a field for the reason the adapter takes one
      * at all: it is what puts an account picker on the screen, and an object that held one
      * would hold it after the screen is gone.
+     *
+     * `alreadyEnrolled` is unreachable from here: the caller wiped before this ran, so the
+     * lifecycle was unenrolled. It is deliberately NOT special-cased. If it ever appears in
+     * a receipt it means a wipe reported success and left a key, which is a finding about
+     * the SDK or the store — and classifying it as anything other than the plain `failed`
+     * with `alreadyEnrolled` it is would hide it.
      */
     suspend fun run(activity: Activity, case: HarnessSocialCase): HarnessReceipt
     {

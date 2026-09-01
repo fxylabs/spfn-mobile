@@ -31,6 +31,10 @@ final class HarnessModel: ObservableObject
     /// `unread` until probed, then the custody a freshly generated key actually landed in.
     @Published private(set) var custody = "unread"
 
+    /// Whether the transport is currently refusing to send, for the permanent `network=`
+    /// readout. Mirrored here rather than read from the transport because a view redraws on
+    /// a published change and not on a lock; `setNetworkBlocked` is the only writer of the
+    /// transport's own flag, so the mirror cannot drift from it.
     @Published private(set) var networkBlocked = false
 
     /// Which of the five device cases the next provider tap is running. The app cannot
@@ -45,6 +49,20 @@ final class HarnessModel: ObservableObject
     /// True while an action is in flight, so a flow can wait for quiet instead of
     /// sleeping for a guessed number of seconds.
     @Published private(set) var busy = false
+
+    /// The provider whose button must be showing a spinner, or nil.
+    ///
+    /// `busy` cannot answer this. It is true for any of the twelve actions on the screen,
+    /// and what a person needs to see is that the button THEY tapped is working — a
+    /// spinner on the other provider would be a wrong answer rather than a vague one.
+    @Published private(set) var runningProvider: HarnessProvider?
+
+    /// The last completed action, for the banner to show and for nothing else to read.
+    ///
+    /// Published as a value with an identity rather than as a string: two identical
+    /// results in a row are two completions, and a plain `String` would leave the second
+    /// one silent because nothing changed.
+    @Published private(set) var signal: HarnessSignal?
 
     /// What this build was configured with, for the screen to state and the buttons to
     /// obey. Nothing here is a value — only whether each half of it is present.
@@ -130,10 +148,26 @@ final class HarnessModel: ObservableObject
     /// wire said, what the SDK classified, whether a key survived — and then write them
     /// down. Sharing the shorter path would have meant reading some of them after the
     /// state had already been re-read, which is the one ordering that cannot be trusted.
+    ///
+    /// One tap is the whole attempt. The wipe below used to be the operator's job, and the
+    /// first device run produced three `alreadyEnrolled` receipts from forgetting it —
+    /// three attempts that proved nothing about a provider and only that a person had one
+    /// more thing to remember.
+    ///
+    /// The `defer` announces every exit, including the two refusals below, because a
+    /// refusal is a completed tap: the attempt that did not happen is exactly the thing a
+    /// person needs told, and it is the reading the `receipt=` readout alone gets wrong
+    /// most often.
     func signIn(with provider: HarnessProvider) async
     {
         busy = true
-        defer { busy = false }
+        runningProvider = provider
+        defer
+        {
+            busy = false
+            runningProvider = nil
+            announce("\(outcome)\n\(receipt)")
+        }
 
         guard isReady(provider)
         else
@@ -141,7 +175,19 @@ final class HarnessModel: ObservableObject
             // Belt and braces: the button is disabled in this state. If it is ever
             // reachable anyway, refusing is the whole point — Google's SDK answers a
             // missing client id with an NSException, which no Swift caller can catch.
+            //
+            // `receipt` is reset for the reason `wipeBeforeAttempt` resets it: this tap
+            // wrote no file, and leaving the previous attempt's name standing lets an
+            // older file be read as this one's evidence (P7). It matters more now that the
+            // name is announced when the tap ends.
             outcome = "err:\(HarnessOutcome.name(for: HarnessError.notConfigured))"
+            receipt = "none"
+            return
+        }
+
+        guard await wipeBeforeAttempt()
+        else
+        {
             return
         }
 
@@ -168,8 +214,53 @@ final class HarnessModel: ObservableObject
         await recordReceipt(for: provider, attempt: attempt)
     }
 
+    /// Clears whatever a previous attempt left, and answers whether the attempt may go on.
+    ///
+    /// It runs BEFORE the case's own arrangements — before the transport is shut for
+    /// `network-failure` — because a wipe is local work that a blocked transport has no
+    /// business failing. Reversing the two would turn one case into a wipe failure.
+    ///
+    /// A wipe that fails abandons the attempt rather than pushing on. Enrolling on top of a
+    /// state nobody could clear is exactly the reading the auto-wipe exists to stop
+    /// producing, and a receipt written from it would be evidence of the harness rather
+    /// than of the SDK. No receipt is written, and `receipt` is reset rather than left
+    /// naming the previous attempt's file: an operator reading this screen must not be able
+    /// to attribute an older file to this tap. The reason sits beside it on `outcome=`,
+    /// which is what keeps "no attempt was made" apart from "the attempt left no evidence"
+    /// (docs/IMPLEMENTATION-PITFALLS.md P7).
+    ///
+    /// There is no cancellation branch here and the Kotlin half has one. That is a real
+    /// difference rather than an omission (P15): `SPFNKeyLifecycle.wipe()` is a synchronous
+    /// `throws` method reached across an actor, and an actor hop is not a cancellation
+    /// point, so nothing here can raise `CancellationError`. Kotlin's `wipe` is a `suspend`
+    /// function over a mutex, where a cancellation genuinely arrives and its rethrow is
+    /// load-bearing. A symmetric catch on this side would be a branch that never runs, and
+    /// the two halves are meant to agree on behaviour rather than on shape.
+    private func wipeBeforeAttempt() async -> Bool
+    {
+        do
+        {
+            try await lifecycle.wipe()
+            await refresh()
+            return true
+        }
+        catch
+        {
+            outcome = "err:wipe:\(HarnessOutcome.name(for: error))"
+            receipt = "none"
+            await refresh()
+            return false
+        }
+    }
+
     /// The enrolment itself: the SDK's call, the SDK's adapters, and nothing in between
     /// but the token sabotage the server-reject case asks for.
+    ///
+    /// `alreadyEnrolled` is now unreachable from here: the attempt wiped first, so the
+    /// lifecycle was `unenrolled` when this ran. It is deliberately NOT special-cased. If
+    /// it ever appears in a receipt it means a wipe reported success and left a key, which
+    /// is a finding about the SDK or the store — and a receipt that classified it as
+    /// anything other than the plain `failed` / `alreadyEnrolled` it is would hide it.
     private func attemptEnrollment(with provider: HarnessProvider) async -> Result<SPFNEnrollmentResult, any Error>
     {
         let deviceCase = self.deviceCase
@@ -408,6 +499,19 @@ final class HarnessModel: ObservableObject
         outcome = value ? "ok:network-blocked" : "ok:network-open"
     }
 
+    /// The network switch as a BUTTON: the same flag, and the completion signal a tap
+    /// owes the person who made it.
+    ///
+    /// Separate from `setNetworkBlocked` rather than folded into it, because `signIn`
+    /// calls that one twice around an attempt to arrange the `network-failure` case. A
+    /// signal there would announce a step of an attempt as though it were the result of
+    /// one, twice, over the sheet.
+    func toggleNetworkBlocked(_ value: Bool)
+    {
+        setNetworkBlocked(value)
+        announce(outcome)
+    }
+
     // MARK: - Running one action
 
     /// Every button goes through here, so every button reports the same way: a short
@@ -415,9 +519,27 @@ final class HarnessModel: ObservableObject
     /// afterwards whichever it was.
     /// Called by the view at tap time, synchronously, before the task exists. See
     /// `HarnessView.asyncButton` for why the model cannot do this itself.
-    func markBusy()
+    ///
+    /// `running` names the provider whose button must show a spinner, and it is set here
+    /// for the same reason and with the same urgency as `busy`: a spinner that appeared
+    /// only once the task began would leave the tap looking unanswered for exactly the
+    /// window this method exists to close.
+    func markBusy(running provider: HarnessProvider? = nil)
     {
         busy = true
+        runningProvider = provider
+    }
+
+    /// The completion signal a tap owes the person who made it.
+    ///
+    /// The text carries NO readout prefix — `ok:wiped`, not `outcome=ok:wiped`. Every flow
+    /// selector in tools/harness/flows/ matches either an accessibility identifier or a
+    /// readout's text (`outcome=…`, `state=…`, `busy=…`), and dropping the prefix is one
+    /// of the two things keeping a flow off this banner. The other is that the banner is
+    /// hidden from the accessibility hierarchy entirely — see `HarnessView.banner`.
+    private func announce(_ text: String)
+    {
+        signal = HarnessSignal(text: text)
     }
 
     private func run(_ action: @escaping () async throws -> String) async
@@ -433,6 +555,9 @@ final class HarnessModel: ObservableObject
         }
         await refresh()
         busy = false
+        // After `refresh`, so the banner and the readouts are never two readings of one
+        // action taken at two different moments.
+        announce(outcome)
     }
 
     private func client(signingWith provider: SPFNSecureEnclaveKeyProvider) -> SPFNClient
@@ -464,6 +589,18 @@ final class HarnessModel: ObservableObject
             decode: { try SPFNRevokeKeyResponse(canonical: $0) }
         )
     }
+}
+
+/// One completed action, for the banner to show and then forget.
+///
+/// The identity is what makes it a signal rather than a value. Tapping `wipe` twice
+/// produces `ok:wiped` twice, and a banner keyed on the text alone would show the first
+/// and stay silent for the second — the reading "nothing happened" that this whole layer
+/// exists to stop producing.
+struct HarnessSignal: Equatable, Identifiable
+{
+    let id = UUID()
+    let text: String
 }
 
 /// What the harness itself refuses, as opposed to what the SDK refuses.
