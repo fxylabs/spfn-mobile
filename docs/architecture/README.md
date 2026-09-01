@@ -10,8 +10,10 @@ auth profile,
 and a contract imported from SPFN primitives by digest. The vertical slice is complete:
 canonical serialization, proof assembly on P-256 ECDSA, hardware key custody, the key
 lifecycle, a transport, a session and one execute path, with generated clients on both
-platforms. Nothing has run on a device, so every support row in `COMPATIBILITY.md` is
-UNRESOLVED.
+platforms. Hardware custody has been probed on one iPhone and one Android phone, and two
+corrected Android runs completed seven or eight of the nine lifecycle cells. Neither
+platform has met the whole device gate, so every support row in `COMPATIBILITY.md`
+remains UNRESOLVED.
 
 ## Module graph
 

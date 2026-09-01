@@ -51,7 +51,7 @@ Each of these is missing because supplying it would mean inventing an approval.
 | Real CODEOWNERS handles | teams and required-review enforcement are undecided |
 | A license | not selected |
 | Pinned CI action SHAs | pinning by SHA needs a network lookup per action; workflows use no third-party action at all |
-| Filled-in `COMPATIBILITY.md` support rows | a build baseline is not device evidence, and a compatibility matrix is read as a support commitment |
+| Filled-in `COMPATIBILITY.md` support rows | custody probes and partial Android lifecycle runs are device evidence, not the complete gates a support commitment requires |
 | Publication configuration | no registry, coordinate, credential or signing identity exists |
 
 ## How honesty is enforced

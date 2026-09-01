@@ -18,7 +18,7 @@ import xyz.superfunction.spfn.client.SpfnSocialNonce
  * tools/harness/ios/Sources/HarnessConfiguration.swift is the same reading in Swift.
  */
 class HarnessConfiguration(
-    /** Where the SDK sends. No default: an app that guessed would report a refusal from somewhere nobody named. */
+    /** Where the SDK sends: the launch's own value, or this build's configured server. */
     val baseUrl: String,
 
     /** The provider id `enroll` rides in. */
@@ -57,8 +57,18 @@ class HarnessConfiguration(
 
     companion object
     {
+        /**
+         * A flow's launch argument wins; a device run has none.
+         *
+         * The base URL falls back to what this build was configured with, because a device
+         * sign-in is started from the launcher rather than by a runner, and nothing types
+         * a URL into this app. The fallback cannot mask a flow's value — it applies only
+         * where the previous behaviour was an empty base URL, which reached the SDK as a
+         * refusal from an address nobody named.
+         */
         fun fromLaunch(intent: Intent?): HarnessConfiguration = HarnessConfiguration(
-            baseUrl = intent?.getStringExtra("SPFN_HARNESS_BASE_URL").orEmpty(),
+            baseUrl = nonEmpty(intent?.getStringExtra("SPFN_HARNESS_BASE_URL"))
+                ?: HarnessSocialConfiguration.serverBaseUrl,
             provider = nonEmpty(intent?.getStringExtra("SPFN_HARNESS_PROVIDER")) ?: "google",
             cannedIdToken = nonEmpty(intent?.getStringExtra("SPFN_HARNESS_ID_TOKEN")),
             testUser = nonEmpty(intent?.getStringExtra("SPFN_HARNESS_TEST_USER"))

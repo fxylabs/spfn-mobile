@@ -51,6 +51,12 @@ object SwiftEmitter
         bundle.proofInputFields.forEach { appendLine("        \"$it\",") };
         appendLine("    ]");
         appendLine();
+        appendLine("    /// The unproven operation used to synchronize before the first proof.");
+        appendLine("    public static let clockSynchronizationOperationID: String = \"${bundle.clockSynchronizationOperationId}\"");
+        appendLine();
+        appendLine("    /// The required integer response field that anchors proof time.");
+        appendLine("    public static let clockSynchronizationEpochField: String = \"${bundle.clockSynchronizationEpochField}\"");
+        appendLine();
         appendLine("    /// `keyPolicy.ttlDays`: a registered public key expires this many days after");
         appendLine("    /// registration, so the client rotates before the TTL runs out.");
         appendLine("    public static let keyPolicyTtlDays: Int64 = ${bundle.keyPolicyTtlDays}");

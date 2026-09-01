@@ -1,8 +1,10 @@
 package xyz.superfunction.spfn.harness
 
 import xyz.superfunction.spfn.client.SpfnClientError
+import xyz.superfunction.spfn.client.SpfnClockSynchronizationException
 import xyz.superfunction.spfn.client.SpfnKeyLifecycleException
 import xyz.superfunction.spfn.client.SpfnTransportError
+import xyz.superfunction.spfn.social.google.SpfnSocialGoogleException
 
 /**
  * One short stable name per failure.
@@ -27,9 +29,42 @@ object HarnessOutcome
     {
         is SpfnKeyLifecycleException -> lifecycleName(error)
         is SpfnClientError -> clientName(error)
+        is SpfnClockSynchronizationException -> clockName(error)
         is SpfnTransportError -> transportName(error)
+        is SpfnSocialGoogleException -> socialGoogleName(error)
         is HarnessException -> harnessName(error)
         else -> "unclassified"
+    };
+
+    /**
+     * The Google adapter's own vocabulary, unaltered.
+     *
+     * These names are Android-only and have no Swift twin, because the two platforms reach
+     * Google through different SDKs and classify with different words. That is a difference
+     * the shared spec allows: its case table asks a cancel to carry "the SDK cancel
+     * classification", not one fixed string across platforms.
+     *
+     * `Failed.type` is Credential Manager's own type CONSTANT — a fixed identifier such as
+     * `android.credentials.GetCredentialException.TYPE_NO_CREDENTIAL`. The adapter has
+     * already dropped the provider's message, which is where an account identifier would
+     * otherwise reach a receipt.
+     */
+    private fun socialGoogleName(error: SpfnSocialGoogleException): String = when (error)
+    {
+        is SpfnSocialGoogleException.Cancelled -> "social:cancelled"
+        is SpfnSocialGoogleException.IdentityTokenMissing -> "social:identityTokenMissing"
+        is SpfnSocialGoogleException.Failed -> "social:failed:${error.type}"
+        is SpfnSocialGoogleException.NonceProviderMismatch -> "social:nonceProviderMismatch"
+    };
+
+    private fun clockName(error: SpfnClockSynchronizationException): String = when (error)
+    {
+        is SpfnClockSynchronizationException.ContractIncompatible -> "clockSynchronization:contractIncompatible"
+        is SpfnClockSynchronizationException.UntrustedBaseUrl -> "clockSynchronization:untrustedBaseURL"
+        is SpfnClockSynchronizationException.RequestFailed -> "clockSynchronization:requestFailed"
+        is SpfnClockSynchronizationException.InvalidResponse -> "clockSynchronization:invalidResponse"
+        is SpfnClockSynchronizationException.MonotonicClockInvalid -> "clockSynchronization:monotonicClockInvalid"
+        is SpfnClockSynchronizationException.ClockOverflow -> "clockSynchronization:clockOverflow"
     };
 
     private fun lifecycleName(error: SpfnKeyLifecycleException): String = when (error)
@@ -74,6 +109,8 @@ object HarnessOutcome
     {
         is HarnessException.NoCannedToken -> "harness:noCannedToken"
         is HarnessException.NoActiveKey -> "harness:noActiveKey"
+        is HarnessException.SocialNotConfigured -> "harness:socialNotConfigured"
+        is HarnessException.ReceiptDirectoryUnavailable -> "harness:receiptDirectoryUnavailable"
     };
 }
 
@@ -87,4 +124,19 @@ sealed class HarnessException(message: String) : IllegalStateException(message)
     class NoCannedToken : HarnessException("no canned id_token was supplied to this launch");
 
     class NoActiveKey : HarnessException("no active key to sign with");
+
+    /**
+     * A device sign-in was asked for on a build that has no client id or no server
+     * address. The button is disabled in this state, so reaching this is a bug rather
+     * than a mistake a person can make — it exists so the bug reports itself instead of
+     * sending an empty client id to Credential Manager.
+     */
+    class SocialNotConfigured : HarnessException("this build carries no social sign-in configuration");
+
+    /**
+     * The external files directory does not exist and could not be made, so the run has
+     * nowhere to leave its receipt. Raised rather than ignored: a run whose receipt went
+     * missing must not look like a run that was never made (P7).
+     */
+    class ReceiptDirectoryUnavailable : HarnessException("the external files directory is unavailable");
 }

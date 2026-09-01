@@ -2,10 +2,27 @@
 <!--
   SPFN Mobile — the Android harness manifest.
 
-  INTERNET is the only permission: the harness sends real requests to whatever base URL
-  its launch names. `usesCleartextTraffic` is on because the reference server and the
-  verify app both run over plain HTTP on a developer machine, and this app is never
-  published to a place where that would matter.
+  INTERNET is the only permission this file declares: the harness sends real requests to
+  whatever base URL its launch names. It is NOT the only permission the installed app
+  holds — the Google adapter's own dependencies merge theirs in, and a debug build's
+  merged manifest carries android.permission.USE_BIOMETRIC, android.permission.USE_FINGERPRINT
+  and Credential Manager's app-namespaced DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+  alongside it. Read the merged manifest, not this file, to know what a build asks for:
+
+    grep -o 'uses-permission android:name="[^"]*"' \
+      tools/harness/android/build/intermediates/merged_manifests/debug/processDebugManifest/AndroidManifest.xml
+
+  Cleartext used to be a blanket `usesCleartextTraffic="true"`, and it is now a network
+  security configuration naming exactly one host: the server this build was configured
+  with, and nothing else. "This app may speak plain HTTP to the machine the server is on"
+  and "this app may speak plain HTTP to anything" are different statements, and only the
+  first one is true. The file is generated at build time from local.properties, because
+  the host that matters is the developer machine's own address and that belongs in no
+  commit (tools/harness/android/build.gradle.kts). A build configured with no server
+  permits cleartext to nothing.
+
+  A configuration is honoured from API 24, which is this repository's minSdk, so the
+  attribute needs no per-version fallback.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -13,7 +30,7 @@
 
     <application
         android:label="SPFN Harness"
-        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/spfn_harness_network_security_config"
         android:supportsRtl="true">
 
         <activity

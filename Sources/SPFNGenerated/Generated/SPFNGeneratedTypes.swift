@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    a42af88aac46b827d19a702e322fc82c8f089ff45605d05d75fadeb1d953b60b
-// contractVersion: 0.8.0
+// bundleSha256:    cf1b34a4081059c29f838b9e8b3a973a9fbb5e5e64a576c673f792d9c6b4ca46
+// contractVersion: 0.9.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -36,6 +36,38 @@ public enum SPFNKeyAlgorithm: String, CaseIterable, Sendable
             throw SPFNDecodingError.typeMismatch(path: path, expected: "KeyAlgorithm")
         }
         self = value
+    }
+}
+
+public struct SPFNServerTimeResponse: Equatable, Sendable
+{
+    public var serverTimeMillis: Int64
+
+    public init(
+        serverTimeMillis: Int64
+    )
+    {
+        self.serverTimeMillis = serverTimeMillis
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["serverTimeMillis"] = .integer(serverTimeMillis)
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.serverTimeMillis = try SPFNDecoding.integer(members["serverTimeMillis"], at: "\(path).serverTimeMillis")
     }
 }
 

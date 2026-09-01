@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    a42af88aac46b827d19a702e322fc82c8f089ff45605d05d75fadeb1d953b60b
-// contractVersion: 0.8.0
+// bundleSha256:    cf1b34a4081059c29f838b9e8b3a973a9fbb5e5e64a576c673f792d9c6b4ca46
+// contractVersion: 0.9.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -38,6 +38,15 @@ enum class SpfnGeneratedAuthClass(val wireName: String)
 
 object SpfnGeneratedOperations
 {
+    /** Returns the server epoch used to timestamp clientProofV1 proofs. */
+    val coreTime: SpfnOperation = SpfnOperation(
+        id = "core.time",
+        method = "GET",
+        path = "/_core/time",
+        authProfile = "none",
+        requiresSession = false
+    )
+
     /** Presents a client proof and opens a session. */
     val authClientProofHandshake: SpfnOperation = SpfnOperation(
         id = "auth.clientProof.handshake",
@@ -130,6 +139,7 @@ object SpfnGeneratedOperations
 
     /** Every operation, in bundle order. */
     val all: List<SpfnOperation> = listOf(
+        coreTime,
         authClientProofHandshake,
         echoSend,
         itemsList,

@@ -133,7 +133,7 @@ public actor SPFNSession
 
     private let transport: any SPFNTransport
     private let keyProvider: any SPFNKeyProvider
-    private let clock: any SPFNClock
+    private let clock: any SPFNProofClock
     private let nonceGenerator: any SPFNNonceGenerator
     private let timeoutMillis: Int64
 
@@ -149,7 +149,7 @@ public actor SPFNSession
         transport: any SPFNTransport,
         keyProvider: any SPFNKeyProvider,
         baseURL: String,
-        clock: any SPFNClock = SPFNSystemClock(),
+        clock: any SPFNProofClock = SPFNProcessServerClock.shared,
         nonceGenerator: any SPFNNonceGenerator = SPFNRandomNonceGenerator(),
         timeoutMillis: Int64 = 15_000
     )
@@ -175,7 +175,11 @@ public actor SPFNSession
     {
         let operation = SPFNGeneratedOperations.authClientProofHandshake
         let nonce = nonceGenerator.nextNonce()
-        let issuedAtMillis = clock.nowMillis()
+        let issuedAtMillis = try await clock.nowMillis(
+            transport: transport,
+            baseURL: baseURL,
+            timeoutMillis: timeoutMillis
+        )
 
         let body = SPFNHandshakeRequest(
             clientId: keyProvider.clientID,
@@ -226,7 +230,12 @@ public actor SPFNSession
     @discardableResult
     public func ensureSession() async throws -> SPFNSessionState
     {
-        if let current = state, clock.nowMillis() < current.expiresAtMillis
+        if let current = state,
+           try await clock.nowMillis(
+               transport: transport,
+               baseURL: baseURL,
+               timeoutMillis: timeoutMillis
+           ) < current.expiresAtMillis
         {
             return current
         }
@@ -268,7 +277,11 @@ public actor SPFNSession
             operation: operation,
             canonicalBody: canonicalBody,
             nonce: nonceGenerator.nextNonce(),
-            issuedAtMillis: clock.nowMillis(),
+            issuedAtMillis: try await clock.nowMillis(
+                transport: transport,
+                baseURL: baseURL,
+                timeoutMillis: timeoutMillis
+            ),
             sessionID: sessionID
         )
     }

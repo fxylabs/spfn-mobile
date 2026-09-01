@@ -42,6 +42,12 @@ object KotlinEmitter
         appendLine("        origin = \"${bundle.origin}\"");
         appendLine("    )");
         appendLine();
+        appendLine("    /** The unproven operation used to synchronize before the first proof. */");
+        appendLine("    const val CLOCK_SYNCHRONIZATION_OPERATION_ID: String = \"${bundle.clockSynchronizationOperationId}\"");
+        appendLine();
+        appendLine("    /** The required integer response field that anchors proof time. */");
+        appendLine("    const val CLOCK_SYNCHRONIZATION_EPOCH_FIELD: String = \"${bundle.clockSynchronizationEpochField}\"");
+        appendLine();
         appendLine("    /** Every operation the contract declares, in bundle order. */");
         appendLine("    val OPERATION_IDS: List<String> = listOf(");
         bundle.operations.forEachIndexed { index, operation ->

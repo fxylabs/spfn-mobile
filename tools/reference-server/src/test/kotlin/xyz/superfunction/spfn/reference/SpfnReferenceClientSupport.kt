@@ -18,6 +18,9 @@ import xyz.superfunction.spfn.client.SpfnClock
 import xyz.superfunction.spfn.client.SpfnKeyProvider
 import xyz.superfunction.spfn.client.SpfnSoftwareKeyProvider
 import xyz.superfunction.spfn.client.SpfnOkHttpTransport
+import xyz.superfunction.spfn.client.SpfnMonotonicClock
+import xyz.superfunction.spfn.client.SpfnProcessServerClock
+import xyz.superfunction.spfn.client.SpfnProofClock
 import xyz.superfunction.spfn.client.SpfnSession
 import xyz.superfunction.spfn.client.SpfnSystemClock
 import xyz.superfunction.spfn.client.SpfnTransport
@@ -26,6 +29,7 @@ import xyz.superfunction.spfn.generated.SpfnEchoResponse
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import xyz.superfunction.spfn.generated.SpfnListItemsRequest
 import xyz.superfunction.spfn.generated.SpfnListItemsResponse
+import xyz.superfunction.spfn.generated.SpfnServerTimeResponse
 import java.util.concurrent.TimeUnit
 
 /** The call descriptors the three operations need, spelled out once. */
@@ -58,7 +62,8 @@ private class SpfnReferenceMode(
     val baseUrl: String,
     val control: SpfnReferenceControlSurface,
     val expectedServerTimeMillis: Long?,
-    val clientClock: SpfnClock
+    val clientClock: SpfnClock,
+    val proofClock: SpfnProofClock
 )
 {
     companion object
@@ -71,7 +76,8 @@ private class SpfnReferenceMode(
                 baseUrl = target.baseUrl,
                 control = SpfnHttpControl(target),
                 expectedServerTimeMillis = null,
-                clientClock = SpfnSystemClock()
+                clientClock = SpfnSystemClock(),
+                proofClock = SpfnProcessServerClock.shared
             );
         }
 
@@ -83,7 +89,21 @@ private class SpfnReferenceMode(
                 baseUrl = server.baseUrl,
                 control = SpfnInProcessControl(server.server.state),
                 expectedServerTimeMillis = SpfnReferenceTestClock.DEFAULT_START_MILLIS,
-                clientClock = SpfnClock { SpfnReferenceTestClock.DEFAULT_START_MILLIS }
+                clientClock = SpfnClock { SpfnReferenceTestClock.DEFAULT_START_MILLIS },
+                // The in-process server deliberately freezes time so expiry tests can
+                // move it without sleeping. Its proof clock must observe that same test
+                // timeline; pairing a frozen server with System.nanoTime makes every
+                // otherwise valid proof future-dated as soon as one millisecond passes.
+                proofClock = SpfnProcessServerClock(
+                    monotonicClock = SpfnMonotonicClock {
+                        server.clock.nowMillis() * NANOS_PER_MILLISECOND
+                    },
+                    operationResolver = {
+                        SpfnGeneratedOperations.operation(
+                            xyz.superfunction.spfn.generated.SpfnGeneratedContract.CLOCK_SYNCHRONIZATION_OPERATION_ID
+                        )
+                    }
+                )
             );
         }
     }
@@ -115,7 +135,12 @@ class SpfnReferenceClientHarness(timeoutMillis: Long = 5_000) : AutoCloseable
 
     private val okHttpClient = OkHttpClient()
 
-    val transport: SpfnTransport = SpfnOkHttpTransport(okHttpClient)
+    private val networkTransport: SpfnTransport = SpfnOkHttpTransport(okHttpClient)
+    private val recordingTransport = SpfnReferenceRecordingTransport(networkTransport)
+
+    val transport: SpfnTransport = recordingTransport
+
+    val proofClock: SpfnProofClock = mode.proofClock
 
     val session: SpfnSession = SpfnSession(
         transport = transport,
@@ -129,7 +154,7 @@ class SpfnReferenceClientHarness(timeoutMillis: Long = 5_000) : AutoCloseable
             publicKeySpkiDer = SpfnReferenceTestKeys.PUBLIC_KEY_SPKI_DER
         ),
         baseUrl = mode.baseUrl,
-        clock = mode.clientClock,
+        clock = proofClock,
         timeoutMillis = timeoutMillis
     )
 
@@ -143,6 +168,44 @@ class SpfnReferenceClientHarness(timeoutMillis: Long = 5_000) : AutoCloseable
     fun stats(): SpfnReferenceStats = control.stats()
 
     /**
+     * Compares the process anchor with a later server sample without minting a proof.
+     * A positive result would mean the clock can create a future-dated proof.
+     */
+    suspend fun proofClockLeadMillis(timeoutMillis: Long = 5_000): Long
+    {
+        val derived = proofClock.nowMillis(transport, baseUrl, timeoutMillis);
+        val operation = SpfnGeneratedOperations.coreTime;
+        val response = transport.execute(
+            xyz.superfunction.spfn.client.SpfnTransportRequest(
+                method = operation.method,
+                url = baseUrl + operation.path,
+                headers = emptyList(),
+                body = null,
+                timeoutMillis = timeoutMillis
+            )
+        );
+        val server = SpfnServerTimeResponse.decode(xyz.superfunction.spfn.core.SpfnCanonicalJson.parse(response.body));
+        return derived - server.serverTimeMillis;
+    }
+
+    suspend fun lastProofLeadMillis(timeoutMillis: Long = 5_000): Long?
+    {
+        val issuedAt = recordingTransport.lastIssuedAtMillis ?: return null;
+        val operation = SpfnGeneratedOperations.coreTime;
+        val response = networkTransport.execute(
+            xyz.superfunction.spfn.client.SpfnTransportRequest(
+                method = operation.method,
+                url = baseUrl + operation.path,
+                headers = emptyList(),
+                body = null,
+                timeoutMillis = timeoutMillis
+            )
+        );
+        val server = SpfnServerTimeResponse.decode(xyz.superfunction.spfn.core.SpfnCanonicalJson.parse(response.body));
+        return issuedAt - server.serverTimeMillis;
+    }
+
+    /**
      * A client over a session signing with [provider] — what case f uses to prove with
      * a key the lifecycle enrolled rather than the pre-registered fixture key.
      */
@@ -152,7 +215,7 @@ class SpfnReferenceClientHarness(timeoutMillis: Long = 5_000) : AutoCloseable
             transport = transport,
             keyProvider = provider,
             baseUrl = baseUrl,
-            clock = clientClock,
+            clock = proofClock,
             timeoutMillis = timeoutMillis
         );
         return SpfnClient(transport, signingSession, timeoutMillis = timeoutMillis);
@@ -166,6 +229,22 @@ class SpfnReferenceClientHarness(timeoutMillis: Long = 5_000) : AutoCloseable
         // Only ever the server this harness started. An external target outlives the run
         // that used it, and stopping one would be this suite reaching outside itself.
         mode.local?.close();
+    }
+}
+
+private const val NANOS_PER_MILLISECOND = 1_000_000L
+
+private class SpfnReferenceRecordingTransport(private val delegate: SpfnTransport) : SpfnTransport
+{
+    @Volatile
+    var lastIssuedAtMillis: Long? = null
+        private set
+
+    override suspend fun execute(request: xyz.superfunction.spfn.client.SpfnTransportRequest): xyz.superfunction.spfn.client.SpfnTransportResponse
+    {
+        request.headers.firstOrNull { it.first == xyz.superfunction.spfn.client.SpfnWireHeaders.ISSUED_AT_MILLIS }
+            ?.second?.toLongOrNull()?.let { lastIssuedAtMillis = it };
+        return delegate.execute(request);
     }
 }
 

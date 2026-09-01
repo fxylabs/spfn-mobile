@@ -421,6 +421,7 @@ final class SPFNKeyLifecycleTests: XCTestCase
             store: store,
             baseURL: baseURL,
             clock: clock,
+            proofClock: clock,
             nonceGenerator: ScriptedNonceGenerator(nonces),
             newKeyID: { idQueue.next() ?? "key-unexpected" },
             makeKey: { keyID in keyQueue.next() ?? SPFNCustodyKey.generate(keyID: keyID, preferSecureEnclave: false) }

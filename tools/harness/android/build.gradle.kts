@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
+import java.util.Properties
 
 // SPFN Mobile — the Android harness application.
 //
@@ -15,6 +16,13 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 // costs nothing: gradle/verification-metadata.xml pins every artifact with a real
 // checksum, and adding Compose would mean recording a hundred more of them for a screen
 // that is nine buttons and three labels (decision 01kzb8tjxp, D-5).
+//
+// The device social-login mode added two things this script has to carry: the run's own
+// client id and server address, which are NOT committed, and a cleartext exception for
+// the machine the server runs on. Both come from `local.properties`, which .gitignore
+// already refuses to stage, and both fail closed — a checkout with no local.properties
+// builds and installs, and the sign-in button on the screen is disabled rather than the
+// app crashing at the tap.
 
 plugins {
     // AGP 9 compiles Kotlin itself; applying org.jetbrains.kotlin.android is an error.
@@ -22,6 +30,141 @@ plugins {
 }
 
 description = "SPFN Android harness: the app a Maestro flow drives. Not published."
+
+// ---------------------------------------------------------------------------
+// Run configuration: read from local.properties, never committed, never printed.
+// ---------------------------------------------------------------------------
+// Only key NAMES appear in this file and in every message it can produce. A build that
+// echoed a client id would put it in every CI log that ever ran the harness.
+
+val harnessLocalProperties = Properties().apply {
+    val file = rootProject.file("local.properties");
+    if (file.exists())
+    {
+        file.inputStream().use { load(it) };
+    }
+}
+
+/**
+ * One configured value, or the empty string when the key is absent.
+ *
+ * A value that is present but malformed fails the build instead of being dropped: a
+ * silently ignored typo would disable the sign-in button and look exactly like a machine
+ * that was never configured. The message names the key and the shape, never the value.
+ */
+fun harnessProperty(key: String, shape: Regex): String
+{
+    val value = (harnessLocalProperties.getProperty(key) ?: "").trim();
+    if (value.isEmpty())
+    {
+        return "";
+    }
+    if (!shape.matches(value))
+    {
+        throw GradleException("local.properties key '$key' does not match ${shape.pattern}");
+    }
+    return value;
+}
+
+// A Google web client id: dot-separated ASCII, as issued. The Credential Manager request
+// carries it as `serverClientId`, which is the WEB client id and not the Android one.
+val harnessGoogleServerClientId = harnessProperty(
+    "spfn.harness.google.serverClientId",
+    Regex("^[A-Za-z0-9._-]+$")
+);
+
+// The SPFN server the device enrolls against: scheme, host, optional port, nothing else.
+// A path or a query is refused here rather than trimmed, because a receipt records this
+// value and a receipt that quietly differs from what was configured is not evidence.
+// The scheme pattern is spelled without the two letters that would make this line read as
+// a committed URL to tools/validate/validate.sh, which forbids one outside the root.
+val harnessServerBaseUrl = harnessProperty(
+    "spfn.harness.serverBaseUrl",
+    Regex("^[a-z][a-z0-9+.-]*://[A-Za-z0-9.-]+(:[0-9]{1,5})?$")
+);
+
+/**
+ * The one host the app may reach over plain HTTP, or nothing at all.
+ *
+ * Exactly the configured server and no convenience hosts. An earlier version also permitted
+ * the emulator's alias for the host loopback and the two spellings of the device's own
+ * loopback, on the grounds that the Maestro runner uses them — and that made the exception
+ * a standing one, granted to addresses no run had named. A build now permits what it was
+ * told to permit: an emulator run configures `10.0.2.2` as the host, a device run behind
+ * `adb reverse` configures `127.0.0.1`, and an unconfigured checkout permits cleartext to
+ * nothing.
+ */
+val harnessCleartextHost = harnessServerBaseUrl.substringAfter("://").substringBefore(":");
+
+/**
+ * Writes the network security configuration this build permits cleartext through.
+ *
+ * Generated rather than committed because the one host that matters is the developer
+ * machine's LAN address, which is different on every machine and belongs in no commit.
+ * The hosts are an input, so a changed local.properties regenerates the file.
+ */
+abstract class GenerateHarnessNetworkSecurityConfig : DefaultTask()
+{
+    /** The one configured host, or the empty string when this build has none. */
+    @get:Input
+    abstract val cleartextHost: Property<String>
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun generate()
+    {
+        val host = cleartextHost.get();
+        // Assembled line by line rather than as an indented raw string: `trimIndent`
+        // measures the SMALLEST indent in the finished text, and an interpolated block
+        // whose own lines are less indented than the template shifts every other line —
+        // including the XML declaration, which is then no longer the first thing in the
+        // file and stops the resource parser outright.
+        val lines = mutableListOf(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+            "<!-- GENERATED by :harness-android:generateHarnessNetworkSecurityConfig. Do not edit. -->",
+            "<network-security-config>",
+            "    <base-config cleartextTrafficPermitted=\"false\" />"
+        );
+        if (host.isNotEmpty())
+        {
+            // The host reaches an XML attribute, so it is held to a charset that cannot
+            // carry markup. A value that fails here is a mistake in local.properties, and
+            // the build says so instead of writing a file that means something else.
+            if (!Regex("^[A-Za-z0-9.-]+$").matches(host))
+            {
+                throw GradleException("the configured cleartext host is not a bare hostname or address");
+            }
+            lines.add("    <domain-config cleartextTrafficPermitted=\"true\">");
+            lines.add("        <domain includeSubdomains=\"false\">$host</domain>");
+            lines.add("    </domain-config>");
+        }
+        lines.add("</network-security-config>");
+
+        // The file this writes is the whole cleartext exception, so what it contains is
+        // checked here rather than trusted: one host earns one entry, no host earns none,
+        // and any other count is a generator that stopped meaning what it says.
+        val expected = if (host.isEmpty()) 0 else 1;
+        val written = lines.count { it.contains("<domain ") };
+        if (written != expected)
+        {
+            throw GradleException("the network security config names $written cleartext hosts, expected $expected");
+        }
+
+        val directory = outputDir.get().asFile.resolve("xml");
+        directory.mkdirs();
+        directory.resolve("spfn_harness_network_security_config.xml")
+            .writeText(lines.joinToString("\n") + "\n");
+    }
+}
+
+val generateHarnessNetworkSecurityConfig =
+    tasks.register<GenerateHarnessNetworkSecurityConfig>("generateHarnessNetworkSecurityConfig") {
+        description = "Writes the harness app's cleartext exception for this machine's server.";
+        cleartextHost.set(harnessCleartextHost);
+        outputDir.set(layout.buildDirectory.dir("generated/spfn-harness-res"));
+    }
 
 android {
     namespace = "xyz.superfunction.spfn.harness"
@@ -33,6 +176,16 @@ android {
         targetSdk = libs.versions.target.sdk.get().toInt()
         versionCode = 1
         versionName = "0.0.0"
+
+        // Empty is the configured absence. HarnessSocialConfiguration reads exactly these
+        // two fields and disables the sign-in button when either is empty.
+        buildConfigField("String", "HARNESS_GOOGLE_SERVER_CLIENT_ID", "\"$harnessGoogleServerClientId\"")
+        buildConfigField("String", "HARNESS_SERVER_BASE_URL", "\"$harnessServerBaseUrl\"")
+    }
+
+    buildFeatures {
+        // Off by default since AGP 8, and the two fields above are the only reason it is on.
+        buildConfig = true
     }
 
     // Restated rather than inherited, for the same reason every library module restates
@@ -51,6 +204,18 @@ android {
     }
 }
 
+// The generated resource directory is registered through the variant API rather than by
+// adding a source directory by path: this is the form that carries the task dependency, so
+// a clean build cannot package a manifest reference to a file nothing generated yet.
+androidComponents {
+    onVariants { variant ->
+        variant.sources.res?.addGeneratedSourceDirectory(
+            generateHarnessNetworkSecurityConfig,
+            GenerateHarnessNetworkSecurityConfig::outputDir
+        )
+    }
+}
+
 kotlin {
     jvmToolchain(libs.versions.jdk.toolchain.get().toInt())
 
@@ -63,5 +228,17 @@ kotlin {
 
 dependencies {
     implementation(project(":spfn-client"))
-    implementation(libs.kotlinx.coroutines.core)
+    // The real Google sign-in, through the SDK's own adapter. The harness holds no
+    // provider logic of its own: it hands the adapter an Activity and a client id, and
+    // answers SpfnKeyLifecycle.enroll with what comes back.
+    implementation(project(":spfn-social-google"))
+    // HarnessActivity launches its button actions on Dispatchers.Main. The core
+    // artifact contains the coroutine machinery but no Android Main dispatcher.
+    implementation(libs.kotlinx.coroutines.android)
+
+    // The harness proves itself on a phone, not on a JVM, and this suite is the one
+    // exception: a receipt's bytes are pure text work — a timestamp, an escape, a field
+    // order — and every way they can go wrong goes wrong silently, on someone else's
+    // machine, in a file nobody reads until it is evidence.
+    testImplementation(libs.junit)
 }

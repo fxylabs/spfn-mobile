@@ -5,16 +5,35 @@
 # leaves the candidate in place, because the server may or may not have applied the
 # request. That ambiguity is the state.
 #
-# So the flow drops the network, rotates into the failure, and puts the network back. The
-# `connectivity` assertion in the middle is what distinguishes this from a rotation that
-# failed for some other reason and left no candidate at all: those states look identical
-# from the state label and completely different from the outcome label.
+# Before dropping the network, the flow performs the already-declared c5 transition once:
+# rotate successfully from `enrolled` back to `enrolled`. That synchronizes the process
+# proof clock while the network is still open, so the injected failure reaches the next
+# rotation request itself rather than the unproven `core.time` request that now precedes
+# the first proof. Then the flow drops the network, rotates into the failure, and puts the
+# network back. The `connectivity` assertion in the middle is what distinguishes this
+# from a rotation that failed for some other reason and left no candidate at all: those
+# states look identical from the state label and completely different from the outcome
+# label.
 #
 # The network switch is a harness button over the injected transport, not an SDK change.
 
 appId: ${APP_ID}
 ---
 - runFlow: reach-enrolled.yaml
+
+- tapOn:
+    id: "btn_rotate"
+
+- extendedWaitUntil:
+    visible:
+      text: "busy=ready"
+    timeout: 20000
+
+- assertVisible:
+    text: "outcome=ok:rotated.*"
+
+- assertVisible:
+    text: "state=enrolled"
 
 - tapOn:
     id: "btn_block_network"

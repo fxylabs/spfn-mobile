@@ -43,7 +43,22 @@ class SpfnAndroidReferenceIntegrationTest
     fun `case a - handshake, echo and items list round trip over HTTP`() = runBlocking<Unit>
     {
         SpfnReferenceClientHarness().use { harness ->
-            val echoed = harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("over the wire", 42));
+            val clockLeadMillis = harness.proofClockLeadMillis();
+            assertTrue(
+                "the synchronized proof clock leads a later server sample by ${clockLeadMillis}ms",
+                clockLeadMillis <= 0
+            );
+            val echoed = try
+            {
+                harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("over the wire", 42));
+            }
+            catch (failure: SpfnClientError.Auth)
+            {
+                throw AssertionError(
+                    "the refused proof leads a later server sample by ${harness.lastProofLeadMillis()}ms",
+                    failure
+                );
+            }
             assertEquals("over the wire", echoed.message);
             assertEquals(42L, echoed.sequence);
             assertServerTime(harness, echoed.serverTimeMillis);

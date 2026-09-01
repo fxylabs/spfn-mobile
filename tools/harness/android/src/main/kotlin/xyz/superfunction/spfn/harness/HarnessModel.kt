@@ -1,6 +1,9 @@
 package xyz.superfunction.spfn.harness
 
+import android.app.Activity
 import android.content.Context
+import java.io.IOException
+import kotlin.coroutines.cancellation.CancellationException
 import xyz.superfunction.spfn.client.SpfnAndroidKeystoreEngine
 import xyz.superfunction.spfn.client.SpfnClient
 import xyz.superfunction.spfn.client.SpfnKeyLifecycle
@@ -47,10 +50,40 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
     var custody: String = "unread"
         private set;
 
-    var networkBlocked: Boolean = false
+    /**
+     * Whether the transport is currently refusing to send, for the permanent `network=`
+     * readout.
+     *
+     * Read from the transport rather than mirrored in a field of its own. An attempt for
+     * the `network-failure` case shuts the transport directly and restores it directly, so
+     * a mirror here would be a second version of the same fact with nothing keeping the two
+     * equal. The first device run burned three attempts on a switch nobody could see; a
+     * readout that could disagree with the transport would be worse than none.
+     */
+    val networkBlocked: Boolean
+        get() = transport.isBlocked;
+
+    /**
+     * Which case the next device sign-in will be recorded as.
+     *
+     * The app cannot infer it. A first enrolment and a re-login are the same code path, and
+     * a dismissal looks like a sign-in that never started, so the person declares the
+     * intent before tapping and the receipt records what happened under it.
+     */
+    var socialCase: HarnessSocialCase = HarnessSocialCase.FIRST_ENROLL
+        private set;
+
+    /** `none` until an attempt writes one, then the receipt file the run left behind. */
+    var receipt: String = "none"
         private set;
 
     private val transport = HarnessTransport();
+
+    /**
+     * The application context, not the Activity: a receipt store outlives no screen, and
+     * holding the Activity here would keep a destroyed one alive.
+     */
+    private val receipts = HarnessReceiptStore(context.applicationContext);
 
     /** Held rather than passed inline, because [probeCustody] generates through it too. */
     private val engine = SpfnAndroidKeystoreEngine();
@@ -155,9 +188,122 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
     fun setNetworkBlocked(value: Boolean)
     {
         transport.setBlocked(value);
-        networkBlocked = value;
         outcome = if (value) "ok:network-blocked" else "ok:network-open";
     }
+
+    // ---- the device sign-in mode -------------------------------------------
+
+    fun selectSocialCase(value: HarnessSocialCase)
+    {
+        socialCase = value;
+    }
+
+    /**
+     * The real Google sheet, the real server, and a receipt either way.
+     *
+     * Not routed through [run]: this action's outcome vocabulary is the receipt's —
+     * `enrolled`, `cancelled` or `failed` — and a cancelled sign-in reported as `err:` on
+     * the screen would contradict the receipt sitting next to it (P16).
+     *
+     * One tap is the whole attempt. [wipeBeforeAttempt] used to be the operator's job, and
+     * the first device run produced three `alreadyEnrolled` receipts from forgetting it.
+     */
+    suspend fun signInWithGoogle(activity: Activity)
+    {
+        if (!wipeBeforeAttempt())
+        {
+            return;
+        }
+
+        val case = socialCase;
+        try
+        {
+            val attempt = HarnessSocialAttempt(lifecycle, transport, configuration.baseUrl).run(activity, case);
+            outcome = "${attempt.outcome}:${case.wireName}";
+            receipt = fileNameOf(attempt);
+        }
+        catch (cancellation: CancellationException)
+        {
+            // Rethrown before the net below, for the reason [run] gives (P16).
+            throw cancellation;
+        }
+        catch (error: Throwable)
+        {
+            // Reached only when the attempt could not RUN — an unconfigured build, or a
+            // Keystore that could not be read. A sign-in that merely failed is not here;
+            // it is an outcome with a receipt of its own.
+            //
+            // [receipt] is reset for the reason [wipeBeforeAttempt] resets it: this tap
+            // produced no file, and leaving the previous attempt's name standing lets an
+            // older file be read as this one's evidence (P7). It matters more now that the
+            // name is also announced to the operator when the tap ends.
+            outcome = "err:${HarnessOutcome.name(error)}";
+            receipt = "none";
+        }
+        refresh();
+    }
+
+    /**
+     * Clears whatever a previous attempt left, and answers whether the attempt may go on.
+     *
+     * It runs BEFORE the attempt, which is what shuts the transport for the
+     * `network-failure` case: a wipe is local work, and a blocked transport has no business
+     * failing it. Reversing the two would turn one case into a wipe failure.
+     *
+     * A wipe that fails abandons the attempt rather than pushing on. Enrolling on top of a
+     * state nobody could clear is exactly the reading the auto-wipe exists to stop
+     * producing, and a receipt written from it would be evidence about the harness rather
+     * than about the SDK. No receipt is written and [receipt] is reset rather than left
+     * naming the previous attempt's file, so an older file cannot be read as this tap's.
+     * The reason sits beside it on `outcome=`, which is what keeps "no attempt was made"
+     * apart from "the attempt left no evidence" (docs/IMPLEMENTATION-PITFALLS.md P7).
+     */
+    private suspend fun wipeBeforeAttempt(): Boolean
+    {
+        try
+        {
+            lifecycle.wipe();
+        }
+        catch (cancellation: CancellationException)
+        {
+            // Rethrown untouched, for the reason [run] gives: the coroutine was cancelled,
+            // and a scope told otherwise believes it never was (P16). The Swift half has no
+            // caller to rethrow to at this point and reports the word instead — the same
+            // rule, with the strength each language actually has (P15).
+            throw cancellation;
+        }
+        catch (error: Throwable)
+        {
+            outcome = "err:wipe:${HarnessOutcome.name(error)}";
+            receipt = "none";
+            refresh();
+            return false;
+        }
+        refresh();
+        return true;
+    }
+
+    /**
+     * Writes the receipt and answers its name, or answers why it could not be written.
+     *
+     * The attempt's own outcome is already on the label by the time this runs, so a
+     * failure here loses nothing but the file. It is reported rather than swallowed: a
+     * receipt that is absent and a receipt that could not be written are different events,
+     * and a run that showed neither would be indistinguishable from a run nobody made
+     * (docs/IMPLEMENTATION-PITFALLS.md P7).
+     */
+    private fun fileNameOf(attempt: HarnessReceipt): String = try
+    {
+        receipts.write(attempt);
+    }
+    catch (unavailable: HarnessException)
+    {
+        "unwritten:${HarnessOutcome.name(unavailable)}";
+    }
+    catch (failure: IOException)
+    {
+        "unwritten:ioError";
+    };
 
     // ---- running one action ------------------------------------------------
 
@@ -171,6 +317,13 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
         outcome = try
         {
             "ok:${action()}"
+        }
+        catch (cancellation: CancellationException)
+        {
+            // Rethrown before the net below can take it. A cancelled coroutine is the
+            // screen going away, not a refusal the SDK produced, and naming it one would
+            // put a failure on a label nobody caused (P16).
+            throw cancellation;
         }
         catch (error: Throwable)
         {

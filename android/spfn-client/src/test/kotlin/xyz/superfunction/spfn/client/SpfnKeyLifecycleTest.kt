@@ -750,6 +750,7 @@ class SpfnKeyLifecycleTest
             engine = engine,
             baseUrl = baseUrl,
             clock = clock,
+            proofClock = clock,
             nonceGenerator = ScriptedNonceGenerator(nonces),
             newKeyId = { if (remaining.isEmpty()) "key-unexpected" else remaining.removeAt(0) }
         );

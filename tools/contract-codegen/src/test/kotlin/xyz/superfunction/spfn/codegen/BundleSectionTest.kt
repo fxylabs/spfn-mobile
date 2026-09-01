@@ -83,6 +83,49 @@ class BundleSectionTest
         assertTrue(bundle.clientIdRule.contains("key owner"));
         assertTrue(bundle.operations.any { it.id == "auth.enroll.oauthNative" });
         assertTrue(bundle.operations.any { it.id == "auth.keys.rotate" });
+        assertEquals("core.time", bundle.clockSynchronizationOperationId);
+        assertEquals("serverTimeMillis", bundle.clockSynchronizationEpochField);
+        assertEquals(null, bundle.operations.single { it.id == "core.time" }.requestType);
+    }
+
+    @Test
+    fun aBundleWithoutClockSynchronizationIsRefused()
+    {
+        assertRefused("clockSynchronization", withoutKey("clockSynchronization"));
+    }
+
+    @Test
+    fun aClockSynchronizationOperationNamingNoOperationIsRefusedExplicitly()
+    {
+        assertRefusedSaying(
+            "clockSynchronization operation cross-reference",
+            bundleText.replace("\"operation\": \"core.time\"", "\"operation\": \"core.missing\""),
+            "which is not an operation"
+        );
+    }
+
+    @Test
+    fun aNonClockOperationWithoutARequestTypeIsRefused()
+    {
+        val marker = "      \"requestType\": \"HandshakeRequest\",\n";
+        assertTrue(bundleText.contains(marker));
+        assertRefusedSaying(
+            "non-clock requestType",
+            bundleText.replace(marker, ""),
+            "auth.clientProof.handshake"
+        );
+    }
+
+    @Test
+    fun theBodylessClockOperationCannotAcquireARequestType()
+    {
+        val marker = "      \"responseType\": \"ServerTimeResponse\",";
+        assertTrue(bundleText.contains(marker));
+        assertRefusedSaying(
+            "clock requestType",
+            bundleText.replace(marker, "      \"requestType\": \"HandshakeRequest\",\n$marker"),
+            "must have no requestType"
+        );
     }
 
     @Test

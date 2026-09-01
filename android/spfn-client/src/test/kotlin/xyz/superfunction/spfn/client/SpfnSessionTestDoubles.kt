@@ -11,12 +11,14 @@ import kotlinx.coroutines.delay
 import xyz.superfunction.spfn.generated.SpfnGeneratedContract
 
 /** A clock a test moves by hand. */
-class FakeClock(millis: Long) : SpfnClock
+class FakeClock(millis: Long) : SpfnClock, SpfnProofClock
 {
     @Volatile
     private var millis: Long = millis
 
     override fun nowMillis(): Long = millis
+
+    override suspend fun nowMillis(transport: SpfnTransport, baseUrl: String, timeoutMillis: Long): Long = millis
 
     fun set(value: Long)
     {

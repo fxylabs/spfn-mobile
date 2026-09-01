@@ -27,4 +27,26 @@
     <item type="id" name="btn_custody_probe" />
     <item type="id" name="btn_block_network" />
     <item type="id" name="btn_open_network" />
+
+    <!--
+      The device sign-in mode: one button that runs the real Google sheet, and five radio
+      rows that choose which case the run is. The case cannot be inferred — the app has no
+      way to know whether the person meant a first enrolment or a second sign-in as the same
+      user — so it is picked before the tap and it names the receipt.
+
+      `btn_social_google` is the button whose TITLE reads `sign-in-google`, matching the
+      iOS harness word for word. The id kept its name on purpose: a resource id is what a
+      selector matches, and renaming one to agree with a title breaks every selector that
+      already names it in exchange for nothing.
+
+      `btn_case_` keeps the same property the `btn_` prefix has: no id here is a substring
+      of another, so a flow's regex selector cannot match two views. In particular
+      `btn_enroll` is not a substring of `btn_case_first_enroll`.
+    -->
+    <item type="id" name="btn_social_google" />
+    <item type="id" name="btn_case_first_enroll" />
+    <item type="id" name="btn_case_re_login" />
+    <item type="id" name="btn_case_user_cancel" />
+    <item type="id" name="btn_case_network_failure" />
+    <item type="id" name="btn_case_server_reject" />
 </resources>
