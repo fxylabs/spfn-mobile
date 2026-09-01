@@ -99,6 +99,13 @@ loopback address, and how a target reaches that address is different for each ki
 arrives at the host's over the debugging connection, so the server stays on loopback and
 is never exposed to the network.
 
+**On Android, that address also has to be the one the build permits.** The app speaks
+plain HTTP to exactly one host — the one `spfn.harness.serverBaseUrl` names — and to
+nothing else, so an emulator run puts `10.0.2.2` in that key and a device run behind
+`adb reverse` puts `127.0.0.1`. The alternative was to keep permanent exceptions for all
+three loopback spellings, which would make the exception a standing grant to addresses no
+run had named. See the device sign-in section below for the key.
+
 A physical iPhone is missing from that table because it never gets that far — the next
 section is why.
 
@@ -235,10 +242,20 @@ wanted; a build that finds no keys at all **succeeds**, and the app installs wit
 outcomes are different on purpose: an absent configuration is a normal checkout, and a
 typo in a configured one must not look like the same thing.
 
-The same two keys drive the cleartext exception. `AndroidManifest.xml` no longer says
-"this app may speak plain HTTP to anything"; the build writes a network security
-configuration permitting cleartext to the emulator's host alias, the device's own
-loopback, and the one host `spfn.harness.serverBaseUrl` names — and to nothing else.
+`spfn.harness.serverBaseUrl` also drives the cleartext exception. `AndroidManifest.xml` no
+longer says "this app may speak plain HTTP to anything"; the build writes a network
+security configuration permitting cleartext to **exactly the host that key names** and to
+nothing else. A build configured with no server permits cleartext to nothing at all.
+
+That is one host, not a set, and it decides what every run on this platform can reach:
+
+| Run | What goes in `spfn.harness.serverBaseUrl` |
+| --- | --- |
+| device sign-in against a LAN server | that machine's address |
+| Maestro flows on an emulator | `10.0.2.2`, the emulator's alias for the host loopback |
+| Maestro flows on a device behind `adb reverse` | `127.0.0.1` |
+
+A request to a host the build does not name is refused by the platform, before it leaves.
 
 ### Running it
 
@@ -271,8 +288,8 @@ directory:
 adb pull /sdcard/Android/data/xyz.superfunction.spfn.harness/files ./receipts
 ```
 
-The file is `receipt-google-<case>-<epochSeconds>.json` and the screen names the last one
-in its `receipt=` label. **No receipt contains a token, an email, a name or any account
+The file is `receipt-google-<case>-<epochMillis>.json` and the screen names the last one in
+its `receipt=` label. **No receipt contains a token, an email, a name or any account
 identifier** — a receipt that carried one would be a credential rather than evidence, and
 that is a blocking defect, not a cleanup.
 
@@ -283,11 +300,11 @@ that is a blocking defect, not a cleanup.
 | `errorCode` | the SDK's own name for the refusal. A server refusal on the native enrolment endpoint arrives as a `decoding:` name, because that endpoint sits outside the clientProof middleware and does not answer in the contract's error envelopes |
 | `isNewUser`, `keyIdMatch` | the server's answer and this install's own check of it. `null` on anything but an enrolment, because no server said anything |
 | `keyRemainsAfterFailure` | read from the **Keystore**, not from the SDK's metadata: on Android the alias exists before the sign-in is asked for, so whether a failure left one behind is a question only the Keystore can answer |
-| `serverCommit` | the first commit-shaped response header the server sent, or `null`. The contract declares none, so `null` is an ordinary reading |
+| `serverCommit` | a response header, and only if it **is** a commit hash — 7 to 40 lowercase hex characters after lowercasing. Anything else is `null`, because a header is written by whatever answered and an unvalidated one is how an address or a name reaches a file that was supposed to hold neither. The contract declares no such header, so `null` is an ordinary reading |
 
-A second attempt at the same case within the same second overwrites the first, because the
-file name is the spec's and its resolution is one second. Pull between attempts if that
-matters.
+Attempts do not overwrite each other. The file name carries milliseconds, which is what the
+spec fixes after two attempts at one case finished inside the same second and the second
+one destroyed the first one's evidence.
 
 ## Running against something other than the reference server
 
@@ -301,10 +318,9 @@ The runner starts nothing and stops nothing in this mode. It never falls back to
 server: a run that checked the reference server while reporting a real one would be the
 most expensive kind of green there is.
 
-**On Android that host also has to be in `local.properties`.** The app permits cleartext
-to the hosts named at build time and to nothing else, so a target the build never heard of
-is refused by the platform before any request leaves. Put the same address in
-`spfn.harness.serverBaseUrl` and rebuild.
+**On Android that host has to be the one in `local.properties`.** The app permits cleartext
+to exactly one host, so a target the build never heard of is refused by the platform before
+any request leaves. Put the same address in `spfn.harness.serverBaseUrl` and rebuild.
 
 ## Picking a target
 

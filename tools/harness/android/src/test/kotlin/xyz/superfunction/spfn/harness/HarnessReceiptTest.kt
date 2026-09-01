@@ -42,15 +42,35 @@ class HarnessReceiptTest
         assertEquals("2026-09-01T00:00:00Z", HarnessReceipt.timestamp(1_788_220_800_000L));
     }
 
-    /** The epoch second in the file name is the same instant, and ASCII digits. */
+    /** The epoch millisecond in the file name is the same instant, and ASCII digits. */
     @Test
-    fun fileNameCarriesTheCaseAndTheEpochSecond()
+    fun fileNameCarriesTheCaseAndTheEpochMillisecond()
     {
         Locale.setDefault(Locale.forLanguageTag("ar-EG-u-nu-arab"));
         assertEquals(
-            "receipt-google-user-cancel-1788220800.json",
+            "receipt-google-user-cancel-1788220800000.json",
             receipt(case = HarnessSocialCase.USER_CANCEL, outcome = "cancelled").fileName()
         );
+    }
+
+    /**
+     * Two attempts inside the same second must not share a name.
+     *
+     * This is the failure the spec's millisecond granularity exists for: with seconds, the
+     * second attempt overwrote the first, so a person running the same case twice in a row
+     * to check something ended up with less evidence than one who ran it once.
+     */
+    @Test
+    fun twoAttemptsInsideOneSecondGetDifferentNames()
+    {
+        val first = receipt(case = HarnessSocialCase.RE_LOGIN, outcome = "enrolled", millis = 1_788_220_800_123L);
+        val second = receipt(case = HarnessSocialCase.RE_LOGIN, outcome = "enrolled", millis = 1_788_220_800_456L);
+        // Same second by the receipt's own clock, and still two files.
+        assertEquals(
+            HarnessReceipt.timestamp(first.timestampMillis),
+            HarnessReceipt.timestamp(second.timestampMillis)
+        );
+        assertTrue(first.fileName(), first.fileName() != second.fileName());
     }
 
     /** A field a case cannot know is null, never a plausible-looking default. */
@@ -133,16 +153,65 @@ class HarnessReceiptTest
     {
         Locale.setDefault(Locale.forLanguageTag("tr-TR"));
         assertEquals(
-            "abc123",
-            HarnessTransport.serverCommit(listOf("X-SPFN-SERVER-COMMIT" to "abc123"))
+            "8becd16",
+            HarnessObservation.commitOf(listOf("X-SPFN-SERVER-COMMIT" to "8BECD16"))
         );
-        assertEquals(null, HarnessTransport.serverCommit(listOf("content-type" to "application/json")));
+        assertEquals(null, HarnessObservation.commitOf(listOf("content-type" to "application/json")));
+    }
+
+    /**
+     * A header value only reaches a receipt if it IS a commit hash.
+     *
+     * The header is written by whatever answered the request, and the receipt is a file
+     * that gets pulled off a phone and pasted into a report. A value that is not 7 to 40
+     * lowercase hex characters is not a commit, whatever else it might be — an address, a
+     * name, a token — and it is dropped rather than trimmed into shape.
+     */
+    @Test
+    fun aHeaderThatIsNotACommitHashIsDropped()
+    {
+        val rejected = listOf(
+            "release@example.com",
+            "built by someone",
+            // Both boundaries, one character outside: six hex digits and forty-one.
+            "8becd1",
+            "8becd168becd168becd168becd168becd168becd1",
+            "8becd16z",
+            // Arabic-Indic digits. A `isDigit()` predicate accepts these and an explicit
+            // `[0-9]` range does not, which is the split the Swift half has to match (P9).
+            "٨becd16",
+            ""
+        );
+        for (value in rejected)
+        {
+            assertEquals(value, null, HarnessObservation.commitOf(listOf("x-commit" to value)));
+        }
+
+        // Both boundaries, inside: the short form git prints, and a full hash.
+        val accepted = listOf("8becd16", "8becd168becd168becd168becd168becd168becd");
+        for (value in accepted)
+        {
+            assertEquals(value, value, HarnessObservation.commitOf(listOf("x-commit" to value)));
+        }
+    }
+
+    /** A receipt carries the commit the header named, and nothing a header merely said. */
+    @Test
+    fun aRejectedHeaderLeavesTheReceiptFieldNull()
+    {
+        val json = receipt(
+            case = HarnessSocialCase.FIRST_ENROLL,
+            outcome = "enrolled",
+            serverCommit = HarnessObservation.commitOf(listOf("x-commit" to "release@example.com"))
+        ).toJson();
+        assertTrue(json, json.contains("\"serverCommit\": null"));
     }
 
     private fun receipt(
         case: HarnessSocialCase,
         outcome: String,
-        serverCommit: String? = null
+        serverCommit: String? = null,
+        millis: Long = 1_788_220_800_000L
     ): HarnessReceipt = HarnessReceipt(
         provider = "google",
         case = case,
@@ -152,7 +221,7 @@ class HarnessReceiptTest
         isNewUser = null,
         keyIdMatch = null,
         keyRemainsAfterFailure = false,
-        timestampMillis = 1_788_220_800_000L,
+        timestampMillis = millis,
         serverBaseUrl = "s://h:1",
         serverCommit = serverCommit,
         sdkVersion = "0.0.0",

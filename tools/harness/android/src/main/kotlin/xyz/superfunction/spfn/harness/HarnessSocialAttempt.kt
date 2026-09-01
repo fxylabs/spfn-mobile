@@ -44,7 +44,7 @@ class HarnessSocialAttempt(
             throw HarnessException.SocialNotConfigured();
         }
 
-        transport.resetObservation();
+        val observation = transport.observe();
         val aliasesBefore = keystoreAliases();
         val social = SpfnSocialGoogle(
             SpfnSocialGoogleCredentialDriver(activity, HarnessSocialConfiguration.googleServerClientId)
@@ -101,7 +101,7 @@ class HarnessSocialAttempt(
             }
         }
 
-        return receipt(case, outcome, errorCode, isNewUser, keyIdMatch, aliasesBefore);
+        return receipt(case, outcome, errorCode, isNewUser, keyIdMatch, aliasesBefore, observation);
     }
 
     /**
@@ -125,19 +125,23 @@ class HarnessSocialAttempt(
         errorCode: String?,
         isNewUser: Boolean?,
         keyIdMatch: Boolean?,
-        aliasesBefore: Set<String>
+        aliasesBefore: Set<String>,
+        observation: HarnessObservation
     ): HarnessReceipt = HarnessReceipt(
         provider = SpfnSocialGoogle.PROVIDER,
         case = case,
         outcome = outcome,
-        responseCode = transport.lastStatusCode,
+        // This attempt's own observation, not whatever the transport last saw. The two
+        // differ the moment a second attempt starts, and the receipt has to be about the
+        // attempt that earned it.
+        responseCode = observation.statusCode,
         errorCode = errorCode,
         isNewUser = isNewUser,
         keyIdMatch = keyIdMatch,
         keyRemainsAfterFailure = keyRemains(outcome, aliasesBefore),
         timestampMillis = System.currentTimeMillis(),
         serverBaseUrl = HarnessSocialConfiguration.origin(serverBaseUrl),
-        serverCommit = transport.lastServerCommit,
+        serverCommit = observation.serverCommit,
         sdkVersion = SpfnVersion.CURRENT,
         contractVersion = SpfnGeneratedContract.BINDING.importedVersion
     );

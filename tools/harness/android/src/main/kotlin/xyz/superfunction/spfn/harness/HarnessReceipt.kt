@@ -45,8 +45,14 @@ class HarnessReceipt(
     val contractVersion: String
 )
 {
-    /** `receipt-<provider>-<case>-<epochSeconds>.json`, exactly as the spec fixes it. */
-    fun fileName(): String = "receipt-$provider-${case.wireName}-${timestampMillis / 1000L}.json";
+    /**
+     * `receipt-<provider>-<case>-<epochMillis>.json`, exactly as the spec fixes it.
+     *
+     * Milliseconds, not seconds. Two attempts at the same case that finished inside one
+     * second shared a name, and the second one destroyed the first one's evidence — a
+     * failure mode where the more you run, the less you have.
+     */
+    fun fileName(): String = "receipt-$provider-${case.wireName}-$timestampMillis.json";
 
     /**
      * The receipt as JSON, in the spec's field order.

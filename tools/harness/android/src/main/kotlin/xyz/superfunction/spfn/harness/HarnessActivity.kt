@@ -47,13 +47,25 @@ class HarnessActivity : Activity()
     private lateinit var socialLabel: TextView;
     private lateinit var receiptLabel: TextView;
 
+    /**
+     * Whether an action is running, held here rather than passed to each `render` call.
+     *
+     * It was a parameter, and a case button repainted the screen with `busy=false` while
+     * another action was still in flight — a readout that told a flow to stop waiting for
+     * something that had not finished. One piece of state, written where it changes.
+     */
+    private var busy: Boolean = false;
+
+    /** The views a running action must not be able to be interrupted through. */
+    private val socialViews = mutableListOf<Button>();
+
     override fun onCreate(savedInstanceState: Bundle?)
     {
         super.onCreate(savedInstanceState);
         model = HarnessModel(this, HarnessConfiguration.fromLaunch(intent));
         setContentView(buildScreen());
         model.refresh();
-        render(busy = false);
+        render();
     }
 
     override fun onDestroy()
@@ -83,9 +95,13 @@ class HarnessActivity : Activity()
 
         for (case in HarnessSocialCase.entries)
         {
-            column.addView(caseButton(case));
+            val view = caseButton(case);
+            socialViews.add(view);
+            column.addView(view);
         }
-        column.addView(socialButton());
+        val signIn = socialButton();
+        socialViews.add(signIn);
+        column.addView(signIn);
 
         val scroll = ScrollView(this);
         scroll.addView(column);
@@ -99,6 +115,10 @@ class HarnessActivity : Activity()
      * buttons — a resource id is what a flow can find, and a spinner's rows are not views
      * a flow can name. Selecting is instant work, so it does not go through [perform]:
      * showing `busy=busy` for a field assignment would teach a flow to wait for nothing.
+     *
+     * It is disabled while an attempt runs all the same. The case is read at the start of
+     * an attempt, so changing it mid-flight cannot corrupt the running one — but it would
+     * leave the screen naming a case the receipt about to be written is not.
      */
     private fun caseButton(case: HarnessSocialCase): Button
     {
@@ -108,7 +128,7 @@ class HarnessActivity : Activity()
         view.isAllCaps = false;
         view.setOnClickListener {
             model.selectSocialCase(case);
-            render(busy = false);
+            render();
         };
         return view;
     }
@@ -136,7 +156,6 @@ class HarnessActivity : Activity()
         view.id = R.id.btn_social_google;
         view.text = "social-google";
         view.isAllCaps = false;
-        view.isEnabled = HarnessSocialConfiguration.isConfigured;
         view.setOnClickListener { perform { model.signInWithGoogle(this@HarnessActivity) } };
         return view;
     }
@@ -180,20 +199,22 @@ class HarnessActivity : Activity()
 
     /**
      * The network work leaves the main thread; the labels are written back on it. A flow
-     * waits for `busy=ready` rather than sleeping for a guessed number of seconds, and
-     * `render(busy = true)` runs HERE, synchronously inside the click, so there is no
-     * window where a started action still reads as finished.
+     * waits for `busy=ready` rather than sleeping for a guessed number of seconds, and the
+     * flag is set HERE, synchronously inside the click, so there is no window where a
+     * started action still reads as finished.
      */
     private fun perform(action: suspend () -> Unit)
     {
-        render(busy = true);
+        busy = true;
+        render();
         scope.launch {
             withContext(Dispatchers.IO) { action() };
-            render(busy = false);
+            busy = false;
+            render();
         };
     }
 
-    private fun render(busy: Boolean)
+    private fun render()
     {
         stateLabel.text = "state=${model.state}";
         outcomeLabel.text = "outcome=${model.outcome}";
@@ -204,5 +225,14 @@ class HarnessActivity : Activity()
         // and neither belongs on a screen that ends up in a screenshot.
         socialLabel.text = "social=${HarnessSocialConfiguration.readout}";
         receiptLabel.text = "receipt=${model.receipt}";
+
+        // A sign-in and a case change are both refused while one attempt is in flight. A
+        // second tap would start a second sheet over the first, and the first attempt's
+        // receipt would be written about a run that no longer describes the screen.
+        val available = HarnessSocialConfiguration.isConfigured && !busy;
+        for (view in socialViews)
+        {
+            view.isEnabled = available;
+        }
     }
 }
