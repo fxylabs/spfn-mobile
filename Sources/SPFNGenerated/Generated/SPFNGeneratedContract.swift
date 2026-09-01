@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    a42af88aac46b827d19a702e322fc82c8f089ff45605d05d75fadeb1d953b60b
-// contractVersion: 0.8.0
+// bundleSha256:    cf1b34a4081059c29f838b9e8b3a973a9fbb5e5e64a576c673f792d9c6b4ca46
+// contractVersion: 0.9.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -21,16 +21,17 @@ public enum SPFNGeneratedContract
 
     /// The pinned bundle these sources were derived from.
     public static let binding = SPFNContractBinding(
-        importedVersion: "0.8.0",
-        importedManifestSha256: "a42af88aac46b827d19a702e322fc82c8f089ff45605d05d75fadeb1d953b60b",
-        supportedRange: ">=0.8.0 <0.9.0",
+        importedVersion: "0.9.0",
+        importedManifestSha256: "cf1b34a4081059c29f838b9e8b3a973a9fbb5e5e64a576c673f792d9c6b4ca46",
+        supportedRange: ">=0.9.0 <0.10.0",
         supportedMajor: 0,
-        supportedMinor: 8,
+        supportedMinor: 9,
         origin: "spfn-primitives-ci-export"
     )
 
     /// Every operation the contract declares, in bundle order.
     public static let operationIDs: [String] = [
+        "core.time",
         "auth.clientProof.handshake",
         "echo.send",
         "items.list",
@@ -57,6 +58,12 @@ public enum SPFNGeneratedContract
         "issuedAtMillis",
         "bodySha256",
     ]
+
+    /// The unproven operation used to synchronize before the first proof.
+    public static let clockSynchronizationOperationID: String = "core.time"
+
+    /// The required integer response field that anchors proof time.
+    public static let clockSynchronizationEpochField: String = "serverTimeMillis"
 
     /// `keyPolicy.ttlDays`: a registered public key expires this many days after
     /// registration, so the client rotates before the TTL runs out.

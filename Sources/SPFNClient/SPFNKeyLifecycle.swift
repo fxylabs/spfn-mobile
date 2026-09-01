@@ -114,6 +114,7 @@ public actor SPFNKeyLifecycle
     private let store: any SPFNKeyStore
     private let baseURL: String
     private let clock: any SPFNClock
+    private let proofClock: any SPFNProofClock
     private let nonceGenerator: any SPFNNonceGenerator
     private let timeoutMillis: Int64
     private let newKeyID: @Sendable () -> String
@@ -134,6 +135,7 @@ public actor SPFNKeyLifecycle
         store: any SPFNKeyStore,
         baseURL: String,
         clock: any SPFNClock = SPFNSystemClock(),
+        proofClock: any SPFNProofClock = SPFNProcessServerClock.shared,
         nonceGenerator: any SPFNNonceGenerator = SPFNRandomNonceGenerator(),
         timeoutMillis: Int64 = 15_000,
         newKeyID: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() },
@@ -144,6 +146,7 @@ public actor SPFNKeyLifecycle
         self.store = store
         self.baseURL = baseURL
         self.clock = clock
+        self.proofClock = proofClock
         self.nonceGenerator = nonceGenerator
         self.timeoutMillis = timeoutMillis
         self.newKeyID = newKeyID
@@ -480,7 +483,7 @@ public actor SPFNKeyLifecycle
                 transport: transport,
                 keyProvider: keyProvider,
                 baseURL: baseURL,
-                clock: clock,
+                clock: proofClock,
                 nonceGenerator: nonceGenerator,
                 timeoutMillis: timeoutMillis
             ),

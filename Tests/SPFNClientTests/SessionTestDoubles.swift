@@ -9,7 +9,7 @@ import Foundation
 import SPFNClient
 
 /// A clock a test moves by hand.
-final class FakeClock: SPFNClock, @unchecked Sendable
+final class FakeClock: SPFNClock, SPFNProofClock, @unchecked Sendable
 {
     private let lock = NSLock()
     private var millis: Int64
@@ -24,6 +24,15 @@ final class FakeClock: SPFNClock, @unchecked Sendable
         lock.lock()
         defer { lock.unlock() }
         return millis
+    }
+
+    func nowMillis(
+        transport _: any SPFNTransport,
+        baseURL _: String,
+        timeoutMillis _: Int64
+    ) async throws -> Int64
+    {
+        nowMillis()
     }
 
     func set(_ millis: Int64)

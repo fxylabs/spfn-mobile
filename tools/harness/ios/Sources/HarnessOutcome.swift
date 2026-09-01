@@ -23,6 +23,8 @@ enum HarnessOutcome
             return name(forLifecycle: error)
         case let error as SPFNClientError:
             return name(forClient: error)
+        case let error as SPFNClockSynchronizationError:
+            return "clockSynchronization:\(clockName(error))"
         case let error as SPFNTransportError:
             return name(forTransport: error)
         case let error as SPFNKeyStoreError:
@@ -35,6 +37,19 @@ enum HarnessOutcome
             return name(forHarness: error)
         default:
             return "unclassified"
+        }
+    }
+
+    private static func clockName(_ error: SPFNClockSynchronizationError) -> String
+    {
+        switch error
+        {
+        case .contractIncompatible: return "contractIncompatible"
+        case .untrustedBaseURL: return "untrustedBaseURL"
+        case .requestFailed: return "requestFailed"
+        case .invalidResponse: return "invalidResponse"
+        case .monotonicClockInvalid: return "monotonicClockInvalid"
+        case .clockOverflow: return "clockOverflow"
         }
     }
 

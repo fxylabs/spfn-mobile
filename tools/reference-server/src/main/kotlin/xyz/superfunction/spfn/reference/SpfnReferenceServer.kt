@@ -30,6 +30,7 @@ import xyz.superfunction.spfn.generated.SpfnOauthNativeRequest
 import xyz.superfunction.spfn.generated.SpfnOauthNativeResponse
 import xyz.superfunction.spfn.generated.SpfnRotateKeyRequest
 import xyz.superfunction.spfn.generated.SpfnRotateKeyResponse
+import xyz.superfunction.spfn.generated.SpfnServerTimeResponse
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.ExecutorService
@@ -51,7 +52,11 @@ class SpfnReferenceCredentials(
 }
 
 /** One HTTP answer, already serialized. */
-class SpfnReferenceAnswer(val statusCode: Int, val body: ByteArray)
+class SpfnReferenceAnswer(
+    val statusCode: Int,
+    val body: ByteArray,
+    val headers: List<Pair<String, String>> = emptyList()
+)
 
 /**
  * A reference server bound to the loopback interface.
@@ -134,6 +139,10 @@ class SpfnReferenceServer(
     private fun operationAnswer(exchange: HttpExchange): SpfnReferenceAnswer
     {
         val routed = route(exchange) ?: return refusal(SpfnReferenceRefusal.unroutable());
+        if (routed.operation.id == SpfnGeneratedOperations.coreTime.id)
+        {
+            return coreTimeAnswer(exchange);
+        }
         val body = readBody(exchange) ?: return refusal(SpfnReferenceRefusal.bodyTooLarge());
 
         // Before verification, so a request a test is holding open has not spent its nonce
@@ -152,6 +161,31 @@ class SpfnReferenceServer(
             is Admission.Refused -> refusal(admitted.refusal)
             is Admission.Accepted -> apply(routed.operation, admitted)
         };
+    }
+
+    /** The contract's bodyless, unproven clock anchor. */
+    private fun coreTimeAnswer(exchange: HttpExchange): SpfnReferenceAnswer
+    {
+        for (header in PROOF_ONLY_HEADERS)
+        {
+            if (exchange.requestHeaders.containsKey(header))
+            {
+                return restRefusal(SpfnReferenceRestRefusal.badRequest(
+                    "the clock operation carries neither proof headers nor a session header"
+                ));
+            }
+        }
+        val body = readBody(exchange) ?: return refusal(SpfnReferenceRefusal.bodyTooLarge());
+        if (body.isNotEmpty())
+        {
+            return restRefusal(SpfnReferenceRestRefusal.badRequest("the clock operation carries no request body"));
+        }
+        state.recordOperation(SpfnGeneratedOperations.coreTime.id);
+        return SpfnReferenceAnswer(
+            statusCode = HTTP_OK,
+            body = SpfnCanonicalJson.encode(SpfnServerTimeResponse(clock.nowMillis()).canonicalValue()),
+            headers = listOf("cache-control" to "no-store")
+        );
     }
 
     /** One routed request: the operation and the path parameter it carried, if any. */
@@ -594,6 +628,10 @@ class SpfnReferenceServer(
 
     private fun respond(exchange: HttpExchange, answer: SpfnReferenceAnswer)
     {
+        for ((name, value) in answer.headers)
+        {
+            exchange.responseHeaders.set(name, value);
+        }
         exchange.responseHeaders.set(SpfnReferenceWire.CONTENT_TYPE, SpfnReferenceWire.REQUEST_CONTENT_TYPE);
         exchange.sendResponseHeaders(answer.statusCode, answer.body.size.toLong());
         exchange.responseBody.write(answer.body);
