@@ -217,11 +217,78 @@ does — which is exactly why the SDK hands the nonce to the closure.
 An Android device run leaves both out, takes the real sheet by hand, and everything on
 either side of that one tap stays automatic.
 
-## The device sign-in mode, on Android
+## The device sign-in mode
 
-This is the mode where nothing is substituted: a real Google account, a real id token, a
-real SPFN server, and a file left behind saying what happened. It is driven by a person,
+This is the mode where nothing is substituted: a real account, a real id token, a real
+SPFN server, and a file left behind saying what happened. It is driven by a person,
 because the sheet is the provider's own UI and no flow may be trusted to get through it.
+
+Both platforms run it from the same screen, with the same words on it. What differs is
+which providers exist, where the configuration is read from, and how the receipts come off
+the phone — those are the two platform sections that follow this one.
+
+### The screen
+
+Top to bottom, the same on both:
+
+| Part | What it is |
+| --- | --- |
+| the readouts | `state=`, `outcome=`, `busy=`, `network=`, `custody=`, `case=`, the configuration line, `receipt=`. A flow matches these by their text, never by an id |
+| `case (pick one)` | the five cases as one boxed single-choice selector |
+| the precondition line | what the selected case asks you to do at the sheet |
+| `sign-in-apple`, `sign-in-google` | the only two things in this mode that do anything. Android has the Google one only |
+| `sdk lifecycle (flows)` | a divider, and under it the ten buttons the Maestro flows tap — `enroll`, `rotate`, `resume`, `revoke`, `proven-call`, `note-revoked`, `wipe`, `custody-probe`, `block-network`, `open-network` |
+
+**One tap is one attempt.** Every device-mode attempt wipes before it asks the provider for
+anything, so there is nothing to remember and no order to get wrong. The first device run
+produced three `alreadyEnrolled` receipts purely because a person forgot the wipe, and each
+one proved nothing about a provider. `wipe` under the divider is still there because the
+flows tap it; it is not part of this mode.
+
+If a wipe ever fails, the attempt stops there rather than enrolling on top of a state
+nobody could clear. The screen says `outcome=err:wipe:<name>` and `receipt=none` — no file
+is written, because nothing happened to write one about.
+
+**A case is a selection, not a button.** Exactly one case is always selected and
+`first-enroll` is selected at launch. The names are the spec's wire names on both
+platforms — `first-enroll`, not `case-first-enroll` and not `[first-enroll]`. It is the
+selected case that names the receipt, so the `case=` readout and the file agree by
+construction.
+
+**`network=` is permanent.** It reads `open` or `blocked` at all times, because the
+transport switch that `network-failure` uses is the same one the `block-network` button
+flips and a switch left shut looks exactly like a real network drop. Three receipts of the
+first device run went that way, on a state nothing on the screen showed.
+
+### The five cases
+
+| case | expected outcome | what to do |
+| --- | --- | --- |
+| `first-enroll` | `enrolled`, `isNewUser` true | sign in with an account this server has never seen |
+| `re-login` | `enrolled`, `isNewUser` false | sign in with the account `first-enroll` used |
+| `user-cancel` | `cancelled`, no key left behind | dismiss the sheet |
+| `network-failure` | `failed`, no key left behind | complete the sheet — the app drops its own transport for the attempt |
+| `server-reject` | `failed`, no key left behind | complete the sheet — the app sends a token the server cannot verify |
+
+The case is a declaration, not a switch. `first-enroll`, `re-login` and `user-cancel` are
+one code path — the app cannot tell a first enrolment from a second one, or a dismissal
+from a sign-in that never started — so what the person meant is recorded beside what
+actually happened. What separates the first two is the ACCOUNT you pick in the sheet: the
+attempt wiped this install either way, so it is the server that has seen the account
+before, and `isNewUser` is the field that says so.
+
+Only the last two change what the app does, and both do it on this side of the wire.
+`network-failure` flips the same transport switch the `block-network` button flips, so the
+sheet still works and the enrolment request is what fails. `server-reject` appends a marker
+to the token the adapter returned, so the sheet is real and the signature the server checks
+is not. Neither touches the SDK, and neither needs a server mode, a stub or a second
+endpoint.
+
+`alreadyEnrolled` is now unreachable here. If one ever appears in a receipt it is not a
+case that was run wrong — it means a wipe reported success and left a key, which is a
+finding about the SDK.
+
+## The device sign-in mode, on Android
 
 Apple is not here and will not be. There is no Android Apple adapter — Apple ships no
 native sign-in SDK for this platform — so the mode is Google only, by declaration rather
@@ -240,9 +307,14 @@ build reads nothing else — no environment variable, no committed default.
 Neither value is ever printed — not by the build, not by the app, not into a receipt. A
 build that finds a key present but malformed **fails**, naming the key and the shape it
 wanted; a build that finds no keys at all **succeeds**, and the app installs with the
-`social-google` button disabled and `social=not-configured` on the screen. Those two
+`sign-in-google` button disabled and `social=not-configured` on the screen. Those two
 outcomes are different on purpose: an absent configuration is a normal checkout, and a
 typo in a configured one must not look like the same thing.
+
+The disabled button is the one titled `sign-in-google`. Its resource id is
+`btn_social_google`, which is what it has always been — a selector matches the id, and
+renaming one to agree with a title would break every selector that names it in exchange for
+nothing.
 
 `spfn.harness.serverBaseUrl` also drives the cleartext exception. `AndroidManifest.xml` no
 longer says "this app may speak plain HTTP to anything"; the build writes a network
@@ -265,21 +337,15 @@ A request to a host the build does not name is refused by the platform, before i
 ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew :harness-android:installDebug
 ```
 
-Then, on the phone: pick the case, tap `social-google`, and complete or dismiss the sheet.
+Then, on the phone: pick the case in the selector, tap `sign-in-google`, and complete or
+dismiss the sheet. That is the whole attempt — see **The device sign-in mode** above for
+the screen and the five cases, which are the same here as on iOS.
 
-| Button | The case it declares |
-| --- | --- |
-| `case-first-enroll` | this account has never enrolled here. Tap `wipe` first |
-| `case-re-login` | the same account again. Tap `wipe` first, then sign in as the same person |
-| `case-user-cancel` | dismiss the sheet instead of choosing an account |
-| `case-network-failure` | the harness holds the transport shut for the attempt; the sheet still runs |
-| `case-server-reject` | the harness damages the token after the provider issued it, so the server refuses it |
-
-The case is a declaration, not a switch. `first-enroll`, `re-login` and `user-cancel` are
-the same code path — the app cannot tell a first enrolment from a second one, and a
-dismissal from a sign-in that never started — so what the person meant is recorded next to
-what actually happened. Only the last two change behaviour, and both do it on this side of
-the wire: nothing about the server or the SDK is configured for them.
+The selector is a `RadioGroup`, which is this platform's own way of saying "exactly one of
+these": it holds the invariant itself instead of leaving the screen to remember it. Each row
+keeps the resource id it always had — `btn_case_first_enroll` through
+`btn_case_server_reject`, declared in `res/values/ids.xml` — so anything that could already
+find a case still finds it.
 
 ### Collecting the receipts
 
@@ -310,31 +376,21 @@ one destroyed the first one's evidence.
 
 ## The device sign-in mode, on iOS
 
-Everything above proves the SDK's own behaviour with a token the harness composed. What
-it cannot prove is that a person tapping Apple's or Google's own sheet ends up enrolled
+Everything in the flows proves the SDK's own behaviour with a token the harness composed.
+What it cannot prove is that a person tapping Apple's or Google's own sheet ends up enrolled
 against a real server — that needs a real provider, a real signature, and a human. So the
 iOS harness has a second half that no flow drives.
 
-A person picks one of five cases, taps a provider, and the app writes a JSON receipt into
-its Documents directory. The receipt is the evidence; the screen is a convenience.
+Pick the case in the selector, tap `sign-in-apple` or `sign-in-google`, and the app writes a
+JSON receipt into its Documents directory. That is the whole attempt — see **The device
+sign-in mode** above for the screen and the five cases, which are the same here as on
+Android. The receipt is the evidence; the screen is a convenience.
 
-| case | expected outcome | what to do |
-| --- | --- | --- |
-| `first-enroll` | `enrolled`, `isNewUser` true | wipe, then sign in with an account this server has never seen |
-| `re-login` | `enrolled`, `isNewUser` false | wipe, then sign in with the account `first-enroll` used |
-| `user-cancel` | `cancelled`, no key left behind | wipe, then dismiss the sheet |
-| `network-failure` | `failed`, no key left behind | wipe, then complete the sheet — the app drops its own transport for the attempt |
-| `server-reject` | `failed`, no key left behind | wipe, then complete the sheet — the app sends a token the server cannot verify |
-
-**Tap `wipe` before every case.** The SDK refuses a second enrolment while one is in
-place, so a case run on top of a previous one reports `alreadyEnrolled` and proves
-nothing about the provider.
-
-Two of those cases need the harness to arrange something, and both reuse a seam that
-already existed. `network-failure` flips the same transport switch the `block-network`
-button flips, so the sheet still works and the enrolment request is what fails.
-`server-reject` appends a marker to the token the adapter returned, so the sheet is real
-and the signature the server checks is not. Neither touches the SDK.
+Both providers are here, which is the one thing this platform has that Android does not.
+The selector is a row group rather than a segmented control: five case names do not fit
+across a phone, and a `Picker`'s rows are not elements a flow could name. Each row keeps
+the accessibility identifier it always had — `btn_case_first-enroll` through
+`btn_case_server-reject`.
 
 ### What a receipt says
 

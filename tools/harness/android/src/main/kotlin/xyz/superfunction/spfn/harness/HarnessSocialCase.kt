@@ -12,8 +12,8 @@ package xyz.superfunction.spfn.harness
  *
  * | case | what the app does differently |
  * | --- | --- |
- * | first-enroll | nothing. The person starts from an unenrolled install |
- * | re-login | nothing. The person wipes first and signs in as the same account |
+ * | first-enroll | nothing. Every attempt wipes first, so the install is unenrolled |
+ * | re-login | nothing. The same account again is what makes it a second sign-in |
  * | user-cancel | nothing. The person dismisses the provider sheet |
  * | network-failure | blocks the transport for the duration of the attempt |
  * | server-reject | damages the token after the provider issued it, so the server refuses |
@@ -29,6 +29,28 @@ enum class HarnessSocialCase(val wireName: String)
     USER_CANCEL("user-cancel"),
     NETWORK_FAILURE("network-failure"),
     SERVER_REJECT("server-reject");
+
+    /**
+     * What a person has to do at the sheet, in the fewest words that are still true.
+     *
+     * No line says "wipe first" any more, and the omission is the behaviour rather than a
+     * shortened sentence: an attempt wipes before it asks the provider for anything, so
+     * one tap is the whole case. The first device run produced three `alreadyEnrolled`
+     * receipts from missed wipes.
+     *
+     * The Swift half spells these identically (`HarnessDeviceCase.precondition`). Both are
+     * written from the shared spec's case table by hand, and neither is derived from the
+     * other's source (docs/IMPLEMENTATION-PITFALLS.md P10).
+     */
+    val precondition: String
+        get() = when (this)
+        {
+            FIRST_ENROLL -> "use an account this server has never seen"
+            RE_LOGIN -> "use the account first-enroll used"
+            USER_CANCEL -> "dismiss the sheet"
+            NETWORK_FAILURE -> "complete the sheet; the app drops its own transport"
+            SERVER_REJECT -> "complete the sheet; the app sends a token the server refuses"
+        };
 
     /** True while the harness must hold the transport shut for this case. */
     val blocksNetwork: Boolean

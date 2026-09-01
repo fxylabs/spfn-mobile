@@ -31,6 +31,10 @@ final class HarnessModel: ObservableObject
     /// `unread` until probed, then the custody a freshly generated key actually landed in.
     @Published private(set) var custody = "unread"
 
+    /// Whether the transport is currently refusing to send, for the permanent `network=`
+    /// readout. Mirrored here rather than read from the transport because a view redraws on
+    /// a published change and not on a lock; `setNetworkBlocked` is the only writer of the
+    /// transport's own flag, so the mirror cannot drift from it.
     @Published private(set) var networkBlocked = false
 
     /// Which of the five device cases the next provider tap is running. The app cannot
@@ -130,6 +134,11 @@ final class HarnessModel: ObservableObject
     /// wire said, what the SDK classified, whether a key survived — and then write them
     /// down. Sharing the shorter path would have meant reading some of them after the
     /// state had already been re-read, which is the one ordering that cannot be trusted.
+    ///
+    /// One tap is the whole attempt. The wipe below used to be the operator's job, and the
+    /// first device run produced three `alreadyEnrolled` receipts from forgetting it —
+    /// three attempts that proved nothing about a provider and only that a person had one
+    /// more thing to remember.
     func signIn(with provider: HarnessProvider) async
     {
         busy = true
@@ -142,6 +151,12 @@ final class HarnessModel: ObservableObject
             // reachable anyway, refusing is the whole point — Google's SDK answers a
             // missing client id with an NSException, which no Swift caller can catch.
             outcome = "err:\(HarnessOutcome.name(for: HarnessError.notConfigured))"
+            return
+        }
+
+        guard await wipeBeforeAttempt()
+        else
+        {
             return
         }
 
@@ -168,8 +183,53 @@ final class HarnessModel: ObservableObject
         await recordReceipt(for: provider, attempt: attempt)
     }
 
+    /// Clears whatever a previous attempt left, and answers whether the attempt may go on.
+    ///
+    /// It runs BEFORE the case's own arrangements — before the transport is shut for
+    /// `network-failure` — because a wipe is local work that a blocked transport has no
+    /// business failing. Reversing the two would turn one case into a wipe failure.
+    ///
+    /// A wipe that fails abandons the attempt rather than pushing on. Enrolling on top of a
+    /// state nobody could clear is exactly the reading the auto-wipe exists to stop
+    /// producing, and a receipt written from it would be evidence of the harness rather
+    /// than of the SDK. No receipt is written, and `receipt` is reset rather than left
+    /// naming the previous attempt's file: an operator reading this screen must not be able
+    /// to attribute an older file to this tap. The reason sits beside it on `outcome=`,
+    /// which is what keeps "no attempt was made" apart from "the attempt left no evidence"
+    /// (docs/IMPLEMENTATION-PITFALLS.md P7).
+    ///
+    /// There is no cancellation branch here and the Kotlin half has one. That is a real
+    /// difference rather than an omission (P15): `SPFNKeyLifecycle.wipe()` is a synchronous
+    /// `throws` method reached across an actor, and an actor hop is not a cancellation
+    /// point, so nothing here can raise `CancellationError`. Kotlin's `wipe` is a `suspend`
+    /// function over a mutex, where a cancellation genuinely arrives and its rethrow is
+    /// load-bearing. A symmetric catch on this side would be a branch that never runs, and
+    /// the two halves are meant to agree on behaviour rather than on shape.
+    private func wipeBeforeAttempt() async -> Bool
+    {
+        do
+        {
+            try await lifecycle.wipe()
+            await refresh()
+            return true
+        }
+        catch
+        {
+            outcome = "err:wipe:\(HarnessOutcome.name(for: error))"
+            receipt = "none"
+            await refresh()
+            return false
+        }
+    }
+
     /// The enrolment itself: the SDK's call, the SDK's adapters, and nothing in between
     /// but the token sabotage the server-reject case asks for.
+    ///
+    /// `alreadyEnrolled` is now unreachable from here: the attempt wiped first, so the
+    /// lifecycle was `unenrolled` when this ran. It is deliberately NOT special-cased. If
+    /// it ever appears in a receipt it means a wipe reported success and left a key, which
+    /// is a finding about the SDK or the store — and a receipt that classified it as
+    /// anything other than the plain `failed` / `alreadyEnrolled` it is would hide it.
     private func attemptEnrollment(with provider: HarnessProvider) async -> Result<SPFNEnrollmentResult, any Error>
     {
         let deviceCase = self.deviceCase

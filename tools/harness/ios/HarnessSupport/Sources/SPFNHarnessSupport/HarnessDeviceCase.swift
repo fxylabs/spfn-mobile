@@ -45,21 +45,31 @@ public enum HarnessDeviceCase: String, CaseIterable, Sendable
         self == .serverReject
     }
 
-    /// What a person has to do before tapping, in the fewest words that are still true.
+    /// What a person has to do at the sheet, in the fewest words that are still true.
+    ///
+    /// No line says "wipe first" any more, and the omission is the behaviour rather than a
+    /// shortened sentence: an attempt wipes before it asks the provider for anything, so
+    /// one tap is the whole case. The first device run produced three `alreadyEnrolled`
+    /// receipts from missed wipes, which is a screen fighting its operator rather than a
+    /// finding about the SDK.
+    ///
+    /// The Kotlin half spells these identically (`HarnessSocialCase.precondition`). Both
+    /// are written from the shared spec's case table by hand, and neither is derived from
+    /// the other's source (docs/IMPLEMENTATION-PITFALLS.md P10).
     public var precondition: String
     {
         switch self
         {
         case .firstEnroll:
-            return "wipe first; use an account this server has never seen"
+            return "use an account this server has never seen"
         case .reLogin:
-            return "wipe first; use the account first-enroll used"
+            return "use the account first-enroll used"
         case .userCancel:
-            return "wipe first; dismiss the sheet"
+            return "dismiss the sheet"
         case .networkFailure:
-            return "wipe first; complete the sheet"
+            return "complete the sheet; the app drops its own transport"
         case .serverReject:
-            return "wipe first; complete the sheet"
+            return "complete the sheet; the app sends a token the server refuses"
         }
     }
 }
