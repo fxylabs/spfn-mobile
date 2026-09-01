@@ -232,7 +232,13 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
             // Reached only when the attempt could not RUN — an unconfigured build, or a
             // Keystore that could not be read. A sign-in that merely failed is not here;
             // it is an outcome with a receipt of its own.
+            //
+            // [receipt] is reset for the reason [wipeBeforeAttempt] resets it: this tap
+            // produced no file, and leaving the previous attempt's name standing lets an
+            // older file be read as this one's evidence (P7). It matters more now that the
+            // name is also announced to the operator when the tap ends.
             outcome = "err:${HarnessOutcome.name(error)}";
+            receipt = "none";
         }
         refresh();
     }

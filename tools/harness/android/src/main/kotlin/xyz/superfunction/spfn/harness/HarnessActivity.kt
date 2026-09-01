@@ -1,18 +1,24 @@
 package xyz.superfunction.spfn.harness
 
+import android.animation.AnimatorSet
+import android.animation.ObjectAnimator
+import android.animation.StateListAnimator
 import android.app.Activity
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -43,6 +49,15 @@ import kotlinx.coroutines.withContext
  * "Element not found: Id matching regex: wipe" while the screen was on and correct,
  * because content descriptions are not resource ids.
  *
+ * A tap answers in three ways, and the readouts are none of them. The readouts are the
+ * machine-readable truth and they are written for a flow: a person who taps a button and
+ * watches one word two lines up change from `ready` to `busy` and back inside a second has
+ * watched nothing happen. So every tappable view here changes under a finger
+ * ([pressFeedback]), the one action that outlives its tap by seconds shows a spinner while
+ * it runs ([attemptSpinner]), and every action ends in a Toast naming what it did
+ * ([announce]). None of the three is a readout and no flow may read one — see [announce]
+ * for what keeps a flow's selector off the Toast.
+ *
  * tools/harness/ios/Sources/HarnessView.swift is the same screen in SwiftUI, with the
  * same button ids and the same readout text.
  */
@@ -62,6 +77,30 @@ class HarnessActivity : Activity()
 
     /** What the selected case asks a person to do at the sheet. Not a readout a flow reads. */
     private lateinit var preconditionLabel: TextView;
+
+    /**
+     * The spinner beside `sign-in-google`, shown for as long as that attempt runs.
+     *
+     * The device-mode attempt is the only action on this screen that takes long enough for
+     * a person to wonder whether the tap landed: it wipes, puts a provider sheet up, waits
+     * for an account to be picked, enrols, and writes a file. `busy=busy` says all of that
+     * in one word two lines above the button, which is a fact for a flow rather than an
+     * answer to a finger.
+     *
+     * The ten lifecycle buttons get no spinner. Their work is one request and it is over
+     * before a spinner would have finished appearing; a spinner that flashes is noise, and
+     * the Toast that follows is the reaction those taps needed.
+     */
+    private lateinit var attemptSpinner: ProgressBar;
+
+    /**
+     * The Toast currently on screen, held only so the next one can replace it.
+     *
+     * Toasts QUEUE. A Maestro run taps ten buttons in a few seconds, and ten queued
+     * `Toast.LENGTH_LONG` signals would still be arriving half a minute after the run that
+     * produced them, each naming a result that had already been superseded.
+     */
+    private var signal: Toast? = null;
 
     /**
      * Whether an action is running, held here rather than passed to each `render` call.
@@ -87,6 +126,10 @@ class HarnessActivity : Activity()
     override fun onDestroy()
     {
         scope.cancel();
+        // A Toast outlives the Activity that showed it. One left running would go on
+        // reporting a result over whatever screen replaced this one.
+        signal?.cancel();
+        signal = null;
         super.onDestroy();
     }
 
@@ -146,10 +189,46 @@ class HarnessActivity : Activity()
         preconditionLabel.setPadding(0, 12, 0, 4);
         block.addView(preconditionLabel);
 
-        val signIn = signInButton();
-        socialViews.add(signIn);
-        block.addView(signIn);
+        block.addView(signInRow());
         return block;
+    }
+
+    /**
+     * The one action button and the spinner that says it is still running.
+     *
+     * The spinner is [View.INVISIBLE] rather than `GONE` when idle so that showing it moves
+     * nothing: a control that changes the layout of the screen while an attempt runs is a
+     * control that can move another one out from under a finger.
+     */
+    private fun signInRow(): ViewGroup
+    {
+        val row = LinearLayout(this);
+        row.orientation = LinearLayout.HORIZONTAL;
+        row.gravity = Gravity.CENTER_VERTICAL;
+
+        attemptSpinner = ProgressBar(this, null, android.R.attr.progressBarStyleSmall);
+        attemptSpinner.visibility = View.INVISIBLE;
+        val spinnerLayout = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        spinnerLayout.leftMargin = 24;
+        attemptSpinner.layoutParams = spinnerLayout;
+
+        val signIn = signInButton();
+        // A vertical LinearLayout gives its children MATCH_PARENT width and a horizontal
+        // one gives them WRAP_CONTENT, so moving this button into a row would have shrunk
+        // the screen's main action to the width of its own title without anything saying
+        // so. The weight puts it back: the button takes the row less the spinner.
+        signIn.layoutParams = LinearLayout.LayoutParams(
+            0,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            1f
+        );
+        socialViews.add(signIn);
+        row.addView(signIn);
+        row.addView(attemptSpinner);
+        return row;
     }
 
     /**
@@ -212,6 +291,7 @@ class HarnessActivity : Activity()
         option.id = caseId(case);
         option.text = case.wireName;
         option.textSize = 16f;
+        option.stateListAnimator = pressFeedback();
         return option;
     }
 
@@ -254,7 +334,16 @@ class HarnessActivity : Activity()
         view.id = R.id.btn_social_google;
         view.text = "sign-in-google";
         view.isAllCaps = false;
-        view.setOnClickListener { perform { model.signInWithGoogle(this@HarnessActivity) } };
+        view.stateListAnimator = pressFeedback();
+        // The signal names the outcome and the receipt's FILE NAME, and nothing else the
+        // receipt holds. Everything else in that file is evidence about an account, and a
+        // Toast is the one part of this screen that survives into a photograph of it.
+        view.setOnClickListener {
+            perform(attemptSpinner, { "${model.outcome}\n${model.receipt}" })
+            {
+                model.signInWithGoogle(this@HarnessActivity);
+            }
+        };
         return view;
     }
 
@@ -332,8 +421,79 @@ class HarnessActivity : Activity()
         view.id = action.first;
         view.text = action.second;
         view.isAllCaps = false;
-        view.setOnClickListener { perform(action.third) };
+        view.stateListAnimator = pressFeedback();
+        // A lifecycle action's signal is the `outcome=` value it already produces and
+        // nothing more. These ten buttons write no receipt, and inventing a second
+        // vocabulary for the Toast would give a reader two names for one result.
+        view.setOnClickListener { perform(null, { model.outcome }, action.third) };
         return view;
+    }
+
+    /**
+     * What a view does under a finger, given to every button and every case row on this
+     * screen.
+     *
+     * Not decoration and not a theme. These views are built in code against whatever theme
+     * the device supplies, so what a press looks like — a ripple, a lift, or nothing at all
+     * — is the device's answer rather than this screen's, and on a phone held at arm's
+     * length across a desk the honest answer to "did that tap land?" was often nothing.
+     * Alpha and scale are visible on any theme, light or dark, and need no colour chosen
+     * here: the same reason [selectorBorder] draws a stroke instead of a fill.
+     *
+     * This REPLACES the default state list animator, which on a platform button is the
+     * elevation lift. That is the trade and it is deliberate: a lift of a few pixels is
+     * what was already there and was already being missed.
+     *
+     * A fresh instance per view. A [StateListAnimator] binds to the view it is set on, and
+     * one instance shared across the sixteen views here would follow the last one.
+     */
+    private fun pressFeedback(): StateListAnimator
+    {
+        val animator = StateListAnimator();
+        animator.addState(intArrayOf(android.R.attr.state_pressed), pressAnimation(0.55f, 0.97f));
+        animator.addState(IntArray(0), pressAnimation(1f, 1f));
+        return animator;
+    }
+
+    private fun pressAnimation(alpha: Float, scale: Float): AnimatorSet
+    {
+        val set = AnimatorSet();
+        set.duration = 60L;
+        set.playTogether(
+            ObjectAnimator.ofFloat(null, View.ALPHA, alpha),
+            ObjectAnimator.ofFloat(null, View.SCALE_X, scale),
+            ObjectAnimator.ofFloat(null, View.SCALE_Y, scale)
+        );
+        return set;
+    }
+
+    /**
+     * The completion signal a tap owes the person who made it.
+     *
+     * A Toast and not a label, because the point is that it ARRIVES: a value that changes
+     * in place is only noticed by someone already looking at it, and the operator's eyes
+     * are on the button they just pressed.
+     *
+     * The text carries NO readout prefix — `ok:wiped`, not `outcome=ok:wiped`. Every flow
+     * selector in tools/harness/flows/ matches either a resource id or a readout's text
+     * (`outcome=…`, `state=…`, `busy=…`), and dropping the prefix is what makes it
+     * impossible for one of them to match this window instead of the label it means. A
+     * transient signal a flow could assert on is a flow that passes because a Toast was
+     * still up (docs/IMPLEMENTATION-PITFALLS.md P7).
+     *
+     * The text is ALL that keeps a flow off this window, and the iOS half has a second
+     * lock the Android half cannot have. A SwiftUI banner is marked
+     * `accessibilityHidden`, which deletes it from the hierarchy a flow searches; a Toast
+     * announces itself to the accessibility layer by design, because being heard is what a
+     * Toast is for. Same rule, different strength, and the strength is the platform's
+     * rather than this file's (P15).
+     */
+    private fun announce(text: String)
+    {
+        signal?.cancel();
+        val toast = Toast.makeText(this, text, Toast.LENGTH_LONG);
+        signal = toast;
+        toast.show();
     }
 
     /**
@@ -341,15 +501,33 @@ class HarnessActivity : Activity()
      * waits for `busy=ready` rather than sleeping for a guessed number of seconds, and the
      * flag is set HERE, synchronously inside the click, so there is no window where a
      * started action still reads as finished.
+     *
+     * [indicator] is shown for exactly as long as the action runs, and [signal] is read
+     * AFTER it finishes — it is a lambda rather than a string for that reason alone, since
+     * the outcome it names does not exist yet at the moment of the tap.
+     *
+     * The restore is a `finally` and the announcement is not. A cancelled coroutine is the
+     * screen going away rather than an action finishing, so the spinner and the busy flag
+     * are put back and nothing is announced: a Toast is a claim that something completed
+     * (P16), and one shown here would appear over whatever screen replaced this one.
      */
-    private fun perform(action: suspend () -> Unit)
+    private fun perform(indicator: View?, signal: () -> String, action: suspend () -> Unit)
     {
         busy = true;
+        indicator?.visibility = View.VISIBLE;
         render();
         scope.launch {
-            withContext(Dispatchers.IO) { action() };
-            busy = false;
-            render();
+            try
+            {
+                withContext(Dispatchers.IO) { action() };
+            }
+            finally
+            {
+                busy = false;
+                indicator?.visibility = View.INVISIBLE;
+                render();
+            }
+            announce(signal());
         };
     }
 
