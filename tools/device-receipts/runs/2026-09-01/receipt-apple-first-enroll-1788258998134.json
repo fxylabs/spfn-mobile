@@ -1,0 +1,17 @@
+{
+  "case" : "first-enroll",
+  "contractVersion" : "0.9.0",
+  "errorCode" : "connectivity",
+  "isNewUser" : false,
+  "keyIdMatch" : false,
+  "keyRemainsAfterFailure" : false,
+  "outcome" : "failed",
+  "platform" : "ios",
+  "provider" : "apple",
+  "responseCode" : null,
+  "schema" : "spfn-device-receipt\/1",
+  "sdkVersion" : "0.1.0-alpha.3",
+  "serverBaseURL" : "http:\/\/10.67.210.235:8790",
+  "serverCommit" : null,
+  "timestamp" : "2026-09-01T10:36:38Z"
+}

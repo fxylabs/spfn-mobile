@@ -238,6 +238,14 @@ wire 경로를 건드리지 않은 change set에서는 재실행이 선택이다
 - **Gradle은 `ANDROID_HOME`이 필요하다** (`~/Library/Android/sdk`). attempt 브리프의
   boundary env에 넣는다.
 - **`validate.sh`를 파이프하면 exit code를 삼킨다.** 파일로 리다이렉트하고 `$?`를 읽는다.
+- **probe 편의로 뚫어둔 env 오버라이드가 발행 경로에서는 우회로다.** 게이트에
+  `SPFN_*_ROOT` 류 오버라이드를 두면 probe는 픽스처를 가리킬 수 있지만, 같은 변수를
+  셸에 export한 채 발행을 돌리면 손으로 쓴 디렉터리가 증거 행세를 한다. 탐지: 게이트
+  스크립트가 `${SPFN_...:-<기본값>}` 꼴로 경로·핀을 받는가, 그 변수를 호출자가
+  지우는가. 처방: 발행 경로(rc-verify)에서 호출 직전 `unset`하고, 그 `unset` 줄 자체를
+  validate의 고정 문자열 검사로 박는다. 증거:
+  `tools/device-receipts/receipt-gate.sh`(오버라이드 보유) +
+  `tools/rc-verify/rc-verify.sh`의 `unset SPFN_RECEIPT_ROOT SPFN_RECEIPT_LOCK`.
 - **probe 전에 `cp`로 사본을 뜬다.** `git checkout --`는 HEAD에서 복원해 미커밋 작업을
   먹는다. 전역 훅이 막고 있지만 습관이 먼저다.
 - **Kotlin 테스트 결과는 `testDebugUnitTest` 변형에 있다.** `:spfn-core:test`가 아니라
