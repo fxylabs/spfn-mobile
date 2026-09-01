@@ -1,0 +1,37 @@
+// SPFN Mobile — the harness's build-time configuration, and the reason none of it is here.
+//
+// A device run needs three things this repository must never hold: where the verify
+// server is on someone's wifi, and a Google OAuth client id with the URL scheme derived
+// from it. So this tracked file declares every key EMPTY and then optionally includes a
+// gitignored `Local.xcconfig` that a person writes on their own machine.
+//
+// `#include?` is the whole trick. A plain `#include` of a missing file fails the build,
+// which would make a clean checkout unbuildable; the `?` form skips a file that is not
+// there. So the committed tree builds, the keys expand to empty strings, and the app
+// reports itself unconfigured and disables the provider buttons — see
+// `HarnessConfiguration.device`. Fail closed, not fail loud, and never a crash.
+//
+// Order matters: the defaults come first so that `Local.xcconfig` overrides them.
+//
+// Write `tools/harness/ios/Local.xcconfig` like this, with your own values:
+//
+//     SPFN_HARNESS_SERVER_HOST = 192.168.1.10
+//     SPFN_HARNESS_SERVER_PORT = 8790
+//     SPFN_HARNESS_GOOGLE_CLIENT_ID = <ios client id>.apps.googleusercontent.com
+//     SPFN_HARNESS_GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.<ios client id>
+//
+// The host is a host and nothing else: no scheme, no path, no query. The app composes
+// `http://<host>:<port>`, which is what the receipt records as `serverBaseURL`.
+
+SPFN_HARNESS_SERVER_HOST =
+SPFN_HARNESS_SERVER_PORT =
+SPFN_HARNESS_GOOGLE_CLIENT_ID =
+
+// Not empty, unlike the rest. An empty string in `CFBundleURLSchemes` is a registered
+// scheme that matches nothing, and LaunchServices treats it as a malformed declaration
+// rather than an absent one. This placeholder is a scheme no client id can ever produce,
+// so the app's own check — does the registered scheme match the reverse of GIDClientID —
+// fails on it exactly as it fails on an absent one.
+SPFN_HARNESS_GOOGLE_REVERSED_CLIENT_ID = xyz.superfunction.spfn.harness.unconfigured
+
+#include? "Local.xcconfig"

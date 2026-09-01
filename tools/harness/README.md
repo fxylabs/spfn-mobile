@@ -18,7 +18,9 @@ sh tools/harness/run-harness.sh android
 | Path | What it is |
 | --- | --- |
 | `ios/project.yml` | the iOS app's project, as data. `SPFNHarness.xcodeproj` is generated from it and gitignored |
-| `ios/Sources/` | the iOS harness: a screen with ten buttons and four labels |
+| `ios/Sources/` | the iOS harness: a screen of buttons and readouts |
+| `ios/Harness.xcconfig` | the device mode's keys, declared empty, plus an optional include of the gitignored `Local.xcconfig` |
+| `ios/HarnessSupport/` | a SwiftPM package that enables the two adapter traits, and holds the harness rules that have tests |
 | `android/` | the same app in Kotlin, as the one application module in this repository |
 | `flows/` | the Maestro flows, one per cell of the case table below |
 | `run-harness.sh` | builds, installs, runs every flow, and fails unless every case left a receipt |
@@ -305,6 +307,126 @@ that is a blocking defect, not a cleanup.
 Attempts do not overwrite each other. The file name carries milliseconds, which is what the
 spec fixes after two attempts at one case finished inside the same second and the second
 one destroyed the first one's evidence.
+
+## The device sign-in mode, on iOS
+
+Everything above proves the SDK's own behaviour with a token the harness composed. What
+it cannot prove is that a person tapping Apple's or Google's own sheet ends up enrolled
+against a real server — that needs a real provider, a real signature, and a human. So the
+iOS harness has a second half that no flow drives.
+
+A person picks one of five cases, taps a provider, and the app writes a JSON receipt into
+its Documents directory. The receipt is the evidence; the screen is a convenience.
+
+| case | expected outcome | what to do |
+| --- | --- | --- |
+| `first-enroll` | `enrolled`, `isNewUser` true | wipe, then sign in with an account this server has never seen |
+| `re-login` | `enrolled`, `isNewUser` false | wipe, then sign in with the account `first-enroll` used |
+| `user-cancel` | `cancelled`, no key left behind | wipe, then dismiss the sheet |
+| `network-failure` | `failed`, no key left behind | wipe, then complete the sheet — the app drops its own transport for the attempt |
+| `server-reject` | `failed`, no key left behind | wipe, then complete the sheet — the app sends a token the server cannot verify |
+
+**Tap `wipe` before every case.** The SDK refuses a second enrolment while one is in
+place, so a case run on top of a previous one reports `alreadyEnrolled` and proves
+nothing about the provider.
+
+Two of those cases need the harness to arrange something, and both reuse a seam that
+already existed. `network-failure` flips the same transport switch the `block-network`
+button flips, so the sheet still works and the enrolment request is what fails.
+`server-reject` appends a marker to the token the adapter returned, so the sheet is real
+and the signature the server checks is not. Neither touches the SDK.
+
+### What a receipt says
+
+`Documents/receipt-<provider>-<case>-<epochMillis>.json`, one per attempt, the schema
+shared with the Android half. Read them off the phone with Finder — the app declares
+`UIFileSharingEnabled`, so it appears under the device's Files tab — or through the Files
+app on the phone itself.
+
+Milliseconds, not seconds. Two attempts at the same case that finished inside one second
+used to land on one name, and the second write destroyed the first attempt's evidence —
+which a cancelled sheet reaches easily.
+
+**A receipt never carries a token, an email address or a name.** That is enforced by
+shape rather than by care: every field is a boolean, an integer, a timestamp, an
+SDK-classified error name or a version constant, and the adapters drop a provider's
+message text before the harness ever sees an error. A receipt holding a token would be a
+credential, and finding one is a blocking defect rather than a cleanup.
+
+Two fields are worth reading closely:
+
+- `errorCode` is the SDK's own classification, never a translation. `server-reject`
+  arrives as one of the `decoding:` names rather than as a contract error code, because
+  `/_auth/oauth/:provider/native` sits outside the clientProof middleware and answers with
+  something the contract's error envelope does not describe. That is the expected reading,
+  not a bug in the harness.
+- `serverCommit` is the one field whose value arrives from the network, so it is the one
+  place PII could enter a file that leaves the phone. It is kept only when it matches
+  `^[0-9a-f]{7,40}$` after lowercasing, and is `null` otherwise — including against every
+  server in this repository, none of which states a build in a header yet.
+
+Both rules have tests. `swift test --package-path tools/harness/ios/HarnessSupport` runs
+them: the file name at millisecond granularity, and the commit filter against hashes,
+length boundaries, uppercase hex, non-ASCII lookalike digits and a handful of strings a
+misconfigured header could carry instead.
+
+### Configuring it, and what happens when you have not
+
+Three values are needed and none of them may be committed: where the verify server is on
+your wifi, and a Google OAuth client id with the URL scheme derived from it. Write them
+into `tools/harness/ios/Local.xcconfig`, which is gitignored:
+
+| key | what it holds |
+| --- | --- |
+| `SPFN_HARNESS_SERVER_HOST` | the Mac's LAN address or `.local` name — host only, no scheme and no path |
+| `SPFN_HARNESS_SERVER_PORT` | the verify server's port |
+| `SPFN_HARNESS_GOOGLE_CLIENT_ID` | the iOS OAuth client id from the Google Cloud console |
+| `SPFN_HARNESS_GOOGLE_REVERSED_CLIENT_ID` | that client id with its dot components reversed |
+
+Host and port are two keys rather than one URL because `//` opens a comment in an
+xcconfig: a whole URL written there truncates to `http:` without a word of warning.
+
+A checkout without that file still builds. Every key expands to an empty string, the
+`config=` readout says which half is missing, and both provider buttons are disabled and
+say `(not configured)`. That is deliberate and it is not politeness: Google's SDK answers
+a missing client id, or an unregistered callback scheme, by raising an NSException, which
+no Swift caller can catch. So the app recomputes the scheme from the client id and checks
+the bundle really registers it before it will let the button be tapped at all.
+
+### Signing it
+
+The device build needs a **paid** Apple Developer Program team. Sign in with Apple is a
+paid-programme capability, so the `com.apple.developer.applesignin` entitlement the
+harness now carries cannot be signed by a free personal team.
+
+The custody probe above never needed that entitlement, and a free team can still run it
+by dropping the entitlements file for that build alone:
+
+```sh
+xcodebuild -project tools/harness/ios/SPFNHarness.xcodeproj -scheme SPFNHarness \
+    -destination "platform=iOS,id=<device udid>" \
+    -allowProvisioningUpdates DEVELOPMENT_TEAM=<your team id> \
+    CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development" \
+    CODE_SIGN_ENTITLEMENTS="" build
+```
+
+### Why there is a second Package.swift
+
+`ios/HarnessSupport/` is a small package, and it exists because a package trait can only
+be turned on by a manifest. `SPFNSocialGoogle` links Google's SDK and
+exposes `init(presenting:)` only under the `SocialGoogle` trait, and an Xcode app target
+has no manifest to enable it from. XcodeGen will write `traits = (...)` into the
+generated project and Xcode 26.2 ignores it — measured with a probe project, which
+resolved zero remote packages and could not see `SPFNGooglePresentingContext`. So the
+trait is declared in `HarnessSupport/Package.swift`, which the app depends on; adding it
+to the graph turns the traits on for every copy of the SDK in that graph.
+
+It carries three of the harness's own types too — the receipt, the case and provider
+names, and the server-commit filter — for a reason that is not tidiness. An Xcode app
+target has no suite `swift test` can run, and those two rules have expected values worth
+pinning, so they live where a test can reach them. The app imports them unchanged.
+
+Nothing in the SDK changed for any of this.
 
 ## Running against something other than the reference server
 

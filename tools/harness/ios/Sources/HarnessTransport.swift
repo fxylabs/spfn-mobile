@@ -15,17 +15,59 @@
 
 import Foundation
 import SPFNClient
+import SPFNHarnessSupport
+
+/// What the wire said, for a receipt to record — filtered, never raw.
+///
+/// The SDK's own errors carry an HTTP status where one exists, but only some of them do,
+/// and a success carries none at all. A receipt needs the same field filled the same way
+/// whatever happened, so it is read from the one place every request passes through.
+struct HarnessWireObservation: Sendable
+{
+    let statusCode: Int
+    let serverCommit: String?
+}
 
 /// Wraps a real transport with a switch a harness button owns.
 final class HarnessTransport: SPFNTransport, @unchecked Sendable
 {
+    /// Header names a server might state its build under, lowercased. None of the SPFN
+    /// servers in this repository emits one today, so a receipt recording `null` here is
+    /// the expected reading rather than a gap — the field exists for a server that does.
+    ///
+    /// Finding one of these names is not the same as believing what it says: whatever is
+    /// under it goes through `HarnessServerCommit` before it is kept, because a header is
+    /// written by whatever is at the other end and a receipt leaves the phone.
+    private static let commitHeaders = ["x-spfn-commit", "x-spfn-server-commit", "x-commit"]
+
     private let inner: any SPFNTransport
     private let lock = NSLock()
     private var blocked = false
+    private var lastObservation: HarnessWireObservation?
 
     init(inner: any SPFNTransport = SPFNURLSessionTransport())
     {
         self.inner = inner
+    }
+
+    /// Forgets the previous attempt's response.
+    ///
+    /// Called before an attempt rather than after it: without this, an attempt that never
+    /// reached the network would report the status of whatever the last one did, and the
+    /// network-failure cell — whose whole point is that there was no response — would
+    /// carry a 200 from the enrolment before it.
+    func beginAttempt()
+    {
+        lock.lock()
+        lastObservation = nil
+        lock.unlock()
+    }
+
+    var observation: HarnessWireObservation?
+    {
+        lock.lock()
+        defer { lock.unlock() }
+        return lastObservation
     }
 
     var isBlocked: Bool
@@ -48,6 +90,19 @@ final class HarnessTransport: SPFNTransport, @unchecked Sendable
         {
             throw SPFNTransportError.connectivity("harness: network blocked")
         }
-        return try await inner.execute(request)
+        let response = try await inner.execute(request)
+        record(response)
+        return response
+    }
+
+    private func record(_ response: SPFNTransportResponse)
+    {
+        let header = response.headers
+            .first { Self.commitHeaders.contains($0.0.lowercased()) }?
+            .1
+        let commit = HarnessServerCommit.accepted(header)
+        lock.lock()
+        lastObservation = HarnessWireObservation(statusCode: response.statusCode, serverCommit: commit)
+        lock.unlock()
     }
 }

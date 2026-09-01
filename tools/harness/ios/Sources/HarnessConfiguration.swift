@@ -33,14 +33,25 @@ struct HarnessConfiguration
     /// sign-in closure — which is the shape the closure exists for.
     let testUser: String?
 
-    static func fromLaunch() -> HarnessConfiguration
+    /// What a device run is configured with, when nothing was passed at launch. Read
+    /// once and carried, so the readout and the base URL the SDK was given cannot drift.
+    let device: HarnessDeviceConfiguration
+
+    static func fromLaunch(device: HarnessDeviceConfiguration = .fromBundle()) -> HarnessConfiguration
     {
         let defaults = UserDefaults.standard
         return HarnessConfiguration(
-            baseURL: defaults.string(forKey: "SPFN_HARNESS_BASE_URL") ?? "",
+            // A launch argument wins: a run that passed one meant to use it. A device run
+            // passes nothing and falls through to the build-time configuration, and a
+            // checkout with no Local.xcconfig falls through that to the empty string the
+            // harness has always treated as "nobody named a server".
+            baseURL: nonEmpty(defaults.string(forKey: "SPFN_HARNESS_BASE_URL"))
+                ?? device.serverBaseURL
+                ?? "",
             provider: defaults.string(forKey: "SPFN_HARNESS_PROVIDER") ?? "google",
             cannedIDToken: nonEmpty(defaults.string(forKey: "SPFN_HARNESS_ID_TOKEN")),
-            testUser: nonEmpty(defaults.string(forKey: "SPFN_HARNESS_TEST_USER"))
+            testUser: nonEmpty(defaults.string(forKey: "SPFN_HARNESS_TEST_USER")),
+            device: device
         )
     }
 
