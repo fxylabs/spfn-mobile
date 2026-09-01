@@ -12,6 +12,7 @@
 import Foundation
 import SPFNAuth
 import SPFNClient
+import SPFNHarnessSupport
 
 enum HarnessOutcome
 {
@@ -19,6 +20,14 @@ enum HarnessOutcome
     {
         switch error
         {
+        // Before every other case on purpose. A cancelled task is not a refusal, and a
+        // net that catches it first is exactly the shape the registry's P16 row names.
+        case is CancellationError:
+            return "cancelled"
+        case let error as SPFNSocialAppleError:
+            return name(forApple: error)
+        case let error as SPFNSocialGoogleError:
+            return name(forGoogle: error)
         case let error as SPFNKeyLifecycleError:
             return name(forLifecycle: error)
         case let error as SPFNClientError:
@@ -112,6 +121,39 @@ enum HarnessOutcome
         }
     }
 
+    /// The adapter's own case name, and Apple's numeric code where it has one. Never the
+    /// provider's message text: that is the fastest way for a token or an account
+    /// identifier to reach a log, which is why the adapter dropped it before this point.
+    private static func name(forApple error: SPFNSocialAppleError) -> String
+    {
+        switch error
+        {
+        case .cancelled:
+            return "apple:cancelled"
+        case .identityTokenMissing:
+            return "apple:identityTokenMissing"
+        case .authorizationFailed(let code):
+            return "apple:authorizationFailed:\(code)"
+        case .nonceProviderMismatch:
+            return "apple:nonceProviderMismatch"
+        }
+    }
+
+    private static func name(forGoogle error: SPFNSocialGoogleError) -> String
+    {
+        switch error
+        {
+        case .cancelled:
+            return "google:cancelled"
+        case .identityTokenMissing:
+            return "google:identityTokenMissing"
+        case .signInFailed(let code):
+            return "google:signInFailed:\(code)"
+        case .nonceProviderMismatch:
+            return "google:nonceProviderMismatch"
+        }
+    }
+
     private static func name(forHarness error: HarnessError) -> String
     {
         switch error
@@ -120,6 +162,12 @@ enum HarnessOutcome
             return "harness:noCannedToken"
         case .noActiveKey:
             return "harness:noActiveKey"
+        case .notConfigured:
+            return "harness:notConfigured"
+        case .noPresentationAnchor:
+            return "harness:noPresentationAnchor"
+        case .noDocumentsDirectory:
+            return "harness:noDocumentsDirectory"
         }
     }
 }

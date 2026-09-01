@@ -33,6 +33,8 @@ struct HarnessView: View
             {
                 readouts
                 Divider()
+                deviceMode
+                Divider()
                 actions
             }
             .padding()
@@ -51,6 +53,9 @@ struct HarnessView: View
             readout("outcome", model.outcome)
             readout("busy", model.busy ? "busy" : "ready")
             readout("custody", model.custody)
+            readout("config", model.configSummary)
+            readout("case", model.deviceCase.rawValue)
+            readout("receipt", model.receipt)
         }
         .font(.system(.body, design: .monospaced))
     }
@@ -60,6 +65,55 @@ struct HarnessView: View
     private func readout(_ label: String, _ value: String) -> some View
     {
         Text("\(label)=\(value)")
+    }
+
+    /// The half of the screen a person drives and no flow does.
+    ///
+    /// A case is picked first and a provider is tapped second, in that order, because the
+    /// app cannot tell a first enrolment from a re-login by itself — see
+    /// `HarnessDeviceCase`. The picked case is shown in the `case=` readout above and
+    /// recorded in the receipt, so a reading is never separated from what it was a
+    /// reading of.
+    private var deviceMode: some View
+    {
+        VStack(alignment: .leading, spacing: 8)
+        {
+            Text("device verification")
+                .font(.system(.headline, design: .monospaced))
+            Text(model.deviceCase.precondition)
+                .font(.system(.caption, design: .monospaced))
+            ForEach(HarnessDeviceCase.allCases, id: \.self)
+            { value in
+                caseButton(value)
+            }
+            providerButton(.apple, id: "btn_signin_apple", title: "sign-in-apple")
+            providerButton(.google, id: "btn_signin_google", title: "sign-in-google")
+        }
+    }
+
+    private func caseButton(_ value: HarnessDeviceCase) -> some View
+    {
+        Button(value == model.deviceCase ? "[\(value.rawValue)]" : " \(value.rawValue) ")
+        {
+            model.selectCase(value)
+        }
+        .accessibilityIdentifier("btn_case_\(value.rawValue)")
+        .buttonStyle(.bordered)
+    }
+
+    /// Disabled, rather than absent, when this build has no configuration for it. An
+    /// absent button reads as a harness that lost a feature; a disabled one beside a
+    /// `config=` readout naming the missing half reads as the truth.
+    private func providerButton(_ provider: HarnessProvider, id: String, title: String) -> some View
+    {
+        Button(model.isReady(provider) ? title : "\(title) (not configured)")
+        {
+            model.markBusy()
+            Task { await model.signIn(with: provider) }
+        }
+        .accessibilityIdentifier(id)
+        .buttonStyle(.borderedProminent)
+        .disabled(!model.isReady(provider))
     }
 
     private var actions: some View

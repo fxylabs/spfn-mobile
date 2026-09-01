@@ -11,6 +11,10 @@ Package.resolved
 # tools/harness/ios/project.yml, the same way the CocoaPods fixture is written from the
 # module graph. The spec is the source; these are its output.
 tools/harness/ios/Generated/
+# The harness's device configuration: a LAN address and a Google OAuth client id, both
+# of which belong to whoever is holding the phone. tools/harness/ios/Harness.xcconfig is
+# the tracked half and optionally includes this one.
+tools/harness/ios/Local.xcconfig
 DerivedData/
 *.xcuserstate
 

@@ -32,9 +32,22 @@ final class HarnessModel: ObservableObject
 
     @Published private(set) var networkBlocked = false
 
+    /// Which of the five device cases the next provider tap is running. The app cannot
+    /// work this out for itself — see `HarnessDeviceCase`.
+    @Published var deviceCase: HarnessDeviceCase = .firstEnroll
+
+    /// The file name of the last receipt written, or why none was. `none` before the
+    /// first attempt, and never silently empty: a receipt that could not be written and
+    /// a case that was never run are different facts.
+    @Published private(set) var receipt = "none"
+
     /// True while an action is in flight, so a flow can wait for quiet instead of
     /// sleeping for a guessed number of seconds.
     @Published private(set) var busy = false
+
+    /// What this build was configured with, for the screen to state and the buttons to
+    /// obey. Nothing here is a value — only whether each half of it is present.
+    let device: HarnessDeviceConfiguration
 
     private let configuration: HarnessConfiguration
     private let transport: HarnessTransport
@@ -44,6 +57,7 @@ final class HarnessModel: ObservableObject
     init(configuration: HarnessConfiguration = .fromLaunch())
     {
         self.configuration = configuration
+        self.device = configuration.device
         self.transport = HarnessTransport()
         self.store = SPFNKeychainKeyStore(service: "xyz.superfunction.spfn.harness")
         self.lifecycle = SPFNKeyLifecycle(
@@ -81,6 +95,11 @@ final class HarnessModel: ObservableObject
     }
 
     // MARK: - Actions
+    //
+    // `enroll` and `signIn` are the same SDK call reached two ways. A flow calls the
+    // first with a canned token because Maestro cannot drive a system sheet; a person
+    // calls the second, which puts the real sheet up and writes a receipt. Neither is a
+    // substitute for the other, which is why both exist.
 
     func enroll() async
     {
@@ -98,6 +117,195 @@ final class HarnessModel: ObservableObject
             }
             return "enrolled:\(result.keyID)"
         }
+    }
+
+    // MARK: - The device verification mode
+
+    /// One attempt at the selected case, through the real provider sheet, ending in a
+    /// receipt on disk whatever happened.
+    ///
+    /// This is the only action that does not go through `run`. `run` reports one line and
+    /// re-reads the state; this has to observe several things in a fixed order — what the
+    /// wire said, what the SDK classified, whether a key survived — and then write them
+    /// down. Sharing the shorter path would have meant reading some of them after the
+    /// state had already been re-read, which is the one ordering that cannot be trusted.
+    func signIn(with provider: HarnessProvider) async
+    {
+        busy = true
+        defer { busy = false }
+
+        guard isReady(provider)
+        else
+        {
+            // Belt and braces: the button is disabled in this state. If it is ever
+            // reachable anyway, refusing is the whole point — Google's SDK answers a
+            // missing client id with an NSException, which no Swift caller can catch.
+            outcome = "err:\(HarnessOutcome.name(for: HarnessError.notConfigured))"
+            return
+        }
+
+        transport.beginAttempt()
+
+        // Restored to whatever it was rather than to open: a person may have blocked the
+        // network with the button before running this case, and putting it back to open
+        // would change a setting they made. The `outcome` these two calls write is
+        // overwritten by the receipt below, which is the line worth reading.
+        let restoreBlocked = transport.isBlocked
+        if deviceCase.blocksNetwork
+        {
+            setNetworkBlocked(true)
+        }
+
+        let attempt = await attemptEnrollment(with: provider)
+
+        if deviceCase.blocksNetwork
+        {
+            setNetworkBlocked(restoreBlocked)
+        }
+
+        await refresh()
+        await recordReceipt(for: provider, attempt: attempt)
+    }
+
+    /// The enrolment itself: the SDK's call, the SDK's adapters, and nothing in between
+    /// but the token sabotage the server-reject case asks for.
+    private func attemptEnrollment(with provider: HarnessProvider) async -> Result<SPFNEnrollmentResult, any Error>
+    {
+        let deviceCase = self.deviceCase
+        do
+        {
+            return .success(try await lifecycle.enroll(provider: provider.rawValue)
+            { nonce in
+                let token = try await HarnessSocialSignIn.idToken(provider: provider, nonce: nonce)
+                return HarnessTokenSabotage.applied(to: token, for: deviceCase)
+            })
+        }
+        catch
+        {
+            return .failure(error)
+        }
+    }
+
+    /// Turns what happened into the receipt's cells and writes it.
+    ///
+    /// `keyRemainsAfterFailure` is read AFTER the attempt and only means something when
+    /// the attempt did not enrol: the design promise is that a cancelled or failed
+    /// enrolment leaves no key behind. On a success the key is supposed to be there, so
+    /// the field is false rather than a true that would read as a broken promise.
+    ///
+    /// A state that could not be read at all counts as a key remaining. That is the
+    /// pessimistic answer and it is the right one: an unreadable keychain is not evidence
+    /// that nothing survived, and a receipt that claimed it was would be a green built
+    /// out of a failure to look.
+    private func recordReceipt(for provider: HarnessProvider, attempt: Result<SPFNEnrollmentResult, any Error>) async
+    {
+        let observation = transport.observation
+        let enrolled: SPFNEnrollmentResult?
+        let errorCode: String?
+
+        switch attempt
+        {
+        case .success(let result):
+            enrolled = result
+            errorCode = nil
+            outcome = "ok:enrolled:\(result.keyID)"
+        case .failure(let error):
+            enrolled = nil
+            errorCode = HarnessOutcome.name(for: error)
+            outcome = "err:\(HarnessOutcome.name(for: error))"
+        }
+
+        let receipt = HarnessReceipt(
+            provider: provider,
+            deviceCase: deviceCase,
+            outcome: Self.outcome(for: attempt),
+            responseCode: observation?.statusCode,
+            errorCode: errorCode,
+            isNewUser: enrolled?.isNewUser ?? false,
+            keyIDMatch: await keyIDMatches(enrolled),
+            keyRemainsAfterFailure: enrolled == nil && state != "unenrolled",
+            serverBaseURL: configuration.baseURL,
+            serverCommit: observation?.serverCommit,
+            recordedAt: Date()
+        )
+
+        do
+        {
+            self.receipt = try receipt.write().lastPathComponent
+        }
+        catch
+        {
+            // Not silent, and not the same word as "no receipt". A run that cannot write
+            // its evidence is a broken harness; a run that produced none is a case that
+            // never happened, and an assertion has to be able to tell them apart (P7).
+            self.receipt = "unwritten:\(HarnessOutcome.name(for: error))"
+        }
+    }
+
+    /// Whether the key the server confirmed is the key this install now signs with. The
+    /// SDK already refuses a server that names another key, so this is the second half of
+    /// that promise: the confirmed key is also the one that got persisted.
+    private func keyIDMatches(_ enrolled: SPFNEnrollmentResult?) async -> Bool
+    {
+        guard let enrolled, let active = try? await lifecycle.activeProvider()
+        else
+        {
+            return false
+        }
+        return active.keyID == enrolled.keyID
+    }
+
+    private static func outcome(for attempt: Result<SPFNEnrollmentResult, any Error>) -> HarnessReceiptOutcome
+    {
+        switch attempt
+        {
+        case .success:
+            return .enrolled
+        case .failure(let error):
+            return HarnessSocialSignIn.isCancellation(error) ? .cancelled : .failed
+        }
+    }
+
+    /// Whether this build can put `provider`'s sheet up and have somewhere to send what
+    /// comes back.
+    ///
+    /// The server half is read from the base URL the SDK was actually given, not from the
+    /// build-time configuration: a run launched with `SPFN_HARNESS_BASE_URL` and no
+    /// `Local.xcconfig` has a server, and a readiness check that only looked at the
+    /// build-time half would grey out a button that works.
+    ///
+    /// Apple needs nothing else. Its sheet is the operating system's own, and what it
+    /// really needs — the entitlement — is a signing-time fact no app can read about
+    /// itself. Google needs a client id whose callback scheme this bundle registers,
+    /// because the alternative is an NSException at tap time.
+    func isReady(_ provider: HarnessProvider) -> Bool
+    {
+        switch provider
+        {
+        case .apple:
+            return serverConfigured
+        case .google:
+            return serverConfigured && device.googleClientID != nil
+        }
+    }
+
+    var serverConfigured: Bool
+    {
+        !configuration.baseURL.isEmpty
+    }
+
+    /// One ASCII line naming which half of the configuration is missing, rather than only
+    /// that something is.
+    var configSummary: String
+    {
+        let server = serverConfigured ? "ready" : "missing"
+        let google = device.googleClientID == nil ? "missing" : "ready"
+        return "server:\(server) google:\(google)"
+    }
+
+    func selectCase(_ value: HarnessDeviceCase)
+    {
+        deviceCase = value
     }
 
     func rotate() async
@@ -265,4 +473,17 @@ enum HarnessError: Error
     case noCannedToken
 
     case noActiveKey
+
+    /// A provider was tapped in a build with no `Local.xcconfig`, or with one missing
+    /// the half that provider needs. Unreachable through the screen, which disables the
+    /// button — and kept anyway, because the alternative for Google is an NSException.
+    case notConfigured
+
+    /// No foreground window to present a provider sheet from. Refused before the sheet
+    /// is asked for rather than after it fails to appear.
+    case noPresentationAnchor
+
+    /// No Documents directory, so the receipt has nowhere to go. Reported rather than
+    /// swallowed: a receipt that could not be written is not a case that did not run.
+    case noDocumentsDirectory
 }
