@@ -5,6 +5,10 @@
 # publishing anything. No registry, no account, no remote tag. This script produces the
 # whole of that evidence in one reproducible run:
 #
+#   0. Receipts — the fifteen-cell social sign-in case table, proven on real phones
+#                 against the contract this repository pins. No build can stand in for
+#                 it: tools/device-receipts/receipt-gate.sh judges the committed device
+#                 receipts and refuses a candidate that has none for the pinned contract.
 #   1. SwiftPM  — creates the prefix-free local tag `<VERSION>` (D9), resolves it from
 #                 a throwaway consumer package via `.package(url: "file://…", exact:)`,
 #                 builds it, and runs a smoke executable that imports every public
@@ -186,6 +190,55 @@ trap 'on_signal 143' TERM
 
 printf 'SPFN Mobile RC verification — candidate %s at commit %s\n' "$VERSION" "$COMMIT"
 printf 'output: %s\n' "$OUT"
+
+# --- 0. Device receipts: real phones proved the social sign-in case table ----------
+#
+# Everything else this script does can be done by a machine with no phone attached, and
+# that is exactly the gap: the provider sheet, the platform key store and a real server
+# only meet on a device, so no build, no simulator and no emulator can stand in for the
+# evidence. A candidate is therefore not verifiable without receipts from a real device
+# run against the contract this repository currently pins — and re-pinning the contract
+# retires that evidence, because proof about a 0.9.0 wire contract says nothing about
+# the next one.
+#
+# It runs first because it is the cheapest step and the one most likely to be the reason
+# a candidate is not ready: failing here costs a second and creates no tag.
+
+step 'device receipts: the fifteen-cell social sign-in case table, proven on real phones'
+
+# The gate takes two environment overrides so its own probe can point it at fixtures.
+# On the publication path they are exactly what an operator must not be able to set: a
+# stray SPFN_RECEIPT_ROOT in a shell would send the gate to a directory somebody wrote
+# by hand and let a candidate out with no device evidence at all. Cleared here, so this
+# run always judges the committed receipts against the committed lock.
+unset SPFN_RECEIPT_ROOT SPFN_RECEIPT_LOCK
+
+if sh tools/device-receipts/receipt-gate.sh > "$LOGS/receipt-gate.log" 2>&1
+then
+    sed 's/^/  /' "$LOGS/receipt-gate.log"
+else
+    sed 's/^/  /' "$LOGS/receipt-gate.log" >&2
+    die 'the device receipt gate refused; a candidate is not verified without device evidence for the pinned contract'
+fi
+
+# The manifest records what the gate counted, so the candidate's provenance names its
+# device evidence. Read from the gate's own summary line rather than recomputed here: two
+# counts of the same thing drift, and the one in the manifest must be the one that passed.
+if ! RECEIPT_SUMMARY=$(grep '^RECEIPT-GATE-SUMMARY ' "$LOGS/receipt-gate.log")
+then
+    die 'the device receipt gate passed without printing its summary line; the manifest would claim evidence nobody counted'
+fi
+RECEIPT_REQUIRED=$(printf '%s' "$RECEIPT_SUMMARY" | sed -n 's/.*cells=\([0-9][0-9]*\).*/\1/p')
+RECEIPT_PROVEN=$(printf '%s' "$RECEIPT_SUMMARY" | sed -n 's/.*proven=\([0-9][0-9]*\).*/\1/p')
+RECEIPT_FILES=$(printf '%s' "$RECEIPT_SUMMARY" | sed -n 's/.*scanned=\([0-9][0-9]*\).*/\1/p')
+RECEIPT_CONTRACT=$(printf '%s' "$RECEIPT_SUMMARY" | sed -n 's/.*contract=\([^ ]*\).*/\1/p')
+[ -n "$RECEIPT_REQUIRED" ] && [ -n "$RECEIPT_PROVEN" ] && [ -n "$RECEIPT_FILES" ] \
+    && [ -n "$RECEIPT_CONTRACT" ] \
+    || die 'the device receipt gate summary line could not be parsed'
+[ "$RECEIPT_PROVEN" = "$RECEIPT_REQUIRED" ] \
+    || die "the device receipt gate exited 0 having proven only $RECEIPT_PROVEN of $RECEIPT_REQUIRED cells"
+[ "$RECEIPT_CONTRACT" = "$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' Contracts/upstream.lock.json | head -1)" ] \
+    || die "the device receipt gate judged against contract $RECEIPT_CONTRACT, which is not the version this candidate's lock pins"
 
 # --- 1. SwiftPM: local tag resolved by a throwaway consumer ------------------------
 
@@ -476,6 +529,14 @@ step 'candidate manifest: SHA256SUMS and manifest.json'
     printf '  "contractDigest": "%s",\n' "$CONTRACT_DIGEST"
     printf '  "signing": "unsigned alpha candidate (decision D7): provenance is this manifest — source commit, contract digest, artifact hashes and the CycloneDX SBOMs. Signing and attestation are added for public releases.",\n'
     printf '  "publication": "none (decision D3): local tag and local staging only. The tag was deleted when this run ended.",\n'
+    printf '  "deviceReceipts": {\n'
+    printf '    "root": "tools/device-receipts/runs",\n'
+    printf '    "contractVersion": "%s",\n' "$RECEIPT_CONTRACT"
+    printf '    "cellsProven": %s,\n' "$RECEIPT_PROVEN"
+    printf '    "cellsRequired": %s,\n' "$RECEIPT_REQUIRED"
+    printf '    "receiptsRead": %s,\n' "$RECEIPT_FILES"
+    printf '    "gate": "tools/device-receipts/receipt-gate.sh — {ios x apple, ios x google, android x google} x {first-enroll, re-login, user-cancel, network-failure, server-reject}; android x apple is exempt because no Android Apple adapter module exists"\n'
+    printf '  },\n'
     printf '  "swiftpm": {\n'
     printf '    "resolvedTag": "%s",\n' "$RESOLVED_VERSION"
     printf '    "resolvedRevision": "%s",\n' "$RESOLVED_REVISION"
@@ -503,6 +564,8 @@ printf '\nRC VERIFY SUMMARY\n'
 printf '  candidate:        %s\n' "$VERSION"
 printf '  source commit:    %s\n' "$COMMIT"
 printf '  contract digest:  %s\n' "$CONTRACT_DIGEST"
+printf '  device receipts:  %s of %s cells proven from %s receipts at contract %s\n' \
+    "$RECEIPT_PROVEN" "$RECEIPT_REQUIRED" "$RECEIPT_FILES" "$RECEIPT_CONTRACT"
 printf '  swiftpm:          tag %s resolved at %s\n' "$RESOLVED_VERSION" "$RESOLVED_REVISION"
 printf '  maven staging:    %s (6 modules)\n' "$STAGING"
 printf '  sbom:             %s\n' "$SBOM_DIR"

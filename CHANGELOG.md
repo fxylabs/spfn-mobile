@@ -5,6 +5,31 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Publication now requires evidence that a person held a phone
+
+- A device session on 2026-09-01 drove all fifteen social sign-in cells — {iOS × Apple,
+  iOS × Google, Android × Google} × {first-enroll, re-login, user-cancel,
+  network-failure, server-reject} — by hand on real phones against a real SPFN server.
+  The 27 receipts it produced are committed under `tools/device-receipts/runs/2026-09-01/`,
+  retries and mis-declared attempts included: the record is what happened, not a
+  selection from it.
+- `tools/device-receipts/receipt-gate.sh` turns those files into a refusal. Each cell
+  needs a receipt whose recorded outcome matches the case table and whose contract
+  version is the one this repository pins, so re-pinning the contract retires the
+  evidence and demands a fresh device run. `tools/rc-verify/rc-verify.sh` runs it first
+  and will not verify a candidate without it; the two environment overrides the gate
+  offers its own probe are cleared on that path, so no shell variable can point it at
+  hand-written evidence.
+- `tools/device-receipts/probe-receipt-gate.sh` proves the gate bites in each of the
+  fifteen ways its evidence can be absent, unreadable, malformed, mis-named, carrying an
+  identifier or token it must never carry, or simply wrong — and asserts no two of those
+  refusals produce the same sentence, which is the difference between "the gate could
+  not look" and "the gate looked and found nothing wrong". `tools/validate/validate.sh`
+  runs both the probe and the gate on every run.
+- COMPATIBILITY.md gains a device sign-in row, resolved for contract `0.9.0`. The iOS
+  and Android rows stay UNRESOLVED: their gates are whole platforms, and a proven
+  sign-in path is narrower than that.
+
 ### Decimal fields are emitted, and encoding is where an impossible value fails
 
 - The generator now emits `decimal<scale>` fields as Swift `Decimal` and Kotlin
