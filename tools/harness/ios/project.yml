@@ -23,9 +23,25 @@ options:
     iOS: "16.0"
   createIntermediateGroups: true
 
+# The harness needs the `SocialGoogle` trait on: Google's own SDK is resolved and linked
+# only under it, and `SPFNSocialGoogle.init(presenting:)` — the one call that puts a real
+# sheet in front of a person — lives inside the `#if SocialGoogle` block. A harness built
+# with the trait off compiles the adapter and has no way to reach a sheet through it.
+#
+# Xcode cannot turn a trait on. XcodeGen writes `traits = (...)` into the
+# `XCLocalSwiftPackageReference` and Xcode 26.2 ignores it: measured, not assumed — a
+# probe project with those exact lines resolved zero remote packages and failed to see
+# `SPFNGooglePresentingContext`, and the same probe with the manifest below built and
+# resolved GoogleSignIn 9.2.0. So the trait is declared where SwiftPM does read it, in a
+# manifest: `HarnessSupport/Package.swift`, whose only job is to depend on this
+# repository with both traits enabled. Adding it to the graph turns them on for every
+# copy of the package in that graph, which is why the products below are still taken
+# straight from `SPFNMobile`.
 packages:
   SPFNMobile:
     path: ../../..
+  SPFNHarnessSupport:
+    path: HarnessSupport
 
 targets:
   SPFNHarness:
@@ -33,6 +49,13 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+    # Every value the device mode reads comes from here, and none of it is committed.
+    # The tracked file declares the keys empty and then optionally includes the
+    # gitignored `Local.xcconfig`, so a clean checkout builds and the app reports itself
+    # unconfigured rather than crashing on a value nobody supplied.
+    configFiles:
+      Debug: Harness.xcconfig
+      Release: Harness.xcconfig
     dependencies:
       - package: SPFNMobile
         product: SPFNCore
@@ -42,6 +65,12 @@ targets:
         product: SPFNGenerated
       - package: SPFNMobile
         product: SPFNClient
+      # Carries the two adapter modules, and the traits that make them whole. The app
+      # imports `SPFNHarnessSupport` rather than the adapters directly, so what it can
+      # reach is what this one product re-exports rather than whatever else happened to
+      # land in the build products directory.
+      - package: SPFNHarnessSupport
+        product: SPFNHarnessSupport
     info:
       path: Generated/Info.plist
       properties:
@@ -49,6 +78,37 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        # A receipt is only evidence if someone can read it off the phone, so the
+        # Documents directory is exposed to Finder and to the Files app. Nothing but
+        # receipts is written there, and a receipt carries no token by construction.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        # Google's SDK reads its client id from here and raises an NSException — not an
+        # error a Swift caller can catch — when it is missing or when the reversed-client-id
+        # scheme below is not registered. Both are empty in a clean checkout, which is
+        # exactly why HarnessConfiguration refuses to call Google until it has checked
+        # both itself.
+        GIDClientID: $(SPFN_HARNESS_GOOGLE_CLIENT_ID)
+        # The verify server, as host and port rather than as a URL: `//` opens a comment
+        # in an xcconfig, so a whole URL in Local.xcconfig would silently truncate to
+        # `http:`. Two keys cannot do that.
+        SPFNHarnessServerHost: $(SPFN_HARNESS_SERVER_HOST)
+        SPFNHarnessServerPort: $(SPFN_HARNESS_SERVER_PORT)
+        CFBundleURLTypes:
+          - CFBundleURLName: xyz.superfunction.spfn.harness.google
+            CFBundleURLSchemes:
+              - $(SPFN_HARNESS_GOOGLE_REVERSED_CLIENT_ID)
+        # The narrowest exception iOS offers for what this actually needs: a phone
+        # reaching a verify server on the same wifi over plain http. `NSAllowsLocalNetworking`
+        # permits insecure loads to .local names, unqualified host names and the private
+        # and link-local address ranges — and nothing else. `NSAllowsArbitraryLoads` would
+        # have opened every host on the internet to answer the same question.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        # iOS 14 and later ask the person before an app may reach the local network at
+        # all, and an app with no purpose string is refused without a prompt.
+        NSLocalNetworkUsageDescription: >-
+          The harness enrols a key against an SPFN verify server running on this network.
     # The harness stores its key in the real keychain, and the keychain answers nothing to
     # an app with no entitlements. An unsigned simulator build has none, so every store
     # call failed with -34018 and the state label read `unreadable` — the first run after
@@ -65,11 +125,20 @@ targets:
     # processed `.xcent` is `{}` with the prefix and `{}` without it. The keychain still
     # answers there because an app with no access group gets its bundle id as one. So
     # this file's entitlement is a device concern, and the simulator is unaffected.
+    #
+    # `com.apple.developer.applesignin` is what makes the real Apple sheet appear on a
+    # device, and it is the one entitlement here that costs something: Sign in with Apple
+    # is a paid-programme capability, so a free personal team can no longer sign this
+    # target. The custody probe never needed it — that run stays possible with
+    # `CODE_SIGN_ENTITLEMENTS=""` on the xcodebuild command line, which drops both keys
+    # for that build only. The README says so beside the procedure.
     entitlements:
       path: Generated/SPFNHarness.entitlements
       properties:
         keychain-access-groups:
           - $(AppIdentifierPrefix)xyz.superfunction.spfn.harness
+        com.apple.developer.applesignin:
+          - Default
     settings:
       base:
         # Ad-hoc, and it is the signature rather than the entitlement above that makes a

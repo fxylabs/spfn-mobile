@@ -18,7 +18,9 @@ sh tools/harness/run-harness.sh android
 | Path | What it is |
 | --- | --- |
 | `ios/project.yml` | the iOS app's project, as data. `SPFNHarness.xcodeproj` is generated from it and gitignored |
-| `ios/Sources/` | the iOS harness: a screen with ten buttons and four labels |
+| `ios/Sources/` | the iOS harness: a screen of buttons and readouts |
+| `ios/Harness.xcconfig` | the device mode's keys, declared empty, plus an optional include of the gitignored `Local.xcconfig` |
+| `ios/HarnessSupport/` | a SwiftPM package that enables the two adapter traits, and holds the harness rules that have tests |
 | `android/` | the same app in Kotlin, as the one application module in this repository |
 | `flows/` | the Maestro flows, one per cell of the case table below |
 | `run-harness.sh` | builds, installs, runs every flow, and fails unless every case left a receipt |
@@ -98,6 +100,13 @@ loopback address, and how a target reaches that address is different for each ki
 `adb reverse` is why an Android phone needs no extra setup: the device's own `127.0.0.1`
 arrives at the host's over the debugging connection, so the server stays on loopback and
 is never exposed to the network.
+
+**On Android, that address also has to be the one the build permits.** The app speaks
+plain HTTP to exactly one host — the one `spfn.harness.serverBaseUrl` names — and to
+nothing else, so an emulator run puts `10.0.2.2` in that key and a device run behind
+`adb reverse` puts `127.0.0.1`. The alternative was to keep permanent exceptions for all
+three loopback spellings, which would make the exception a standing grant to addresses no
+run had named. See the device sign-in section below for the key.
 
 A physical iPhone is missing from that table because it never gets that far — the next
 section is why.
@@ -208,6 +217,217 @@ does — which is exactly why the SDK hands the nonce to the closure.
 An Android device run leaves both out, takes the real sheet by hand, and everything on
 either side of that one tap stays automatic.
 
+## The device sign-in mode, on Android
+
+This is the mode where nothing is substituted: a real Google account, a real id token, a
+real SPFN server, and a file left behind saying what happened. It is driven by a person,
+because the sheet is the provider's own UI and no flow may be trusted to get through it.
+
+Apple is not here and will not be. There is no Android Apple adapter — Apple ships no
+native sign-in SDK for this platform — so the mode is Google only, by declaration rather
+than by omission (`tools/module-graph.json`, `social-apple`).
+
+### What you configure, and where
+
+Two keys in `local.properties` at the repository root. That file is gitignored, and the
+build reads nothing else — no environment variable, no committed default.
+
+| Key | What it is |
+| --- | --- |
+| `spfn.harness.google.serverClientId` | the **web** OAuth client id of your Google project. Credential Manager calls it `serverClientId`, and the Android client id is not it |
+| `spfn.harness.serverBaseUrl` | scheme, host and port of the SPFN server the phone enrols against. No path, no query |
+
+Neither value is ever printed — not by the build, not by the app, not into a receipt. A
+build that finds a key present but malformed **fails**, naming the key and the shape it
+wanted; a build that finds no keys at all **succeeds**, and the app installs with the
+`social-google` button disabled and `social=not-configured` on the screen. Those two
+outcomes are different on purpose: an absent configuration is a normal checkout, and a
+typo in a configured one must not look like the same thing.
+
+`spfn.harness.serverBaseUrl` also drives the cleartext exception. `AndroidManifest.xml` no
+longer says "this app may speak plain HTTP to anything"; the build writes a network
+security configuration permitting cleartext to **exactly the host that key names** and to
+nothing else. A build configured with no server permits cleartext to nothing at all.
+
+That is one host, not a set, and it decides what every run on this platform can reach:
+
+| Run | What goes in `spfn.harness.serverBaseUrl` |
+| --- | --- |
+| device sign-in against a LAN server | that machine's address |
+| Maestro flows on an emulator | `10.0.2.2`, the emulator's alias for the host loopback |
+| Maestro flows on a device behind `adb reverse` | `127.0.0.1` |
+
+A request to a host the build does not name is refused by the platform, before it leaves.
+
+### Running it
+
+```sh
+ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew :harness-android:installDebug
+```
+
+Then, on the phone: pick the case, tap `social-google`, and complete or dismiss the sheet.
+
+| Button | The case it declares |
+| --- | --- |
+| `case-first-enroll` | this account has never enrolled here. Tap `wipe` first |
+| `case-re-login` | the same account again. Tap `wipe` first, then sign in as the same person |
+| `case-user-cancel` | dismiss the sheet instead of choosing an account |
+| `case-network-failure` | the harness holds the transport shut for the attempt; the sheet still runs |
+| `case-server-reject` | the harness damages the token after the provider issued it, so the server refuses it |
+
+The case is a declaration, not a switch. `first-enroll`, `re-login` and `user-cancel` are
+the same code path — the app cannot tell a first enrolment from a second one, and a
+dismissal from a sign-in that never started — so what the person meant is recorded next to
+what actually happened. Only the last two change behaviour, and both do it on this side of
+the wire: nothing about the server or the SDK is configured for them.
+
+### Collecting the receipts
+
+Every attempt writes one file, whichever way it went, into the app's external files
+directory:
+
+```sh
+adb pull /sdcard/Android/data/xyz.superfunction.spfn.harness/files ./receipts
+```
+
+The file is `receipt-google-<case>-<epochMillis>.json` and the screen names the last one in
+its `receipt=` label. **No receipt contains a token, an email, a name or any account
+identifier** — a receipt that carried one would be a credential rather than evidence, and
+that is a blocking defect, not a cleanup.
+
+| Field | What fills it |
+| --- | --- |
+| `outcome` | `enrolled`, `cancelled` or `failed`. A dismissed sheet is `cancelled`, never a failure |
+| `responseCode` | the status of the last response the attempt received, or `null` when none arrived |
+| `errorCode` | the SDK's own name for the refusal. A server refusal on the native enrolment endpoint arrives as a `decoding:` name, because that endpoint sits outside the clientProof middleware and does not answer in the contract's error envelopes |
+| `isNewUser`, `keyIdMatch` | the server's answer and this install's own check of it. `null` on anything but an enrolment, because no server said anything |
+| `keyRemainsAfterFailure` | read from the **Keystore**, not from the SDK's metadata: on Android the alias exists before the sign-in is asked for, so whether a failure left one behind is a question only the Keystore can answer |
+| `serverCommit` | a response header, and only if it **is** a commit hash — 7 to 40 lowercase hex characters after lowercasing. Anything else is `null`, because a header is written by whatever answered and an unvalidated one is how an address or a name reaches a file that was supposed to hold neither. The contract declares no such header, so `null` is an ordinary reading |
+
+Attempts do not overwrite each other. The file name carries milliseconds, which is what the
+spec fixes after two attempts at one case finished inside the same second and the second
+one destroyed the first one's evidence.
+
+## The device sign-in mode, on iOS
+
+Everything above proves the SDK's own behaviour with a token the harness composed. What
+it cannot prove is that a person tapping Apple's or Google's own sheet ends up enrolled
+against a real server — that needs a real provider, a real signature, and a human. So the
+iOS harness has a second half that no flow drives.
+
+A person picks one of five cases, taps a provider, and the app writes a JSON receipt into
+its Documents directory. The receipt is the evidence; the screen is a convenience.
+
+| case | expected outcome | what to do |
+| --- | --- | --- |
+| `first-enroll` | `enrolled`, `isNewUser` true | wipe, then sign in with an account this server has never seen |
+| `re-login` | `enrolled`, `isNewUser` false | wipe, then sign in with the account `first-enroll` used |
+| `user-cancel` | `cancelled`, no key left behind | wipe, then dismiss the sheet |
+| `network-failure` | `failed`, no key left behind | wipe, then complete the sheet — the app drops its own transport for the attempt |
+| `server-reject` | `failed`, no key left behind | wipe, then complete the sheet — the app sends a token the server cannot verify |
+
+**Tap `wipe` before every case.** The SDK refuses a second enrolment while one is in
+place, so a case run on top of a previous one reports `alreadyEnrolled` and proves
+nothing about the provider.
+
+Two of those cases need the harness to arrange something, and both reuse a seam that
+already existed. `network-failure` flips the same transport switch the `block-network`
+button flips, so the sheet still works and the enrolment request is what fails.
+`server-reject` appends a marker to the token the adapter returned, so the sheet is real
+and the signature the server checks is not. Neither touches the SDK.
+
+### What a receipt says
+
+`Documents/receipt-<provider>-<case>-<epochMillis>.json`, one per attempt, the schema
+shared with the Android half. Read them off the phone with Finder — the app declares
+`UIFileSharingEnabled`, so it appears under the device's Files tab — or through the Files
+app on the phone itself.
+
+Milliseconds, not seconds. Two attempts at the same case that finished inside one second
+used to land on one name, and the second write destroyed the first attempt's evidence —
+which a cancelled sheet reaches easily.
+
+**A receipt never carries a token, an email address or a name.** That is enforced by
+shape rather than by care: every field is a boolean, an integer, a timestamp, an
+SDK-classified error name or a version constant, and the adapters drop a provider's
+message text before the harness ever sees an error. A receipt holding a token would be a
+credential, and finding one is a blocking defect rather than a cleanup.
+
+Two fields are worth reading closely:
+
+- `errorCode` is the SDK's own classification, never a translation. `server-reject`
+  arrives as one of the `decoding:` names rather than as a contract error code, because
+  `/_auth/oauth/:provider/native` sits outside the clientProof middleware and answers with
+  something the contract's error envelope does not describe. That is the expected reading,
+  not a bug in the harness.
+- `serverCommit` is the one field whose value arrives from the network, so it is the one
+  place PII could enter a file that leaves the phone. It is kept only when it matches
+  `^[0-9a-f]{7,40}$` after lowercasing, and is `null` otherwise — including against every
+  server in this repository, none of which states a build in a header yet.
+
+Both rules have tests. `swift test --package-path tools/harness/ios/HarnessSupport` runs
+them: the file name at millisecond granularity, and the commit filter against hashes,
+length boundaries, uppercase hex, non-ASCII lookalike digits and a handful of strings a
+misconfigured header could carry instead.
+
+### Configuring it, and what happens when you have not
+
+Three values are needed and none of them may be committed: where the verify server is on
+your wifi, and a Google OAuth client id with the URL scheme derived from it. Write them
+into `tools/harness/ios/Local.xcconfig`, which is gitignored:
+
+| key | what it holds |
+| --- | --- |
+| `SPFN_HARNESS_SERVER_HOST` | the Mac's LAN address or `.local` name — host only, no scheme and no path |
+| `SPFN_HARNESS_SERVER_PORT` | the verify server's port |
+| `SPFN_HARNESS_GOOGLE_CLIENT_ID` | the iOS OAuth client id from the Google Cloud console |
+| `SPFN_HARNESS_GOOGLE_REVERSED_CLIENT_ID` | that client id with its dot components reversed |
+
+Host and port are two keys rather than one URL because `//` opens a comment in an
+xcconfig: a whole URL written there truncates to `http:` without a word of warning.
+
+A checkout without that file still builds. Every key expands to an empty string, the
+`config=` readout says which half is missing, and both provider buttons are disabled and
+say `(not configured)`. That is deliberate and it is not politeness: Google's SDK answers
+a missing client id, or an unregistered callback scheme, by raising an NSException, which
+no Swift caller can catch. So the app recomputes the scheme from the client id and checks
+the bundle really registers it before it will let the button be tapped at all.
+
+### Signing it
+
+The device build needs a **paid** Apple Developer Program team. Sign in with Apple is a
+paid-programme capability, so the `com.apple.developer.applesignin` entitlement the
+harness now carries cannot be signed by a free personal team.
+
+The custody probe above never needed that entitlement, and a free team can still run it
+by dropping the entitlements file for that build alone:
+
+```sh
+xcodebuild -project tools/harness/ios/SPFNHarness.xcodeproj -scheme SPFNHarness \
+    -destination "platform=iOS,id=<device udid>" \
+    -allowProvisioningUpdates DEVELOPMENT_TEAM=<your team id> \
+    CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development" \
+    CODE_SIGN_ENTITLEMENTS="" build
+```
+
+### Why there is a second Package.swift
+
+`ios/HarnessSupport/` is a small package, and it exists because a package trait can only
+be turned on by a manifest. `SPFNSocialGoogle` links Google's SDK and
+exposes `init(presenting:)` only under the `SocialGoogle` trait, and an Xcode app target
+has no manifest to enable it from. XcodeGen will write `traits = (...)` into the
+generated project and Xcode 26.2 ignores it — measured with a probe project, which
+resolved zero remote packages and could not see `SPFNGooglePresentingContext`. So the
+trait is declared in `HarnessSupport/Package.swift`, which the app depends on; adding it
+to the graph turns the traits on for every copy of the SDK in that graph.
+
+It carries three of the harness's own types too — the receipt, the case and provider
+names, and the server-commit filter — for a reason that is not tidiness. An Xcode app
+target has no suite `swift test` can run, and those two rules have expected values worth
+pinning, so they live where a test can reach them. The app imports them unchanged.
+
+Nothing in the SDK changed for any of this.
+
 ## Running against something other than the reference server
 
 ```sh
@@ -219,6 +439,10 @@ SPFN_HARNESS_ID_TOKEN=<a real provider token> \
 The runner starts nothing and stops nothing in this mode. It never falls back to the local
 server: a run that checked the reference server while reporting a real one would be the
 most expensive kind of green there is.
+
+**On Android that host has to be the one in `local.properties`.** The app permits cleartext
+to exactly one host, so a target the build never heard of is refused by the platform before
+any request leaves. Put the same address in `spfn.harness.serverBaseUrl` and rebuild.
 
 ## Picking a target
 

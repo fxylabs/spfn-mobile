@@ -42,6 +42,7 @@
 | 게이트·통합 매트릭스 실행 | [P11](#p11) [P12](#p12) |
 | 버전 범위·호환성 규칙 수정 | [P3](#p3) [P13](#p13) |
 | Android main 소스에 `java.*`/`javax.*` import 추가 | [P14](#p14) |
+| Xcode 타깃에서 SwiftPM 패키지 트레이트 켜기 | [P17](#p17) |
 
 ---
 
@@ -364,6 +365,36 @@ resume하고 그 다음 플랫폼 컨트롤러를 취소한다 — 순서가 반
 **나온 곳.** PR #24 fresh 리뷰 — Google 어댑터가 `CancellationException`을
 `Failed(SIGN_IN_FAILED)`로 바꿨고, Apple 세션에는 취소 핸들러가 없어 태스크 취소가
 continuation과 세션을 영구히 붙잡았다. 범용 축은 coding-context 후보.
+
+## P17. Xcode는 패키지 트레이트를 켜지 못한다 {#p17}
+
+**증상.** Xcode 타깃에서 트레이트 게이트된 API를 쓰려고 XcodeGen `packages:`에 `traits:`를
+적는다. XcodeGen은 `XCLocalSwiftPackageReference`에 `traits = (...)`를 정직하게 써 넣고,
+Xcode 26.2는 그 키를 **무시한다.** 실패는 조용하다 — 빌드가 "트레이트를 못 켠다"고 말하는
+대신 `#if <트레이트>` 블록 안의 타입을 "cannot find type ... in scope"로 보고하고,
+트레이트 뒤의 원격 의존성은 아예 해석되지 않는다. 원인이 트레이트라는 단서가 에러에 없다.
+
+**탐지.** 트레이트 게이트된 심볼이 "scope에 없다"고 나오면 먼저 해석 목록을 본다.
+확인 명령:
+
+```
+xcodebuild -project <proj> -resolvePackageDependencies -scheme <scheme> 2>&1 \
+  | grep 'resolved source packages'
+```
+
+트레이트 뒤에 있는 원격 패키지가 그 줄에 없으면 트레이트가 꺼진 것이다. `.xcodeproj`에
+`traits = (...)`가 **있는데도** 없으면 적중.
+
+**처방.** 트레이트는 매니페스트만 켤 수 있다. 앱 타깃과 SDK 사이에 매니페스트 하나짜리
+패키지를 두고 거기서 `.package(name:path:traits:)`로 의존한다. 그 패키지를 그래프에 넣으면
+같은 그래프 안의 모든 사본에 트레이트가 켜진다 — 앱은 SDK 프로덕트를 계속 직접 참조해도
+된다. `name:`을 빼지 말 것: path 의존성의 identity는 **디렉터리 이름**이라 worktree처럼
+브랜치 이름이 붙은 체크아웃에서 `.product(package:)`가 깨진다.
+
+**나온 곳.** w-9jqtj iOS — 하네스가 실기기에서 Google 시트를 띄우려면 `SocialGoogle`이
+필요했다. 프로브 프로젝트로 실측: `traits:`만 쓴 쪽은 원격 패키지 0개에
+`SPFNGooglePresentingContext` 미해결, 매니페스트 쪽은 GoogleSignIn 9.2.0 해석 + 빌드 성공.
+실물은 `tools/harness/ios/HarnessSupport/Package.swift`.
 
 ## 원장
 

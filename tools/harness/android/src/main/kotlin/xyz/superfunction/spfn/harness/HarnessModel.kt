@@ -1,6 +1,9 @@
 package xyz.superfunction.spfn.harness
 
+import android.app.Activity
 import android.content.Context
+import java.io.IOException
+import kotlin.coroutines.cancellation.CancellationException
 import xyz.superfunction.spfn.client.SpfnAndroidKeystoreEngine
 import xyz.superfunction.spfn.client.SpfnClient
 import xyz.superfunction.spfn.client.SpfnKeyLifecycle
@@ -50,7 +53,27 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
     var networkBlocked: Boolean = false
         private set;
 
+    /**
+     * Which case the next device sign-in will be recorded as.
+     *
+     * The app cannot infer it. A first enrolment and a re-login are the same code path, and
+     * a dismissal looks like a sign-in that never started, so the person declares the
+     * intent before tapping and the receipt records what happened under it.
+     */
+    var socialCase: HarnessSocialCase = HarnessSocialCase.FIRST_ENROLL
+        private set;
+
+    /** `none` until an attempt writes one, then the receipt file the run left behind. */
+    var receipt: String = "none"
+        private set;
+
     private val transport = HarnessTransport();
+
+    /**
+     * The application context, not the Activity: a receipt store outlives no screen, and
+     * holding the Activity here would keep a destroyed one alive.
+     */
+    private val receipts = HarnessReceiptStore(context.applicationContext);
 
     /** Held rather than passed inline, because [probeCustody] generates through it too. */
     private val engine = SpfnAndroidKeystoreEngine();
@@ -159,6 +182,66 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
         outcome = if (value) "ok:network-blocked" else "ok:network-open";
     }
 
+    // ---- the device sign-in mode -------------------------------------------
+
+    fun selectSocialCase(value: HarnessSocialCase)
+    {
+        socialCase = value;
+    }
+
+    /**
+     * The real Google sheet, the real server, and a receipt either way.
+     *
+     * Not routed through [run]: this action's outcome vocabulary is the receipt's —
+     * `enrolled`, `cancelled` or `failed` — and a cancelled sign-in reported as `err:` on
+     * the screen would contradict the receipt sitting next to it (P16).
+     */
+    suspend fun signInWithGoogle(activity: Activity)
+    {
+        val case = socialCase;
+        try
+        {
+            val attempt = HarnessSocialAttempt(lifecycle, transport, configuration.baseUrl).run(activity, case);
+            outcome = "${attempt.outcome}:${case.wireName}";
+            receipt = fileNameOf(attempt);
+        }
+        catch (cancellation: CancellationException)
+        {
+            // Rethrown before the net below, for the reason [run] gives (P16).
+            throw cancellation;
+        }
+        catch (error: Throwable)
+        {
+            // Reached only when the attempt could not RUN — an unconfigured build, or a
+            // Keystore that could not be read. A sign-in that merely failed is not here;
+            // it is an outcome with a receipt of its own.
+            outcome = "err:${HarnessOutcome.name(error)}";
+        }
+        refresh();
+    }
+
+    /**
+     * Writes the receipt and answers its name, or answers why it could not be written.
+     *
+     * The attempt's own outcome is already on the label by the time this runs, so a
+     * failure here loses nothing but the file. It is reported rather than swallowed: a
+     * receipt that is absent and a receipt that could not be written are different events,
+     * and a run that showed neither would be indistinguishable from a run nobody made
+     * (docs/IMPLEMENTATION-PITFALLS.md P7).
+     */
+    private fun fileNameOf(attempt: HarnessReceipt): String = try
+    {
+        receipts.write(attempt);
+    }
+    catch (unavailable: HarnessException)
+    {
+        "unwritten:${HarnessOutcome.name(unavailable)}";
+    }
+    catch (failure: IOException)
+    {
+        "unwritten:ioError";
+    };
+
     // ---- running one action ------------------------------------------------
 
     /**
@@ -171,6 +254,13 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
         outcome = try
         {
             "ok:${action()}"
+        }
+        catch (cancellation: CancellationException)
+        {
+            // Rethrown before the net below can take it. A cancelled coroutine is the
+            // screen going away, not a refusal the SDK produced, and naming it one would
+            // put a failure on a label nobody caused (P16).
+            throw cancellation;
         }
         catch (error: Throwable)
         {
