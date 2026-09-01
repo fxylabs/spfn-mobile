@@ -43,6 +43,9 @@ class HarnessActivity : Activity()
     private lateinit var outcomeLabel: TextView;
     private lateinit var busyLabel: TextView;
     private lateinit var custodyLabel: TextView;
+    private lateinit var caseLabel: TextView;
+    private lateinit var socialLabel: TextView;
+    private lateinit var receiptLabel: TextView;
 
     override fun onCreate(savedInstanceState: Bundle?)
     {
@@ -69,15 +72,73 @@ class HarnessActivity : Activity()
         outcomeLabel = label(column);
         busyLabel = label(column);
         custodyLabel = label(column);
+        caseLabel = label(column);
+        socialLabel = label(column);
+        receiptLabel = label(column);
 
         for (action in actions())
         {
             column.addView(button(action));
         }
 
+        for (case in HarnessSocialCase.entries)
+        {
+            column.addView(caseButton(case));
+        }
+        column.addView(socialButton());
+
         val scroll = ScrollView(this);
         scroll.addView(column);
         return scroll;
+    }
+
+    /**
+     * The case picker: one button per case, and the selection rides in the `case=` label.
+     *
+     * A button rather than a spinner for the same reason the rest of this screen is
+     * buttons — a resource id is what a flow can find, and a spinner's rows are not views
+     * a flow can name. Selecting is instant work, so it does not go through [perform]:
+     * showing `busy=busy` for a field assignment would teach a flow to wait for nothing.
+     */
+    private fun caseButton(case: HarnessSocialCase): Button
+    {
+        val view = Button(this);
+        view.id = caseId(case);
+        view.text = "case-${case.wireName}";
+        view.isAllCaps = false;
+        view.setOnClickListener {
+            model.selectSocialCase(case);
+            render(busy = false);
+        };
+        return view;
+    }
+
+    private fun caseId(case: HarnessSocialCase): Int = when (case)
+    {
+        HarnessSocialCase.FIRST_ENROLL -> R.id.btn_case_first_enroll
+        HarnessSocialCase.RE_LOGIN -> R.id.btn_case_re_login
+        HarnessSocialCase.USER_CANCEL -> R.id.btn_case_user_cancel
+        HarnessSocialCase.NETWORK_FAILURE -> R.id.btn_case_network_failure
+        HarnessSocialCase.SERVER_REJECT -> R.id.btn_case_server_reject
+    };
+
+    /**
+     * The one button that opens a real provider sheet.
+     *
+     * Disabled — visibly, with the reason on the `social=` label — when this build carries
+     * no client id or no server address. A checkout of this repository is exactly that
+     * build, and it installs and runs: the configuration is missing, so the action that
+     * needs it is unavailable, which is a state rather than a crash.
+     */
+    private fun socialButton(): Button
+    {
+        val view = Button(this);
+        view.id = R.id.btn_social_google;
+        view.text = "social-google";
+        view.isAllCaps = false;
+        view.isEnabled = HarnessSocialConfiguration.isConfigured;
+        view.setOnClickListener { perform { model.signInWithGoogle(this@HarnessActivity) } };
+        return view;
     }
 
     /**
@@ -138,5 +199,10 @@ class HarnessActivity : Activity()
         outcomeLabel.text = "outcome=${model.outcome}";
         busyLabel.text = if (busy) "busy=busy" else "busy=ready";
         custodyLabel.text = "custody=${model.custody}";
+        caseLabel.text = "case=${model.socialCase.wireName}";
+        // The word only. A client id and a server address are what this build was given,
+        // and neither belongs on a screen that ends up in a screenshot.
+        socialLabel.text = "social=${HarnessSocialConfiguration.readout}";
+        receiptLabel.text = "receipt=${model.receipt}";
     }
 }

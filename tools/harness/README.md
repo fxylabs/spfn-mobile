@@ -208,6 +208,87 @@ does — which is exactly why the SDK hands the nonce to the closure.
 An Android device run leaves both out, takes the real sheet by hand, and everything on
 either side of that one tap stays automatic.
 
+## The device sign-in mode, on Android
+
+This is the mode where nothing is substituted: a real Google account, a real id token, a
+real SPFN server, and a file left behind saying what happened. It is driven by a person,
+because the sheet is the provider's own UI and no flow may be trusted to get through it.
+
+Apple is not here and will not be. There is no Android Apple adapter — Apple ships no
+native sign-in SDK for this platform — so the mode is Google only, by declaration rather
+than by omission (`tools/module-graph.json`, `social-apple`).
+
+### What you configure, and where
+
+Two keys in `local.properties` at the repository root. That file is gitignored, and the
+build reads nothing else — no environment variable, no committed default.
+
+| Key | What it is |
+| --- | --- |
+| `spfn.harness.google.serverClientId` | the **web** OAuth client id of your Google project. Credential Manager calls it `serverClientId`, and the Android client id is not it |
+| `spfn.harness.serverBaseUrl` | scheme, host and port of the SPFN server the phone enrols against. No path, no query |
+
+Neither value is ever printed — not by the build, not by the app, not into a receipt. A
+build that finds a key present but malformed **fails**, naming the key and the shape it
+wanted; a build that finds no keys at all **succeeds**, and the app installs with the
+`social-google` button disabled and `social=not-configured` on the screen. Those two
+outcomes are different on purpose: an absent configuration is a normal checkout, and a
+typo in a configured one must not look like the same thing.
+
+The same two keys drive the cleartext exception. `AndroidManifest.xml` no longer says
+"this app may speak plain HTTP to anything"; the build writes a network security
+configuration permitting cleartext to the emulator's host alias, the device's own
+loopback, and the one host `spfn.harness.serverBaseUrl` names — and to nothing else.
+
+### Running it
+
+```sh
+ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew :harness-android:installDebug
+```
+
+Then, on the phone: pick the case, tap `social-google`, and complete or dismiss the sheet.
+
+| Button | The case it declares |
+| --- | --- |
+| `case-first-enroll` | this account has never enrolled here. Tap `wipe` first |
+| `case-re-login` | the same account again. Tap `wipe` first, then sign in as the same person |
+| `case-user-cancel` | dismiss the sheet instead of choosing an account |
+| `case-network-failure` | the harness holds the transport shut for the attempt; the sheet still runs |
+| `case-server-reject` | the harness damages the token after the provider issued it, so the server refuses it |
+
+The case is a declaration, not a switch. `first-enroll`, `re-login` and `user-cancel` are
+the same code path — the app cannot tell a first enrolment from a second one, and a
+dismissal from a sign-in that never started — so what the person meant is recorded next to
+what actually happened. Only the last two change behaviour, and both do it on this side of
+the wire: nothing about the server or the SDK is configured for them.
+
+### Collecting the receipts
+
+Every attempt writes one file, whichever way it went, into the app's external files
+directory:
+
+```sh
+adb pull /sdcard/Android/data/xyz.superfunction.spfn.harness/files ./receipts
+```
+
+The file is `receipt-google-<case>-<epochSeconds>.json` and the screen names the last one
+in its `receipt=` label. **No receipt contains a token, an email, a name or any account
+identifier** — a receipt that carried one would be a credential rather than evidence, and
+that is a blocking defect, not a cleanup.
+
+| Field | What fills it |
+| --- | --- |
+| `outcome` | `enrolled`, `cancelled` or `failed`. A dismissed sheet is `cancelled`, never a failure |
+| `responseCode` | the status of the last response the attempt received, or `null` when none arrived |
+| `errorCode` | the SDK's own name for the refusal. A server refusal on the native enrolment endpoint arrives as a `decoding:` name, because that endpoint sits outside the clientProof middleware and does not answer in the contract's error envelopes |
+| `isNewUser`, `keyIdMatch` | the server's answer and this install's own check of it. `null` on anything but an enrolment, because no server said anything |
+| `keyRemainsAfterFailure` | read from the **Keystore**, not from the SDK's metadata: on Android the alias exists before the sign-in is asked for, so whether a failure left one behind is a question only the Keystore can answer |
+| `serverCommit` | the first commit-shaped response header the server sent, or `null`. The contract declares none, so `null` is an ordinary reading |
+
+A second attempt at the same case within the same second overwrites the first, because the
+file name is the spec's and its resolution is one second. Pull between attempts if that
+matters.
+
 ## Running against something other than the reference server
 
 ```sh
@@ -219,6 +300,11 @@ SPFN_HARNESS_ID_TOKEN=<a real provider token> \
 The runner starts nothing and stops nothing in this mode. It never falls back to the local
 server: a run that checked the reference server while reporting a real one would be the
 most expensive kind of green there is.
+
+**On Android that host also has to be in `local.properties`.** The app permits cleartext
+to the hosts named at build time and to nothing else, so a target the build never heard of
+is refused by the platform before any request leaves. Put the same address in
+`spfn.harness.serverBaseUrl` and rebuild.
 
 ## Picking a target
 
