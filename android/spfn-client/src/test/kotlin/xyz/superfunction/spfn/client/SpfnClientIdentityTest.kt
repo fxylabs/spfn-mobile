@@ -111,7 +111,7 @@ class SpfnClientIdentityTest
     /** R3. A server ahead of this build. Its version is carried, because it parsed. */
     @Test
     fun r3AServerAheadOfThisBuildIsRefusedAndNamed() = runBlocking {
-        assertOutsideWindow("0.9.0");
+        assertOutsideWindow(AHEAD_OF_THE_WINDOW);
     }
 
     /**
@@ -148,12 +148,12 @@ class SpfnClientIdentityTest
             response(
                 409,
                 ExecuteFixtures.errorEnvelope("CONTRACT_UNSUPPORTED"),
-                announcementHeaders("0.9.0")
+                announcementHeaders(AHEAD_OF_THE_WINDOW)
             )
         );
 
         assertEquals(SpfnContractMismatch.Reason.OUTSIDE_ADMITTED_RANGE, mismatch.reason);
-        assertEquals("0.9.0", mismatch.serverVersion);
+        assertEquals(AHEAD_OF_THE_WINDOW, mismatch.serverVersion);
     }
 
     /** R7. The handshake is the second place a response is read, and it refuses alike. */
@@ -211,6 +211,24 @@ class SpfnClientIdentityTest
     }
 
     // ---- helpers -----------------------------------------------------------
+
+    companion object
+    {
+        /**
+         * The first version above the admitted window, computed from the pin rather than
+         * written down. The rule is the contract's own — `upstream.lock.json`'s
+         * `rangeRule`: on a 0.x line the breaking axis is the minor, above it the major —
+         * so this is the smallest version the window cannot admit.
+         *
+         * A literal here rots silently: these cells were written at the 0.4.1 pin, where
+         * "0.9.0" meant ahead; at the 0.9.0 pin the same literal sits inside the window
+         * and the cell asserts nothing. Derived, it moves with the pin.
+         */
+        val AHEAD_OF_THE_WINDOW: String =
+            with(SpfnGeneratedContract.BINDING) {
+                if (supportedMajor == 0) "0.${supportedMinor + 1}.0" else "${supportedMajor + 1}.0.0"
+            }
+    }
 
     private suspend fun assertOutsideWindow(announced: String)
     {

@@ -113,7 +113,7 @@ final class SPFNClientIdentityTests: XCTestCase
     /// R3. A server ahead of this build. Its version is carried, because it parsed.
     func testR3AServerAheadOfThisBuildIsRefusedAndNamed() async throws
     {
-        try await assertOutsideWindow(announced: "0.9.0")
+        try await assertOutsideWindow(announced: Self.aheadOfTheWindow)
     }
 
     /// R4. A server behind this build. The case only this side can catch: the server's
@@ -154,7 +154,7 @@ final class SPFNClientIdentityTests: XCTestCase
             with: answer(
                 409,
                 ExecuteFixtures.errorEnvelope(code: "CONTRACT_UNSUPPORTED"),
-                announcing: announcement("0.9.0")
+                announcing: announcement(Self.aheadOfTheWindow)
             )
         )
 
@@ -162,7 +162,7 @@ final class SPFNClientIdentityTests: XCTestCase
             thrown as? SPFNClientError,
             .contract(SPFNContractMismatch(
                 reason: .outsideAdmittedRange,
-                serverVersion: "0.9.0",
+                serverVersion: Self.aheadOfTheWindow,
                 admittedRange: SPFNGeneratedContract.binding.admittedRange
             ))
         )
@@ -216,6 +216,22 @@ final class SPFNClientIdentityTests: XCTestCase
     }
 
     // MARK: - Helpers
+
+    /// The first version above the admitted window, computed from the pin rather than
+    /// written down. The rule is the contract's own — `upstream.lock.json`'s `rangeRule`:
+    /// on a `0.x` line the breaking axis is the minor, above it the major — so this is the
+    /// smallest version the window cannot admit.
+    ///
+    /// A literal here rots silently: these cells were written at the `0.4.1` pin, where
+    /// `0.9.0` meant "ahead"; at the `0.9.0` pin the same literal sits inside the window
+    /// and the cell asserts nothing. Derived, it moves with the pin.
+    static var aheadOfTheWindow: String
+    {
+        let binding = SPFNGeneratedContract.binding
+        return binding.supportedMajor == 0
+            ? "0.\(binding.supportedMinor + 1).0"
+            : "\(binding.supportedMajor + 1).0.0"
+    }
 
     private func announcement(_ version: String) -> [(String, String)]
     {
