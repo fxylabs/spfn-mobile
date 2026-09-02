@@ -57,11 +57,14 @@ DEFAULT_LOCK=Contracts/upstream.lock.json
 LOCK=${SPFN_VERIFY_LOCK-$DEFAULT_LOCK}
 
 # Every case the real-server suite is required to have run. Read as "platform-case".
-# The letters are the case table: enrolment by login, a proven call under the enrolled
+# The numbers are the case table: enrolment by login, a proven call under the enrolled
 # key, rotation, a proven call under the new key while the replaced one is refused, and
-# revocation. There is no `/control` surface here and no fake identity — every one of
-# these is an operation the contract declares and a deployed SPFN server serves.
-EXPECTED_RECEIPTS='swift-r1 swift-r2 swift-r3 swift-r4 swift-r5'
+# revocation — then the device-code four: an approval, a denial, a second approval of one
+# code, and an approval nobody proved. There is no `/control` surface here and no fake
+# identity — every one of these is an operation the contract declares and a deployed SPFN
+# server serves. The reference suite's expired-code case has no twin: expiry needs a clock
+# a test can move, and a real server has none.
+EXPECTED_RECEIPTS='swift-r1 swift-r2 swift-r3 swift-r4 swift-r5 swift-r6 swift-r7 swift-r8 swift-r9'
 
 # Stops after the checks, without starting anything. This is how
 # tools/verify-server/probe-refusals.sh exercises the refusals: the probe drives the
