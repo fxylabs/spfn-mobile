@@ -1563,7 +1563,10 @@ do
     mv "$TMP/linux-swift-kept.txt" "$TMP/linux-swift-files.txt"
 done < "$TMP/linux-absent.txt"
 
-APPLE_ONLY_FRAMEWORKS='AuthenticationServices|UIKit|AppKit|LocalAuthentication|Security'
+# SwiftUI joined this list with the `ui` module. It is Apple-only and `SPFNUI` builds on
+# Linux, so the one file that imports it — FlowHost.swift — is guarded whole, and this is
+# what makes that a rule rather than a habit.
+APPLE_ONLY_FRAMEWORKS='AuthenticationServices|UIKit|AppKit|LocalAuthentication|Security|SwiftUI'
 APPLE_IMPORT_SCANNED=0
 APPLE_IMPORT_HITS=''
 while IFS= read -r source
@@ -1950,6 +1953,195 @@ contains RELEASE.md 'UNRESOLVED' 'RELEASE.md still claims no device support'
 contains Sources/SPFNCore/SPFNScaffold.swift 'isScaffold: Bool = true' 'the built library declares itself a scaffold'
 contains android/spfn-core/src/main/kotlin/xyz/superfunction/spfn/core/SpfnCore.kt 'IS_SCAFFOLD: Boolean = true' \
     'the Android library declares itself a scaffold'
+
+# ---------------------------------------------------------------------------
+section '13. the ui vocabulary is one vocabulary on both platforms'
+# ---------------------------------------------------------------------------
+# `Loadable`, `Busy` and `Flow` are written twice, once per platform, and the only thing
+# that keeps the two copies the same vocabulary is that somebody compares them. A screen
+# built against `Loadable.empty` on one platform and a `Loadable` that has no empty on the
+# other is not a portable app; the two would compile, both suites would pass, and the
+# divergence would surface as a missing branch in somebody's product.
+#
+# So the names are read out of both trees and compared per type. Extraction is
+# TYPE-SCOPED, not file-scoped: `Flow.swift` also declares `SPFNUIError`, whose
+# `emptyStack` is not one of Flow's names, and a file-scoped read would hand it over
+# (docs/IMPLEMENTATION-PITFALLS.md P5, the wrong-hit class). The current type is the last
+# declaration that began at column zero, which is the shape every top-level declaration in
+# both halves of this module has.
+#
+# Names are compared lowercased, because the two languages spell the same case
+# differently by convention and neither spelling is the vocabulary: Swift's `case loading`
+# and Kotlin's `data object Loading` are one name.
+#
+# Every extraction has a floor. A reader that read nothing produces an empty set, and two
+# empty sets agree — which would report parity having read no code at all (P7). Both sides
+# of every comparison must be non-empty, and the pass message carries the count.
+UI_SWIFT_DIR=Sources/SPFNUI
+UI_KOTLIN_DIR=android/spfn-ui/src/main/kotlin
+
+# The names one Swift type declares, one per line, lowercased.
+#
+# `kind` selects what counts as a name: `case` for an enum's cases, `func` for a type's
+# public methods. A case list may be written on one line (`case loading, ready(Value)`) or
+# one case per line, and both are read — a payload is erased before the comma split, so a
+# payload that carries a comma of its own cannot be mistaken for a second case.
+swift_ui_names()
+{
+    find "$UI_SWIFT_DIR" -name '*.swift' | sort > "$TMP/ui-swift-files.txt"
+    # An empty list is returned as an empty result rather than passed to awk, which would
+    # read standard input instead and hang. The caller's floor is what turns that into a
+    # failure; nothing here may quietly succeed at reading nothing.
+    if [ ! -s "$TMP/ui-swift-files.txt" ]
+    then
+        return 0
+    fi
+    awk -v want="$1" -v kind="$2" '
+        /^(public )?(final )?(class|struct|enum|protocol|extension) / {
+            declaration = $0
+            sub(/^public /, "", declaration)
+            sub(/^final /, "", declaration)
+            sub(/^[a-z]+ /, "", declaration)
+            sub(/[^A-Za-z0-9_].*$/, "", declaration)
+            current = declaration
+            next
+        }
+        current == want && kind == "case" && /^[[:space:]]+case / {
+            names = $0
+            sub(/^[[:space:]]+case /, "", names)
+            gsub(/\([^)]*\)/, "", names)
+            count = split(names, parts, ",")
+            for (part = 1; part <= count; part++)
+            {
+                name = parts[part]
+                # Trimmed BEFORE the tail is cut, not after: a comma-separated list leaves
+                # a leading space on every part but the first, and cutting from the first
+                # non-word character would erase those parts entirely — which reads as a
+                # one-case enum rather than as an extraction that went wrong.
+                sub(/^[ \t]+/, "", name)
+                sub(/[^A-Za-z0-9_].*$/, "", name)
+                if (name != "") { print tolower(name) }
+            }
+        }
+        current == want && kind == "func" && /^[[:space:]]+public func / {
+            name = $0
+            sub(/^[[:space:]]+public func /, "", name)
+            sub(/[^A-Za-z0-9_].*$/, "", name)
+            if (name != "") { print tolower(name) }
+        }
+    ' $(cat "$TMP/ui-swift-files.txt") | sort -u
+}
+
+# The same, for the Kotlin half. A sealed interface's states are its nested `object` and
+# `data class` declarations, which is that language's spelling of an enum case with a
+# payload; a class's names are its public functions.
+kotlin_ui_names()
+{
+    find "$UI_KOTLIN_DIR" -name '*.kt' | sort > "$TMP/ui-kotlin-files.txt"
+    if [ ! -s "$TMP/ui-kotlin-files.txt" ]
+    then
+        return 0
+    fi
+    awk -v want="$1" -v kind="$2" '
+        /^[A-Za-z]/ {
+            declaration = $0
+            sub(/^public /, "", declaration)
+            sub(/^sealed /, "", declaration)
+            sub(/^data /, "", declaration)
+            sub(/^enum /, "", declaration)
+            if (declaration ~ /^(interface|class|object) /)
+            {
+                sub(/^[a-z]+ /, "", declaration)
+                sub(/[^A-Za-z0-9_].*$/, "", declaration)
+                current = declaration
+            }
+            next
+        }
+        current == want && kind == "case" && /^[[:space:]]+public (data )?(object|class) / {
+            name = $0
+            sub(/^[[:space:]]+public /, "", name)
+            sub(/^data /, "", name)
+            sub(/^[a-z]+ /, "", name)
+            sub(/[^A-Za-z0-9_].*$/, "", name)
+            if (name != "") { print tolower(name) }
+        }
+        current == want && kind == "fun" && /^[[:space:]]+public fun / {
+            name = $0
+            sub(/^[[:space:]]+public fun /, "", name)
+            sub(/[^A-Za-z0-9_].*$/, "", name)
+            if (name != "") { print tolower(name) }
+        }
+    ' $(cat "$TMP/ui-kotlin-files.txt") | sort -u
+}
+
+# One type, both halves. Reads each side, refuses an empty read on either, and names the
+# extra and the missing separately — "they differ" is not enough to act on.
+compare_ui_type()
+{
+    TYPE=$1
+    swift_ui_names "$TYPE" "$2" > "$TMP/ui-swift-$TYPE.txt"
+    kotlin_ui_names "$TYPE" "$3" > "$TMP/ui-kotlin-$TYPE.txt"
+    SWIFT_COUNT=$(grep -c . "$TMP/ui-swift-$TYPE.txt" || true)
+    KOTLIN_COUNT=$(grep -c . "$TMP/ui-kotlin-$TYPE.txt" || true)
+
+    if [ "$SWIFT_COUNT" -ge 2 ] && [ "$KOTLIN_COUNT" -ge 2 ]
+    then
+        pass "$TYPE: read $SWIFT_COUNT names from $UI_SWIFT_DIR and $KOTLIN_COUNT from $UI_KOTLIN_DIR"
+    else
+        fail "$TYPE: read $SWIFT_COUNT Swift names and $KOTLIN_COUNT Kotlin names; the extraction did not run"
+        return 0
+    fi
+
+    ONLY_SWIFT=$(comm -23 "$TMP/ui-swift-$TYPE.txt" "$TMP/ui-kotlin-$TYPE.txt" | tr '\n' ' ')
+    ONLY_KOTLIN=$(comm -13 "$TMP/ui-swift-$TYPE.txt" "$TMP/ui-kotlin-$TYPE.txt" | tr '\n' ' ')
+    if [ -z "$(printf '%s%s' "$ONLY_SWIFT" "$ONLY_KOTLIN" | tr -d ' ')" ]
+    then
+        pass "$TYPE names match on both platforms ($(tr '\n' ' ' < "$TMP/ui-swift-$TYPE.txt"))"
+    else
+        fail "$TYPE differs between platforms — only in Swift: ${ONLY_SWIFT:-none}| only in Kotlin: ${ONLY_KOTLIN:-none}"
+    fi
+}
+
+if [ -d "$UI_SWIFT_DIR" ] && [ -d "$UI_KOTLIN_DIR" ]
+then
+    pass 'both halves of the ui module are present'
+    compare_ui_type Loadable case case
+    compare_ui_type Busy case case
+    compare_ui_type Flow func fun
+else
+    fail "the ui module is incomplete: $UI_SWIFT_DIR or $UI_KOTLIN_DIR is missing"
+fi
+
+# `dismiss` is refused outright. SwiftUI's `@Environment(\.dismiss)` closes whatever
+# presented the current view without telling the Flow, which leaves the host dismissed
+# over a flow that still believes it is open — the double-source-of-truth this module is
+# built to avoid, arriving through the one door that looks like ordinary SwiftUI. Closing
+# a flow is `Flow.close()`, which the host's own binding calls.
+UI_DISMISS_SCANNED=0
+UI_DISMISS_HITS=''
+find "$UI_SWIFT_DIR" -name '*.swift' | sort > "$TMP/ui-dismiss-files.txt" 2>/dev/null || true
+while IFS= read -r source
+do
+    UI_DISMISS_SCANNED=$((UI_DISMISS_SCANNED + 1))
+    # Comment lines are dropped first, exactly as `lacks_active` does it everywhere else
+    # in this script: a prohibition has to be statable in the file that implements it, and
+    # FlowHost.swift says in its header why `dismiss` is refused.
+    UI_DISMISS_HITS="$UI_DISMISS_HITS$(grep -n 'dismiss)' "$source" | grep -vE '^[0-9]+:[[:space:]]*(//|\*)' | sed "s#^#$source:#" | tr '\n' ' ')"
+done < "$TMP/ui-dismiss-files.txt"
+
+if [ "$UI_DISMISS_SCANNED" -ge 4 ]
+then
+    pass "the dismiss scan read all $UI_DISMISS_SCANNED sources of $UI_SWIFT_DIR"
+else
+    fail "the dismiss scan read only $UI_DISMISS_SCANNED sources; it did not run"
+fi
+
+if [ -z "$(printf '%s' "$UI_DISMISS_HITS" | tr -d ' ')" ]
+then
+    pass 'no source of SPFNUI reaches the SwiftUI dismiss environment value'
+else
+    fail "SPFNUI reaches the dismiss environment value: $UI_DISMISS_HITS"
+fi
 
 # ---------------------------------------------------------------------------
 printf '\n'
