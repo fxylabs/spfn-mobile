@@ -9,6 +9,7 @@
 package xyz.superfunction.spfn.codegen
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -22,9 +23,9 @@ class BundleSectionTest
     private fun read(text: String): Bundle = Bundle.read(
         bundleText = text,
         sha256 = "unused-under-test",
-        supportedRange = ">=0.3.0 <0.4.0",
+        supportedRange = ">=0.10.0 <0.11.0",
         contractMajor = 0,
-        contractMinor = 3
+        contractMinor = 10
     )
 
     /** Renames one key so `required()` cannot find it, leaving the JSON well-formed. */
@@ -230,6 +231,73 @@ class BundleSectionTest
             bundleText.replace(marker, "\"id\": \"echo.send\", \"deprecatedIn\": \"0.99.0\", \"removedIn\": \"1.0.0\",")
         );
         assertTrue(bundle.operations.any { it.id == "echo.send" });
+    }
+
+    // Contract 0.10.0 made `responseType` optional. `restOperations.responseBody` states
+    // what an absent one means — "An operation that declares no responseType answers 204
+    // with an empty body and there is nothing to decode" — so the generator must read it
+    // as a declared fact and carry it onto the descriptor, while still refusing the two
+    // shapes that are contract errors rather than bodyless operations.
+
+    /** N7. A bundle whose operation declares no responseType generates, and says so. */
+    @Test
+    fun n7AnOperationWithoutAResponseTypeGeneratesAndTheDescriptorSaysSo()
+    {
+        val bundle = read(bundleText);
+
+        val deny = bundle.operations.single { it.id == "auth.device.deny" };
+        assertEquals(null, deny.responseType);
+        assertFalse(deny.declaresResponse);
+        assertTrue(bundle.operations.single { it.id == "auth.device.approve" }.declaresResponse);
+
+        // The fact reaches both emitters, on the descriptor rather than in a comment.
+        val swift = SwiftEmitter.emit(bundle).values.joinToString("\n");
+        assertTrue(swift.contains("id: \"auth.device.deny\","));
+        assertTrue(swift.contains("declaresResponse: false"));
+        assertTrue(swift.contains("declaresResponse: true"));
+
+        val kotlin = KotlinEmitter.emit(bundle).values.joinToString("\n");
+        assertTrue(kotlin.contains("id = \"auth.device.deny\","));
+        assertTrue(kotlin.contains("declaresResponse = false"));
+        assertTrue(kotlin.contains("declaresResponse = true"));
+
+        // Exactly one operation in this contract is bodyless. A generator that read every
+        // absent key as absent — or every present one as absent — would pass the two
+        // assertions above and fail this one.
+        assertEquals(1, bundle.operations.count { !it.declaresResponse });
+    }
+
+    /**
+     * N8. A responseType that is present must still name a declared type. This is the P8
+     * shape: the else-branch must refuse rather than emit an undeclared name.
+     */
+    @Test
+    fun n8AResponseTypeNamingAnUnknownTypeIsStillRefused()
+    {
+        val marker = "\"responseType\": \"ServerTimeResponse\",";
+        assertTrue(bundleText.contains(marker));
+        assertRefusedSaying(
+            "unknown responseType",
+            bundleText.replace(marker, "\"responseType\": \"NoSuchResponse\","),
+            "unknown response type 'NoSuchResponse'"
+        );
+    }
+
+    /**
+     * N9. The clock operation is the one that may not use the new gap. Its response is
+     * what anchors proof time, so a bundle that dropped its responseType is refused rather
+     * than read as an operation that answers 204.
+     */
+    @Test
+    fun n9AClockOperationWithoutAResponseTypeIsRefused()
+    {
+        val marker = "      \"responseType\": \"ServerTimeResponse\",\n";
+        assertTrue(bundleText.contains(marker));
+        assertRefusedSaying(
+            "clock responseType",
+            bundleText.replace(marker, ""),
+            "must declare a responseType"
+        );
     }
 
     @Test

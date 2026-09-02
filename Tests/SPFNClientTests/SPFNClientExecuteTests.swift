@@ -328,6 +328,8 @@ final class SPFNClientExecuteTests: XCTestCase
                 "InvalidKeyFingerprintError", "UnverifiedEmailLinkError", "InvalidSocialTokenError",
                 "AccountDisabledError", "AccountPendingDeletionError", "RegistrationRejectedError",
                 "KeyIdAlreadyRegisteredError", "TooManyRequestsError", "Error",
+                "DeviceAuthExpiredError", "DeviceAuthDeniedError", "DeviceAuthNotFoundError",
+                "DeviceAuthAlreadyHandledError",
             ]
         )
     }

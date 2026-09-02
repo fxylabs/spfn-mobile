@@ -36,7 +36,22 @@ enum class SpfnDecodingFailure
     NOT_AN_ERROR_ENVELOPE,
 
     /** An envelope arrived carrying a code this contract does not declare. */
-    UNKNOWN_ERROR_CODE
+    UNKNOWN_ERROR_CODE,
+
+    /**
+     * The operation declares no response body and the server sent one anyway. The
+     * contract's rule is that such an operation "answers 204 with an empty body and there
+     * is nothing to decode", so bytes here mean the two ends disagree about the operation
+     * — reading them would be reading a shape nothing declared.
+     */
+    BODY_ON_NO_RESPONSE_OPERATION,
+
+    /**
+     * The operation declares no response body and the server answered 2xx with a status
+     * other than 204. Accepted as success it would hide a server that answers a different
+     * operation than the one that was called.
+     */
+    NOT_NO_CONTENT_ON_NO_RESPONSE_OPERATION
 }
 
 /**
@@ -196,5 +211,9 @@ fun SpfnGeneratedErrorCode.isAuthFailure(): Boolean = when (this)
     SpfnGeneratedErrorCode.RegistrationRejectedError,
     SpfnGeneratedErrorCode.KeyIdAlreadyRegisteredError,
     SpfnGeneratedErrorCode.TooManyRequestsError,
+    SpfnGeneratedErrorCode.DeviceAuthExpiredError,
+    SpfnGeneratedErrorCode.DeviceAuthDeniedError,
+    SpfnGeneratedErrorCode.DeviceAuthNotFoundError,
+    SpfnGeneratedErrorCode.DeviceAuthAlreadyHandledError,
     SpfnGeneratedErrorCode.Error -> false
 }

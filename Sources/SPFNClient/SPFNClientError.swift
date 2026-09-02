@@ -32,6 +32,17 @@ public enum SPFNDecodingFailure: String, Equatable, Sendable
 
     /// An envelope arrived carrying a code this contract does not declare.
     case unknownErrorCode
+
+    /// The operation declares no response body and the server sent one anyway. The
+    /// contract's rule is that such an operation "answers 204 with an empty body and
+    /// there is nothing to decode", so bytes here mean the two ends disagree about the
+    /// operation — reading them would be reading a shape nothing declared.
+    case bodyOnNoResponseOperation
+
+    /// The operation declares no response body and the server answered 2xx with a status
+    /// other than 204. Accepted as success it would hide a server that answers a
+    /// different operation than the one that was called.
+    case notNoContentOnNoResponseOperation
 }
 
 /// A refusal the server authenticated the request on.
@@ -214,7 +225,9 @@ extension SPFNGeneratedErrorCode
         case .validationError, .nativeSignInUnsupportedError, .nonceKeyBindingError,
              .invalidKeyFingerprintError, .unverifiedEmailLinkError, .invalidSocialTokenError,
              .accountDisabledError, .accountPendingDeletionError, .registrationRejectedError,
-             .keyIdAlreadyRegisteredError, .tooManyRequestsError, .error:
+             .keyIdAlreadyRegisteredError, .tooManyRequestsError, .deviceAuthExpiredError,
+             .deviceAuthDeniedError, .deviceAuthNotFoundError, .deviceAuthAlreadyHandledError,
+             .error:
             return false
         }
     }

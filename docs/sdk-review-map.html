@@ -127,17 +127,17 @@ footer { margin-top: 64px; border-top: 1px solid var(--line); padding-top: 14px;
     <h1>SPFN Mobile SDK 리뷰 맵</h1>
     <p class="lede">지금까지 구현된 기능을 코드 스니펫과 함께 훑는 리뷰용 지도. 모든 로직은 iOS Swift와 Android Kotlin에 같은 구조로 두 벌 존재하며, 스니펫은 Swift 쪽을 싣고 대응 Kotlin 파일을 병기한다.</p>
     <div class="statgrid">
-        <div class="stat"><b>0.9.0</b><span>소비 중인 서버 계약 버전 (upstream CI 서명 export)</span></div>
+        <div class="stat"><b>0.10.0</b><span>소비 중인 서버 계약 버전 (upstream CI 서명 export, primitives <code>77fe6246</code>)</span></div>
         <div class="stat"><b>5,019 / 5,623</b><span>SDK 본체 줄 수 — Swift / Kotlin</span></div>
         <div class="stat"><b>240 / 172+</b><span>단위·정합 테스트 — Swift / Kotlin</span></div>
-        <div class="stat"><b>15 / 15</b><span>실기기 소셜 로그인 케이스 표 통과 (2026-09-01)</span></div>
+        <div class="stat"><b>0 / 15</b><span>실기기 소셜 로그인 케이스 표 — 2026-09-02 계약 0.10.0 재핀으로 2026-09-01 영수증(계약 0.9.0)은 은퇴, 재실행 대기</span></div>
     </div>
 </header>
 
 <h2><span class="mod">Contracts/ · tools/contract-codegen</span>계약 소비 파이프라인</h2>
 <p>SDK의 출발점은 손으로 쓴 타입이 아니라 서버가 발행한 계약 파일이다. upstream(spfn-primitives) CI가 export한 계약 JSON을 바이트 그대로 복사해 pin하고, 그 digest를 <code>upstream.lock.json</code>이 잠근다. codegen 도구가 이 계약에서 양 플랫폼의 타입·연산·에러 코드를 생성한다.</p>
 <ul>
-    <li><code>Contracts/spfn-mobile-contract.json</code> — 계약 0.9.0 원본 (수정 금지, byte copy)</li>
+    <li><code>Contracts/spfn-mobile-contract.json</code> — 계약 0.10.0 원본 (수정 금지, byte copy). 연산 16개, 타입 30개, enum 3개, 에러 코드 22개. <code>auth.device.deny</code>는 <code>responseType</code>을 선언하지 않으며, 그 경우 204 + 빈 본문이 계약이 정한 응답이다</li>
     <li><code>tools/contract-codegen</code> — Kotlin 기반 생성기 → <code>SPFNGenerated*</code> / <code>SpfnGenerated*</code></li>
     <li><code>Contracts/fixtures/</code> — 요청 바이트·에러 봉투·enrollment 픽스처. 양 플랫폼 정합 테스트가 같은 파일을 읽는다</li>
 </ul>
@@ -283,7 +283,7 @@ footer { margin-top: 64px; border-top: 1px solid var(--line); padding-top: 14px;
     <li>iOS 어댑터 선택은 SwiftPM traits, Android는 별도 아티팩트 — 안 쓰면 의존성 자체가 해석 안 됨</li>
     <li>Android용 Apple 어댑터는 없음(결정으로 범위 밖) · kakao/naver는 upstream 대기</li>
 </ul>
-<p><span class="pill ok">실기기 검증 15/15</span>&nbsp; 2026-09-01, 아이폰 14 Pro + 갤럭시 실기기에서 실서버(계약 0.9.0) 대상 최초가입·재로그인·취소·네트워크실패·서버거절 전 셀 통과. 훼손 토큰은 서버가 401로 거절했고, 실패 케이스에서 키 잔존 0건.</p>
+<p><span class="pill warn">실기기 검증 은퇴</span>&nbsp; 2026-09-01, 아이폰 14 Pro + 갤럭시 실기기에서 실서버(계약 0.9.0) 대상 최초가입·재로그인·취소·네트워크실패·서버거절 전 셀을 통과했다. 훼손 토큰은 서버가 401로 거절했고, 실패 케이스에서 키 잔존 0건. 2026-09-02 계약 0.10.0 재핀으로 이 증거는 은퇴했다 — <code>receipt-gate.sh</code>가 영수증의 계약 버전을 핀과 대조하므로 지금은 전부 거절되며, 사람이 15셀을 다시 돌기 전까지 붉은 상태가 정상이다. 영수증 파일은 기록으로 그대로 커밋되어 있다.</p>
 
 <h2><span class="mod">tools/ · Tests/</span>검증 인프라</h2>
 <div class="tablewrap"><table>
@@ -304,5 +304,5 @@ footer { margin-top: 64px; border-top: 1px solid var(--line); padding-top: 14px;
     <tr><td><span class="pill warn">대기</span></td><td>kakao·naver 어댑터 — upstream primitives #56·#57 대기</td></tr>
 </table></div>
 
-<footer>기준 시점: main <code>8a42c86</code> (2026-09-01) · 계약 0.9.0 · 스니펫은 리뷰 편의를 위해 주석·가드 일부를 줄인 발췌이며 파일:줄 표기가 원본 위치다.</footer>
+<footer>기준 시점: main <code>8a42c86</code> (2026-09-01) · 계약 0.10.0 (2026-09-02 재핀, primitives <code>77fe6246</code>) · 스니펫은 리뷰 편의를 위해 주석·가드 일부를 줄인 발췌이며 파일:줄 표기가 원본 위치다.</footer>
 </div>

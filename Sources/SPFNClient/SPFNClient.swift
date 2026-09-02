@@ -41,6 +41,22 @@ public struct SPFNCall<Request: Sendable, Response: Sendable>: Sendable
     }
 }
 
+extension SPFNCall where Response == SPFNNoResponse
+{
+    /// A call on an operation the contract declares no response type for.
+    ///
+    /// The decoder is fixed here rather than left to the caller. There is nothing to
+    /// decode, so the only correct decoder is the one that answers with the unit value,
+    /// and writing that closure at each call site is how one of them ends up different.
+    public static func noResponse(
+        operation: SPFNOperation,
+        encode: @escaping @Sendable (Request) throws -> SPFNCanonicalValue
+    ) -> SPFNCall<Request, SPFNNoResponse>
+    {
+        SPFNCall(operation: operation, encode: encode, decode: { _ in SPFNNoResponse.value })
+    }
+}
+
 /// Sends contract operations over a transport, against one session.
 ///
 /// A struct, not an actor: it holds nothing that changes. Every piece of shared mutable
@@ -114,7 +130,7 @@ public struct SPFNClient: Sendable
 
         do
         {
-            return try Self.read(first.response, with: call.decode)
+            return try Self.read(first.response, for: call)
         }
         catch SPFNClientError.auth(let failure)
         {
@@ -163,7 +179,7 @@ public struct SPFNClient: Sendable
         {
             throw Self.classify(error)
         }
-        return try Self.read(response, with: call.decode)
+        return try Self.read(response, for: call)
     }
 
     // MARK: - The two attempts
@@ -223,7 +239,7 @@ public struct SPFNClient: Sendable
 
         await session.invalidate(staleSessionID: sessionID)
         let second = try await attempt(call.operation, canonicalBody: canonicalBody)
-        return try Self.read(second.response, with: call.decode)
+        return try Self.read(second.response, for: call)
     }
 
     private struct Attempt
@@ -238,9 +254,17 @@ public struct SPFNClient: Sendable
     // MARK: - Reading the answer
 
     /// Turns one response into a value, or into the failure it describes.
-    private static func read<Response>(
+    ///
+    /// The one reader on this platform. Both `execute` paths and the retry go through it,
+    /// so the rules below hold for every operation rather than for whichever path a
+    /// caller happened to take.
+    ///
+    /// What the body is allowed to be depends on `operation.declaresResponse` and never on
+    /// the operation's id: the contract states the rule per operation, and the descriptor
+    /// is where it is written down.
+    private static func read<Request, Response>(
         _ response: SPFNTransportResponse,
-        with decode: (SPFNCanonicalValue) throws -> Response
+        for call: SPFNCall<Request, Response>
     ) throws -> Response
     {
         // Before the body is looked at. A server refusing on contract grounds announces
@@ -254,15 +278,16 @@ public struct SPFNClient: Sendable
             throw SPFNClientError.contract(mismatch)
         }
 
-        guard let parsed = try? SPFNCanonicalJSON.parse(response.body)
-        else
-        {
-            throw SPFNClientError.decoding(.notCanonicalJSON)
-        }
-
+        // A refusal is read the same way whatever the operation declares: the envelope is
+        // the answer, and an operation with no response body still has error responses.
         guard (200 ... 299).contains(response.statusCode)
         else
         {
+            guard let parsed = try? SPFNCanonicalJSON.parse(response.body)
+            else
+            {
+                throw SPFNClientError.decoding(.notCanonicalJSON)
+            }
             guard let envelope = try? SPFNErrorEnvelope.decode(parsed)
             else
             {
@@ -271,7 +296,55 @@ public struct SPFNClient: Sendable
             throw refusal(envelope, httpStatus: response.statusCode)
         }
 
-        guard let value = try? decode(parsed)
+        guard call.operation.declaresResponse
+        else
+        {
+            return try readNothing(response, for: call)
+        }
+
+        guard let parsed = try? SPFNCanonicalJSON.parse(response.body)
+        else
+        {
+            throw SPFNClientError.decoding(.notCanonicalJSON)
+        }
+
+        guard let value = try? call.decode(parsed)
+        else
+        {
+            throw SPFNClientError.decoding(.notTheDeclaredResponse)
+        }
+        return value
+    }
+
+    /// Reads the 2xx answer to an operation that declares no response body.
+    ///
+    /// Contract 0.10.0, `restOperations.responseBody`: "An operation that declares no
+    /// responseType answers 204 with an empty body and there is nothing to decode". Both
+    /// halves are required, and neither is inferred from the other — a 200 carrying `{}`
+    /// and a 204 carrying bytes are different disagreements, and each says the server is
+    /// answering something other than the operation that was called.
+    private static func readNothing<Request, Response>(
+        _ response: SPFNTransportResponse,
+        for call: SPFNCall<Request, Response>
+    ) throws -> Response
+    {
+        guard response.statusCode == 204
+        else
+        {
+            throw SPFNClientError.decoding(.notNoContentOnNoResponseOperation)
+        }
+        guard response.body.isEmpty
+        else
+        {
+            throw SPFNClientError.decoding(.bodyOnNoResponseOperation)
+        }
+
+        // There is nothing to decode and nothing this function could construct: `Response`
+        // is the caller's type. So the decoder is asked for the value it stands for, with
+        // the empty object `SPFNCall.noResponse` ignores. A call that paired a bodyless
+        // operation with a decoder for a real response type fails here rather than
+        // returning a value the server never sent.
+        guard let value = try? call.decode(.object([:]))
         else
         {
             throw SPFNClientError.decoding(.notTheDeclaredResponse)

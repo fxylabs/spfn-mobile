@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    cf1b34a4081059c29f838b9e8b3a973a9fbb5e5e64a576c673f792d9c6b4ca46
-// contractVersion: 0.9.0
+// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
+// contractVersion: 0.10.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -47,6 +47,10 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
     case keyIdAlreadyRegisteredError = "KeyIdAlreadyRegisteredError"
     case tooManyRequestsError = "TooManyRequestsError"
     case error = "Error"
+    case deviceAuthExpiredError = "DeviceAuthExpiredError"
+    case deviceAuthDeniedError = "DeviceAuthDeniedError"
+    case deviceAuthNotFoundError = "DeviceAuthNotFoundError"
+    case deviceAuthAlreadyHandledError = "DeviceAuthAlreadyHandledError"
 
     /// The surface that answers with this code.
     public var surface: SPFNGeneratedErrorSurface
@@ -88,6 +92,14 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
         case .tooManyRequestsError:
             return .rest
         case .error:
+            return .rest
+        case .deviceAuthExpiredError:
+            return .rest
+        case .deviceAuthDeniedError:
+            return .rest
+        case .deviceAuthNotFoundError:
+            return .rest
+        case .deviceAuthAlreadyHandledError:
             return .rest
         }
     }
@@ -132,6 +144,14 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
             return 429
         case .error:
             return 500
+        case .deviceAuthExpiredError:
+            return 400
+        case .deviceAuthDeniedError:
+            return 403
+        case .deviceAuthNotFoundError:
+            return 404
+        case .deviceAuthAlreadyHandledError:
+            return 409
         }
     }
 
@@ -174,6 +194,14 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
         case .tooManyRequestsError:
             return true
         case .error:
+            return false
+        case .deviceAuthExpiredError:
+            return false
+        case .deviceAuthDeniedError:
+            return false
+        case .deviceAuthNotFoundError:
+            return false
+        case .deviceAuthAlreadyHandledError:
             return false
         }
     }

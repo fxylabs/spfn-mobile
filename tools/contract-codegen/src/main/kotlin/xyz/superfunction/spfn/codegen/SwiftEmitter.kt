@@ -178,7 +178,10 @@ object SwiftEmitter
             appendLine("        method: \"${operation.method}\",");
             appendLine("        path: \"${operation.path}\",");
             appendLine("        authProfile: \"${operation.authProfile}\",");
-            appendLine("        requiresSession: ${operation.requiresSession}");
+            appendLine("        requiresSession: ${operation.requiresSession},");
+            // The contract's bodyless rule, carried on the descriptor rather than left
+            // for a caller to rediscover from the operation id.
+            appendLine("        declaresResponse: ${operation.declaresResponse}");
             appendLine("    )");
         }
         appendLine();

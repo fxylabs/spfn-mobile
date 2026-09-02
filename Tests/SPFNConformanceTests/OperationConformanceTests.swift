@@ -87,6 +87,110 @@ final class OperationConformanceTests: XCTestCase
         XCTAssertNil(SPFNGeneratedOperations.operation(id: "no.such.operation"))
     }
 
+    // MARK: - The operation table
+
+    /// One row of the contract's `operations` array, transcribed by hand.
+    ///
+    /// Written from `Contracts/spfn-mobile-contract.json` read as text, not produced from
+    /// the bundle at run time and not read out of the generated sources: a table derived
+    /// from either of the things it checks proves only that they agree with themselves.
+    struct DeclaredOperation
+    {
+        let id: String
+        let method: String
+        let path: String
+        let authProfile: String
+        let requiresSession: Bool
+        let since: String
+        let requestType: String?
+        let responseType: String?
+    }
+
+    /// The sixteen operations contract 0.10.0 declares, in bundle order. The last five
+    /// arrived with 0.10.0; `auth.device.deny` is the one that names no response type,
+    /// which `restOperations.responseBody` defines as answering 204 with an empty body.
+    static let declaredOperations: [DeclaredOperation] = [
+        DeclaredOperation(id: "core.time", method: "GET", path: "/_core/time", authProfile: "none", requiresSession: false, since: "0.9.0", requestType: nil, responseType: "ServerTimeResponse"),
+        DeclaredOperation(id: "auth.clientProof.handshake", method: "POST", path: "/v1/auth/client-proof/handshake", authProfile: "clientProofV1", requiresSession: false, since: "0.1.0", requestType: "HandshakeRequest", responseType: "HandshakeResponse"),
+        DeclaredOperation(id: "echo.send", method: "POST", path: "/v1/echo", authProfile: "clientProofV1", requiresSession: true, since: "0.1.0", requestType: "EchoRequest", responseType: "EchoResponse"),
+        DeclaredOperation(id: "items.list", method: "POST", path: "/v1/items/list", authProfile: "clientProofV1", requiresSession: true, since: "0.1.0", requestType: "ListItemsRequest", responseType: "ListItemsResponse"),
+        DeclaredOperation(id: "auth.enroll.register", method: "POST", path: "/_auth/register", authProfile: "none", requiresSession: false, since: "0.3.0", requestType: "RegisterRequest", responseType: "RegisterResponse"),
+        DeclaredOperation(id: "auth.enroll.login", method: "POST", path: "/_auth/login", authProfile: "none", requiresSession: false, since: "0.3.0", requestType: "LoginRequest", responseType: "LoginResponse"),
+        DeclaredOperation(id: "auth.enroll.oauthNative", method: "POST", path: "/_auth/oauth/{provider}/native", authProfile: "none", requiresSession: false, since: "0.3.0", requestType: "OauthNativeRequest", responseType: "OauthNativeResponse"),
+        DeclaredOperation(id: "auth.keys.rotate", method: "POST", path: "/_auth/keys/rotate", authProfile: "clientProofV1", requiresSession: false, since: "0.3.0", requestType: "RotateKeyRequest", responseType: "RotateKeyResponse"),
+        DeclaredOperation(id: "auth.keys.list", method: "POST", path: "/_auth/keys/list", authProfile: "clientProofV1", requiresSession: false, since: "0.4.1", requestType: "ListKeysRequest", responseType: "ListKeysResponse"),
+        DeclaredOperation(id: "auth.keys.revoke", method: "POST", path: "/_auth/keys/revoke", authProfile: "clientProofV1", requiresSession: false, since: "0.4.1", requestType: "RevokeKeyRequest", responseType: "RevokeKeyResponse"),
+        DeclaredOperation(id: "auth.keys.revokeAll", method: "POST", path: "/_auth/keys/revoke-all", authProfile: "clientProofV1", requiresSession: false, since: "0.4.1", requestType: "RevokeAllKeysRequest", responseType: "RevokeAllKeysResponse"),
+        DeclaredOperation(id: "auth.device.start", method: "POST", path: "/_auth/device/start", authProfile: "none", requiresSession: false, since: "0.10.0", requestType: "StartDeviceAuthRequest", responseType: "StartDeviceAuthResponse"),
+        DeclaredOperation(id: "auth.device.poll", method: "POST", path: "/_auth/device/poll", authProfile: "none", requiresSession: false, since: "0.10.0", requestType: "PollDeviceAuthRequest", responseType: "PollDeviceAuthResponse"),
+        DeclaredOperation(id: "auth.device.info", method: "POST", path: "/_auth/device/info", authProfile: "clientProofV1", requiresSession: false, since: "0.10.0", requestType: "DeviceAuthInfoRequest", responseType: "DeviceAuthInfoResponse"),
+        DeclaredOperation(id: "auth.device.approve", method: "POST", path: "/_auth/device/approve", authProfile: "clientProofV1", requiresSession: false, since: "0.10.0", requestType: "ApproveDeviceAuthRequest", responseType: "DeviceAuthInfoResponse"),
+        DeclaredOperation(id: "auth.device.deny", method: "POST", path: "/_auth/device/deny", authProfile: "clientProofV1", requiresSession: false, since: "0.10.0", requestType: "DenyDeviceAuthRequest", responseType: nil),
+    ]
+
+    /// The bundle says what the table says — including the count, so an operation added
+    /// upstream and never transcribed here fails rather than passing unexamined.
+    func testTheBundleDeclaresExactlyTheTranscribedOperations() throws
+    {
+        let bundle = try SPFNCanonicalJSON.parse(
+            [UInt8](try Data(contentsOf: Fixtures.repoRoot.appendingPathComponent("Contracts/spfn-mobile-contract.json")))
+        ).members()
+        let declared = try bundle.list("operations").map { try $0.members() }
+
+        XCTAssertEqual(declared.count, 16, "contract 0.10.0 declares sixteen operations")
+        XCTAssertEqual(declared.count, Self.declaredOperations.count)
+
+        for (entry, expected) in zip(declared, Self.declaredOperations)
+        {
+            XCTAssertEqual(try entry.text("id"), expected.id)
+            XCTAssertEqual(try entry.text("method"), expected.method, expected.id)
+            XCTAssertEqual(try entry.text("path"), expected.path, expected.id)
+            XCTAssertEqual(try entry.text("authProfile"), expected.authProfile, expected.id)
+            XCTAssertEqual(try entry.bool("requiresSession"), expected.requiresSession, expected.id)
+            XCTAssertEqual(try entry.text("since"), expected.since, expected.id)
+            XCTAssertEqual(try optionalText(entry, "requestType"), expected.requestType, expected.id)
+            XCTAssertEqual(try optionalText(entry, "responseType"), expected.responseType, expected.id)
+        }
+    }
+
+    /// And the generated descriptors say what the table says. `declaresResponse` is the
+    /// field the execute path reads, so it is checked against the transcribed
+    /// `responseType` rather than against the generated value it was emitted from.
+    func testTheGeneratedDescriptorsMatchTheTranscribedOperations() throws
+    {
+        XCTAssertEqual(SPFNGeneratedOperations.all.count, Self.declaredOperations.count)
+
+        for expected in Self.declaredOperations
+        {
+            let operation = try XCTUnwrap(
+                SPFNGeneratedOperations.operation(id: expected.id),
+                "\(expected.id) was not generated"
+            )
+            XCTAssertEqual(operation.method, expected.method, expected.id)
+            XCTAssertEqual(operation.path, expected.path, expected.id)
+            XCTAssertEqual(operation.authProfile, expected.authProfile, expected.id)
+            XCTAssertEqual(operation.requiresSession, expected.requiresSession, expected.id)
+            XCTAssertEqual(
+                operation.declaresResponse,
+                expected.responseType != nil,
+                "\(expected.id) disagrees with the contract about whether it answers with a body"
+            )
+        }
+
+        XCTAssertEqual(
+            SPFNGeneratedOperations.all.filter { !$0.declaresResponse }.map(\.id),
+            ["auth.device.deny"],
+            "auth.device.deny is the contract's only operation that names no response type"
+        )
+    }
+
+    /// A key an operation may legally omit, read as absent rather than as a failure.
+    private func optionalText(_ members: [String: SPFNCanonicalValue], _ key: String) throws -> String?
+    {
+        guard members[key] != nil else { return nil }
+        return try members.text(key)
+    }
+
     func testRequestVectorsCanonicalizeIdentically() throws
     {
         let fixture = try Fixtures.load("request/operations.json").members()
@@ -146,23 +250,24 @@ final class OperationConformanceTests: XCTestCase
         let binding = SPFNGeneratedContract.binding
         XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: binding.importedVersion))
 
-        // A later patch on the pinned minor is additive and admitted: 0.9.1 would carry
-        // everything 0.9.0 does. This is the direction the lower bound must not close.
-        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.9.1"))
-        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.9.9"))
+        // A later patch on the pinned minor is additive and admitted: 0.10.1 would carry
+        // everything 0.10.0 does. This is the direction the lower bound must not close.
+        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.10.1"))
+        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.10.9"))
 
         // The lower bound is the pinned version and not the minor floor. That rule was
         // written for the 0.4.1 pin, where 0.4.0 was the same minor and a major-and-minor
         // comparison would have admitted it — while the SDK called auth.keys.list,
         // auth.keys.revoke and auth.keys.revokeAll, which 0.4.1 added and a 0.4.0 server
-        // does not serve. At this pin 0.9.0 is the minor's first release, so no
+        // does not serve. At this pin 0.10.0 is the minor's first release, so no
         // same-minor-lower-patch case exists to name; the rule is unchanged and the case
         // list simply has nothing to put there.
         //
-        // The neighbouring minors are breaking in both directions on a 0.x line, so 0.8.x
-        // sits below and 0.10.0 above. Contract 0.8.0 has no core.time operation or clock
-        // synchronization policy, so admitting it would reintroduce device wall-clock proofs.
-        for version in ["0.1.0", "0.4.1", "0.6.0", "0.7.0", "0.8.0", "0.8.9", "0.10.0", "1.0.0", "1.9.0", "2.0.0"]
+        // The neighbouring minors are breaking in both directions on a 0.x line, so 0.9.x
+        // sits below and 0.11.0 above. Contract 0.9.0 has none of the auth.device.*
+        // operations this pin declares, and 0.9.x is where the device sign-in receipts
+        // were taken — admitting it would let evidence about the old wire stand for the new.
+        for version in ["0.1.0", "0.4.1", "0.6.0", "0.7.0", "0.8.0", "0.9.0", "0.9.9", "0.11.0", "1.0.0", "1.9.0", "2.0.0"]
         {
             XCTAssertThrowsError(try binding.requireSupported(serverContractVersion: version))
             { error in

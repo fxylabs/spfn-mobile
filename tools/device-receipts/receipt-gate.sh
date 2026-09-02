@@ -48,7 +48,11 @@
 # contract.version, cross-checked against the generated sources' header) rather than
 # hard-coded, so re-pinning the contract invalidates every receipt taken against the old
 # one and the gate demands a fresh device run — which is the point: evidence about a
-# 0.9.0 wire contract says nothing about a 0.10.0 one.
+# 0.9.0 wire contract says nothing about a 0.10.0 one. That is not hypothetical any more.
+# The 2026-09-02 re-pin moved this repository from 0.9.0 to 0.10.0, and this gate has
+# refused every committed receipt since: the fifteen cells under runs/2026-09-01/ all
+# name 0.9.0. It stays red until a person re-runs them. Nothing here is to be relaxed to
+# make it green — a skip would turn "no evidence" back into "checked clean" (P7).
 #
 # WHERE THE EVIDENCE LIVES
 #

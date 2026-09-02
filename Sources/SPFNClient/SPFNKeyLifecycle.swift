@@ -522,7 +522,8 @@ public actor SPFNKeyLifecycle
                 method: template.method,
                 path: template.path.replacingOccurrences(of: "{provider}", with: provider),
                 authProfile: template.authProfile,
-                requiresSession: template.requiresSession
+                requiresSession: template.requiresSession,
+                declaresResponse: template.declaresResponse
             ),
             encode: { try $0.canonicalValue() },
             decode: { try SPFNOauthNativeResponse(canonical: $0) }

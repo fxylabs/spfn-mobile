@@ -21,6 +21,7 @@ import kotlinx.coroutines.ensureActive
 import xyz.superfunction.spfn.core.SpfnCanonicalJson
 import xyz.superfunction.spfn.core.SpfnCanonicalValue
 import xyz.superfunction.spfn.core.SpfnErrorEnvelope
+import xyz.superfunction.spfn.core.SpfnNoResponse
 import xyz.superfunction.spfn.core.SpfnOperation
 import xyz.superfunction.spfn.generated.SpfnGeneratedAuthClass
 import xyz.superfunction.spfn.generated.SpfnGeneratedErrorCode
@@ -40,6 +41,23 @@ class SpfnCall<Req, Resp>(
     val encode: (Req) -> SpfnCanonicalValue,
     val decode: (SpfnCanonicalValue) -> Resp
 )
+{
+    companion object
+    {
+        /**
+         * A call on an operation the contract declares no response type for.
+         *
+         * The decoder is fixed here rather than left to the caller. There is nothing to
+         * decode, so the only correct decoder is the one that answers with the unit value,
+         * and writing that lambda at each call site is how one of them ends up different.
+         */
+        @JvmStatic
+        fun <Req> noResponse(
+            operation: SpfnOperation,
+            encode: (Req) -> SpfnCanonicalValue
+        ): SpfnCall<Req, SpfnNoResponse> = SpfnCall(operation, encode) { SpfnNoResponse }
+    }
+}
 
 /**
  * Sends contract operations over a transport, against one session.
@@ -96,7 +114,7 @@ class SpfnClient(
 
         return try
         {
-            read(first.response, call.decode)
+            read(first.response, call)
         }
         catch (refusal: SpfnClientError.Auth)
         {
@@ -142,7 +160,7 @@ class SpfnClient(
         {
             throw classify(failure);
         };
-        return read(response, call.decode);
+        return read(response, call);
     }
 
     // ---- the two attempts --------------------------------------------------
@@ -203,7 +221,7 @@ class SpfnClient(
 
         session.invalidate(staleSessionId = presentedSessionId);
         val second = attempt(call.operation, canonicalBody);
-        return read(second.response, call.decode);
+        return read(second.response, call);
     }
 
     private class Attempt(
@@ -217,25 +235,29 @@ class SpfnClient(
 
     // ---- reading the answer ------------------------------------------------
 
-    /** Turns one response into a value, or into the failure it describes. */
-    private fun <Resp> read(response: SpfnTransportResponse, decode: (SpfnCanonicalValue) -> Resp): Resp
+    /**
+     * Turns one response into a value, or into the failure it describes.
+     *
+     * The one reader on this platform. Both `execute` paths and the retry go through it,
+     * so the rules below hold for every operation rather than for whichever path a caller
+     * happened to take.
+     *
+     * What the body is allowed to be depends on [SpfnOperation.declaresResponse] and never
+     * on the operation's id: the contract states the rule per operation, and the descriptor
+     * is where it is written down.
+     */
+    private fun <Req, Resp> read(response: SpfnTransportResponse, call: SpfnCall<Req, Resp>): Resp
     {
         // Before the body is looked at. A server refusing on contract grounds announces
         // its version on that refusal, so classifying first would return the refusal and
         // throw away the two numbers that say which end is stale.
         SpfnClientIdentity.mismatchIn(response)?.let { throw SpfnClientError.Contract(it) };
 
-        val parsed = try
-        {
-            SpfnCanonicalJson.parse(response.body)
-        }
-        catch (_: IllegalArgumentException)
-        {
-            throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_CANONICAL_JSON);
-        };
-
+        // A refusal is read the same way whatever the operation declares: the envelope is
+        // the answer, and an operation with no response body still has error responses.
         if (response.statusCode !in 200..299)
         {
+            val parsed = parseCanonical(response);
             val envelope = try
             {
                 SpfnErrorEnvelope.decode(parsed)
@@ -247,14 +269,65 @@ class SpfnClient(
             throw refusal(envelope, response.statusCode);
         }
 
+        if (!call.operation.declaresResponse)
+        {
+            return readNothing(response, call);
+        }
+
+        val parsed = parseCanonical(response);
         return try
         {
-            decode(parsed)
+            call.decode(parsed)
         }
         catch (_: IllegalArgumentException)
         {
             throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE);
         };
+    }
+
+    /**
+     * Reads the 2xx answer to an operation that declares no response body.
+     *
+     * Contract 0.10.0, `restOperations.responseBody`: "An operation that declares no
+     * responseType answers 204 with an empty body and there is nothing to decode". Both
+     * halves are required, and neither is inferred from the other — a 200 carrying `{}` and
+     * a 204 carrying bytes are different disagreements, and each says the server is
+     * answering something other than the operation that was called.
+     */
+    private fun <Req, Resp> readNothing(response: SpfnTransportResponse, call: SpfnCall<Req, Resp>): Resp
+    {
+        if (response.statusCode != 204)
+        {
+            throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_NO_CONTENT_ON_NO_RESPONSE_OPERATION);
+        }
+        if (response.body.isNotEmpty())
+        {
+            throw SpfnClientError.Decoding(SpfnDecodingFailure.BODY_ON_NO_RESPONSE_OPERATION);
+        }
+
+        // There is nothing to decode and nothing this function could construct: `Resp` is
+        // the caller's type. So the decoder is asked for the value it stands for, with the
+        // empty object [SpfnCall.noResponse] ignores. A call that paired a bodyless
+        // operation with a decoder for a real response type fails here rather than
+        // returning a value the server never sent.
+        return try
+        {
+            call.decode(SpfnCanonicalValue.Obj(emptyMap()))
+        }
+        catch (_: IllegalArgumentException)
+        {
+            throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE);
+        };
+    }
+
+    /** The body as canonical JSON, or the refusal that says it was not. */
+    private fun parseCanonical(response: SpfnTransportResponse): SpfnCanonicalValue = try
+    {
+        SpfnCanonicalJson.parse(response.body)
+    }
+    catch (_: IllegalArgumentException)
+    {
+        throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_CANONICAL_JSON);
     }
 
     /**

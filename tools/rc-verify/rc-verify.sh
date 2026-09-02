@@ -199,7 +199,8 @@ printf 'output: %s\n' "$OUT"
 # evidence. A candidate is therefore not verifiable without receipts from a real device
 # run against the contract this repository currently pins — and re-pinning the contract
 # retires that evidence, because proof about a 0.9.0 wire contract says nothing about
-# the next one.
+# the next one. The 2026-09-02 re-pin to 0.10.0 did exactly that, so this step refuses
+# every candidate until a person re-runs the fifteen cells against a 0.3.0-beta.8 server.
 #
 # It runs first because it is the cheapest step and the one most likely to be the reason
 # a candidate is not ready: failing here costs a second and creates no tag.

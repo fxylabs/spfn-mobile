@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    cf1b34a4081059c29f838b9e8b3a973a9fbb5e5e64a576c673f792d9c6b4ca46
-// contractVersion: 0.9.0
+// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
+// contractVersion: 0.10.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -44,7 +44,8 @@ object SpfnGeneratedOperations
         method = "GET",
         path = "/_core/time",
         authProfile = "none",
-        requiresSession = false
+        requiresSession = false,
+        declaresResponse = true
     )
 
     /** Presents a client proof and opens a session. */
@@ -53,7 +54,8 @@ object SpfnGeneratedOperations
         method = "POST",
         path = "/v1/auth/client-proof/handshake",
         authProfile = "clientProofV1",
-        requiresSession = false
+        requiresSession = false,
+        declaresResponse = true
     )
 
     /** Authenticated round trip used as the smallest real vertical slice. */
@@ -62,7 +64,8 @@ object SpfnGeneratedOperations
         method = "POST",
         path = "/v1/echo",
         authProfile = "clientProofV1",
-        requiresSession = true
+        requiresSession = true,
+        declaresResponse = true
     )
 
     /** Authenticated paged read covering optional fields and arrays. */
@@ -71,7 +74,8 @@ object SpfnGeneratedOperations
         method = "POST",
         path = "/v1/items/list",
         authProfile = "clientProofV1",
-        requiresSession = true
+        requiresSession = true,
+        declaresResponse = true
     )
 
     /** Registers an account with a verification token and enrolls the client-generated public key. */
@@ -80,7 +84,8 @@ object SpfnGeneratedOperations
         method = "POST",
         path = "/_auth/register",
         authProfile = "none",
-        requiresSession = false
+        requiresSession = false,
+        declaresResponse = true
     )
 
     /** Authenticates with password credentials and enrolls a fresh client-generated public key. */
@@ -89,7 +94,8 @@ object SpfnGeneratedOperations
         method = "POST",
         path = "/_auth/login",
         authProfile = "none",
-        requiresSession = false
+        requiresSession = false,
+        declaresResponse = true
     )
 
     /** Verifies a native/web social id_token server-side and enrolls the client-generated public key. */
@@ -98,7 +104,8 @@ object SpfnGeneratedOperations
         method = "POST",
         path = "/_auth/oauth/{provider}/native",
         authProfile = "none",
-        requiresSession = false
+        requiresSession = false,
+        declaresResponse = true
     )
 
     /** Replaces the authenticated key with a new client-generated public key before its TTL runs out. */
@@ -107,7 +114,8 @@ object SpfnGeneratedOperations
         method = "POST",
         path = "/_auth/keys/rotate",
         authProfile = "clientProofV1",
-        requiresSession = false
+        requiresSession = false,
+        declaresResponse = true
     )
 
     /** Lists the keys registered to the caller, one per device that can sign for them. */
@@ -116,7 +124,8 @@ object SpfnGeneratedOperations
         method = "POST",
         path = "/_auth/keys/list",
         authProfile = "clientProofV1",
-        requiresSession = false
+        requiresSession = false,
+        declaresResponse = true
     )
 
     /** Revokes one of the caller's keys, signing that device out. */
@@ -125,7 +134,8 @@ object SpfnGeneratedOperations
         method = "POST",
         path = "/_auth/keys/revoke",
         authProfile = "clientProofV1",
-        requiresSession = false
+        requiresSession = false,
+        declaresResponse = true
     )
 
     /** Revokes every key the caller has, sparing the calling device unless asked otherwise. */
@@ -134,7 +144,58 @@ object SpfnGeneratedOperations
         method = "POST",
         path = "/_auth/keys/revoke-all",
         authProfile = "clientProofV1",
-        requiresSession = false
+        requiresSession = false,
+        declaresResponse = true
+    )
+
+    /** Parks a new device's public key and returns the codes it shows and polls with. */
+    val authDeviceStart: SpfnOperation = SpfnOperation(
+        id = "auth.device.start",
+        method = "POST",
+        path = "/_auth/device/start",
+        authProfile = "none",
+        requiresSession = false,
+        declaresResponse = true
+    )
+
+    /** Asks whether the request has been answered; the approved answer is the login it produced. */
+    val authDevicePoll: SpfnOperation = SpfnOperation(
+        id = "auth.device.poll",
+        method = "POST",
+        path = "/_auth/device/poll",
+        authProfile = "none",
+        requiresSession = false,
+        declaresResponse = true
+    )
+
+    /** Describes the device waiting on a user code, so the approver can recognise it before deciding. */
+    val authDeviceInfo: SpfnOperation = SpfnOperation(
+        id = "auth.device.info",
+        method = "POST",
+        path = "/_auth/device/info",
+        authProfile = "clientProofV1",
+        requiresSession = false,
+        declaresResponse = true
+    )
+
+    /** Lets the waiting device in, answering with the device it just let in. */
+    val authDeviceApprove: SpfnOperation = SpfnOperation(
+        id = "auth.device.approve",
+        method = "POST",
+        path = "/_auth/device/approve",
+        authProfile = "clientProofV1",
+        requiresSession = false,
+        declaresResponse = true
+    )
+
+    /** Refuses the waiting device. Answers 204 with no body, so it names no response type. */
+    val authDeviceDeny: SpfnOperation = SpfnOperation(
+        id = "auth.device.deny",
+        method = "POST",
+        path = "/_auth/device/deny",
+        authProfile = "clientProofV1",
+        requiresSession = false,
+        declaresResponse = false
     )
 
     /** Every operation, in bundle order. */
@@ -149,7 +210,12 @@ object SpfnGeneratedOperations
         authKeysRotate,
         authKeysList,
         authKeysRevoke,
-        authKeysRevokeAll
+        authKeysRevokeAll,
+        authDeviceStart,
+        authDevicePoll,
+        authDeviceInfo,
+        authDeviceApprove,
+        authDeviceDeny
     )
 
     /**

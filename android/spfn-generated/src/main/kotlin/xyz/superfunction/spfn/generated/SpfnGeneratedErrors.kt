@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    cf1b34a4081059c29f838b9e8b3a973a9fbb5e5e64a576c673f792d9c6b4ca46
-// contractVersion: 0.9.0
+// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
+// contractVersion: 0.10.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -57,7 +57,11 @@ enum class SpfnGeneratedErrorCode(
     RegistrationRejectedError("RegistrationRejectedError", 403, false, SpfnGeneratedErrorSurface.REST),
     KeyIdAlreadyRegisteredError("KeyIdAlreadyRegisteredError", 409, false, SpfnGeneratedErrorSurface.REST),
     TooManyRequestsError("TooManyRequestsError", 429, true, SpfnGeneratedErrorSurface.REST),
-    Error("Error", 500, false, SpfnGeneratedErrorSurface.REST);
+    Error("Error", 500, false, SpfnGeneratedErrorSurface.REST),
+    DeviceAuthExpiredError("DeviceAuthExpiredError", 400, false, SpfnGeneratedErrorSurface.REST),
+    DeviceAuthDeniedError("DeviceAuthDeniedError", 403, false, SpfnGeneratedErrorSurface.REST),
+    DeviceAuthNotFoundError("DeviceAuthNotFoundError", 404, false, SpfnGeneratedErrorSurface.REST),
+    DeviceAuthAlreadyHandledError("DeviceAuthAlreadyHandledError", 409, false, SpfnGeneratedErrorSurface.REST);
 
     companion object
     {

@@ -221,8 +221,9 @@ class SpfnClientIdentityTest
          * so this is the smallest version the window cannot admit.
          *
          * A literal here rots silently: these cells were written at the 0.4.1 pin, where
-         * "0.9.0" meant ahead; at the 0.9.0 pin the same literal sits inside the window
-         * and the cell asserts nothing. Derived, it moves with the pin.
+         * "0.9.0" meant ahead; the 0.9.0 pin put that same literal inside the window,
+         * where the cell would have asserted nothing, and the 0.10.0 pin moved it again.
+         * Derived, it moves with the pin — at this one it is 0.11.0, with nothing edited.
          */
         val AHEAD_OF_THE_WINDOW: String =
             with(SpfnGeneratedContract.BINDING) {

@@ -1,7 +1,7 @@
 {
   "status": "RESOLVED_UPSTREAM",
-  "contractVersion": "0.9.0",
-  "bundleSha256": "cf1b34a4081059c29f838b9e8b3a973a9fbb5e5e64a576c673f792d9c6b4ca46",
+  "contractVersion": "0.10.0",
+  "bundleSha256": "29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c",
   "fixtureCount": 10,
   "derivedBy": "Contracts/fixtures/derive-expected-values.py",
   "note": "Expected values were derived by Contracts/fixtures/derive-expected-values.py, a third implementation independent of both SDKs. Two SDKs agreeing with each other would prove nothing; agreeing with an outside implementation is the actual evidence.",
@@ -24,8 +24,8 @@
     },
     {
       "path": "Contracts/fixtures/error/envelopes.json",
-      "sha256": "f44a52791ec3fbd059329883a6d23d00a61e8238e5d6201232597844f0980fbf",
-      "bytes": 8169
+      "sha256": "4f547ea491c4107aa5f53d6f8209522ba09c65b4aa3e5e8fb8db2c9ab44ca77d",
+      "bytes": 9908
     },
     {
       "path": "Contracts/fixtures/proof/proof-input.json",

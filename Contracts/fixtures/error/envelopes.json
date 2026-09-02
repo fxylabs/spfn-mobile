@@ -162,6 +162,42 @@
       "retryable": false,
       "surface": "rest",
       "sha256": "a7b1b0cf7737faa6b2a46154ea1e993619ae425febf1f88fe905a2b92969416e"
+    },
+    {
+      "name": "device-auth-expired-error",
+      "wire": "{\"error\":{\"code\":\"DeviceAuthExpiredError\",\"message\":\"test vector for DeviceAuthExpiredError\",\"requestId\":\"req-device-auth-expired-error\"}}",
+      "code": "DeviceAuthExpiredError",
+      "httpStatus": 400,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "eb521d9c1ad488ebc2dd5f7ca4c479d61bfe6a0264a09e5507d1f8c29584065a"
+    },
+    {
+      "name": "device-auth-denied-error",
+      "wire": "{\"error\":{\"code\":\"DeviceAuthDeniedError\",\"message\":\"test vector for DeviceAuthDeniedError\",\"requestId\":\"req-device-auth-denied-error\"}}",
+      "code": "DeviceAuthDeniedError",
+      "httpStatus": 403,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "3fd78647a83ff4b91279bf7e653bdec0f322caebc746c733420d27d3f637eb36"
+    },
+    {
+      "name": "device-auth-not-found-error",
+      "wire": "{\"error\":{\"code\":\"DeviceAuthNotFoundError\",\"message\":\"test vector for DeviceAuthNotFoundError\",\"requestId\":\"req-device-auth-not-found-error\"}}",
+      "code": "DeviceAuthNotFoundError",
+      "httpStatus": 404,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "aee4278b6e5b97234be2f4cee8a1070aa7eb65870203b3f61f443965dfce2318"
+    },
+    {
+      "name": "device-auth-already-handled-error",
+      "wire": "{\"error\":{\"code\":\"DeviceAuthAlreadyHandledError\",\"message\":\"test vector for DeviceAuthAlreadyHandledError\",\"requestId\":\"req-device-auth-already-handled-error\"}}",
+      "code": "DeviceAuthAlreadyHandledError",
+      "httpStatus": 409,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "38c9f639d716b1355f8839832266161fd9252bcf74f2df7cb8aa2762cd995a17"
     }
   ],
   "rejected": [
