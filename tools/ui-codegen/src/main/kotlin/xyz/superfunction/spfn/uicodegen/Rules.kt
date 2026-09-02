@@ -92,6 +92,17 @@ object Fixtures
     /** Every call waits before answering, so an in-flight state can be observed. */
     const val SLOW: String = "slow";
 
+    /**
+     * Every read answers and every write refuses.
+     *
+     * It is what makes R4 observable at all. A write that SUCCEEDS after its flow closed
+     * changes nothing whether the guard is there or not — the `then` is `close`, and
+     * closing a closed flow is a no-op — so a cell built on one would pass with the guard
+     * removed. A write that FAILS after its flow closed would write an error into a screen
+     * nobody is looking at, and that is the thing the guard prevents.
+     */
+    const val WRITE_REFUSED: String = "writeRefused";
+
     /** Every read refuses. */
     const val REFUSED: String = "refused";
 
@@ -320,8 +331,8 @@ object Rules
             ),
             Cell(
                 "u8c", detail, "ready", first.name,
-                "R4 — the flow closes while the write is in flight, so its answer changes nothing",
-                "unit", Fixtures.SLOW,
+                "R4 — the flow closes while the write is in flight, so its refusal changes nothing",
+                "unit", Fixtures.WRITE_REFUSED,
                 reach + Step.Tap("$detail.${first.name}"),
                 listOf("stack=${after(first.then, 2)}", "state=ready")
             ),
@@ -334,8 +345,8 @@ object Rules
             ),
             Cell(
                 "u9c", detail, "ready", second.name,
-                "R4 — the same late answer, on the write that declares no response body",
-                "unit", Fixtures.SLOW,
+                "R4 — the same late refusal, on the write that declares no response body",
+                "unit", Fixtures.WRITE_REFUSED,
                 reach + Step.Tap("$detail.${second.name}"),
                 listOf("stack=${after(second.then, 2)}", "state=ready")
             ),

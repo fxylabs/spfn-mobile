@@ -39,9 +39,9 @@ proven on the JVM against the models and has no flow file.
 | `u7` | `reviewDevice` | `ready` | `back` | both | `ready` | `stack=1`, `state=idle` | R5 — pop drops the top route and the entry screen is idle again |
 | `u7b` | `reviewDevice` | `ready` | `systemBack` | both | `ready` | `stack=1`, `state=idle` | R8 — the system back gesture above the last route is the flow's own pop |
 | `u8` | `reviewDevice` | `ready` | `approve` | both | `ready` | `stack=0` | R5 — the write succeeds and close empties the stack |
-| `u8c` | `reviewDevice` | `ready` | `approve` | unit | `slow` | `stack=0`, `state=ready` | R4 — the flow closes while the write is in flight, so its answer changes nothing |
+| `u8c` | `reviewDevice` | `ready` | `approve` | unit | `writeRefused` | `stack=0`, `state=ready` | R4 — the flow closes while the write is in flight, so its refusal changes nothing |
 | `u9` | `reviewDevice` | `ready` | `deny` | both | `ready` | `stack=0` | R5 — the second write closes the same way the first does |
-| `u9c` | `reviewDevice` | `ready` | `deny` | unit | `slow` | `stack=0`, `state=ready` | R4 — the same late answer, on the write that declares no response body |
+| `u9c` | `reviewDevice` | `ready` | `deny` | unit | `writeRefused` | `stack=0`, `state=ready` | R4 — the same late refusal, on the write that declares no response body |
 | `u10` | `reviewDevice` | `error` | `back` | both | `sourceRefused` | `stack=1`, `state=idle` | R5 — pop drops a route in any state, and the screen under it is where it was left |
 | `u10b` | `reviewDevice` | `error` | `systemBack` | both | `sourceRefused` | `stack=1`, `state=idle` | R8 — the system back gesture is the same pop from the same state |
 | `u11` | `reviewDevice` | `loading` | `approve` | unit | `slow` | `stack=2`, `state=loading` | R3 — a write over a value the screen has not read yet is ignored |

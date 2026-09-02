@@ -119,9 +119,9 @@
       "screen": "reviewDevice",
       "state": "ready",
       "action": "approve",
-      "rule": "R4 \u2014 the flow closes while the write is in flight, so its answer changes nothing",
+      "rule": "R4 \u2014 the flow closes while the write is in flight, so its refusal changes nothing",
       "runner": "unit",
-      "fixture": "slow",
+      "fixture": "writeRefused",
       "steps": ["type enterCode.userCode ABCD-1234", "tap enterCode.submit", "await state=ready", "tap reviewDevice.approve"],
       "expect": ["stack=0", "state=ready"],
       "flow": null
@@ -143,9 +143,9 @@
       "screen": "reviewDevice",
       "state": "ready",
       "action": "deny",
-      "rule": "R4 \u2014 the same late answer, on the write that declares no response body",
+      "rule": "R4 \u2014 the same late refusal, on the write that declares no response body",
       "runner": "unit",
-      "fixture": "slow",
+      "fixture": "writeRefused",
       "steps": ["type enterCode.userCode ABCD-1234", "tap enterCode.submit", "await state=ready", "tap reviewDevice.deny"],
       "expect": ["stack=0", "state=ready"],
       "flow": null

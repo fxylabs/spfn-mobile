@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPFN Mobile — the Compose example app's manifest.
+
+  INTERNET is the only permission this file declares, and it is only ever exercised on the
+  path that has no launch fixture: a run under `SPFN_UI_FIXTURE` builds no client and
+  sends nothing at all.
+
+  No cleartext exception is declared here. The harness needs one because it enrols against
+  a developer machine over plain HTTP; this app has no enrolment path of its own, so the
+  default — cleartext refused — is what it should have.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:label="SPFN Example"
+        android:supportsRtl="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
