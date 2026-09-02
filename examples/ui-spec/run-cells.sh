@@ -64,6 +64,14 @@
 # because "the flow failed" and "the flow passed and left nothing behind" are two faults
 # with two different fixes and one line used to say neither.
 #
+# The receipts have to be THIS run's, which is two rules and not one. The destination is a
+# fresh directory per invocation — `<platform>/<date>-<HHMMSS>`, created empty, never
+# reused — and the gate reads a MANIFEST the pull step appends to rather than a glob over
+# that directory. Either alone fails open: a reused directory hands yesterday's receipts to
+# today's glob, and a glob over any directory reports whatever somebody put there. Old run
+# directories are left where they are, because they are what a person compares two runs
+# with; they are simply not evidence for this one.
+#
 # The gate has a floor under it as well: a table it can read no `both` cells out of is a
 # refusal, and so is a flow directory holding fewer flows than this repository has, because
 # a gate that expected nothing would pass on an empty device
@@ -171,12 +179,69 @@ flow_files()
     printf '%s' "$FOUND" | tr '\n' ' '
 }
 
-# The gate. Every cell of table $2 that claims a device runner left a receipt in $1.
+# Whether cell $1 left a receipt in $2 that manifest $3 says THIS invocation pulled.
+#
+# Two questions, and both have to answer yes. The file has to be there, and this run has to
+# have been what brought it: a receipt directory is a place on disk, and a run that counted
+# a file it did not pull would be reporting somebody else's evidence — or its own from
+# yesterday — as proof of what the app did just now (docs/IMPLEMENTATION-PITFALLS.md P23).
+pulled_receipt()
+{
+    # A glob rather than `find -quit`: this runs on a Mac, whose find is BSD's.
+    grep -q "^receipt-$1-" "$3" 2> /dev/null && ls "$2"/receipt-"$1"-*.json > /dev/null 2>&1
+}
+
+# This invocation's receipt directory, $1, created EMPTY. Answers non-zero rather than
+# reusing one that is already there, which is the whole of what "per invocation" means: a
+# directory shared by two runs is a directory in which the second is judged on the first's
+# evidence. A function so that `--probe` can ask it both questions without a device.
+open_run_directory()
+{
+    mkdir -p "$(dirname "$1")"
+    mkdir "$1" 2> /dev/null
+}
+
+# The receipt file names in $1, sorted, one per line.
+#
+# A glob rather than `ls`, which is this file's own idiom (`receipt_count`) and the reason
+# is the same: the glob is the shell's listing of real files, and a name nothing expected
+# is one line rather than whatever a listing program decided to print.
+list_receipts()
+{
+    for RECEIPT in "$1"/receipt-*.json
+    do
+        if [ -f "$RECEIPT" ]
+        then
+            basename "$RECEIPT"
+        fi
+    done
+}
+
+# The receipts already in $1, before the step that is about to run. Names only.
+snapshot_receipts()
+{
+    list_receipts "$1" > "$WORK/before.txt"
+}
+
+# What that step put into $2, appended to manifest $3.
+#
+# By DIFFERENCE against the snapshot rather than by listing what is there, so what the
+# manifest records is what arrived. That is what makes the manifest something the
+# destination directory cannot forge: prepopulating it with every receipt name this table
+# has adds nothing to the manifest, because nothing arrived.
+record_pulled()
+{
+    list_receipts "$2" > "$WORK/after.txt"
+    comm -13 "$WORK/before.txt" "$WORK/after.txt" >> "$3"
+}
+
+# The gate. Every cell of table $2 that claims a device runner left a receipt in $1 that
+# manifest $3 records this run as having pulled.
 #
 # Prints one line per cell and the count, and answers non-zero when a cell is missing or
 # when the table yielded fewer cells than this repository has. It is the whole of what
-# `--probe` exercises, which is why it takes both of its inputs as arguments: a gate that
-# could only read the real tree could only be probed by damaging the real tree.
+# `--probe` exercises, which is why it takes all three of its inputs as arguments: a gate
+# that could only read the real tree could only be probed by damaging the real tree.
 receipt_gate()
 {
     GATE_MISSING=''
@@ -186,8 +251,7 @@ receipt_gate()
     for CELL in $(expected_cells "$2")
     do
         GATE_EXPECTED=$((GATE_EXPECTED + 1))
-        # A glob rather than `find -quit`: this runs on a Mac, whose find is BSD's.
-        if ls "$1"/receipt-"$CELL"-*.json > /dev/null 2>&1
+        if pulled_receipt "$CELL" "$1" "$3"
         then
             GATE_FOUND=$((GATE_FOUND + 1))
             pass "$CELL"
@@ -290,7 +354,7 @@ drive_flow()
 # reported as exactly that rather than as a bare missing receipt.
 report_cell()
 {
-    if ls "$3"/receipt-"$1"-*.json > /dev/null 2>&1
+    if pulled_receipt "$1" "$3" "$MANIFEST"
     then
         RECEIPTS_PULLED=$((RECEIPTS_PULLED + 1))
         if [ "$2" -eq 0 ]
@@ -311,7 +375,8 @@ report_cell()
     return 1
 }
 
-# Section 3's loop: every flow driven and pulled on its own, receipts into $1.
+# Section 3's loop: every flow driven and pulled on its own, receipts into $1 and their
+# names into $MANIFEST.
 #
 # Answers non-zero when any flow failed. The receipts are judged by the gate afterwards and
 # not here, so that one loop cannot both collect the evidence and decide about it.
@@ -327,7 +392,9 @@ collect_cells()
         CELL=$(basename "$FLOW" .yaml)
         CELLS_RUN=$((CELLS_RUN + 1))
         FLOW_STATE=0
+        snapshot_receipts "$1"
         drive_flow "$CELL" "$FLOW" "$1" || FLOW_STATE=1
+        record_pulled "$CELL" "$1" "$MANIFEST"
         if [ "$FLOW_STATE" -eq 0 ]
         then
             FLOWS_PASSED=$((FLOWS_PASSED + 1))
@@ -436,6 +503,8 @@ run_fixture()
     mkdir -p "$1" "$2"
     probe_device_reset
     write_fixture_runner
+    MANIFEST=$WORK/per-flow-manifest.txt
+    : > "$MANIFEST"
     FLOW_RUNNER=$WORK/fixture-runner.sh
     collect_cells "$1" > "$WORK/collect.log" 2>&1 || true
     FLOW_RUNNER=''
@@ -463,12 +532,14 @@ receipt_count()
 probe_gate_cases()
 {
     mkdir -p "$WORK/receipts"
+    : > "$WORK/receipts-manifest.txt"
     for CELL in $(expected_cells "$CASES")
     do
         printf '{"cell": "%s"}\n' "$CELL" > "$WORK/receipts/receipt-$CELL-1756800000000.json"
+        printf 'receipt-%s-1756800000000.json\n' "$CELL" >> "$WORK/receipts-manifest.txt"
     done
 
-    if receipt_gate "$WORK/receipts" "$CASES" > "$WORK/full.log" 2>&1
+    if receipt_gate "$WORK/receipts" "$CASES" "$WORK/receipts-manifest.txt" > "$WORK/full.log" 2>&1
     then
         pass 'a receipt for every cell passes the gate'
     else
@@ -478,7 +549,7 @@ probe_gate_cases()
     fi
 
     rm -f "$WORK/receipts/receipt-u1-1756800000000.json"
-    if receipt_gate "$WORK/receipts" "$CASES" > "$WORK/short.log" 2>&1
+    if receipt_gate "$WORK/receipts" "$CASES" "$WORK/receipts-manifest.txt" > "$WORK/short.log" 2>&1
     then
         fail 'one receipt deleted still passed the gate'
         PROBE_STATUS=1
@@ -492,7 +563,7 @@ probe_gate_cases()
     fi
 
     printf '{"cells": []}\n' > "$WORK/no-cells.json"
-    if receipt_gate "$WORK/receipts" "$WORK/no-cells.json" > "$WORK/empty.log" 2>&1
+    if receipt_gate "$WORK/receipts" "$WORK/no-cells.json" "$WORK/receipts-manifest.txt" > "$WORK/empty.log" 2>&1
     then
         fail 'a table with no cells passed the gate instead of refusing to run'
         PROBE_STATUS=1
@@ -526,8 +597,12 @@ probe_pull_case()
 
     # Both orders fail the gate here, and they have to fail it differently: the per-flow
     # pull names the one cell that wrote nothing, the end-of-run pull names all fourteen.
-    receipt_gate "$WORK/per-flow" "$CASES" > "$WORK/per-flow.log" 2>&1 || true
-    receipt_gate "$WORK/end-of-run" "$CASES" > "$WORK/end-of-run.log" 2>&1 || true
+    # The end-of-run directory is judged against a manifest of its own contents, which is
+    # what believing the directory looks like. The point of the case is the collection
+    # ORDER, so nothing here may hinge on the manifest rule the case after this one is for.
+    list_receipts "$WORK/end-of-run" > "$WORK/end-of-run-manifest.txt"
+    receipt_gate "$WORK/per-flow" "$CASES" "$WORK/per-flow-manifest.txt" > "$WORK/per-flow.log" 2>&1 || true
+    receipt_gate "$WORK/end-of-run" "$CASES" "$WORK/end-of-run-manifest.txt" > "$WORK/end-of-run.log" 2>&1 || true
     if grep -q "cells with no receipt: $PROBE_SILENT_CELL\$" "$WORK/per-flow.log" \
         && grep -q "0 of $EXPECTED_FLOOR cells left a receipt" "$WORK/end-of-run.log"
     then
@@ -603,6 +678,65 @@ probe_container_case()
     fi
 }
 
+# The case the per-invocation directory and the manifest were added for: a destination that
+# already holds a receipt for every cell, and a run that writes none.
+#
+# It is the shape a reused `<platform>/<date>/` directory reaches by lunchtime, and the
+# shape a skipped maestro invocation that returns zero meets. The gate must name all
+# fourteen cells, and the run must not so much as count what it found there.
+probe_stale_case()
+{
+    if open_run_directory "$WORK/run-directory/ios/2026-09-03-101500" \
+        && [ -z "$(list_receipts "$WORK/run-directory/ios/2026-09-03-101500")" ] \
+        && ! open_run_directory "$WORK/run-directory/ios/2026-09-03-101500"
+    then
+        pass 'a run directory is created empty and refused rather than shared with another run'
+    else
+        fail 'a run directory was reused, or was not created at all'
+        PROBE_STATUS=1
+    fi
+
+    mkdir -p "$WORK/stale"
+    for CELL in $(expected_cells "$CASES")
+    do
+        printf '{"cell": "%s"}\n' "$CELL" > "$WORK/stale/receipt-$CELL-1756800000000.json"
+    done
+
+    cat > "$WORK/silent-runner.sh" <<'SILENT'
+#!/bin/sh
+exit 0
+SILENT
+    chmod +x "$WORK/silent-runner.sh"
+
+    MANIFEST=$WORK/stale-manifest.txt
+    : > "$MANIFEST"
+    FLOW_RUNNER=$WORK/silent-runner.sh
+    collect_cells "$WORK/stale" > "$WORK/stale-collect.log" 2>&1 || true
+    FLOW_RUNNER=''
+
+    if grep -q '0 receipts pulled' "$WORK/stale-collect.log"
+    then
+        pass 'a run whose flows write nothing pulls nothing, whatever was in the directory already'
+    else
+        fail 'a run whose flows write nothing counted receipts it did not pull'
+        sed 's/^/      /' "$WORK/stale-collect.log"
+        PROBE_STATUS=1
+    fi
+
+    if receipt_gate "$WORK/stale" "$CASES" "$MANIFEST" > "$WORK/stale.log" 2>&1
+    then
+        fail "a receipt for every cell from an earlier run passed the gate"
+        PROBE_STATUS=1
+    elif [ "$(sed -n 's/^FAIL  cells with no receipt://p' "$WORK/stale.log" | wc -w)" -eq "$EXPECTED_FLOOR" ]
+    then
+        pass "$EXPECTED_FLOOR receipts this run did not pull fail the gate, named one by one"
+    else
+        fail 'earlier receipts failed the gate, but not on every cell'
+        sed 's/^/      /' "$WORK/stale.log"
+        PROBE_STATUS=1
+    fi
+}
+
 probe()
 {
     printf 'SPFN Mobile — the example cell receipt gate and per-flow pull, probed\n\n'
@@ -620,6 +754,7 @@ probe()
     write_probe_device
 
     probe_gate_cases
+    probe_stale_case
     probe_pull_case
     probe_container_case
 
@@ -730,8 +865,20 @@ else
     pass "Android target $TARGET"
 fi
 
-RUN_DIRECTORY="$RECEIPT_ROOT/$PLATFORM/$(date -u +%Y-%m-%d)"
-mkdir -p "$RUN_DIRECTORY"
+# One directory per INVOCATION, created empty, and a manifest of what this invocation
+# pulled into it. A directory named by the date alone is reused by every run of that day
+# and cleared by none of them, so a run whose maestro invocations were skipped and returned
+# zero found the morning's receipts sitting there and reported PASS
+# (docs/IMPLEMENTATION-PITFALLS.md P23). `mkdir` rather than `mkdir -p` on the leaf: two
+# runs starting in the same second would otherwise share a directory, and the second would
+# judge itself on the first's evidence.
+RUN_DIRECTORY="$RECEIPT_ROOT/$PLATFORM/$(date -u +%Y-%m-%d-%H%M%S)"
+MANIFEST=$WORK/pulled-receipts.txt
+: > "$MANIFEST"
+if ! open_run_directory "$RUN_DIRECTORY"
+then
+    die "$RUN_DIRECTORY already exists; this run would be judged on another run's receipts"
+fi
 
 # ---------------------------------------------------------------------------
 printf '\n2. the warm-up\n'
@@ -803,12 +950,14 @@ collect_cells "$RUN_DIRECTORY" || FLOW_STATUS=1
 # ---------------------------------------------------------------------------
 printf '\n4. every cell really ran\n'
 # ---------------------------------------------------------------------------
-# Unchanged by the rewrite above: the cells the table claims a device runner for, against
-# the receipts that reached this run's own directory, which is where they stay. Unlike the
-# harness's, these receipts outlive the run, because the case table is a claim about two
-# platforms and the receipts are what a reader checks it against.
+# The cells the table claims a device runner for, against the receipts THIS invocation
+# pulled into its own directory, which is where they stay. Unlike the harness's, these
+# receipts outlive the run, because the case table is a claim about two platforms and the
+# receipts are what a reader checks it against — which is exactly why the gate is given the
+# manifest as well as the directory: outliving the run must not mean counting for the next
+# one.
 RECEIPT_STATUS=0
-receipt_gate "$RUN_DIRECTORY" "$CASES" || RECEIPT_STATUS=1
+receipt_gate "$RUN_DIRECTORY" "$CASES" "$MANIFEST" || RECEIPT_STATUS=1
 
 printf '\n'
 printf 'target: %s (%s)\n' "$TARGET" "$PLATFORM"
