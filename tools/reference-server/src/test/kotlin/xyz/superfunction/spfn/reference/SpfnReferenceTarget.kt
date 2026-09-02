@@ -195,8 +195,8 @@ class SpfnInProcessControl(
 
     override fun advanceClock(millis: Long): Boolean
     {
-        val testClock = clock as? SpfnReferenceTestClock ?: return false;
-        testClock.advance(millis);
+        val movableClock = clock as? SpfnReferenceMovableClock ?: return false;
+        movableClock.advance(millis);
         return true;
     }
 

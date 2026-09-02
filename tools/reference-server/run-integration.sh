@@ -75,7 +75,8 @@ TEST_CLOCK=${SPFN_INTEGRATION_TEST_CLOCK-}
 # the server refuses a proof whose issuedAtMillis is outside the replay window of its own
 # clock; the SDKs synchronise to core.time, which answers from this same clock, so both
 # ends sit at this instant and the window is measuring the rule instead of the gap between
-# two epochs.
+# two epochs. From there the launched clock ticks at the rate of real time, like the SDK
+# proof clocks anchored to it; only the in-process unit suites freeze theirs.
 TEST_CLOCK_START_MILLIS=1750000000000
 
 WORK=$(mktemp -d)

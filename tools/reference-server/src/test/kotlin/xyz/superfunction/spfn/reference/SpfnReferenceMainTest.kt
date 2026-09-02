@@ -107,11 +107,33 @@ class SpfnReferenceMainTest
     fun `a launch with the flag moves its clock, and core time moves with it`()
     {
         serverFor(parseArguments(arrayOf("--test-clock", "$START_MILLIS"))).start().use { server ->
-            assertEquals(START_MILLIS, serverTimeMillis(server));
+            val started = serverTimeMillis(server);
+            assertTrue("$started is not the instant the flag named", started >= START_MILLIS);
+            assertTrue("$started is not near the instant the flag named", started < START_MILLIS + STARTUP_SLACK_MILLIS);
 
             assertEquals(200, advanceClock(server, 60_000).statusCode);
 
-            assertEquals(START_MILLIS + 60_000, serverTimeMillis(server));
+            assertTrue("the advance did not reach core.time", serverTimeMillis(server) >= started + 60_000);
+        }
+    }
+
+    /**
+     * And it ticks between two answers with nothing moving it. This is the failure the
+     * flag had when it built a frozen clock: `advance` worked, so the case above passed,
+     * while the launched server sat still and refused every proof from a client whose own
+     * clock had gone on running. Strictly greater, over a real pause — a frozen server
+     * answers the same instant twice.
+     */
+    @Test
+    fun `a launch with the flag answers a core time that moves on its own`()
+    {
+        serverFor(parseArguments(arrayOf("--test-clock", "$START_MILLIS"))).start().use { server ->
+            val first = serverTimeMillis(server);
+            Thread.sleep(TICK_SLEEP_MILLIS);
+            val second = serverTimeMillis(server);
+
+            assertTrue("core.time answered $first twice; the launched clock is frozen", second > first);
+            assertTrue("$second - $first is less than the pause between the two reads", second - first >= TICK_SLEEP_MILLIS);
         }
     }
 
@@ -199,6 +221,12 @@ class SpfnReferenceMainTest
     {
         /** What the runner passes, and what the fixtures are written around. */
         const val START_MILLIS = SpfnReferenceTestClock.DEFAULT_START_MILLIS
+
+        /** Room for a server to start and answer, and far short of any advance a test makes. */
+        const val STARTUP_SLACK_MILLIS = 10_000L
+
+        /** Long enough that a clock which really ticks cannot answer the same instant twice. */
+        const val TICK_SLEEP_MILLIS = 25L
 
         const val TIMEOUT_MILLIS = 10_000
     }

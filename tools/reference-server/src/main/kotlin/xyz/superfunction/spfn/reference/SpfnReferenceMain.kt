@@ -13,6 +13,11 @@
 // exists because the Swift suite reaches its server only through this entry point: a case
 // that has to arrange an expiry drives `/control/advance-clock`, and that route refuses a
 // server on the wall clock rather than silently doing nothing.
+//
+// What the flag builds is the TICKING clock, not the frozen one the unit suites use. A
+// client in another process anchors its proof clock to this server's `core.time` and then
+// runs on its own monotonic source, so a server that stopped would be a millisecond
+// behind that client at once and would refuse every proof as future-dated.
 
 package xyz.superfunction.spfn.reference
 
@@ -76,7 +81,7 @@ internal class Options(
  */
 internal fun serverFor(options: Options): SpfnReferenceServer = SpfnReferenceServer(
     requestedPort = options.port,
-    clock = options.testClockStartMillis?.let { SpfnReferenceTestClock(it) } ?: SpfnReferenceClock.system(),
+    clock = options.testClockStartMillis?.let { SpfnReferenceTickingClock(it) } ?: SpfnReferenceClock.system(),
     sessionTtlMillis = options.sessionTtlMillis,
     log = { line -> println(line) }
 )
