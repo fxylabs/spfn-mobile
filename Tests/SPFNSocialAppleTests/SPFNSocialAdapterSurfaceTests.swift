@@ -9,6 +9,11 @@
 // This file lives in the Apple suite and covers both modules on purpose: the rule is
 // one rule over the adapter surface, and splitting it in two would let one half be
 // deleted while the other still reports green.
+//
+// The module under test is Apple-only (`"linux": false` in tools/module-graph.json),
+// so this file is guarded the same way its subject is: on Linux the target compiles
+// to an empty module and there is nothing here to run.
+#if canImport(AuthenticationServices)
 
 import Foundation
 import XCTest
@@ -128,3 +133,5 @@ enum SocialSurfacePaths
         .deletingLastPathComponent()   // Tests
         .deletingLastPathComponent()   // repository root
 }
+
+#endif

@@ -4,6 +4,11 @@
 // rules must be judgeable without Google's SDK present, and the only thing the trait
 // adds is the platform flow behind the same seam. The row that matters most is C7 —
 // Google's request carries the raw value where Apple's carries the hash.
+//
+// The module under test is Apple-only (`"linux": false` in tools/module-graph.json),
+// so this file is guarded the same way its subject is — UIKit on iOS, AppKit on macOS
+// — and on Linux the target compiles to an empty module with nothing here to run.
+#if canImport(UIKit) || canImport(AppKit)
 
 import Foundation
 import XCTest
@@ -186,3 +191,5 @@ actor RecordingGoogleDriver: SPFNSocialGoogleDriver
         }
     }
 }
+
+#endif

@@ -1,12 +1,23 @@
 // SPFN Mobile — digests.
 //
-// CryptoKit ships with every platform this package declares support for, so there is
-// no dependency to add and no hand-rolled primitive to review. The Kotlin counterpart
-// uses java.security.MessageDigest, and the conformance fixtures assert both platforms
-// produce the same hex for the same input. The proof signature itself lives in
-// SPFNAuth: this module only ever hashes.
+// CryptoKit ships with every Apple platform this package declares support for, so on
+// the platforms the SDK ships to there is no dependency to add and no hand-rolled
+// primitive to review. Linux has no CryptoKit, and the substitute is Apple's own
+// swift-crypto: the same API under another roof, so the difference is an import and
+// nothing else. Every name this file uses — `SHA256.hash(data:)` — is spelled
+// identically in both, and the conformance fixtures are what prove the two agree
+// byte for byte rather than merely compiling.
+//
+// The Kotlin counterpart uses java.security.MessageDigest, and the conformance
+// fixtures assert all three platforms produce the same hex for the same input. The
+// proof signature itself lives in SPFNAuth: this module only ever hashes.
 
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
+
 import Foundation
 
 public enum SPFNDigest

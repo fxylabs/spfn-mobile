@@ -10,7 +10,12 @@
 // Key custody (Keychain, Secure Enclave, attestation) is a separate decision
 // (docs/OPEN-DECISIONS.md). The software provider below is an alpha stand-in and says so.
 
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
+
 import Foundation
 
 /// Supplies the client identity and signs one message with the client key.

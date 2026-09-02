@@ -3,10 +3,13 @@
 #
 # Decision D7 (resolved 2026-08-03): the Android SBOM comes from the CycloneDX Gradle
 # plugin because the Android SDK has resolved third-party dependencies to enumerate.
-# The Swift package has none — `Package.swift` declares zero external packages, held by
-# tools/validate/validate.sh — so its SBOM is generated statically: the components are
-# this repository's own six library products and nothing else, with the edges read from
-# tools/module-graph.json so this file cannot drift from the graph the validator holds.
+# The Swift package has none to enumerate on the platforms it ships to: every external
+# package it declares is conditional, and no consumer on a declared platform with the
+# default trait set resolves any of them. So its SBOM is generated statically: the
+# components are this repository's own six library products and nothing else, with the
+# edges read from tools/module-graph.json so this file cannot drift from the graph the
+# validator holds. The conditional packages are named in the description rather than
+# listed as components, because a component nothing links is not part of this artifact.
 #
 #   sh tools/rc-verify/generate-ios-sbom.sh <output-file.json>
 #
@@ -34,6 +37,13 @@ SERIAL=$(uuidgen | tr 'A-F' 'a-f')
 # so), which is what makes this parse honest rather than hopeful.
 TARGET_LINES=$(grep '"swiftTarget"' "$GRAPH")
 
+# Counted from the graph's own allowlist rather than written as a literal: a number
+# that has to be edited by hand when a dependency is added is a number that stops
+# being true the first time nobody edits it.
+CONDITIONAL_PACKAGES=$(printf '%s\n' "$TARGET_LINES" \
+    | sed -n 's/.*"externalDeps": {"swift": \[\([^]]*\)\].*/\1/p' \
+    | tr ',' '\n' | tr -d '" ' | grep -v '^$' | sort -u | wc -l | tr -d ' ')
+
 {
     printf '{\n'
     printf '  "bomFormat": "CycloneDX",\n'
@@ -47,11 +57,12 @@ TARGET_LINES=$(grep '"swiftTarget"' "$GRAPH")
     printf '      "bom-ref": "pkg:swift/spfn-mobile@%s",\n' "$VERSION"
     printf '      "name": "spfn-mobile",\n'
     printf '      "version": "%s",\n' "$VERSION"
-    printf '      "description": "SPFN Mobile Swift package. Zero external package dependencies by design: cryptography comes from CryptoKit, which the declared platforms ship. This SBOM is generated statically because there is no third-party dependency graph to resolve."\n'
+    printf '      "description": "SPFN Mobile Swift package. No external package dependency is linked on a declared platform: cryptography comes from CryptoKit, which iOS and macOS ship. Two conditional packages exist and neither is on that path — GoogleSignIn-iOS behind the SocialGoogle trait, which no consumer enables by default, and swift-crypto behind .when(platforms: [.linux]), which is how this package builds and runs its suites on Linux. This SBOM is generated statically because there is no third-party dependency graph to resolve for a declared platform."\n'
     printf '    },\n'
     printf '    "properties": [\n'
     printf '      { "name": "spfn:sourceCommit", "value": "%s" },\n' "$COMMIT"
-    printf '      { "name": "spfn:externalPackageDependencies", "value": "0" }\n'
+    printf '      { "name": "spfn:externalPackagesLinkedOnADeclaredPlatform", "value": "0" },\n'
+    printf '      { "name": "spfn:externalPackagesDeclaredConditionally", "value": "%s" }\n' "$CONDITIONAL_PACKAGES"
     printf '    ]\n'
     printf '  },\n'
 
@@ -121,5 +132,5 @@ TARGET_LINES=$(grep '"swiftTarget"' "$GRAPH")
     printf '}\n'
 } > "$OUTPUT"
 
-printf 'wrote %s (%s Swift targets, 0 external dependencies)\n' \
-    "$OUTPUT" "$(printf '%s\n' "$TARGET_LINES" | wc -l | tr -d ' ')"
+printf 'wrote %s (%s Swift targets, 0 external packages linked, %s declared conditionally)\n' \
+    "$OUTPUT" "$(printf '%s\n' "$TARGET_LINES" | wc -l | tr -d ' ')" "$CONDITIONAL_PACKAGES"

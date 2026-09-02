@@ -12,10 +12,23 @@
 // enclave half compiles under `swift build` and its runtime behaviour is real-device
 // evidence, deferred with the COMPATIBILITY real-device axis.
 //
+// The enclave backend is guarded by `canImport(CryptoKit) && canImport(Security)`,
+// which is the pair of frameworks it is actually built out of: CryptoKit for
+// `SecureEnclave.P256`, Security for the access control the key is created under. The
+// software half is unguarded and is the whole of this file on Linux, where the SDK is
+// built to run its suites rather than to ship. `SPFNKeyCustody.secureEnclave` itself
+// stays on every platform — it is a wire value that a record can carry anywhere, and a
+// platform that cannot open such a record answers nil rather than failing to name it.
+//
 // android/spfn-client/.../SpfnKeystoreKeyProvider.kt is the Android counterpart
 // (Keystore, StrongBox preferred, TEE fallback).
 
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
+
 import Foundation
 
 /// A client key under platform custody, created before any identity exists.
@@ -32,27 +45,43 @@ public struct SPFNCustodyKey: Sendable
 
     private enum Backend: Sendable
     {
+        #if canImport(CryptoKit) && canImport(Security)
         case secureEnclave(SecureEnclave.P256.Signing.PrivateKey)
+        #endif
         case software(P256.Signing.PrivateKey)
     }
 
     // MARK: - Creation and reloading
 
-    /// Generates a fresh key, inside the enclave when it is available.
+    /// Generates a fresh key, inside the enclave when the platform has one.
     ///
-    /// `preferSecureEnclave` defaults to the platform's own answer. Tests pass false —
-    /// not to skip the decision but because the decision is the platform's: what the
-    /// suite owns is that the fallback works and says it is one.
+    /// The platform's own answer is what this overload asks for; it is written as an
+    /// overload rather than as a default argument because the answer is a different
+    /// expression on each platform and a default argument cannot be split by `#if`.
+    /// A caller that has its own answer calls the two-argument form.
+    public static func generate(keyID: String) -> SPFNCustodyKey
+    {
+        #if canImport(CryptoKit) && canImport(Security)
+        return generate(keyID: keyID, preferSecureEnclave: SecureEnclave.isAvailable)
+        #else
+        return generate(keyID: keyID, preferSecureEnclave: false)
+        #endif
+    }
+
+    /// Generates a fresh key, inside the enclave when `preferSecureEnclave` asks for
+    /// one and the platform can supply it.
+    ///
+    /// Tests pass false — not to skip the decision but because the decision is the
+    /// platform's: what the suite owns is that the fallback works and says it is one.
     ///
     /// A preferred enclave that fails at generation time falls back the same way an
     /// absent one does. The alternative — surfacing the failure — would make first-run
     /// enrollment fail on exactly the devices whose enclave is flaky, for a key the
-    /// software path can hold correctly and honestly.
-    public static func generate(
-        keyID: String,
-        preferSecureEnclave: Bool = SecureEnclave.isAvailable
-    ) -> SPFNCustodyKey
+    /// software path can hold correctly and honestly. A platform with no enclave at all
+    /// is the same fallback for the same reason, which is why true is not an error here.
+    public static func generate(keyID: String, preferSecureEnclave: Bool) -> SPFNCustodyKey
     {
+        #if canImport(CryptoKit) && canImport(Security)
         // The same accessibility the store writes for blobs: usable after first unlock,
         // never off this device. An enclave key is device-bound by construction; the
         // explicit access control keeps the claim in the code rather than in a default.
@@ -68,6 +97,7 @@ public struct SPFNCustodyKey: Sendable
         {
             return SPFNCustodyKey(keyID: keyID, custody: .secureEnclave, backend: .secureEnclave(enclaveKey))
         }
+        #endif
         return SPFNCustodyKey(keyID: keyID, custody: .softwareKeychain, backend: .software(P256.Signing.PrivateKey()))
     }
 
@@ -80,12 +110,19 @@ public struct SPFNCustodyKey: Sendable
         switch record.custody
         {
         case .secureEnclave:
+            #if canImport(CryptoKit) && canImport(Security)
             guard let key = try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: Data(record.keyBlob))
             else
             {
                 return nil
             }
             return SPFNCustodyKey(keyID: record.keyID, custody: .secureEnclave, backend: .secureEnclave(key))
+            #else
+            // A platform with no enclave cannot open a sealed enclave blob, which is
+            // the same outcome as a blob that fails to decode on a platform that has
+            // one: a key this device cannot sign with, and re-enrollment either way.
+            return nil
+            #endif
         case .softwareKeychain:
             guard let key = try? P256.Signing.PrivateKey(derRepresentation: Data(record.keyBlob))
             else
@@ -111,8 +148,10 @@ public struct SPFNCustodyKey: Sendable
     {
         switch backend
         {
+        #if canImport(CryptoKit) && canImport(Security)
         case .secureEnclave(let key):
             return [UInt8](key.publicKey.derRepresentation)
+        #endif
         case .software(let key):
             return [UInt8](key.publicKey.derRepresentation)
         }
@@ -124,8 +163,10 @@ public struct SPFNCustodyKey: Sendable
     {
         switch backend
         {
+        #if canImport(CryptoKit) && canImport(Security)
         case .secureEnclave(let key):
             return [UInt8](try key.signature(for: Data(message)).rawRepresentation)
+        #endif
         case .software(let key):
             return [UInt8](try key.signature(for: Data(message)).rawRepresentation)
         }
@@ -141,8 +182,10 @@ public struct SPFNCustodyKey: Sendable
         let blob: [UInt8]
         switch backend
         {
+        #if canImport(CryptoKit) && canImport(Security)
         case .secureEnclave(let key):
             blob = [UInt8](key.dataRepresentation)
+        #endif
         case .software(let key):
             blob = [UInt8](key.derRepresentation)
         }

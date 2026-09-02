@@ -6,7 +6,12 @@
 // the test keypair, so admitting one is also a statement that this platform's verifier
 // accepts a signature produced outside either SDK.
 
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
+
 import Foundation
 import SPFNAuth
 import SPFNCore

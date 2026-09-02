@@ -5,6 +5,49 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The Swift package builds and tests on Linux
+
+- **`swift build` and `swift test` run on Linux** — Swift 6.2.1 on Ubuntu 24.04 builds
+  `SPFNCore`, `SPFNGenerated`, `SPFNAuth` and `SPFNClient` and runs 274 tests with 20
+  skipped and 0 failures, including the conformance suites against the same
+  `Contracts/fixtures` bytes macOS asserts against. Until now every Swift change on a
+  Linux host was written without a compiler; this is what ends that.
+- **`swift-crypto` backs the Linux cryptography path.** CryptoKit ships with every
+  Apple platform this package supports and does not exist on Linux; swift-crypto is
+  Apple's own port of the same API, so `SPFNDigest`, `SPFNClientProof`,
+  `SPFNSoftwareKeyProvider` and `SPFNCustodyKey` swap an import
+  (`#if canImport(CryptoKit) … #else import Crypto`) and nothing else — no wrapper, no
+  abstraction over the crypto types. Every target edge carries
+  `.when(platforms: [.linux])`, so an iOS or macOS build links nothing new; SwiftPM
+  still resolves the package on every platform, and `Package.resolved` stays untracked.
+  `tools/module-graph.json` lists `swift-crypto` in `externalDeps.swift` on core, auth
+  and client, which is the allowlist the validator holds `Package.swift` to.
+- **Apple-only modules are declared, not inferred.** `tools/module-graph.json` is at
+  schemaVersion 4 and carries a per-module `linux` key: absent means the module builds
+  on Linux, the literal `false` means it has no Linux half at all, and a value that is
+  neither fails as unread rather than being skipped — the same three-state rule
+  `androidModule` already followed. `SPFNSocialApple` and `SPFNSocialGoogle` declare
+  `"linux": false`. SwiftPM cannot condition a target on a platform, so what makes that
+  true in the build is a whole-file guard on every one of their sources and tests; the
+  targets compile to empty modules on Linux, with zero defined symbols.
+- **Inside `SPFNClient` only the hardware pieces are Apple-only.** `SPFNCustodyKey`'s
+  `.secureEnclave` backend and the enclave-creating branch are behind
+  `#if canImport(CryptoKit) && canImport(Security)`, and `SPFNKeychainKeyStore` is behind
+  `#if canImport(Security)`. `SPFNKeyCustody.secureEnclave` is a wire value and stays on
+  every platform; a platform that cannot open an enclave blob answers nil, which is what
+  a platform that has one already answers for a blob it cannot open. `generate(keyID:)`
+  is now an overload that asks the platform, rather than a default argument that could
+  not be split by `#if`; both existing call shapes are unchanged.
+- **`validate.sh` learned the Linux half.** Section 8 buckets every module line into
+  Linux-capable or declared-absent and fails unless the two add up; it checks both ends
+  of every whole-file guard, because a guard closed early still looks guarded; it refuses
+  an Apple-only framework imported outside a `canImport` guard in a module that builds on
+  Linux, and a CryptoKit import outside one anywhere. The section 8 dependency rule was
+  relaxed so a target with no graph edges may carry an external product the graph allows
+  it behind `.when(platforms: [.linux])` — and only that: an unconditional product, or a
+  product allowed to some other module, still fails.
+  `tools/validate/probe-social-adapter-rules.sh` gained nine cases, one per new refusal.
+
 ### The call descriptor is generated, one per operation
 
 - **`SPFNCall` / `SpfnCall` move from the client module to the core module** —

@@ -16,11 +16,26 @@
 // That baseline says what this package COMPILES against. It is not a support
 // commitment: COMPATIBILITY.md rows stay UNRESOLVED until real-device evidence exists.
 //
-// One package dependency exists, and only behind a trait. `SPFNSocialGoogle` needs
-// Google's own sign-in SDK to obtain a provider token on the device; a consumer that
-// does not enable the `SocialGoogle` trait never resolves it, never checks it out and
-// never links it. Everything else still comes from the platform: cryptography is
-// CryptoKit and the Apple adapter is the OS's own AuthenticationServices.
+// Two package dependencies exist, and neither is on the path an app on a declared
+// platform takes.
+//
+// `GoogleSignIn-iOS` is behind a trait. `SPFNSocialGoogle` needs Google's own sign-in
+// SDK to obtain a provider token on the device; a consumer that does not enable the
+// `SocialGoogle` trait never resolves it, never checks it out and never links it.
+//
+// `swift-crypto` is behind a platform condition, and it exists so this package can be
+// built and its suites run on Linux. Cryptography on iOS and macOS is CryptoKit, which
+// the OS ships; Linux has no CryptoKit, and swift-crypto is Apple's own port of that
+// same API, so the sources swap an import and nothing else. Every target edge to it
+// carries `.when(platforms: [.linux])`, so an iOS or macOS build never links it — the
+// product edge is written out at each of those targets rather than bound to a name,
+// because the edge is the per-target evidence `tools/module-graph.json` lists in
+// `externalDeps.swift` and `tools/validate/validate.sh` reads back off these lines.
+// SwiftPM still RESOLVES a conditional dependency on every platform, so the lockfile
+// names it on macOS as well; `Package.resolved` is untracked here, so nothing about
+// that resolution is committed.
+//
+// The Apple adapter needs no package at all: it is the OS's own AuthenticationServices.
 //
 // `traits` MUST come after `products`. The Package initialiser's argument order is
 // checked by the manifest compiler, and swapping the two fails the build with
@@ -57,20 +72,31 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/google/GoogleSignIn-iOS", from: "9.2.0"),
+        .package(url: "https://github.com/apple/swift-crypto", from: "4.0.0"),
     ],
     targets: [
-        .target(name: "SPFNCore"),
+        .target(name: "SPFNCore", dependencies: [.product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]),
         .target(name: "SPFNGenerated", dependencies: ["SPFNCore"]),
-        .target(name: "SPFNAuth", dependencies: ["SPFNCore"]),
-        .target(name: "SPFNClient", dependencies: ["SPFNCore", "SPFNAuth", "SPFNGenerated"]),
+        .target(name: "SPFNAuth", dependencies: ["SPFNCore", .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]),
+        .target(name: "SPFNClient", dependencies: ["SPFNCore", "SPFNAuth", "SPFNGenerated", .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]),
+
+        // The two provider adapters are Apple-only, which tools/module-graph.json
+        // states as `"linux": false` on their rows. SwiftPM cannot condition a target
+        // on a platform, so what makes that true in the build is in the sources: every
+        // file of these four targets is guarded whole on the framework it is written
+        // against, and each compiles to an empty module on Linux. The graph is the
+        // source of truth; this comment only says where the mechanism lives.
         .target(name: "SPFNSocialApple", dependencies: ["SPFNClient"]),
         .target(name: "SPFNSocialGoogle", dependencies: ["SPFNClient", googleSignIn]),
 
         .testTarget(name: "SPFNCoreTests", dependencies: ["SPFNCore"]),
-        .testTarget(name: "SPFNAuthTests", dependencies: ["SPFNAuth", "SPFNCore"]),
+        .testTarget(
+            name: "SPFNAuthTests",
+            dependencies: ["SPFNAuth", "SPFNCore", .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]
+        ),
         .testTarget(
             name: "SPFNClientTests",
-            dependencies: ["SPFNClient", "SPFNCore", "SPFNAuth", "SPFNGenerated"]
+            dependencies: ["SPFNClient", "SPFNCore", "SPFNAuth", "SPFNGenerated", .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]
         ),
         .testTarget(name: "SPFNSocialAppleTests", dependencies: ["SPFNSocialApple", "SPFNClient"]),
         .testTarget(name: "SPFNSocialGoogleTests", dependencies: ["SPFNSocialGoogle", "SPFNClient"]),
@@ -80,7 +106,7 @@ let package = Package(
         ),
         .testTarget(
             name: "SPFNConformanceTests",
-            dependencies: ["SPFNCore", "SPFNGenerated", "SPFNAuth"]
+            dependencies: ["SPFNCore", "SPFNGenerated", "SPFNAuth", .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]
         ),
 
         // Skips itself unless SPFN_REFERENCE_SERVER_URL names a running

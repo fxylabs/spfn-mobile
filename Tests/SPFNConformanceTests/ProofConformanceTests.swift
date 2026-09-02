@@ -7,7 +7,12 @@
 // public key. The reject table then proves the verifier refuses everything that is
 // not a valid raw-r‖s base16-lower signature under the named key.
 
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
+
 import Foundation
 import SPFNAuth
 import SPFNCore

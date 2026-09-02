@@ -7,7 +7,12 @@
 //
 // SpfnKeyLifecycleTest.kt is the counterpart and uses corresponding case names.
 
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
+
 import Foundation
 import XCTest
 import SPFNAuth
