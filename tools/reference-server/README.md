@@ -11,6 +11,34 @@ That one command is the gate. It starts the server, runs the Swift integration s
 one process and the Android integration suite in another, checks that every case really
 ran, stops the server, and fails if anything is left holding a port.
 
+## Launching it by hand
+
+`SpfnReferenceMain` is the entry point the runner starts, and the only way to reach this
+server from another process.
+
+```
+usage: SpfnReferenceMain [--port <n>] [--port-file <path>] [--session-ttl-millis <n>]
+                         [--parent-pid <n>] [--test-clock <startMillis>]
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--port` | the port to bind; 0, the default, asks the operating system for a free one |
+| `--port-file` | where to write the launch object — `baseUrl`, `controlToken`, `port` |
+| `--session-ttl-millis` | the TTL of sessions this server opens |
+| `--parent-pid` | a process to watch: the server exits when it is gone |
+| `--test-clock` | run on a clock `/control/advance-clock` can move, starting at this instant |
+
+Every flag needs a value, and one without a value is a usage error rather than a default.
+
+Without `--test-clock` the launch runs on the wall clock, `/control/advance-clock` answers
+409, and any case that has to reach an expiry is out of scope. `run-integration.sh` passes
+`--test-clock 1750000000000` — `SpfnReferenceTestClock.DEFAULT_START_MILLIS` written out,
+because a shell script cannot read a Kotlin constant — exactly when it tells the suites
+the clock moves. It is one clock: session expiry, the proof replay window, device-code
+expiry and the `core.time` answer the SDKs anchor their proof clock to all read it, so a
+suite on a launched test clock and the server sit at the same instant.
+
 ## Against a server this repository did not write
 
 ```sh
@@ -128,7 +156,7 @@ another process where there is no object to call a method on.
 | `POST /control/revoke-key` | revokes a key and the sessions it opened |
 | `POST /control/session-ttl` | changes the TTL of sessions opened from now on |
 | `POST /control/hold` | makes the next requests to one path wait, so a timeout has something to time out on |
-| `POST /control/advance-clock` | moves an injected test clock; refused on the system clock |
+| `POST /control/advance-clock` | moves an injected test clock; refused with 409 on the system clock |
 
 Every route except health requires the token the launch generated. It is written to the
 runner's launch file and is never printed or logged.

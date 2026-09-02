@@ -339,7 +339,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let waiting = waitingDevice(fixture)
         let shown = ShownCode()
 
-        let signIn = Task { try await waiting.lifecycle.enrollByDeviceCode(deviceName: Self.deviceName) { code, _ in shown.record(code) } }
+        let signIn = Self.startSignIn(waiting.lifecycle, showing: shown)
         let userCode = await shown.value()
 
         // B looks before it decides: the answer names the device that is waiting, and the
@@ -398,7 +398,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let waiting = waitingDevice(fixture)
         let shown = ShownCode()
 
-        let signIn = Task { try await waiting.lifecycle.enrollByDeviceCode(deviceName: Self.deviceName) { code, _ in shown.record(code) } }
+        let signIn = Self.startSignIn(waiting.lifecycle, showing: shown)
         let userCode = await shown.value()
 
         let denied = try await approver.execute(Calls.deviceDeny, request: SPFNDenyDeviceAuthRequest(userCode: userCode))
@@ -444,7 +444,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         )
 
         let shown = ShownCode()
-        let signIn = Task { try await waiting.lifecycle.enrollByDeviceCode(deviceName: Self.deviceName) { code, _ in shown.record(code) } }
+        let signIn = Self.startSignIn(waiting.lifecycle, showing: shown)
         _ = await shown.value()
 
         guard try await fixture.control.advanceClock(millis: Self.expiryAdvanceMillis)
@@ -505,7 +505,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let waiting = waitingDevice(fixture)
         let shown = ShownCode()
 
-        let signIn = Task { try await waiting.lifecycle.enrollByDeviceCode(deviceName: Self.deviceName) { code, _ in shown.record(code) } }
+        let signIn = Self.startSignIn(waiting.lifecycle, showing: shown)
         let userCode = await shown.value()
 
         _ = try await approver.execute(Calls.deviceApprove, request: SPFNApproveDeviceAuthRequest(userCode: userCode))
@@ -538,7 +538,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let waiting = waitingDevice(fixture)
         let shown = ShownCode()
 
-        let signIn = Task { try await waiting.lifecycle.enrollByDeviceCode(deviceName: Self.deviceName) { code, _ in shown.record(code) } }
+        let signIn = Self.startSignIn(waiting.lifecycle, showing: shown)
         let userCode = await shown.value()
 
         let operation = SPFNGeneratedOperations.authDeviceApprove
@@ -829,6 +829,24 @@ final class SPFNReferenceIntegrationTests: XCTestCase
             encode: { try $0.canonicalValue() },
             decode: { try SPFNListItemsResponse(canonical: $0) }
         )
+    }
+
+    /// Starts the waiting device's sign-in as its own task. A helper rather than an inline
+    /// `Task { ... }` with a trailing closure, which the Swift 6.2 region-isolation checker
+    /// refuses to analyse ("pattern that the region based isolation checker does not
+    /// understand how to check").
+    private static func startSignIn(
+        _ lifecycle: SPFNKeyLifecycle,
+        showing shown: ShownCode
+    ) -> Task<SPFNDeviceCodeEnrollmentResult, any Error>
+    {
+        Task
+        {
+            try await lifecycle.enrollByDeviceCode(
+                deviceName: Self.deviceName,
+                showCode: { code, _ in shown.record(code) }
+            )
+        }
     }
 }
 

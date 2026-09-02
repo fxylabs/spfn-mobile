@@ -60,14 +60,23 @@ EXPECTED_RECEIPTS='swift-a swift-b swift-c swift-d swift-e kotlin-a kotlin-b kot
 # unless the caller states otherwise by exporting SPFN_INTEGRATION_REST_OPS=1.
 REST_OPS=${SPFN_INTEGRATION_REST_OPS-}
 
-# Whether the target's clock can be moved through /control/advance-clock. The local
-# reference server runs on a test clock and always can. A launched server runs on the
-# system clock on purpose, so case i — a device code that reaches its expiry — cannot be
-# arranged against one, and it is out of scope unless the caller says otherwise. Its own
-# flag rather than REST_OPS's: a target can implement every /_auth operation and still
-# have no clock a test may move, and folding the two would demand a receipt for a case
-# that cannot run.
+# Whether the target's clock can be moved through /control/advance-clock. The server this
+# script launches is started with --test-clock and always can. An external target usually
+# cannot — it runs on a wall clock nothing here may move — so case i, a device code that
+# reaches its expiry, is out of scope there unless the caller says otherwise. Its own flag
+# rather than REST_OPS's: a target can implement every /_auth operation and still have no
+# clock a test may move, and folding the two would demand a receipt for a case that cannot
+# run.
 TEST_CLOCK=${SPFN_INTEGRATION_TEST_CLOCK-}
+
+# The instant the launched server's test clock starts at, and the literal value of
+# SpfnReferenceTestClock.DEFAULT_START_MILLIS (2025-06-15T14:26:40Z) — a shell script
+# cannot read a Kotlin constant. It is an ordinary epoch instant rather than zero because
+# the server refuses a proof whose issuedAtMillis is outside the replay window of its own
+# clock; the SDKs synchronise to core.time, which answers from this same clock, so both
+# ends sit at this instant and the window is measuring the rule instead of the gap between
+# two epochs.
+TEST_CLOCK_START_MILLIS=1750000000000
 
 WORK=$(mktemp -d)
 RECEIPTS="$WORK/receipts"
@@ -284,9 +293,16 @@ else
     # A plain java process rather than a Gradle JavaExec: this script needs the server's own
     # PID so the trap above can stop it, and a forked JavaExec outlives the Gradle client that
     # started it. --parent-pid gives the server a second way to notice this run is over.
+    # --test-clock, because the Swift suite reaches its server only through this process:
+    # case i has to arrange a device code that expired, /control/advance-clock is the only
+    # way to say so from another process, and that route refuses a server on the wall
+    # clock. TEST_CLOCK=1 below is what the suites are told, and the two are set together
+    # on purpose — a run that claimed a movable clock and launched a wall-clock server is
+    # the failure this flag exists to end.
     java -cp "$(cat "$LAUNCH_INFO")" "$MAIN_CLASS" \
         --port-file "$LAUNCH_FILE" \
-        --parent-pid "$$" > "$SERVER_LOG" 2>&1 &
+        --parent-pid "$$" \
+        --test-clock "$TEST_CLOCK_START_MILLIS" > "$SERVER_LOG" 2>&1 &
     SERVER_PID=$!
 
     ATTEMPT=0
@@ -332,7 +348,7 @@ else
     fi
 
     # The server this script starts is this repository's own, so the REST surface is
-    # always present and its clock is a test clock: every case is expected.
+    # always present, and it was launched with --test-clock: every case is expected.
     REST_OPS=1
     TEST_CLOCK=1
 

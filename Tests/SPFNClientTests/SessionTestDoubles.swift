@@ -73,10 +73,11 @@ final class ScriptedSleeper: SPFNSleeper, @unchecked Sendable
 
     func sleep(millis: Int64) async throws
     {
-        lock.lock()
-        recorded.append(millis)
-        let count = recorded.count
-        lock.unlock()
+        let count = lock.withLock
+        {
+            recorded.append(millis)
+            return recorded.count
+        }
         await onSleep?(count)
         try Task.checkCancellation()
     }

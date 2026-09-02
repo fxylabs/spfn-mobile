@@ -8,6 +8,11 @@
 // for a signal, a watchdog for a parent that died without sending one, and the trap in
 // tools/reference-server/run-integration.sh. An orphaned server holding a port is the
 // failure that makes the next run fail for a reason nobody can see.
+//
+// A launch runs on the wall clock unless `--test-clock` names a start instant. The flag
+// exists because the Swift suite reaches its server only through this entry point: a case
+// that has to arrange an expiry drives `/control/advance-clock`, and that route refuses a
+// server on the wall clock rather than silently doing nothing.
 
 package xyz.superfunction.spfn.reference
 
@@ -20,7 +25,8 @@ import java.util.concurrent.CountDownLatch
 import kotlin.system.exitProcess
 
 private const val USAGE =
-    "usage: SpfnReferenceMain [--port <n>] [--port-file <path>] [--session-ttl-millis <n>] [--parent-pid <n>]"
+    "usage: SpfnReferenceMain [--port <n>] [--port-file <path>] [--session-ttl-millis <n>] " +
+        "[--parent-pid <n>] [--test-clock <startMillis>]"
 
 fun main(args: Array<String>)
 {
@@ -35,11 +41,7 @@ fun main(args: Array<String>)
         exitProcess(2);
     };
 
-    val server = SpfnReferenceServer(
-        requestedPort = options.port,
-        sessionTtlMillis = options.sessionTtlMillis,
-        log = { line -> println(line) }
-    ).start();
+    val server = serverFor(options).start();
 
     Runtime.getRuntime().addShutdownHook(Thread { shutDown(server, options.portFile) });
     options.portFile?.let { writeLaunchFile(it, server) };
@@ -49,23 +51,43 @@ fun main(args: Array<String>)
     // one place a developer copies text out of by hand.
     println("SPFN reference server listening on ${server.baseUrl}");
     println("This is a TEST FIXTURE with synthetic keys. It is not an SPFN endpoint.");
+    options.testClockStartMillis?.let {
+        println("Running on a test clock from $it ms; /control/advance-clock moves it.");
+    };
 
     CountDownLatch(1).await();
 }
 
-private class Options(
+internal class Options(
     val port: Int,
     val portFile: File?,
     val sessionTtlMillis: Long,
-    val parentPid: Long?
+    val parentPid: Long?,
+    /** The instant `--test-clock` named, or null for a launch on the wall clock. */
+    val testClockStartMillis: Long?
 )
 
-private fun parseArguments(args: Array<String>): Options
+/**
+ * The server [main] launches, built out of nothing but [options].
+ *
+ * Separate from [main] so a test can drive the same construction the launch does: what
+ * `--test-clock` builds is a property of this function, and a test that constructed the
+ * server itself would prove only that the server honours a clock it was handed.
+ */
+internal fun serverFor(options: Options): SpfnReferenceServer = SpfnReferenceServer(
+    requestedPort = options.port,
+    clock = options.testClockStartMillis?.let { SpfnReferenceTestClock(it) } ?: SpfnReferenceClock.system(),
+    sessionTtlMillis = options.sessionTtlMillis,
+    log = { line -> println(line) }
+)
+
+internal fun parseArguments(args: Array<String>): Options
 {
     var port = 0;
     var portFile: File? = null;
     var sessionTtlMillis = SpfnReferenceState.DEFAULT_SESSION_TTL_MILLIS;
     var parentPid: Long? = null;
+    var testClockStartMillis: Long? = null;
 
     var index = 0;
     while (index < args.size)
@@ -79,11 +101,13 @@ private fun parseArguments(args: Array<String>): Options
             "--session-ttl-millis" ->
                 sessionTtlMillis = value.toLongOrNull() ?: throw IllegalArgumentException("--session-ttl-millis is not a number")
             "--parent-pid" -> parentPid = value.toLongOrNull() ?: throw IllegalArgumentException("--parent-pid is not a number")
+            "--test-clock" ->
+                testClockStartMillis = value.toLongOrNull() ?: throw IllegalArgumentException("--test-clock is not a number")
             else -> throw IllegalArgumentException("unknown option $name")
         }
         index += 2;
     }
-    return Options(port, portFile, sessionTtlMillis, parentPid);
+    return Options(port, portFile, sessionTtlMillis, parentPid, testClockStartMillis);
 }
 
 /**

@@ -5,7 +5,8 @@
 // test can only reach by sleeping. Sleeping is how a suite becomes both slow and flaky,
 // so the clock is injected and the deterministic tests move it by hand.
 //
-// A real launch uses the system clock. `SpfnReferenceMain` never installs a test clock.
+// A launch uses the system clock unless `SpfnReferenceMain` is given `--test-clock`,
+// which the integration runner passes exactly when it tells the suites the clock moves.
 
 package xyz.superfunction.spfn.reference
 
@@ -16,7 +17,7 @@ fun interface SpfnReferenceClock
 
     companion object
     {
-        /** The wall clock. What a launched server always runs on. */
+        /** The wall clock. What a launched server runs on unless `--test-clock` says otherwise. */
         fun system(): SpfnReferenceClock = SpfnReferenceClock { System.currentTimeMillis() }
     }
 }
