@@ -18,6 +18,8 @@ import xyz.superfunction.spfn.auth.SpfnAuthException
 import xyz.superfunction.spfn.auth.SpfnClientProof
 import xyz.superfunction.spfn.auth.SpfnEcdsa
 import xyz.superfunction.spfn.auth.SpfnProofInput
+import xyz.superfunction.spfn.core.SpfnDigest
+import xyz.superfunction.spfn.generated.SpfnKeyPlatform
 import java.security.KeyFactory
 import java.security.PublicKey
 import java.security.SecureRandom
@@ -99,6 +101,80 @@ private class SpfnReferenceSession(
 /** A configured delay for the next requests to one path. */
 private class SpfnReferenceHold(val millis: Long, var remaining: Int)
 
+/**
+ * Where one device authorization is in the flow.
+ *
+ * `expired` is not a member: expiry is the clock's answer about a record, not a state a
+ * record is moved into, exactly as upstream judges it. A record that passed its TTL is
+ * refused whichever of these four it is sitting in.
+ */
+enum class SpfnDeviceAuthStatus
+{
+    PENDING,
+    APPROVED,
+    DENIED,
+    CONSUMED
+}
+
+/** One parked device authorization. The device code is held only as its hash. */
+private class SpfnReferenceDeviceAuthorization(
+    val userCode: String,
+    val publicKeySpkiDer: ByteArray,
+    val keyId: String,
+    val fingerprint: String,
+    val deviceName: String?,
+    val platform: SpfnKeyPlatform?,
+    val requestedAtMillis: Long,
+    val expiresAtMillis: Long,
+    var status: SpfnDeviceAuthStatus,
+    /** The approver, taken from the admitted proof. Set by approve and by nothing else. */
+    var ownerId: String?
+)
+
+/** The codes a `start` handed out, and the two numbers the waiting device obeys. */
+class SpfnStartedDeviceAuth(
+    val deviceCode: String,
+    val userCode: String,
+    val expiresAtMillis: Long,
+    val intervalMillis: Long
+)
+{
+    /** The device code is the waiting device's only credential; nothing prints it. */
+    override fun toString(): String = "SpfnStartedDeviceAuth(userCode=$userCode)"
+}
+
+/** What the approver is shown about the device asking to be let in. */
+class SpfnDeviceAuthDescription(
+    val deviceName: String?,
+    val platform: SpfnKeyPlatform?,
+    val fingerprintPrefix: String,
+    val requestedAtMillis: Long,
+    val expiresAtMillis: Long
+)
+
+/**
+ * Every answer the four device operations can produce.
+ *
+ * One type for all four because the state table is one table: the row a record is in
+ * decides the answer, and the operation only decides which of these shapes that answer
+ * takes. A refusal is the same value whichever operation asked.
+ */
+sealed interface SpfnDeviceAuthOutcome
+{
+    class Refused(val refusal: SpfnReferenceRestRefusal) : SpfnDeviceAuthOutcome
+
+    /** What `info` answers, and what `approve` answers with once it has bound the record. */
+    class Described(val description: SpfnDeviceAuthDescription) : SpfnDeviceAuthOutcome
+
+    /** `deny` applied. There is nothing to answer with, which is why it declares no response. */
+    object Recorded : SpfnDeviceAuthOutcome
+
+    class Pending(val intervalMillis: Long) : SpfnDeviceAuthOutcome
+
+    /** The poll that spent the record: the parked key is registered and this is the login. */
+    class Approved(val userId: String, val publicId: String) : SpfnDeviceAuthOutcome
+}
+
 class SpfnReferenceState(
     private val clock: SpfnReferenceClock,
     sessionTtlMillis: Long = DEFAULT_SESSION_TTL_MILLIS,
@@ -150,6 +226,18 @@ class SpfnReferenceState(
 
     private val revokedKeyIds = LinkedHashSet<String>()
     private val holds = LinkedHashMap<String, SpfnReferenceHold>()
+
+    /**
+     * The device authorizations, keyed by the SHA-256 of the device code.
+     *
+     * The hash rather than the code, as upstream stores it: the device code is the
+     * waiting device's only credential, and a fixture that kept it in the clear would be
+     * teaching the wrong shape to whoever reads this server to learn the flow. The user
+     * code is held in the record because it authorizes nothing on its own — only an
+     * already admitted caller can act on one — and is looked up by scanning, which is
+     * what a table this size is for.
+     */
+    private val deviceAuthorizations = LinkedHashMap<String, SpfnReferenceDeviceAuthorization>()
 
     init
     {
@@ -321,6 +409,224 @@ class SpfnReferenceState(
         throw IllegalArgumentException("not an SPKI DER public key", failure);
     }
 
+    // ---- device authorization ----------------------------------------------
+
+    // The table, restated from the upstream service's own header comment
+    // (spfn packages/auth/src/server/services/device-auth.service.ts at 77fe6246):
+    //
+    //   | state ↓ op → | info           | approve        | deny           | poll                          |
+    //   | pending      | device details | → approved     | → denied       | pending                       |
+    //   | approved     | AlreadyHandled | AlreadyHandled | AlreadyHandled | key registered, → consumed    |
+    //   | denied       | AlreadyHandled | AlreadyHandled | AlreadyHandled | Denied                        |
+    //   | consumed     | NotFound       | NotFound       | NotFound       | NotFound                      |
+    //   | expired      | Expired        | Expired        | Expired        | Expired                       |
+    //   | unknown      | NotFound       | NotFound       | NotFound       | NotFound                      |
+    //
+    // Two rules decide the last three rows and they are ordered, not independent. A spent
+    // record answers as unknown, and it has to keep answering that way after its TTL runs
+    // out — which it always eventually does — so `consumed` is judged before the clock.
+    // Everything else is judged by the clock next, which is why an approved record nobody
+    // collected in time is expired rather than approved and registers nothing.
+    //
+    // Every transition below happens inside the one lock this file owns, so two approvals
+    // arriving together cannot both move a record out of `pending`: the loser reads the
+    // row the winner left and is told AlreadyHandled, which is the table's own answer.
+
+    /**
+     * Parks a device's public key and hands back the codes it shows and polls with.
+     *
+     * Nothing is attributed to an account here — the caller is unauthenticated by
+     * definition, since obtaining a key is what the flow is for. The record gains an
+     * owner only when somebody approves it.
+     */
+    fun startDeviceAuth(
+        publicKeySpkiDer: ByteArray,
+        keyId: String,
+        fingerprint: String,
+        deviceName: String?,
+        platform: SpfnKeyPlatform?
+    ): SpfnStartedDeviceAuth = synchronized(lock)
+    {
+        val now = clock.nowMillis();
+        val expiresAtMillis = now + DEVICE_AUTH_TTL_MILLIS;
+
+        for (attempt in 0 until USER_CODE_ATTEMPTS)
+        {
+            val deviceCode = randomHex(DEVICE_CODE_BYTES);
+            val userCode = newUserCode();
+            val deviceCodeHash = hashDeviceCode(deviceCode);
+            val taken = deviceAuthorizations.containsKey(deviceCodeHash) ||
+                deviceAuthorizations.values.any { it.userCode == userCode };
+            if (taken)
+            {
+                continue;
+            }
+            deviceAuthorizations[deviceCodeHash] = SpfnReferenceDeviceAuthorization(
+                userCode = userCode,
+                publicKeySpkiDer = publicKeySpkiDer.copyOf(),
+                keyId = keyId,
+                fingerprint = fingerprint,
+                deviceName = deviceName,
+                platform = platform,
+                requestedAtMillis = now,
+                expiresAtMillis = expiresAtMillis,
+                status = SpfnDeviceAuthStatus.PENDING,
+                ownerId = null
+            );
+            return@synchronized SpfnStartedDeviceAuth(
+                deviceCode = deviceCode,
+                userCode = formatUserCode(userCode),
+                expiresAtMillis = expiresAtMillis,
+                intervalMillis = DEVICE_AUTH_INTERVAL_MILLIS
+            );
+        }
+        // Two live rows out of 31^8 landing on one code three times running is not
+        // coincidence, it is the generator or this table not being what this code thinks.
+        throw IllegalStateException("could not allocate a unique user code in $USER_CODE_ATTEMPTS attempts");
+    }
+
+    /** The `info` column: the waiting device described, for a pending record only. */
+    fun deviceAuthInfo(userCode: String): SpfnDeviceAuthOutcome = synchronized(lock)
+    {
+        val record = actionableByUserCode(userCode)
+            ?: return@synchronized notFoundOrExpired(byUserCode(userCode));
+        if (record.status != SpfnDeviceAuthStatus.PENDING)
+        {
+            return@synchronized SpfnDeviceAuthOutcome.Refused(SpfnReferenceRestRefusal.deviceAuthAlreadyHandled());
+        }
+        SpfnDeviceAuthOutcome.Described(describe(record));
+    }
+
+    /**
+     * The `approve` column: binds the record to [approverId] and answers the same
+     * description `info` gives.
+     *
+     * The key is not registered here. The waiting device may never come back, and a key
+     * registered for a device that stopped listening is a signing credential nobody asked
+     * for — so approval records the decision and the poll acts on it.
+     */
+    fun approveDeviceAuth(userCode: String, approverId: String): SpfnDeviceAuthOutcome = synchronized(lock)
+    {
+        val record = actionableByUserCode(userCode)
+            ?: return@synchronized notFoundOrExpired(byUserCode(userCode));
+        if (record.status != SpfnDeviceAuthStatus.PENDING)
+        {
+            return@synchronized SpfnDeviceAuthOutcome.Refused(SpfnReferenceRestRefusal.deviceAuthAlreadyHandled());
+        }
+        record.status = SpfnDeviceAuthStatus.APPROVED;
+        record.ownerId = approverId;
+        SpfnDeviceAuthOutcome.Described(describe(record));
+    }
+
+    /**
+     * The `deny` column. Denying binds nobody: the point of refusing is that the account
+     * owner wants nothing to do with the request, so the refusal records no approver.
+     */
+    fun denyDeviceAuth(userCode: String): SpfnDeviceAuthOutcome = synchronized(lock)
+    {
+        val record = actionableByUserCode(userCode)
+            ?: return@synchronized notFoundOrExpired(byUserCode(userCode));
+        if (record.status != SpfnDeviceAuthStatus.PENDING)
+        {
+            return@synchronized SpfnDeviceAuthOutcome.Refused(SpfnReferenceRestRefusal.deviceAuthAlreadyHandled());
+        }
+        record.status = SpfnDeviceAuthStatus.DENIED;
+        SpfnDeviceAuthOutcome.Recorded;
+    }
+
+    /**
+     * The `poll` column: the waiting device asking whether anyone has answered.
+     *
+     * Approved is the one branch with a side effect and it is a one-shot — the record is
+     * marked consumed in the same critical section that registers the key, so of two
+     * polls arriving together exactly one registers it and the loser is answered as if
+     * the code were unknown, which by then it is.
+     */
+    fun pollDeviceAuth(deviceCode: String): SpfnDeviceAuthOutcome = synchronized(lock)
+    {
+        val hash = hashDeviceCode(deviceCode);
+        val record = actionable(deviceAuthorizations[hash])
+            ?: return@synchronized notFoundOrExpired(deviceAuthorizations[hash]);
+
+        when (record.status)
+        {
+            SpfnDeviceAuthStatus.DENIED ->
+                return@synchronized SpfnDeviceAuthOutcome.Refused(SpfnReferenceRestRefusal.deviceAuthDenied())
+            SpfnDeviceAuthStatus.PENDING ->
+                return@synchronized SpfnDeviceAuthOutcome.Pending(DEVICE_AUTH_INTERVAL_MILLIS)
+            else -> Unit
+        }
+
+        val ownerId = record.ownerId
+            ?: return@synchronized SpfnDeviceAuthOutcome.Refused(SpfnReferenceRestRefusal.deviceAuthNotFound());
+        record.status = SpfnDeviceAuthStatus.CONSUMED;
+        try
+        {
+            enrollKey(record.keyId, record.publicKeySpkiDer, ownerId);
+        }
+        catch (_: IllegalArgumentException)
+        {
+            return@synchronized SpfnDeviceAuthOutcome.Refused(SpfnReferenceRestRefusal.keyIdAlreadyRegistered());
+        }
+        SpfnDeviceAuthOutcome.Approved(userId = ownerId, publicId = publicIdOf(ownerId));
+    }
+
+    /** The record this user code names, or null when there is none this operation can act on. */
+    private fun actionableByUserCode(userCode: String): SpfnReferenceDeviceAuthorization? =
+        actionable(byUserCode(userCode))
+
+    private fun byUserCode(userCode: String): SpfnReferenceDeviceAuthorization?
+    {
+        val normalised = normalizeUserCode(userCode);
+        return deviceAuthorizations.values.firstOrNull { it.userCode == normalised };
+    }
+
+    /**
+     * The record, or null when it is one no operation can act on. Caller holds [lock].
+     *
+     * The two checks are in this order deliberately: a spent record answers as unknown
+     * and has to keep answering that way once its TTL runs out too, and testing expiry
+     * first would let a consumed code say "expired" while a code that was never issued
+     * says "not found" — the enumeration oracle these two errors exist to close.
+     */
+    private fun actionable(record: SpfnReferenceDeviceAuthorization?): SpfnReferenceDeviceAuthorization?
+    {
+        if (record == null || record.status == SpfnDeviceAuthStatus.CONSUMED)
+        {
+            return null;
+        }
+        return if (record.expiresAtMillis < clock.nowMillis()) null else record;
+    }
+
+    /** Which of the two refusals a record [actionable] rejected is owed. */
+    private fun notFoundOrExpired(record: SpfnReferenceDeviceAuthorization?): SpfnDeviceAuthOutcome
+    {
+        if (record == null || record.status == SpfnDeviceAuthStatus.CONSUMED)
+        {
+            return SpfnDeviceAuthOutcome.Refused(SpfnReferenceRestRefusal.deviceAuthNotFound());
+        }
+        return SpfnDeviceAuthOutcome.Refused(SpfnReferenceRestRefusal.deviceAuthExpired());
+    }
+
+    private fun describe(record: SpfnReferenceDeviceAuthorization): SpfnDeviceAuthDescription =
+        SpfnDeviceAuthDescription(
+            deviceName = record.deviceName,
+            platform = record.platform,
+            fingerprintPrefix = record.fingerprint.take(KEY_FINGERPRINT_PREFIX_LENGTH),
+            requestedAtMillis = record.requestedAtMillis,
+            expiresAtMillis = record.expiresAtMillis
+        )
+
+    private fun newUserCode(): String
+    {
+        val code = StringBuilder(USER_CODE_LENGTH);
+        for (position in 0 until USER_CODE_LENGTH)
+        {
+            code.append(USER_CODE_ALPHABET[random.nextInt(USER_CODE_ALPHABET.length)]);
+        }
+        return code.toString();
+    }
+
     // ---- sessions ----------------------------------------------------------
 
     /** Opens a session and returns its identifier and the expiry the server advertises. */
@@ -372,6 +678,7 @@ class SpfnReferenceState(
             revokedKeyIds.clear();
             holds.clear();
             knownUserIds.clear();
+            deviceAuthorizations.clear();
             registeredKeys.clear();
             registeredKeys.putAll(constructedKeys);
             ttlMillis = DEFAULT_SESSION_TTL_MILLIS;
@@ -486,6 +793,82 @@ class SpfnReferenceState(
 
         /** The contract's `clientProofV1.replayWindowMillis`. */
         const val DEFAULT_REPLAY_WINDOW_MILLIS: Long = 300_000
+
+        /** Ten minutes, the upstream `DEFAULT_DEVICE_AUTH_TTL_MS`. */
+        const val DEVICE_AUTH_TTL_MILLIS: Long = 600_000
+
+        /**
+         * What this server asks a waiting device to wait between polls.
+         *
+         * Deliberately shorter than upstream's five-second default. The interval is
+         * server configuration rather than contract — upstream refuses anything but a
+         * positive whole number of milliseconds and states no other rule — and what the
+         * matrix proves is that the client obeys whatever it is told, which it proves
+         * exactly as well at 200ms while spending fifteen fewer seconds asleep.
+         */
+        const val DEVICE_AUTH_INTERVAL_MILLIS: Long = 200
+
+        /**
+         * How many hex characters of a fingerprint the approver is shown, restated from
+         * upstream `KEY_FINGERPRINT_PREFIX_LENGTH` in key.service.ts at 77fe6246. The
+         * same number the key list truncates to, so the two views of one key agree.
+         */
+        const val KEY_FINGERPRINT_PREFIX_LENGTH: Int = 8
+
+        /**
+         * The alphabet a user code is drawn from, restated from upstream
+         * `USER_CODE_ALPHABET`. 0/O and 1/I/L are the pairs a person mistypes copying a
+         * code between two screens, so neither member of either pair is in the set.
+         */
+        const val USER_CODE_ALPHABET: String = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+        /** Characters in a user code, not counting the dash it is displayed with. */
+        const val USER_CODE_LENGTH: Int = 8
+
+        private const val USER_CODE_GROUP_SIZE = 4
+
+        /** Redraws before a run of collisions is called what it is: a broken generator. */
+        private const val USER_CODE_ATTEMPTS = 3
+
+        /** Entropy behind a device code. 256 bits, so it is never guessed. */
+        private const val DEVICE_CODE_BYTES = 32
+
+        /** The stored form as a person reads it: `XXXX-XXXX`. */
+        fun formatUserCode(userCode: String): String =
+            userCode.take(USER_CODE_GROUP_SIZE) + "-" + userCode.drop(USER_CODE_GROUP_SIZE)
+
+        /**
+         * Folds a typed user code back to the stored form, as upstream's
+         * `normalizeUserCode` does: someone reading `WXYZ-2345` off a screen types the
+         * dash, or spaces, or lower case, and all of those name the same code.
+         *
+         * Only the user code is folded. The device code is a credential and is matched
+         * byte for byte — accepting variant spellings of a credential is how one token
+         * becomes several strings and a one-shot record is spent twice.
+         *
+         * ASCII-explicit rather than a Unicode-aware class, so this and the SDKs cannot
+         * disagree over a full-width digit (P9).
+         */
+        fun normalizeUserCode(input: String): String =
+            input.filter { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' }.uppercase()
+
+        /**
+         * What the table holds instead of the device code: unsalted SHA-256, as upstream
+         * `hashDeviceCode` does. The input is 256 bits of CSPRNG output, so there is no
+         * dictionary to defend against and a per-row salt would only stop the exact-match
+         * lookup this has to support.
+         */
+        fun hashDeviceCode(deviceCode: String): String =
+            SpfnDigest.sha256Hex(deviceCode.toByteArray(Charsets.UTF_8))
+
+        /**
+         * The public identifier this fixture issues for an owner.
+         *
+         * A real server stores one per account. This one has no account table beyond the
+         * owner ids the REST surface has enrolled keys for, so it derives the value —
+         * which is enough for the contract shape and is never a fact about a person.
+         */
+        fun publicIdOf(ownerId: String): String = "public-$ownerId"
 
         private const val SESSION_ID_BYTES = 16
 

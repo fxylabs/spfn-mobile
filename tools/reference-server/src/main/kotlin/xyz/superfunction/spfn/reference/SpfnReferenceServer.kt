@@ -21,6 +21,11 @@ import xyz.superfunction.spfn.core.SpfnCanonicalJson
 import xyz.superfunction.spfn.core.SpfnCanonicalValue
 import xyz.superfunction.spfn.core.SpfnDigest
 import xyz.superfunction.spfn.core.SpfnOperation
+import xyz.superfunction.spfn.generated.SpfnApproveDeviceAuthRequest
+import xyz.superfunction.spfn.generated.SpfnDenyDeviceAuthRequest
+import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoRequest
+import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoResponse
+import xyz.superfunction.spfn.generated.SpfnDeviceAuthPollStatus
 import xyz.superfunction.spfn.generated.SpfnEchoRequest
 import xyz.superfunction.spfn.generated.SpfnGeneratedContract
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
@@ -29,9 +34,13 @@ import xyz.superfunction.spfn.generated.SpfnHandshakeResponse
 import xyz.superfunction.spfn.generated.SpfnListItemsRequest
 import xyz.superfunction.spfn.generated.SpfnOauthNativeRequest
 import xyz.superfunction.spfn.generated.SpfnOauthNativeResponse
+import xyz.superfunction.spfn.generated.SpfnPollDeviceAuthRequest
+import xyz.superfunction.spfn.generated.SpfnPollDeviceAuthResponse
 import xyz.superfunction.spfn.generated.SpfnRotateKeyRequest
 import xyz.superfunction.spfn.generated.SpfnRotateKeyResponse
 import xyz.superfunction.spfn.generated.SpfnServerTimeResponse
+import xyz.superfunction.spfn.generated.SpfnStartDeviceAuthRequest
+import xyz.superfunction.spfn.generated.SpfnStartDeviceAuthResponse
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.ExecutorService
@@ -305,6 +314,8 @@ class SpfnReferenceServer(
             when (routed.operation.id)
             {
                 SpfnGeneratedOperations.authEnrollOauthNative.id -> oauthNative(routed, value)
+                SpfnGeneratedOperations.authDeviceStart.id -> deviceStart(value)
+                SpfnGeneratedOperations.authDevicePoll.id -> devicePoll(value)
                 else -> RestAnswer.Refused(SpfnReferenceRestRefusal.notImplemented())
             }
         }
@@ -361,6 +372,83 @@ class SpfnReferenceServer(
             )
         };
     }
+
+    /**
+     * The waiting device parking its key. Unproven by definition: the device calling it
+     * has no registered key yet, and obtaining one is what the flow is for.
+     *
+     * The fingerprint is checked here rather than left to the registration the poll
+     * performs, as upstream checks it: the prefix of this value is what the approver is
+     * shown to recognise the device by, so an unverified one is decoration — and a key
+     * whose material does not hold together should be refused now, not after a person
+     * has already approved it.
+     */
+    private fun deviceStart(value: SpfnCanonicalValue): RestAnswer
+    {
+        val request = SpfnStartDeviceAuthRequest.decode(value);
+        val spkiDer = try
+        {
+            java.util.Base64.getDecoder().decode(request.publicKey)
+        }
+        catch (_: IllegalArgumentException)
+        {
+            return RestAnswer.Refused(SpfnReferenceRestRefusal.badRequest("publicKey is not base64"));
+        };
+        val algorithm = request.algorithm ?: SpfnReferenceRestOps.ALGORITHM;
+        if (algorithm != SpfnReferenceRestOps.ALGORITHM)
+        {
+            return RestAnswer.Refused(
+                SpfnReferenceRestRefusal.badRequest("algorithm must be ${SpfnReferenceRestOps.ALGORITHM.wireValue}")
+            );
+        }
+        if (request.fingerprint != SpfnDigest.sha256Hex(spkiDer))
+        {
+            return RestAnswer.Refused(SpfnReferenceRestRefusal.invalidKeyFingerprint());
+        }
+
+        val started = state.startDeviceAuth(
+            publicKeySpkiDer = spkiDer,
+            keyId = request.keyId,
+            fingerprint = request.fingerprint,
+            deviceName = request.deviceName,
+            platform = request.platform
+        );
+        return RestAnswer.Body(
+            SpfnStartDeviceAuthResponse(
+                deviceCode = started.deviceCode,
+                userCode = started.userCode,
+                expiresAtMillis = started.expiresAtMillis,
+                intervalMillis = started.intervalMillis
+            ).canonicalValue()
+        );
+    }
+
+    /** The waiting device asking whether anyone has answered. Unproven for the same reason. */
+    private fun devicePoll(value: SpfnCanonicalValue): RestAnswer =
+        when (val outcome = state.pollDeviceAuth(SpfnPollDeviceAuthRequest.decode(value).deviceCode))
+        {
+            is SpfnDeviceAuthOutcome.Refused -> RestAnswer.Refused(outcome.refusal)
+            is SpfnDeviceAuthOutcome.Pending -> RestAnswer.Body(
+                SpfnPollDeviceAuthResponse(
+                    status = SpfnDeviceAuthPollStatus.PENDING,
+                    intervalMillis = outcome.intervalMillis
+                ).canonicalValue()
+            )
+            is SpfnDeviceAuthOutcome.Approved -> RestAnswer.Body(
+                // The login the approval produced, and it is the shape password login
+                // answers with: from the client's side the two ways in are the same.
+                SpfnPollDeviceAuthResponse(
+                    status = SpfnDeviceAuthPollStatus.APPROVED,
+                    userId = outcome.userId,
+                    publicId = outcome.publicId,
+                    passwordChangeRequired = false
+                ).canonicalValue()
+            )
+            // `info`'s and `deny`'s shapes cannot be reached from a poll: the state
+            // returns one outcome type for all four operations, and this is where the
+            // two that belong to the other columns are refused rather than guessed at.
+            else -> RestAnswer.Refused(SpfnReferenceRestRefusal.notImplemented())
+        }
 
     private fun restRefusal(refusal: SpfnReferenceRestRefusal): SpfnReferenceAnswer
     {
@@ -504,6 +592,9 @@ class SpfnReferenceServer(
                 SpfnGeneratedOperations.echoSend.id -> echo(admitted)
                 SpfnGeneratedOperations.itemsList.id -> listItems(admitted)
                 SpfnGeneratedOperations.authKeysRotate.id -> rotateKey(admitted)
+                SpfnGeneratedOperations.authDeviceInfo.id -> deviceInfo(admitted)
+                SpfnGeneratedOperations.authDeviceApprove.id -> deviceApprove(admitted)
+                SpfnGeneratedOperations.authDeviceDeny.id -> deviceDeny(admitted)
                 else -> Answer.Refused(SpfnReferenceRefusal.unroutable())
             }
         }
@@ -522,7 +613,31 @@ class SpfnReferenceServer(
                 state.recordOperation(operation.id);
                 SpfnReferenceAnswer(HTTP_OK, SpfnCanonicalJson.encode(answered.value));
             }
+            is Answer.NoValue ->
+            {
+                state.recordOperation(operation.id);
+                noContentAnswer(operation);
+            }
         };
+    }
+
+    /**
+     * The 2xx an operation that declares no response body answers with.
+     *
+     * Read off the descriptor and never off the operation id: contract 0.10.0's
+     * `restOperations.responseBody` states the rule per operation — "answers 204 with an
+     * empty body and there is nothing to decode" — and `declaresResponse` is where that
+     * statement is written down. An operation that does declare a response reaching here
+     * is this server about to answer something other than what was called, so it is
+     * refused rather than served.
+     */
+    private fun noContentAnswer(operation: SpfnOperation): SpfnReferenceAnswer
+    {
+        if (operation.declaresResponse)
+        {
+            return refusal(SpfnReferenceRefusal.unprocessable());
+        }
+        return SpfnReferenceAnswer(HTTP_NO_CONTENT, ByteArray(0));
     }
 
     private sealed interface Answer
@@ -533,6 +648,9 @@ class SpfnReferenceServer(
         class RestRefused(val refusal: SpfnReferenceRestRefusal) : Answer
 
         class Body(val value: SpfnCanonicalValue) : Answer
+
+        /** The operation applied and has nothing to answer with; the descriptor decides. */
+        object NoValue : Answer
     }
 
     private fun handshake(admitted: Admission.Accepted): Answer
@@ -575,6 +693,55 @@ class SpfnReferenceServer(
             return Answer.RestRefused(refused);
         }
         return Answer.Body(SpfnRotateKeyResponse(success = true, keyId = request.keyId).canonicalValue());
+    }
+
+    /**
+     * The approver asking who is waiting on a code, before deciding.
+     *
+     * This is the whole defence against being talked into approving someone else's
+     * device: the answer names the device that is waiting, so the person holding the
+     * phone can see that it is not theirs.
+     */
+    private fun deviceInfo(admitted: Admission.Accepted): Answer =
+        describedAnswer(state.deviceAuthInfo(SpfnDeviceAuthInfoRequest.decode(admitted.value).userCode))
+
+    /**
+     * The approver letting the waiting device in.
+     *
+     * The account bound to the record is the admitted proof's `clientId` and never
+     * anything the body said: that call is the entire authorization, so reading the
+     * approver from the request would be letting the request name its own approver.
+     */
+    private fun deviceApprove(admitted: Admission.Accepted): Answer = describedAnswer(
+        state.approveDeviceAuth(
+            userCode = SpfnApproveDeviceAuthRequest.decode(admitted.value).userCode,
+            approverId = admitted.credentials.clientId
+        )
+    )
+
+    /** The approver refusing. Binds nobody: refusing is wanting nothing to do with it. */
+    private fun deviceDeny(admitted: Admission.Accepted): Answer =
+        when (val outcome = state.denyDeviceAuth(SpfnDenyDeviceAuthRequest.decode(admitted.value).userCode))
+        {
+            is SpfnDeviceAuthOutcome.Refused -> Answer.RestRefused(outcome.refusal)
+            is SpfnDeviceAuthOutcome.Recorded -> Answer.NoValue
+            else -> Answer.Refused(SpfnReferenceRefusal.unprocessable())
+        }
+
+    /** `info` and `approve` answer with the same description, so they read it the same way. */
+    private fun describedAnswer(outcome: SpfnDeviceAuthOutcome): Answer = when (outcome)
+    {
+        is SpfnDeviceAuthOutcome.Refused -> Answer.RestRefused(outcome.refusal)
+        is SpfnDeviceAuthOutcome.Described -> Answer.Body(
+            SpfnDeviceAuthInfoResponse(
+                deviceName = outcome.description.deviceName,
+                platform = outcome.description.platform,
+                fingerprintPrefix = outcome.description.fingerprintPrefix,
+                requestedAtMillis = outcome.description.requestedAtMillis,
+                expiresAtMillis = outcome.description.expiresAtMillis
+            ).canonicalValue()
+        )
+        else -> Answer.Refused(SpfnReferenceRefusal.unprocessable())
     }
 
     private fun echo(admitted: Admission.Accepted): Answer = Answer.Body(
@@ -633,7 +800,14 @@ class SpfnReferenceServer(
         {
             exchange.responseHeaders.set(name, value);
         }
-        exchange.responseHeaders.set(SpfnReferenceWire.CONTENT_TYPE, SpfnReferenceWire.REQUEST_CONTENT_TYPE);
+        // A bodyless answer declares no content type, because there is no content for one
+        // to describe. The two announcement fields below are set even then: the client
+        // reads them before it reads the status, so a 204 without them is the one answer a
+        // stale client would refuse for the wrong reason.
+        if (answer.body.isNotEmpty())
+        {
+            exchange.responseHeaders.set(SpfnReferenceWire.CONTENT_TYPE, SpfnReferenceWire.REQUEST_CONTENT_TYPE);
+        }
         // Every response, refusals included, and set here because this is the one place
         // an answer becomes bytes. A refusal that announced nothing would be the one
         // response a stale client most needs the numbers from.
@@ -645,9 +819,15 @@ class SpfnReferenceServer(
             SpfnReferenceWire.SUPPORTED_CONTRACT_RANGE,
             SpfnGeneratedContract.BINDING.supportedRange
         );
-        exchange.sendResponseHeaders(answer.statusCode, answer.body.size.toLong());
-        exchange.responseBody.write(answer.body);
-        exchange.responseBody.flush();
+        // -1 means "no response body at all". Zero would mean chunked with an unknown
+        // length, which is a body — and a 204 carrying one is the exact disagreement the
+        // client's no-response reader is written to catch.
+        exchange.sendResponseHeaders(answer.statusCode, if (answer.body.isEmpty()) -1 else answer.body.size.toLong());
+        if (answer.body.isNotEmpty())
+        {
+            exchange.responseBody.write(answer.body);
+            exchange.responseBody.flush();
+        }
         log("${exchange.requestMethod} ${exchange.requestURI.path} -> ${answer.statusCode}");
     }
 
@@ -656,6 +836,7 @@ class SpfnReferenceServer(
         private const val BACKLOG = 32
         private const val WORKER_COUNT = 8
         private const val HTTP_OK = 200
+        private const val HTTP_NO_CONTENT = 204
         private const val CONTROL_PREFIX = "/control/"
         private const val PROVIDER_SEGMENT = "{provider}"
 
