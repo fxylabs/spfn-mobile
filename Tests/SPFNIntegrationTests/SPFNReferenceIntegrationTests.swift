@@ -260,6 +260,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
             transport: fixture.transport,
             store: store,
             baseURL: fixture.environment.baseURL,
+            proofClock: fixture.proofClock,
             makeKey: { SPFNCustodyKey.generate(keyID: $0, preferSecureEnclave: false) }
         )
 
@@ -602,6 +603,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
             transport: fixture.transport,
             store: IntegrationKeyStore(),
             baseURL: fixture.environment.baseURL,
+            proofClock: fixture.proofClock,
             makeKey: { SPFNCustodyKey.generate(keyID: $0, preferSecureEnclave: false) }
         )
         let enrolled = try await lifecycle.enroll(provider: "google")
@@ -626,7 +628,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
             transport: transport,
             store: IntegrationKeyStore(),
             baseURL: fixture.environment.baseURL,
-            proofClock: proofClock ?? SPFNProcessServerClock.shared,
+            proofClock: proofClock ?? fixture.proofClock,
             sleeper: sleeper,
             // The first key is the named one, so a case can talk about the key it parked;
             // every later one is fresh, because a rotation that reused the id would mint
@@ -699,6 +701,17 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let environment: SPFNIntegrationEnvironment
         let control: SPFNReferenceControlClient
         let transport: any SPFNTransport
+
+        /// One `SPFNProcessServerClock` per fixture, and never `.shared`.
+        ///
+        /// The shipped clock anchors once per instance: it fetches `core.time` on its
+        /// first read and afterwards derives time from this machine's monotonic source.
+        /// Case i moves the launched server's clock fifteen minutes forward, so an anchor
+        /// taken before that is fifteen minutes behind afterwards — and a process-wide
+        /// anchor is taken by whichever case ran first and then kept for every case after
+        /// it. A fresh instance per fixture re-anchors after any move, so each case is
+        /// signing against the server time its own case really sees.
+        let proofClock: SPFNProcessServerClock
         let session: SPFNSession
         let client: SPFNClient
 
@@ -718,6 +731,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
             }
 
             let transport = SPFNURLSessionTransport()
+            let proofClock = SPFNProcessServerClock()
             let session = SPFNSession(
                 transport: transport,
                 keyProvider: try SPFNSoftwareKeyProvider(
@@ -726,12 +740,14 @@ final class SPFNReferenceIntegrationTests: XCTestCase
                     privateKeyDer: [UInt8](privateKeyDer)
                 ),
                 baseURL: environment.baseURL,
+                clock: proofClock,
                 timeoutMillis: timeoutMillis
             )
             return Fixture(
                 environment: environment,
                 control: control,
                 transport: transport,
+                proofClock: proofClock,
                 session: session,
                 client: SPFNClient(transport: transport, session: session, timeoutMillis: timeoutMillis)
             )
@@ -745,6 +761,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
                 transport: transport,
                 keyProvider: provider,
                 baseURL: environment.baseURL,
+                clock: proofClock,
                 timeoutMillis: timeoutMillis
             )
             return SPFNClient(transport: transport, session: signingSession, timeoutMillis: timeoutMillis)
