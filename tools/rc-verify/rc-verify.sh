@@ -298,6 +298,7 @@ _ = SPFNWireHeaders.self
 _ = SPFNClient.self
 _ = SPFNSocialApple.self
 _ = SPFNSocialGoogle.self
+_ = Loadable<Int>.loading
 print("SPFNRCConsumer smoke OK: \(SPFNVersion.current)")
 EOF
 
@@ -459,6 +460,7 @@ import xyz.superfunction.spfn.client.SpfnClient
 import xyz.superfunction.spfn.core.SpfnVersion
 import xyz.superfunction.spfn.generated.SpfnGeneratedContract
 import xyz.superfunction.spfn.social.google.SpfnSocialGoogle
+import xyz.superfunction.spfn.ui.FlowEntry
 
 object RcConsumerSmoke
 {
@@ -466,6 +468,7 @@ object RcConsumerSmoke
     val allowedProfiles: Int = SpfnAuthPolicy.ALLOWED_PROFILES.size
     val operations: Int = SpfnGeneratedContract.OPERATION_IDS.size
     val clientType: Class<SpfnClient> = SpfnClient::class.java
+    val flowEntries: Int = FlowEntry.entries.size
     // No Apple adapter symbol here: SPFNSocialApple is iOS-only and stages no Android
     // artifact, so a touch would name a class that is not on this consumer's classpath.
     val googleAdapterType: Class<SpfnSocialGoogle> = SpfnSocialGoogle::class.java

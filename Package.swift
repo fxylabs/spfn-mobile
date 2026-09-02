@@ -68,6 +68,7 @@ let package = Package(
         .library(name: "SPFNGenerated", targets: ["SPFNGenerated"]),
         .library(name: "SPFNAuth", targets: ["SPFNAuth"]),
         .library(name: "SPFNClient", targets: ["SPFNClient"]),
+        .library(name: "SPFNUI", targets: ["SPFNUI"]),
         .library(name: "SPFNSocialApple", targets: ["SPFNSocialApple"]),
         .library(name: "SPFNSocialGoogle", targets: ["SPFNSocialGoogle"]),
     ],
@@ -85,6 +86,13 @@ let package = Package(
         .target(name: "SPFNGenerated", dependencies: ["SPFNCore"]),
         .target(name: "SPFNAuth", dependencies: ["SPFNCore", .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]),
         .target(name: "SPFNClient", dependencies: ["SPFNCore", "SPFNAuth", "SPFNGenerated", .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]),
+
+        // The UI runtime vocabulary. It reaches SwiftUI and Observation, which the OS
+        // ships rather than a package, so it declares no external product and carries no
+        // `linux: false`: everything but `FlowHost.swift` is ordinary Swift, and that one
+        // file is guarded whole so the module reduces to its non-UI types off Apple's
+        // platforms.
+        .target(name: "SPFNUI", dependencies: ["SPFNCore"]),
 
         // The two provider adapters are Apple-only, which tools/module-graph.json
         // states as `"linux": false` on their rows. SwiftPM cannot condition a target
@@ -104,6 +112,7 @@ let package = Package(
             name: "SPFNClientTests",
             dependencies: ["SPFNClient", "SPFNCore", "SPFNAuth", "SPFNGenerated", .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]
         ),
+        .testTarget(name: "SPFNUITests", dependencies: ["SPFNUI", "SPFNCore"]),
         .testTarget(name: "SPFNSocialAppleTests", dependencies: ["SPFNSocialApple", "SPFNClient"]),
         .testTarget(name: "SPFNSocialGoogleTests", dependencies: ["SPFNSocialGoogle", "SPFNClient"]),
         .testTarget(

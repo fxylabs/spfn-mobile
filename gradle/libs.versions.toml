@@ -33,6 +33,21 @@ kotlinx-coroutines = "1.11.0"
 androidx-credentials = "1.6.0"
 googleid = "1.2.0"
 
+# The UI module's dependencies. Compose is the Android UI toolkit `spfn-ui` is written
+# against and Navigation 3 is its back stack; both are Maven artifacts, so unlike SwiftUI
+# on the other side they are named in tools/module-graph.json and pinned here. Latest
+# stable as checked on 2026-09-02: Compose is at 1.11.4 and Navigation 3
+# at 1.1.7 (1.2.0 is at beta01). No Compose BOM: the validator reads each module's
+# dependency lines and a `platform(...)` wrapper is not a shape it can resolve to a
+# catalogue alias, so every artifact carries its own version reference here instead.
+androidx-compose = "1.11.4"
+androidx-navigation3 = "1.1.7"
+# Navigation 3 already brings this in; `spfn-ui` declares it because it uses it directly.
+# BackHandler is androidx.activity.compose's — AndroidX Compose UI has no back handler of
+# its own on Android, and the multiplatform `androidx.compose.ui.backhandler` package is
+# not in the 1.12.0 Android artifact (checked by listing it). Latest stable 2026-09-02.
+androidx-activity-compose = "1.12.4"
+
 # Numeric baselines consumed by the module build scripts.
 jdk-toolchain = "21"
 min-sdk = "24"
@@ -50,6 +65,11 @@ kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutine
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "androidx-credentials" }
 androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "androidx-credentials" }
 googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleid" }
+androidx-compose-runtime = { module = "androidx.compose.runtime:runtime", version.ref = "androidx-compose" }
+androidx-compose-ui = { module = "androidx.compose.ui:ui", version.ref = "androidx-compose" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity-compose" }
+androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "androidx-navigation3" }
+androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "androidx-navigation3" }
 
 [plugins]
 android-library = { id = "com.android.library", version.ref = "agp" }
@@ -58,5 +78,11 @@ android-library = { id = "com.android.library", version.ref = "agp" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 cyclonedx-bom = { id = "org.cyclonedx.bom", version.ref = "cyclonedx" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+# AGP 9.2.1 compiles Kotlin itself, and it turns the Compose feature on by asking whether
+# THIS plugin is applied (`isComposeCompilerPluginApplied`, checked against the AGP 9.2.1
+# jar rather than guessed). With Kotlin 2.x the Compose compiler ships inside the Kotlin
+# release, so the plugin carries the Kotlin version and no separate compiler version
+# exists to pin.
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 foojay-resolver = { id = "org.gradle.toolchains.foojay-resolver-convention", version.ref = "foojay-resolver" }
