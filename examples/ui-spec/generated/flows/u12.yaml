@@ -1,0 +1,67 @@
+# SPFN Mobile — example cell u12: R5 — an action with no then leaves the stack alone and re-reads the source
+#
+# GENERATED FILE — DO NOT EDIT.
+#
+# generator:       spfn-ui-codegen 0.1.0-dev
+# spec:            examples/ui-spec/device-approval.json
+# specSha256:      cd02e9ed576538e540a939229a0e476a76708e84286a3ccd09f5f680bf7ab8b5
+# bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
+# contractVersion: 0.10.0
+#
+# Regenerate with: ./gradlew :ui-codegen:spfnGenerateUi
+# Verified by:     ./gradlew :ui-codegen:spfnUiVerify
+
+appId: ${APP_ID}
+name: u12
+---
+- launchApp:
+    clearState: true
+    arguments:
+      SPFN_UI_FIXTURE: "u12"
+
+# The app is up once a screen is drawing its stack readout. That the right FIXTURE
+# is installed is proven at the end instead, by the receipt's own name: an app that
+# never got the launch argument writes no receipt for this cell at all.
+- extendedWaitUntil:
+    visible:
+      text: "stack=.*"
+    timeout: 20000
+
+- tapOn:
+    id: "enterCode.userCode"
+- inputText: "ABCD-1234"
+
+- tapOn:
+    id: "enterCode.submit"
+
+- extendedWaitUntil:
+    visible:
+      text: "state=error"
+    timeout: 20000
+
+- tapOn:
+    id: "reviewDevice.retry"
+
+- extendedWaitUntil:
+    visible:
+      text: "state=ready"
+    timeout: 20000
+
+- assertVisible:
+    text: "stack=2"
+
+- assertVisible:
+    text: "state=ready"
+
+# The assertions are made. What follows only leaves the flow closed, so the
+# receipt control on the app's root is reachable on both platforms.
+- tapOn:
+    id: "reviewDevice.back"
+- tapOn:
+    id: "enterCode.cancel"
+
+- tapOn:
+    id: "example.receipt"
+
+- assertVisible:
+    text: "receipt=receipt-u12-.*"
