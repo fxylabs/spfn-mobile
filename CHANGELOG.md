@@ -5,6 +5,65 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### One spec, two app scaffolds: `ui-codegen` and the example apps
+
+- **`tools/ui-codegen` generates the screen scaffold from one JSON spec.** Registered as
+  `:ui-codegen`, not an SDK module and never published, sharing `:contract-codegen`'s
+  bundle readers rather than copying them, zero external dependencies.
+  `./gradlew :ui-codegen:spfnGenerateUi` writes; `:ui-codegen:spfnUiVerify` fails if any
+  output is stale and is wired into `check`. From `examples/ui-spec/device-approval.json`
+  it writes the SwiftUI and Compose halves of the device-approval flow — a service per
+  service table, a route/flow/host per flow, a screen model and view skeleton per screen,
+  an optional use case — plus the case table and one Maestro flow per cell. The two
+  emitters are structurally mirrored, so a fix made on a Mac maps 1:1 to the Kotlin side.
+- **Five things the spec refuses rather than warns about**: a `contract.manifestSha256`
+  that is not the pinned bundle's, an operation the contract does not declare, a `then`
+  target outside its own flow, a `start` that is not a screen of that flow, and a `call`
+  naming a service method that does not exist. Each one's natural symptom would otherwise
+  be a compile error inside a generated file nobody wrote. `examples/ui-spec/SCHEMA.md` is
+  what a consumer app writes a spec against.
+- **The generator is a fifth reader of the contract digest, and the spec is the second
+  place it is written by hand.** `spfnGenerateUi` recomputes the bundle's sha256 and
+  compares it with both `Contracts/upstream.lock.json` and the spec, refusing on either
+  mismatch — two different mistakes, a bundle edited without re-pinning and a spec written
+  against a bundle that is no longer pinned. `docs/IMPLEMENTATION-PITFALLS.md` P2 gained
+  both roles; a full-digest `git grep -l` now names 48 files rather than 13, and 45 of
+  them are derived by a generator in this repository.
+- **The case table comes from the rules and the models come from the spec.** Two
+  derivations from different sources — `Rules.kt` and the spec — meeting in the example
+  app's unit suite, which drives each model against the table's own expectations. A table
+  derived from the models it checks would prove only that the code equals itself (P10).
+  Eighteen cells (u1–u14, plus u7b/u10b for system back and u8c/u9c for a response that
+  arrives after `close()`), each declaring `unit`, `maestro` or `both`.
+- **Four refusals live in the screen models**, and they are what the table checks: an empty
+  required input is refused before anything is sent, a submit while busy is ignored,
+  approve or deny before the read is `ready` is ignored, and a response arriving after
+  `close()` changes no state — the last one guarded by a per-request token rather than by
+  hoping the task was cancelled in time.
+- **`examples/android-compose` is a running Compose application** — `:example-compose`,
+  namespace `xyz.superfunction.spfn.example`, no signing config and no secrets in the
+  tree, depending on `:spfn-ui`, `:spfn-client`, `:spfn-generated` and `:spfn-core`.
+  `assembleDebug` builds it and `testDebugUnitTest` runs 18 cell tests plus 3 that check
+  the fixture table against the case table, on the JVM with no Robolectric.
+  `gradle/verification-metadata.xml` gained the artifacts `activity-compose` drags in.
+  `examples/ios-swiftui` is the mirrored shell — an xcodegen `project.yml` at deployment
+  target 17.0 and four hand-written sources — written blind and compiled on a Mac later.
+- **Verification runs with no server.** `SPFN_UI_FIXTURE=<cell>` — an intent extra on
+  Android, a launch argument on iOS — installs a fake service seeded for that one cell;
+  with the flag absent no fake is constructed at all and the app builds its real client
+  from the same `local.properties` keys the harness uses, fail-closed and never printed.
+  Buttons carry the id `<screen>.<action>` and readouts are the text `<name>=<value>`, so
+  one Maestro flow drives both platforms. The example flows and their receipts are kept
+  separate from the harness's rather than shared with them.
+- **`validate.sh` gained section 14: the example apps hold the generated boundary.** A
+  call descriptor may be named in a generated service file and nowhere else under
+  `examples/`; `dismiss` is refused under a generated directory for the reason section 13
+  refuses it inside `SPFNUI`; and every cell of the case table must have the flow and the
+  test its runner declares, where `both` means both rather than either. All three carry a
+  floor and report what they read, because a scan that read nothing looks exactly like a
+  clean tree (P7). `tools/validate/probe-example-scaffold-rules.sh` proves each refusal
+  bites, in 9 cases.
+
 ### The `ui` module, and an iOS 17 baseline
 
 - **The package baseline is iOS 17 / macOS 14** (D5 revision, approved 2026-09-02; it was

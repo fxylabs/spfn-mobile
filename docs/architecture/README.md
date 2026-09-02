@@ -152,6 +152,61 @@ bolted on and a form is more than a `Busy` per field; neither has a shape this r
 has had to satisfy yet, and a module is added with behaviour or not at all — which is the
 first of the five rules below.
 
+## The example scaffold, and the generator that writes it
+
+`ui` gives a screen its vocabulary; it does not say how an app is put together out of it.
+`examples/` answers that with one worked flow — device approval — built the way a consumer
+app should build one, and `tools/ui-codegen` writes the repetitive part of it from a spec
+so the two platforms cannot drift into different shapes of the same screen.
+
+**Three layers, and the top one is the only one that knows an operation exists.**
+
+| Layer | Where | Knows about |
+| --- | --- | --- |
+| Services | `…/Generated/Services/`, `…/generated/services/` | one `SPFNCall` descriptor per method, and `client.execute` |
+| Screen models | `…/Screens/`, `…/screens/` | a service protocol and a `Flow`; no client, no descriptor, no toolkit |
+| Views | `…/Views/`, `…/views/` | a screen model, and nothing below it |
+
+The rule with teeth is the first one. `SPFNGeneratedCalls` / `SpfnGeneratedCalls` may be
+named in a generated service file and nowhere else under `examples/`, and section 14 of
+`validate.sh` fails on any other file that names one. It is a rule an app breaks by
+reaching for one convenient descriptor inside a view — nothing stops that at compile time,
+the result still works, and the layering is gone. A screen model takes its service and its
+flow through its initializer (D9), so the same model runs against a real client on a device
+and against a fake on a JVM with no substitution machinery in between.
+
+**The spec is the source, and it is small on purpose.** `examples/ui-spec/device-approval.json`
+has exactly three top-level tables — `services`, `flows`, `screens` — and
+`examples/ui-spec/SCHEMA.md` is what a consumer writes against. Five things are refused
+rather than warned about: a `contract.manifestSha256` that is not the pinned bundle's, an
+operation the contract does not declare, a `then` target outside its own flow, a `start`
+that is not a screen of that flow, and a `call` naming a service method that does not
+exist. Each of the five is a mistake whose natural symptom is a compile error inside a
+generated file that nobody wrote, which is the worst place to read one.
+
+A screen's state type is derived, not declared: `source: null` gives `Busy`, an object
+response gives `Loadable` without `empty`, and a list response gives `Loadable` with
+`empty`. The pinned bundle does not distinguish a list response from an object one, so
+today every response is treated as an object and `SCHEMA.md` says so as a stated limit
+rather than leaving the reader to infer it from output.
+
+**The case table is derived from the rules, and the models from the spec.** They are two
+derivations from different sources — `Rules.kt` on one side, the spec on the other — and
+the example app's unit suite is where they meet, driving each model against the table's own
+expectations. A table generated from the models it checks would prove only that the code
+equals itself (P10). Eighteen cells cover the four refusals a model owns: an empty input is
+refused before anything is sent, a second submit while busy is ignored, approve or deny
+before the read is `ready` is ignored, and a response arriving after `close()` changes
+nothing. Each cell declares its runner — `unit`, `maestro` or `both` — and section 14 fails
+on a cell that does not have what it claims, so the table cannot advertise coverage nobody
+wrote.
+
+**Verification needs no server.** A launch fixture (`SPFN_UI_FIXTURE=<cell>`, an intent
+extra on Android and a launch argument on iOS) installs a fake service seeded for one cell;
+absent the flag the app builds its real client and no fake exists. Buttons carry the id
+`<screen>.<action>` and every readout is the text `<name>=<value>`, so one Maestro flow per
+cell drives both platforms.
+
 ## How a module is added
 
 Five rules, confirmed 2026-08-04 after the empty persistence and hybrid coordinates were
@@ -372,6 +427,14 @@ compiles the canonical serializer, the proof input and the generated contract li
 straight out of the Android modules' source directories rather than reimplementing them.
 An Android library cannot be a dependency of a JVM module, and a second copy of
 SPFN-CANON-JSON-1 would turn the round trip into two copies agreeing with each other.
+
+`:ui-codegen` and `:example-compose` join them, and are excluded the same way for two
+different reasons. The generator is a build tool like `:contract-codegen`, sharing its
+bundle readers rather than copying them. The Compose example is an Android *application*
+— it is built and its screen models are tested, but it is not a library anyone links, so
+the publication, lint and API checks that apply to `android/*` do not reach it. The
+validator counts SDK modules under `android/` only, which is what keeps an app under
+`examples/` from being read as an eleventh module.
 
 One tool sits outside that boundary on purpose:
 `Contracts/fixtures/derive-expected-values.py` derives the expected conformance values

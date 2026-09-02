@@ -36,6 +36,7 @@
 | 계약 번들 교체·재핀, `upstream.lock.json` 수정 | [P1](#p1) [P2](#p2) [P3](#p3) [P6](#p6) |
 | `tools/validate/` 수정, 새 검사 추가 | [P4](#p4) [P5](#p5) [P6](#p6) [P7](#p7) |
 | `tools/contract-codegen/` 수정, 계약 타입 문법 변화 | [P8](#p8) [P2](#p2) |
+| `tools/ui-codegen/` 수정, 화면 스펙(`examples/ui-spec/*.json`) 작성·수정 | [P2](#p2) [P8](#p8) [P10](#p10) |
 | Swift·Kotlin 대칭 로직 추가·수정 | [P9](#p9) [P10](#p10) [P15](#p15) |
 | 플랫폼 콜백 API를 async/suspend로 감싸기, 제공자 어댑터 | [P16](#p16) [P15](#p15) |
 | 공유 conformance 표·fixture 수정 | [P10](#p10) [P2](#p2) |
@@ -66,31 +67,37 @@
 광고했다. 번들 필드라 못 고쳐 `admittedRange`를 도입했다.
 범용: [declared-constraint-vs-enforced-rule](https://git.superfunction.xyz/spfn-core-projects/coding-context/src/branch/main/reliability/declared-constraint-vs-enforced-rule.md)
 
-## P2. digest는 13개 파일에 있고 역할이 넷으로 갈린다 {#p2}
+## P2. digest는 48개 파일에 있고 역할이 넷으로 갈린다 {#p2}
 
 **증상.** 번들을 교체했는데 어딘가가 옛 digest를 들고 있어 빌드나 검증이 깨진다.
 또는 더 나쁘게, 한 곳만 갱신되어 검사끼리 서로 다른 파일을 가리킨다.
 
-**탐지.** `git grep -l <digest>`로 세는 것이 유일하게 정확하다. 오늘 기준 역할을 지닌
-파일은 13개이고, 명령 자체는 14개를 낸다 — `CHANGELOG.md`가 산문 안에서 digest를
-축약해 언급하기 때문이다. 그것은 역할이 아니라 기록이다. 개수를 외우지 말고 **역할**을
-기억한다 — 넷은 서로 다르게 갱신되고, **손으로 고치는 것은 하나뿐이다.**
+**탐지.** `git grep -l <digest>`로 세는 것이 유일하게 정확하다. 오늘 기준 명령은 48개를
+내고, 48개 모두가 역할을 지닌다. `CHANGELOG.md`도 산문 안에서 digest를 언급하지만
+`29c26160…`처럼 축약하므로 이 명령에는 걸리지 않는다 — 그것은 역할이 아니라 기록이다.
+개수를 외우지 말고 **역할**을 기억한다 — 넷은 서로 다르게 갱신되고, **손으로 고치는
+자리는 둘뿐이며 나머지 46개는 손대는 순간 자기 생성기와 어긋난다.**
 
 | 역할 | 파일 | 어떻게 갱신되나 | 확인 |
 | --- | --- | --- | --- |
-| 손으로 고정 | `Contracts/upstream.lock.json` (`contract.manifestSha256`) | 유일하게 직접 편집하는 자리 | 번들 파일의 실제 sha256과 같은지 재계산해 대조. validator 5절이 강제한다 |
+| 손으로 고정 | `Contracts/upstream.lock.json` (`contract.manifestSha256`) | 직접 편집하는 두 자리 중 하나이자, 다른 하나가 대조하는 기준 | 번들 파일의 실제 sha256과 같은지 재계산해 대조. validator 5절이 강제한다 |
+| 손으로 고정 | `examples/ui-spec/device-approval.json` (`contract.manifestSha256`) | 화면 스펙을 쓴 사람이 적는다. 번들을 재핀하면 lock과 **함께** 고쳐야 하는 자리 | `:ui-codegen:spfnGenerateUi`가 번들 sha256을 재계산해 lock과 스펙 **둘 다**에 대조하고, 어느 쪽이 어긋나도 생성을 거부한다 |
 | fixture 파생물 | `Contracts/fixtures/MANIFEST.json` (`bundleSha256`) | `derive-expected-values.py` 재실행. **손으로 고치지 않는다** | 파일 안 `derivedBy` 필드가 스스로 밝힌다 |
 | codegen 산출물 | 생성 파일 10개 헤더 (Swift 5 + Kotlin 5) | codegen 재생성. **손으로 고치지 않는다** | `:contract-codegen:spfnCodegenVerify` |
+| codegen 산출물 | `examples/` 아래 34개 — 두 앱의 `Generated`·`generated` 소스, case 표 둘, Maestro flow 14개 | `:ui-codegen:spfnGenerateUi` 재실행. **손으로 고치지 않는다** | `:ui-codegen:spfnUiVerify` (`check`에 물려 있다) |
 | upstream 제공 | `Contracts/upstream-provenance.json` (`bundleSha256`) | 새 번들과 함께 도착한다. 갱신 대상이 아니라 **대조 대상** | validator 5절이 lock과 필드 단위로 맞춰 본다 |
 
-**처방.** 번들 교체는 lock 직접 편집 → `derive-expected-values.py` 재실행 →
-codegen 재생성 → 결정성 확인이 한 묶음이다. 나머지 셋 중 둘(MANIFEST, 생성 파일 10개)은
-이 저장소의 **파생물**이라 손으로 편집하면 자기 생성기와 어긋난다. 네 번째는 파생물이
+**처방.** 번들 교체는 lock 직접 편집 → **화면 스펙의 `contract.manifestSha256`도 같은
+값으로 편집** → `derive-expected-values.py` 재실행 → codegen 재생성 → `ui-codegen` 재생성
+→ 결정성 확인이 한 묶음이다. 스펙을 빼먹으면 `spfnGenerateUi`가 거부하므로 조용히
+틀리지는 않지만, 거부 메시지를 "생성기가 깨졌다"로 읽으면 시간을 쓴다. 나머지 셋 중
+둘(MANIFEST, 생성 파일 44개)은 이 저장소의 **파생물**이라 손으로 편집하면 자기 생성기와
+어긋난다. 네 번째는 파생물이
 아니라 **upstream이 발행한 증거**다 — 우리 도구 중 무엇도 그것을 쓰지 않는다. 그것을
 "우리가 갱신할 것"으로 착각하면 evidence를 lock에 맞춰 편집하게 되는데, 그것은
 provenance 게이트가 정확히 잡으려는 행위다([P1](#p1)).
 
-**검증.** `git grep -l <digest> | wc -l`이 14이고, 그중 `upstream-provenance.json`이
+**검증.** `git grep -l <digest> | wc -l`이 48이고, 그중 `upstream-provenance.json`이
 포함돼 있으며 그 값이 lock과 같은지 본다. 개수가 늘었다면 새 소비처가 생긴 것이니
 **그 파일이 스스로 파생물임을 밝히는지**(`derivedBy` 류 필드, 생성기 헤더) 먼저 보고
 역할을 판정해 이 표에 추가한다.
@@ -101,6 +108,13 @@ provenance 게이트가 정확히 잡으려는 행위다([P1](#p1)).
 `CHANGELOG.md`의 산문 언급 하나는 그대로다. 이 항목이 세 번째로 틀렸던 자리도 여기다:
 "11"은 `CHANGELOG.md`를 빼고 센 수였는데 검증 문장은 명령의 출력과 비교하라고 적혀
 있었다. 이제 둘을 나눠 적는다.
+
+**갱신.** w-w823n이 `tools/ui-codegen`을 추가하면서 소비처가 13개에서 48개로 늘었다.
+늘어난 35개 중 34개는 파생물이라 헤더가 스스로 그렇게 밝히지만, 나머지 하나
+(`examples/ui-spec/device-approval.json`)는 **사람이 적는 두 번째 자리**다. 이 항목이
+"손으로 고치는 것은 하나뿐"이라고 단정해 온 문장이 그래서 더는 참이 아니다 — 소비처가
+늘 때 파생물인지만 묻고 **사람이 적는 자리인지**를 묻지 않으면 이런 항목은 조용히
+틀린 채 남는다.
 
 **나온 곳.** cs-6jcny — dev bundle → upstream export 전환. 항목 자체는 두 번 틀렸다.
 cs-mzv14 r1이 "세 곳"을 잡았고(`upstream-provenance.json` 누락), r2가 그 수정을 다시

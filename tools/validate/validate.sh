@@ -230,11 +230,19 @@ for path in \
     tools/module-graph.json tools/conformance/semver-range-vectors.json \
     tools/contract-codegen/README.md \
     tools/contract-codegen/build.gradle.kts \
+    tools/ui-codegen/README.md \
+    tools/ui-codegen/build.gradle.kts \
+    examples/ui-spec/device-approval.json examples/ui-spec/SCHEMA.md \
+    examples/ui-spec/generated/device-approval.cases.json \
+    examples/ui-spec/generated/device-approval.cases.md \
+    examples/android-compose/README.md examples/ios-swiftui/README.md \
     tools/validate/validate.sh tools/validate/d11-forbidden.ere \
     tools/validate/d11-policy.lock.json tools/validate/probe-d11-guardrail.sh \
     tools/validate/probe-publishing-gate.sh \
     tools/validate/probe-publication-rules.sh \
     tools/validate/probe-social-adapter-rules.sh \
+    tools/validate/probe-ui-vocabulary-rules.sh \
+    tools/validate/probe-example-scaffold-rules.sh \
     tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
     tools/rc-verify/probe-trap-exit.sh tools/rc-verify/local-signed-run.sh \
     tools/device-receipts/receipt-gate.sh tools/device-receipts/probe-receipt-gate.sh \
@@ -256,7 +264,8 @@ done
 
 for path in \
     Sources Tests android Contracts/fixtures tools examples/ios-swiftui \
-    examples/android-compose docs/architecture docs/migration docs/security \
+    examples/android-compose examples/ui-spec examples/ui-spec/generated/flows \
+    examples/ios-swiftui/Generated docs/architecture docs/migration docs/security \
     tools/device-receipts tools/device-receipts/runs \
     Tests/SPFNConformanceTests "$SWIFT_GENERATED" "$KOTLIN_GENERATED"
 do
@@ -2141,6 +2150,152 @@ then
     pass 'no source of SPFNUI reaches the SwiftUI dismiss environment value'
 else
     fail "SPFNUI reaches the dismiss environment value: $UI_DISMISS_HITS"
+fi
+
+# ---------------------------------------------------------------------------
+section '14. the example apps hold the generated boundary'
+# ---------------------------------------------------------------------------
+# Three rules, and each of them is a rule the example apps could break silently.
+#
+#   a. the generated services are the ONLY place a call descriptor is named. That is the
+#      layering the whole scaffold exists to demonstrate — services, then screen models,
+#      then views — and it is exactly the rule an app breaks by reaching for one
+#      convenient descriptor in a view.
+#   b. `dismiss` is refused under a generated directory for the reason section 13 refuses
+#      it inside SPFNUI: it closes a presentation without telling the flow, which leaves a
+#      host dismissed over a flow that still believes it is open.
+#   c. every cell of the case table is covered by something. A table is a claim about what
+#      was checked, and a cell with neither a flow nor a test is a claim nobody honoured.
+#
+# Every one of them has a floor. A scan that read no file produces no hits, and no hits is
+# what a clean tree also produces — so each check states how much it read and fails when
+# that number says it did not run (docs/IMPLEMENTATION-PITFALLS.md P7).
+EXAMPLE_CASES=examples/ui-spec/generated/device-approval.cases.json
+EXAMPLE_FLOWS=examples/ui-spec/generated/flows
+EXAMPLE_TESTS=examples/android-compose/src/test
+
+# --- a. only a generated service may name a call descriptor ------------------
+# The two spellings are one rule: SPFNGeneratedCalls on one platform, SpfnGeneratedCalls
+# on the other. Comment lines are dropped first, because a file has to be able to say what
+# it is forbidden from doing — the generated services' own headers say exactly that.
+DESCRIPTOR_SCANNED=0
+DESCRIPTOR_EXEMPT=0
+DESCRIPTOR_HITS=''
+find examples -type f \( -name '*.swift' -o -name '*.kt' \) | sort > "$TMP/example-sources.txt"
+while IFS= read -r source
+do
+    DESCRIPTOR_SCANNED=$((DESCRIPTOR_SCANNED + 1))
+    case "$source" in
+        */Generated/Services/*|*/generated/services/*)
+            DESCRIPTOR_EXEMPT=$((DESCRIPTOR_EXEMPT + 1))
+            continue
+            ;;
+    esac
+    DESCRIPTOR_HITS="$DESCRIPTOR_HITS$(grep -nE '(SPFN|Spfn)GeneratedCalls\.' "$source" \
+        | grep -vE '^[0-9]+:[[:space:]]*(//|\*)' | sed "s#^#$source:#" | tr '\n' ' ')"
+done < "$TMP/example-sources.txt"
+
+if [ "$DESCRIPTOR_SCANNED" -ge 20 ] && [ "$DESCRIPTOR_EXEMPT" -ge 2 ]
+then
+    pass "the descriptor scan read $DESCRIPTOR_SCANNED example sources, $DESCRIPTOR_EXEMPT of them generated services"
+else
+    fail "the descriptor scan read $DESCRIPTOR_SCANNED example sources and found $DESCRIPTOR_EXEMPT generated services; it did not run"
+fi
+
+if [ -z "$(printf '%s' "$DESCRIPTOR_HITS" | tr -d ' ')" ]
+then
+    pass 'no example source outside a generated services directory names a call descriptor'
+else
+    fail "a call descriptor is named outside the generated services: $DESCRIPTOR_HITS"
+fi
+
+# --- b. dismiss is refused under a generated directory too -------------------
+# Section 13 makes the same refusal for Sources/SPFNUI. This is its other half: the views
+# the generator writes are where an app would most plausibly reach for `dismiss`, and they
+# are also where nobody would notice, because nobody edits them.
+EXAMPLE_DISMISS_SCANNED=0
+EXAMPLE_DISMISS_HITS=''
+find examples -path '*/Generated/*' -name '*.swift' | sort > "$TMP/example-dismiss-files.txt"
+while IFS= read -r source
+do
+    EXAMPLE_DISMISS_SCANNED=$((EXAMPLE_DISMISS_SCANNED + 1))
+    EXAMPLE_DISMISS_HITS="$EXAMPLE_DISMISS_HITS$(grep -n 'dismiss)' "$source" \
+        | grep -vE '^[0-9]+:[[:space:]]*(//|\*)' | sed "s#^#$source:#" | tr '\n' ' ')"
+done < "$TMP/example-dismiss-files.txt"
+
+if [ "$EXAMPLE_DISMISS_SCANNED" -ge 5 ]
+then
+    pass "the generated dismiss scan read all $EXAMPLE_DISMISS_SCANNED generated Swift sources under examples/"
+else
+    fail "the generated dismiss scan read only $EXAMPLE_DISMISS_SCANNED sources; it did not run"
+fi
+
+if [ -z "$(printf '%s' "$EXAMPLE_DISMISS_HITS" | tr -d ' ')" ]
+then
+    pass 'no generated example source reaches the SwiftUI dismiss environment value'
+else
+    fail "a generated example source reaches the dismiss environment value: $EXAMPLE_DISMISS_HITS"
+fi
+
+# --- c. every cell is covered by the runner it declares ----------------------
+# `both` means both, not either: a cell that claims a device runner and a JVM one has to
+# have each. The pairs are read one cell at a time from the table's own canonical format,
+# which puts one field per line inside one object per cell.
+if [ -f "$EXAMPLE_CASES" ]
+then
+    awk '
+        /"id": "/ { id = $0; sub(/.*"id": "/, "", id); sub(/".*/, "", id) }
+        /"runner": "/ {
+            runner = $0
+            sub(/.*"runner": "/, "", runner)
+            sub(/".*/, "", runner)
+            # A runner with no id before it is a line this reader did not understand, and
+            # emitting it would turn an unreadable table into a table of nameless cells.
+            # Dropping it is what lets the count floor below be the thing that fires.
+            if (id != "") { print id " " runner }
+            id = ""
+        }
+    ' "$EXAMPLE_CASES" > "$TMP/example-cells.txt"
+else
+    : > "$TMP/example-cells.txt"
+fi
+CELL_COUNT=$(grep -c . "$TMP/example-cells.txt" || true)
+CELL_PROBLEMS=''
+
+while IFS=' ' read -r cell runner
+do
+    [ -n "$cell" ] || continue
+    case "$runner" in
+        maestro|both)
+            [ -f "$EXAMPLE_FLOWS/$cell.yaml" ] || CELL_PROBLEMS="$CELL_PROBLEMS $cell:no-flow"
+            ;;
+    esac
+    case "$runner" in
+        unit|both)
+            if [ -z "$(grep -rlw -- "$cell" "$EXAMPLE_TESTS" 2>/dev/null || true)" ]
+            then
+                CELL_PROBLEMS="$CELL_PROBLEMS $cell:no-test"
+            fi
+            ;;
+    esac
+    case "$runner" in
+        unit|maestro|both) ;;
+        *) CELL_PROBLEMS="$CELL_PROBLEMS $cell:unreadable-runner" ;;
+    esac
+done < "$TMP/example-cells.txt"
+
+if [ "$CELL_COUNT" -ge 18 ]
+then
+    pass "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES"
+else
+    fail "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES; it did not run"
+fi
+
+if [ -z "$CELL_PROBLEMS" ]
+then
+    pass 'every cell of the case table has the flow and the test its runner declares'
+else
+    fail "cells of the case table are not covered by what they claim:$CELL_PROBLEMS"
 fi
 
 # ---------------------------------------------------------------------------
