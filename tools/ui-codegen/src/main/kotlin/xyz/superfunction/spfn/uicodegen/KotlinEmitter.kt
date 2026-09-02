@@ -350,7 +350,7 @@ object KotlinEmitter
         if (screen.calls)
         {
             appendLine();
-            append(isCurrent());
+            append(isCurrent(flow, screen, bundle));
         }
         appendLine("}");
     }
@@ -392,9 +392,35 @@ object KotlinEmitter
         appendLine("    private var generation: Int = 0;");
     }
 
-    private fun isCurrent(): String = buildString {
-        appendLine("    /** Whether an answer bearing [token] still belongs to a screen that is on show. */");
-        appendLine("    private fun isCurrent(token: Int): Boolean = token == generation && flow.isPresented.value");
+    /**
+     * The guard every answer passes through, and the three questions it is.
+     *
+     * The third is not implied by the other two, which is what R9 is about: popping the
+     * route a call was sent from leaves the flow presented and the generation untouched —
+     * the pop was the system's back gesture, not this model's own action — so an answer
+     * arriving afterwards would write into a screen nobody is standing on and run its
+     * `then` from there (docs/IMPLEMENTATION-PITFALLS.md P24).
+     */
+    private fun isCurrent(flow: FlowDefinition, screen: ScreenDefinition, bundle: Bundle): String = buildString {
+        appendLine("    /**");
+        appendLine("     * Whether an answer bearing [token] still belongs to a screen that is on show.");
+        appendLine("     *");
+        appendLine("     * Three questions: is this the current request, is the flow still presented, and");
+        appendLine("     * is this screen's own route still on the stack. The last is not implied by the");
+        appendLine("     * others — a route popped while a call was in flight leaves both of them true.");
+        appendLine("     */");
+        appendLine("    private fun isCurrent(token: Int): Boolean =");
+        appendLine("        token == generation &&");
+        appendLine("            flow.isPresented.value &&");
+        appendLine("            flow.stack.value.contains(${routeValue(flow, screen, bundle)})");
+    }
+
+    /** This screen's own route, as the value the stack would hold while it is on show. */
+    private fun routeValue(flow: FlowDefinition, screen: ScreenDefinition, bundle: Bundle): String
+    {
+        val parameters = RouteParameters.of(screen, bundle);
+        val arguments = parameters.joinToString(", ") { "${it.name} = ${it.name}" };
+        return "${route(flow)}.${routeCase(screen)}" + if (parameters.isEmpty()) "" else "($arguments)";
     }
 
     private fun busyAction(
@@ -545,7 +571,7 @@ object KotlinEmitter
         append(readMethod(screen, bundle));
         screen.actions.forEach { action -> append(loadableAction(spec, flow, screen, action, bundle)) };
         appendLine();
-        append(isCurrent());
+        append(isCurrent(flow, screen, bundle));
         appendLine("}");
     }
 

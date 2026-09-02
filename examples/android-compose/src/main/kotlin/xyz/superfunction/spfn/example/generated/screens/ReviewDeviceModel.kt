@@ -167,6 +167,15 @@ class ReviewDeviceModel(
         load();
     }
 
-    /** Whether an answer bearing [token] still belongs to a screen that is on show. */
-    private fun isCurrent(token: Int): Boolean = token == generation && flow.isPresented.value
+    /**
+     * Whether an answer bearing [token] still belongs to a screen that is on show.
+     *
+     * Three questions: is this the current request, is the flow still presented, and
+     * is this screen's own route still on the stack. The last is not implied by the
+     * others — a route popped while a call was in flight leaves both of them true.
+     */
+    private fun isCurrent(token: Int): Boolean =
+        token == generation &&
+            flow.isPresented.value &&
+            flow.stack.value.contains(ApproveDeviceRoute.ReviewDevice(userCode = userCode))
 }

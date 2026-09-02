@@ -19,6 +19,18 @@
       "flow": "flows/u1.yaml"
     },
     {
+      "id": "u1c",
+      "screen": "enterCode",
+      "state": "busy",
+      "action": "submit",
+      "rule": "R4 \u2014 the flow is closed while the call is in flight and reopened at its start screen before the answer arrives, so that answer belongs to an appearance that is gone",
+      "runner": "unit",
+      "fixture": "ready",
+      "steps": ["type enterCode.userCode ABCD-1234", "tap enterCode.submit", "tap enterCode.cancel"],
+      "expect": ["stack=1", "state=busy"],
+      "flow": null
+    },
+    {
       "id": "u2",
       "screen": "enterCode",
       "state": "idle",
@@ -124,6 +136,18 @@
       "fixture": "writeRefused",
       "steps": ["type enterCode.userCode ABCD-1234", "tap enterCode.submit", "await state=ready", "tap reviewDevice.approve"],
       "expect": ["stack=0", "state=ready"],
+      "flow": null
+    },
+    {
+      "id": "u8d",
+      "screen": "reviewDevice",
+      "state": "ready",
+      "action": "approve",
+      "rule": "R9 \u2014 the system back pops this route while the write is in flight, so its answer changes nothing and navigates nowhere",
+      "runner": "unit",
+      "fixture": "ready",
+      "steps": ["type enterCode.userCode ABCD-1234", "tap enterCode.submit", "await state=ready", "tap reviewDevice.approve", "systemBack"],
+      "expect": ["stack=1", "state=ready"],
       "flow": null
     },
     {

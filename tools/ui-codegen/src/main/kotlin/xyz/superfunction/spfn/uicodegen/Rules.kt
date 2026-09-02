@@ -18,11 +18,19 @@
 //   R6  a screen with a source loads it once when it appears, however it appeared;
 //   R7  a failed call leaves the screen in its error state and the stack where it was;
 //   R8  the system back gesture is the flow's own pop, and on a modal flow's last route
-//       it is the flow's close.
+//       it is the flow's close;
+//   R9  a response for a screen no longer on the stack changes nothing.
+//
+// R9 is R4's other half and not a restatement of it. R4 is about the whole flow going
+// away, which a screen model sees as `isPresented`; R9 is about ONE route going away
+// under an in-flight call, which leaves the flow presented and — when the pop was the
+// system's back gesture rather than the screen's own action — leaves the generation
+// where it was too. Both guards are needed and neither implies the other.
 //
 // The cell ids are this repository's: u1–u14 for the base table, u7b/u10b for the system
 // back variants of the two back-button cells, u8c/u9c for the late-response variants of
-// the two closing writes.
+// the two closing writes, and u1c/u8d for the two late responses that arrive to a stack
+// that has moved under them.
 
 package xyz.superfunction.spfn.uicodegen
 
@@ -249,6 +257,14 @@ object Rules
                 expect(after(roles.submit.then, 1), "ready")
             ),
             Cell(
+                "u1c", entry, "busy", roles.submit.name,
+                "R4 — the flow is closed while the call is in flight and reopened at its start screen " +
+                    "before the answer arrives, so that answer belongs to an appearance that is gone",
+                "unit", Fixtures.READY,
+                typed + Step.Tap("$entry.${roles.cancel.name}"),
+                expect(1, "busy")
+            ),
+            Cell(
                 "u2", entry, "idle", roles.submit.name,
                 "R1 — an empty required input is refused before anything is sent",
                 "both", Fixtures.READY,
@@ -335,6 +351,14 @@ object Rules
                 "unit", Fixtures.WRITE_REFUSED,
                 reach + Step.Tap("$detail.${first.name}"),
                 listOf("stack=${after(first.then, 2)}", "state=ready")
+            ),
+            Cell(
+                "u8d", detail, "ready", first.name,
+                "R9 — the system back pops this route while the write is in flight, so its answer " +
+                    "changes nothing and navigates nowhere",
+                "unit", Fixtures.READY,
+                reach + Step.Tap("$detail.${first.name}") + Step.SystemBack,
+                expect(after(roles.back.then, 2), "ready")
             ),
             Cell(
                 "u9", detail, "ready", second.name,

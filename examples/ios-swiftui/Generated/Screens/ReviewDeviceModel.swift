@@ -176,8 +176,14 @@ public final class ReviewDeviceModel
     }
 
     /// Whether an answer bearing `token` still belongs to a screen that is on show.
+    ///
+    /// Three questions: is this the current request, is the flow still presented, and
+    /// is this screen's own route still on the stack. The last is not implied by the
+    /// others — a route popped while a call was in flight leaves both of them true.
     private func isCurrent(_ token: Int) -> Bool
     {
-        token == generation && flow.isPresented
+        token == generation
+            && flow.isPresented
+            && flow.stack.contains(ApproveDeviceRoute.reviewDevice(userCode: userCode))
     }
 }

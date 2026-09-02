@@ -31,6 +31,7 @@ proven on the JVM against the models and has no flow file.
 | Cell | Screen | State | Action | Runner | Fixture | Expect | Rule |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `u1` | `enterCode` | `idle` | `submit` | both | `ready` | `stack=2`, `state=ready` | R5 — the call succeeds, so the then applies and the pushed screen loads (R6) |
+| `u1c` | `enterCode` | `busy` | `submit` | unit | `ready` | `stack=1`, `state=busy` | R4 — the flow is closed while the call is in flight and reopened at its start screen before the answer arrives, so that answer belongs to an appearance that is gone |
 | `u2` | `enterCode` | `idle` | `submit` | both | `ready` | `stack=1`, `state=error` | R1 — an empty required input is refused before anything is sent |
 | `u3` | `enterCode` | `busy` | `submit` | unit | `slow` | `stack=1`, `state=busy` | R2 — the second press while the first is in flight is ignored |
 | `u4` | `enterCode` | `idle` | `submit` | both | `refused` | `stack=1`, `state=error` | R7 — the call fails, so no then applies and the screen carries the refusal |
@@ -40,6 +41,7 @@ proven on the JVM against the models and has no flow file.
 | `u7b` | `reviewDevice` | `ready` | `systemBack` | both | `ready` | `stack=1`, `state=idle` | R8 — the system back gesture above the last route is the flow's own pop |
 | `u8` | `reviewDevice` | `ready` | `approve` | both | `ready` | `stack=0` | R5 — the write succeeds and close empties the stack |
 | `u8c` | `reviewDevice` | `ready` | `approve` | unit | `writeRefused` | `stack=0`, `state=ready` | R4 — the flow closes while the write is in flight, so its refusal changes nothing |
+| `u8d` | `reviewDevice` | `ready` | `approve` | unit | `ready` | `stack=1`, `state=ready` | R9 — the system back pops this route while the write is in flight, so its answer changes nothing and navigates nowhere |
 | `u9` | `reviewDevice` | `ready` | `deny` | both | `ready` | `stack=0` | R5 — the second write closes the same way the first does |
 | `u9c` | `reviewDevice` | `ready` | `deny` | unit | `writeRefused` | `stack=0`, `state=ready` | R4 — the same late refusal, on the write that declares no response body |
 | `u10` | `reviewDevice` | `error` | `back` | both | `sourceRefused` | `stack=1`, `state=idle` | R5 — pop drops a route in any state, and the screen under it is where it was left |

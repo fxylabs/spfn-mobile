@@ -2,7 +2,8 @@
 //
 // Cells covered here, which is every cell whose runner is `unit` or `both`:
 //
-//   u1  u2  u3  u4  u5  u6  u7  u7b  u8  u8c  u9  u9c  u10  u10b  u11  u12  u13  u14
+//   u1  u1c  u2  u3  u4  u5  u6  u7  u7b  u8  u8c  u8d  u9  u9c  u10  u10b  u11  u12
+//   u13  u14
 //
 // The expectations are read out of the table (CaseTableReader), never written here. The
 // models are generated from the spec. The suite is where the two derivations meet, which
@@ -13,9 +14,12 @@
 // free of it by construction, and nothing here needs a device. The same reason
 // android/spfn-ui's own Flow suite is a JVM one.
 //
-// The two system-back cells drive `flow.pop()` directly. That is not a shortcut around the
-// gesture — it is the claim being tested: `FlowHost` binds Navigation 3's `onBack` to
-// exactly `flow.pop()`, and above a modal flow's last route that is what the gesture means.
+// The two system-back cells drive `flow.pop()` directly, and so does u8d. That is not a
+// shortcut around the gesture — it is the claim being tested: `FlowHost` binds Navigation
+// 3's `onBack` to exactly `flow.pop()`, and above a modal flow's last route that is what
+// the gesture means. It matters most in u8d: the screen's OWN back action bumps the
+// generation on its way out, so only the gesture can leave a call in flight behind a
+// popped route.
 
 package xyz.superfunction.spfn.example
 
@@ -51,6 +55,29 @@ class CellTest
         val review = run.review();
         review.load();
         run.assertCell("u1", loadable(review));
+    }
+
+    /**
+     * R4, with the flow reopened before the answer lands.
+     *
+     * `isPresented` is true again by then and this screen's route is on the stack again,
+     * so neither of those two guards is what drops the answer — the generation token is,
+     * because `cancel` bumped it on its way out. The cell is here to keep it that way: a
+     * guard rewritten around the route alone would push `reviewDevice` onto a flow the
+     * person had already left and come back to.
+     */
+    @Test
+    fun `u1c drops a lookup that answers after the flow closed and reopened`() = runTest {
+        val gate = CompletableDeferred<Unit>();
+        val run = Run(Fixtures.ready());
+        run.hold(gate);
+        val submit = launch { run.entry.submit(code) };
+        runCurrent();
+        run.entry.cancel();
+        run.flow.open(listOf(ApproveDeviceRoute.EnterCode));
+        gate.complete(Unit);
+        submit.join();
+        run.assertCell("u1c", busy(run.entry));
     }
 
     @Test
@@ -139,6 +166,29 @@ class CellTest
         gate.complete(Unit);
         write.join();
         run.assertCell("u8c", loadable(review));
+    }
+
+    /**
+     * R9: the route the write was sent from is gone before the answer arrives.
+     *
+     * The flow is still presented and the generation is still the write's own — the pop
+     * was the system's gesture, not this model's `back` — so the two older guards both
+     * say yes. Only the route check refuses, and without it `approve`'s `then: close`
+     * would empty a stack the person is standing on.
+     */
+    @Test
+    fun `u8d drops an approval whose route was popped while it was in flight`() = runTest {
+        val gate = CompletableDeferred<Unit>();
+        val run = Run(Fixtures.ready());
+        val review = run.reach();
+        run.hold(gate);
+        val write = launch { review.approve() };
+        runCurrent();
+        run.flow.pop();
+        gate.complete(Unit);
+        write.join();
+        run.assertCell("u8d", loadable(review));
+        assertEquals("the write never reached the service", 1, run.service.approveCount);
     }
 
     @Test
