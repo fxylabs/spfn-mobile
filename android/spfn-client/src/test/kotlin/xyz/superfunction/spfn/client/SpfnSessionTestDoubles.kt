@@ -8,7 +8,9 @@
 package xyz.superfunction.spfn.client
 
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import xyz.superfunction.spfn.generated.SpfnGeneratedContract
+import kotlin.coroutines.coroutineContext
 
 /** A clock a test moves by hand. */
 class FakeClock(millis: Long) : SpfnClock, SpfnProofClock
@@ -23,6 +25,31 @@ class FakeClock(millis: Long) : SpfnClock, SpfnProofClock
     fun set(value: Long)
     {
         millis = value;
+    }
+}
+
+/**
+ * A sleeper that records what it was asked to wait and never really waits.
+ *
+ * The device-code suite asserts the interval the SDK obeyed, which is only observable if
+ * the wait is a value rather than elapsed time. [onSleep] runs with the 1-based wait
+ * number, so a case can make something happen at an exact point in the poll loop.
+ *
+ * Cancellation is honoured the way `delay` honours it: a wait entered by a coroutine
+ * that is already cancelled throws instead of returning, so a cancelled poll loop stops
+ * at the wait and never sends the next request.
+ */
+class ScriptedSleeper(private val onSleep: (suspend (Int) -> Unit)? = null) : SpfnSleeper
+{
+    private val recorded = mutableListOf<Long>()
+
+    val waits: List<Long> get() = synchronized(this) { recorded.toList() }
+
+    override suspend fun sleep(millis: Long)
+    {
+        val count = synchronized(this) { recorded.add(millis); recorded.size };
+        onSleep?.invoke(count);
+        coroutineContext.ensureActive();
     }
 }
 

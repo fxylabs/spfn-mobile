@@ -1001,6 +1001,41 @@ def build_wire():
     }
 
 
+DEVICE_START_NAME = "Test Device"
+
+
+def device_start_bodies(fingerprint: str) -> dict:
+    """The `auth.device.start` body each platform must send, one entry per client kind.
+
+    Two bodies rather than one because one field genuinely differs: the contract's
+    `deviceAuthorization` flow registers the parked key under a `platform`, and each SDK
+    fills it with the kind it already announces in `x-spfn-client-kind` — `ios` from the
+    Swift build, `android` from the Kotlin one. Everything else is identical, and a suite
+    reads the entry for its own kind.
+
+    Derived from the contract's `StartDeviceAuthRequest` and `algorithmDefaultRule`:
+    `algorithm` is stated rather than omitted, because a device holding an ES256 key says
+    so at the one moment the value can still be fixed.
+    """
+    bodies = {}
+    for platform in ("ios", "android"):
+        body = {
+            "publicKey": TEST_PUBLIC_KEY_SPKI_B64,
+            "keyId": TEST_KEY_ID,
+            "fingerprint": fingerprint,
+            "algorithm": "ES256",
+            "deviceName": DEVICE_START_NAME,
+            "platform": platform,
+        }
+        canonical_body = canonical(body)
+        bodies[platform] = {
+            "value": body,
+            "canonical": canonical_body,
+            "sha256": sha256_hex(canonical_body),
+        }
+    return bodies
+
+
 def build_enrollment():
     """The enrollment surface: the fingerprint rule and the exact unproven wire shape.
 
@@ -1012,6 +1047,7 @@ def build_enrollment():
     bundle = load_bundle()
     operations = {operation["id"]: operation for operation in bundle["operations"]}
     oauth_native = operations["auth.enroll.oauthNative"]
+    device_start = operations["auth.device.start"]
     provider = "google"
     # The contract's `nativeEnrollment.nonceRule`: the nonce IS the fingerprint. Google
     # echoes the raw value, so the same string appears in the token, in `nonce` and in
@@ -1048,6 +1084,17 @@ def build_enrollment():
             "value": body,
             "canonical": canonical_body,
             "sha256": sha256_hex(canonical_body),
+        },
+        "deviceStart": {
+            "operationId": device_start["id"],
+            "path": device_start["path"],
+            "headers": [["content-type", bundle["wireMapping"]["requestContentType"]]],
+            "deviceName": DEVICE_START_NAME,
+            "why": "the waiting device parks its key with these bytes and nothing else: "
+                   "the same publicKey/keyId/fingerprint rule the social enrollment "
+                   "follows, the literal algorithm the key was generated under, the "
+                   "caller's device label, and the client kind as the platform",
+            "byPlatform": device_start_bodies(fingerprint),
         },
     }
 
