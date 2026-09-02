@@ -366,7 +366,9 @@ object KotlinEmitter
             is FieldType.IntegerType ->
                 if (field.optional) "SpfnDecoding.optionalInteger($member, \"$path\")"
                 else "SpfnDecoding.integer($member, \"$path\")"
-            is FieldType.BooleanType -> "SpfnDecoding.boolean($member, \"$path\")"
+            is FieldType.BooleanType ->
+                if (field.optional) "SpfnDecoding.optionalBoolean($member, \"$path\")"
+                else "SpfnDecoding.boolean($member, \"$path\")"
             // An optional composite reads absent and null alike as nothing, which is what
             // the encoder writes: it omits an absent optional rather than spelling it
             // null. Passing `?: Null` for an optional field instead would hand the decoder

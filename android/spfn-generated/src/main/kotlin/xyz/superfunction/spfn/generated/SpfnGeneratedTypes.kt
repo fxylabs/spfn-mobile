@@ -732,7 +732,7 @@ data class SpfnListKeysRequest(
         {
             val members = SpfnDecoding.obj(canonical, path);
             return SpfnListKeysRequest(
-                includeRevoked = SpfnDecoding.boolean(members["includeRevoked"], "$path.includeRevoked")
+                includeRevoked = SpfnDecoding.optionalBoolean(members["includeRevoked"], "$path.includeRevoked")
             );
         }
     }
@@ -923,7 +923,7 @@ data class SpfnRevokeAllKeysRequest(
         {
             val members = SpfnDecoding.obj(canonical, path);
             return SpfnRevokeAllKeysRequest(
-                includeCurrent = SpfnDecoding.boolean(members["includeCurrent"], "$path.includeCurrent")
+                includeCurrent = SpfnDecoding.optionalBoolean(members["includeCurrent"], "$path.includeCurrent")
             );
         }
     }
@@ -1135,7 +1135,7 @@ data class SpfnPollDeviceAuthResponse(
                 publicId = SpfnDecoding.optionalString(members["publicId"], "$path.publicId"),
                 email = SpfnDecoding.optionalString(members["email"], "$path.email"),
                 phone = SpfnDecoding.optionalString(members["phone"], "$path.phone"),
-                passwordChangeRequired = SpfnDecoding.boolean(members["passwordChangeRequired"], "$path.passwordChangeRequired")
+                passwordChangeRequired = SpfnDecoding.optionalBoolean(members["passwordChangeRequired"], "$path.passwordChangeRequired")
             );
         }
     }
