@@ -764,7 +764,38 @@ object KotlinEmitter
         appendLine("    }");
         appendLine("}");
         appendLine();
+        if (screen.actions.isNotEmpty() || typed.isNotEmpty())
+        {
+            append(touchTarget());
+            appendLine();
+        }
         append(stateName(screen));
+    }
+
+    /**
+     * The minimum touch target every control and field is given, and why it is not decoration.
+     *
+     * A `BasicText` is one line tall — well under the platform minimum — and Compose makes
+     * up the difference by expanding the node's TOUCH bounds past its layout bounds. In a
+     * Column of one-line controls those expansions overlap, and the bounds Compose then
+     * reports to accessibility for one control can sit on top of a neighbour's real bounds.
+     * A runner taps the reported centre, so it taps the neighbour: `enterCode.cancel`
+     * reported a rectangle centred inside `enterCode.userCode`, and cell u5's tap opened the
+     * keyboard instead of closing the flow (docs/IMPLEMENTATION-PITFALLS.md P21).
+     *
+     * Sizing each interactive element to the minimum removes the expansion, so the reported
+     * bounds are the real ones and no two of them overlap.
+     */
+    private fun touchTarget(): String = buildString {
+        appendLine("/**");
+        appendLine(" * The platform's minimum touch target, given to every control and field.");
+        appendLine(" *");
+        appendLine(" * Compose expands a control smaller than this past its layout bounds for touch, and");
+        appendLine(" * in a column of one-line controls those expansions overlap: the bounds reported for");
+        appendLine(" * one control then sit on a neighbour's, and a runner tapping the reported centre taps");
+        appendLine(" * the neighbour (docs/IMPLEMENTATION-PITFALLS.md P21). Sized here, nothing is expanded.");
+        appendLine(" */");
+        appendLine("private val TouchTarget: Dp = 48.dp;");
     }
 
     private fun viewImports(screen: ScreenDefinition, typed: List<RouteParameters.Parameter>): List<String>
@@ -801,6 +832,12 @@ object KotlinEmitter
             imports += "androidx.compose.runtime.remember";
             imports += "androidx.compose.runtime.setValue";
         }
+        if (screen.actions.isNotEmpty() || typed.isNotEmpty())
+        {
+            imports += "androidx.compose.foundation.layout.heightIn";
+            imports += "androidx.compose.ui.unit.Dp";
+            imports += "androidx.compose.ui.unit.dp";
+        }
         return imports.sorted();
     }
 
@@ -808,7 +845,9 @@ object KotlinEmitter
         appendLine("        BasicTextField(");
         appendLine("            value = ${input.name},");
         appendLine("            onValueChange = { ${input.name} = it },");
-        appendLine("            modifier = Modifier.testTag(\"${screen.name}.${input.name}\")");
+        appendLine("            modifier = Modifier");
+        appendLine("                .testTag(\"${screen.name}.${input.name}\")");
+        appendLine("                .heightIn(min = TouchTarget)");
         appendLine("        );");
     }
 
@@ -819,7 +858,10 @@ object KotlinEmitter
         else "scope.launch { model.${action.name}($arguments) }";
         appendLine("        BasicText(");
         appendLine("            text = \"${action.name}\",");
-        appendLine("            modifier = Modifier.testTag(\"$id\").clickable { $invoke }");
+        appendLine("            modifier = Modifier");
+        appendLine("                .testTag(\"$id\")");
+        appendLine("                .heightIn(min = TouchTarget)");
+        appendLine("                .clickable { $invoke }");
         appendLine("        );");
     }
 

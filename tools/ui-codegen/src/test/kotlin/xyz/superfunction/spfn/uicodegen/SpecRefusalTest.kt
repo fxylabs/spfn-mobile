@@ -116,6 +116,58 @@ class SpecRefusalTest
     }
 
     /**
+     * P21: every element a runner taps carries its own minimum touch target.
+     *
+     * A control shorter than the platform minimum is reachable only through a hit area
+     * larger than itself, and the hit areas of stacked controls then overlap. Compose
+     * reported `enterCode.cancel` at a rectangle whose centre lay inside
+     * `enterCode.userCode`, so cell u5's tap opened the keyboard and the flow never closed.
+     * Nothing on a device caught it before Maestro did, and nothing on this host can catch
+     * it at all except a reader of the emitted text — which is what this is.
+     *
+     * The rule is read as "the line after the selector sizes the element", because that is
+     * the shape both emitters write and the shape a careless edit breaks.
+     */
+    @Test
+    fun `every emitted control and field carries a minimum touch target`()
+    {
+        val generated = generate(repoRoot, specPath);
+        assertSized(generated, ".kt", ".testTag(", ".heightIn(min = TouchTarget)");
+        assertSized(generated, ".swift", ".accessibilityIdentifier(", ".frame(minHeight: touchTarget)");
+    }
+
+    /**
+     * Requires [sizing] on the line after every [selector] in the generated view files.
+     *
+     * Indentation is stripped before both reads, because the two emitters indent a field
+     * and a control differently and the rule is about neither.
+     *
+     * Floored rather than merely satisfied: a read that found no selector would pass the
+     * loop while proving nothing (P7), so what was read is counted. Seven elements carry a
+     * selector today — three on `enterCode`, four on `reviewDevice`.
+     */
+    private fun assertSized(generated: Map<String, String>, suffix: String, selector: String, sizing: String)
+    {
+        var found = 0;
+        generated.filterKeys { (it.contains("/Views/") || it.contains("/views/")) && it.endsWith(suffix) }
+            .forEach { (path, content) ->
+                val lines = content.lines().map { it.trim() };
+                lines.forEachIndexed { index, line ->
+                    if (line.startsWith(selector))
+                    {
+                        found++;
+                        assertEquals(
+                            "$path:${index + 1} names a control but the next line does not size it",
+                            sizing,
+                            lines.getOrNull(index + 1)
+                        );
+                    }
+                };
+            };
+        assertEquals("the generated $suffix views did not name the elements this reads", 7, found);
+    }
+
+    /**
      * P10: the table has to move when the behaviour it describes moves.
      *
      * `approve`'s `then` goes from `close` to `pop`, which changes what the stack is after

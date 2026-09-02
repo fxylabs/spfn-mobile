@@ -36,7 +36,7 @@
 | 계약 번들 교체·재핀, `upstream.lock.json` 수정 | [P1](#p1) [P2](#p2) [P3](#p3) [P6](#p6) |
 | `tools/validate/` 수정, 새 검사 추가 | [P4](#p4) [P5](#p5) [P6](#p6) [P7](#p7) |
 | `tools/contract-codegen/` 수정, 계약 타입 문법 변화 | [P8](#p8) [P2](#p2) |
-| `tools/ui-codegen/` 수정, 화면 스펙(`examples/ui-spec/*.json`) 작성·수정 | [P2](#p2) [P8](#p8) [P10](#p10) |
+| `tools/ui-codegen/` 수정, 화면 스펙(`examples/ui-spec/*.json`) 작성·수정 | [P2](#p2) [P8](#p8) [P10](#p10) [P21](#p21) |
 | Swift·Kotlin 대칭 로직 추가·수정 | [P9](#p9) [P10](#p10) [P15](#p15) |
 | 플랫폼 콜백 API를 async/suspend로 감싸기, 제공자 어댑터 | [P16](#p16) [P15](#p15) |
 | 공유 conformance 표·fixture 수정 | [P10](#p10) [P2](#p2) |
@@ -47,6 +47,7 @@
 | 테스트 더블에 키 id·별칭을 주입하고 두 번째 키를 만드는 흐름 | [P18](#p18) |
 | 본문 없는(204) 응답을 서버에 추가 | [P19](#p19) |
 | 플랫폼 `#if canImport(...)` 가드 추가, 한 플랫폼에서 모듈 비우기 | [P20](#p20) [P7](#p7) |
+| 러너가 id로 탭하는 컨트롤 추가·수정 (Compose·SwiftUI 뷰) | [P21](#p21) |
 
 ---
 
@@ -515,6 +516,51 @@ grep -rn 'import ' Sources/<Target> Tests/<Target>Tests | grep -v '^.*://' | sor
 UIKit만으로 감쌌다면 macOS `swift test`에서 `SPFNSocialGoogleTests` 6행이 조용히
 사라진 채 Linux 게이트만 초록이었을 것이다. `|| canImport(AppKit)`으로 바꿔 macOS
 290행을 지켰다.
+
+## P21. 최소 터치 타깃보다 작은 컨트롤은 이웃의 좌표를 보고한다 {#p21}
+
+**증상.** Compose에서 한 줄짜리 `BasicText`에 `clickable`만 붙이면 컨트롤이 차지하는
+자리는 한 줄(16dp)인데 터치가 먹히는 영역만 최소 터치 타깃(48dp)으로 넓혀진다. 세로로
+붙어 있는 컨트롤들의 넓혀진 영역은 서로 겹치고, 그때 접근성에 **보고되는** bounds는
+이웃에게 잘려 컨트롤 자신의 자리를 벗어난다. 러너(Maestro, `adb shell input tap`)는
+보고된 bounds의 중심을 누르므로 **다른 노드를 누른다.** 클릭 람다는 아예 호출되지 않고
+예외도 로그도 없다. 모델과 `Flow`는 옳으므로 JVM 단위 테스트는 통과하고, SwiftUI의
+`Button`은 기본으로 44pt를 넘기므로 iOS 셀도 통과한다 — 한 플랫폼의 한 셀만 붉다.
+
+**탐지.** 계층 덤프에서 **컨트롤의 bounds 높이가 최소 터치 타깃과 같은지, 이웃의
+bounds와 겹치지 않는지** 본다. 밀도 2.75인 에뮬레이터에서 48dp는 132px이다. 45px로
+나오면 확장 대상이고, 132px보다 짧게 나오면 이미 이웃에게 잘린 것이다.
+
+```
+adb -s emulator-5554 shell uiautomator dump /sdcard/ui.xml \
+  && adb -s emulator-5554 shell cat /sdcard/ui.xml \
+  | tr '<' '\n<' | grep -o 'resource-id="[^"]*"[^>]*bounds="[^"]*"'
+```
+
+그다음 보고된 중심을 직접 눌러 확인한다. 컨트롤이 반응하지 않고 **이웃이** 반응하면
+(텍스트 필드라면 키보드가 뜬다) 확정이다.
+
+```
+adb -s emulator-5554 shell input tap <보고된 중심 x> <보고된 중심 y>
+adb -s emulator-5554 shell dumpsys input_method | grep -o 'mInputShown=[a-z]*'
+```
+
+**처방.** 상호작용 요소마다 **자기 레이아웃에** 최소 터치 타깃을 준다 — Compose는
+`Modifier.heightIn(min = 48.dp)`, SwiftUI는 `.frame(minHeight: 44)`. 확장할 것이
+없어지면 보고되는 bounds가 곧 실제 bounds이고 어느 둘도 겹치지 않는다. 부모에
+`spacing`만 주는 것으로는 부족하다: 8dp 간격은 16dp 컨트롤의 48dp 확장을 여전히
+겹치게 둔다. 방출기가 찍는 코드라면 규칙은 방출기에 두고 두 플랫폼 모두에 적는다.
+
+**나온 곳.** ui/scaffold-1c — 셀 u5(`enterCode.cancel`)만 실패했다. 계층 덤프에서
+`enterCode.cancel`이 보고한 사각형은 `[0,492][122,537]`(높이 45px)이고 바로 위
+`enterCode.userCode`는 `[0,447][270,579]`(높이 132px)여서 앞의 것이 뒤의 것 안에 완전히
+들어가 있었다. 같은 빌드에 대고 y만 바꿔 눌러 보면 y=500·514는 키보드를 열고
+(`mInputShown=true`) `stack=1`로 남았고, y=540·557·570은 `stack=0`을 냈다 — 취소 컨트롤이
+실제로 받는 자리는 보고된 사각형보다 아래였다. `enterCode.submit`은 열의 마지막이라
+아래에서 잘릴 이웃이 없어 보고된 중심이 자기 안에 있었고, 그래서 같은 화면의 다른
+컨트롤은 멀쩡했다. 모든 컨트롤에 48dp를 준 뒤 덤프는 `userCode [0,577][270,709]`,
+`cancel [0,709][122,841]`, `submit [0,841][124,973]`로 서로 겹치지 않았고 u5·u7·u8·u1이
+모두 통과했다.
 
 ## 원장
 

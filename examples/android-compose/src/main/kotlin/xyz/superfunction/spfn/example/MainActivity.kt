@@ -20,6 +20,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -32,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.unit.dp
 import xyz.superfunction.spfn.client.SpfnAndroidKeystoreEngine
 import xyz.superfunction.spfn.client.SpfnKeyLifecycle
 import xyz.superfunction.spfn.client.SpfnOkHttpTransport
@@ -147,18 +149,21 @@ private fun ExampleRoot(
         BasicText(text = "receipt=$receipt");
         BasicText(
             text = "write receipt",
-            modifier = Modifier.testTag("example.receipt").clickable {
-                receipt = receipts.write(
-                    ExampleReceipt(
-                        cell = cell,
-                        fixture = fixture,
-                        stackDepth = depth,
-                        timestampMillis = System.currentTimeMillis(),
-                        sdkVersion = SpfnVersion.CURRENT,
-                        contractVersion = SpfnGeneratedContract.BINDING.importedVersion
-                    )
-                );
-            }
+            modifier = Modifier
+                .testTag("example.receipt")
+                .heightIn(min = 48.dp)
+                .clickable {
+                    receipt = receipts.write(
+                        ExampleReceipt(
+                            cell = cell,
+                            fixture = fixture,
+                            stackDepth = depth,
+                            timestampMillis = System.currentTimeMillis(),
+                            sdkVersion = SpfnVersion.CURRENT,
+                            contractVersion = SpfnGeneratedContract.BINDING.importedVersion
+                        )
+                    );
+                }
         );
         ApproveDeviceFlowHost(container);
     }

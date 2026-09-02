@@ -14,6 +14,7 @@ package xyz.superfunction.spfn.example.generated.views
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,6 +22,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import xyz.superfunction.spfn.example.generated.screens.ReviewDeviceModel
 import xyz.superfunction.spfn.ui.Loadable
@@ -43,22 +46,44 @@ fun ReviewDeviceScreen(model: ReviewDeviceModel)
         BasicText(text = "stack=" + stack.size);
         BasicText(
             text = "approve",
-            modifier = Modifier.testTag("reviewDevice.approve").clickable { scope.launch { model.approve() } }
+            modifier = Modifier
+                .testTag("reviewDevice.approve")
+                .heightIn(min = TouchTarget)
+                .clickable { scope.launch { model.approve() } }
         );
         BasicText(
             text = "back",
-            modifier = Modifier.testTag("reviewDevice.back").clickable { model.back() }
+            modifier = Modifier
+                .testTag("reviewDevice.back")
+                .heightIn(min = TouchTarget)
+                .clickable { model.back() }
         );
         BasicText(
             text = "deny",
-            modifier = Modifier.testTag("reviewDevice.deny").clickable { scope.launch { model.deny() } }
+            modifier = Modifier
+                .testTag("reviewDevice.deny")
+                .heightIn(min = TouchTarget)
+                .clickable { scope.launch { model.deny() } }
         );
         BasicText(
             text = "retry",
-            modifier = Modifier.testTag("reviewDevice.retry").clickable { scope.launch { model.retry() } }
+            modifier = Modifier
+                .testTag("reviewDevice.retry")
+                .heightIn(min = TouchTarget)
+                .clickable { scope.launch { model.retry() } }
         );
     }
 }
+
+/**
+ * The platform's minimum touch target, given to every control and field.
+ *
+ * Compose expands a control smaller than this past its layout bounds for touch, and
+ * in a column of one-line controls those expansions overlap: the bounds reported for
+ * one control then sit on a neighbour's, and a runner tapping the reported centre taps
+ * the neighbour (docs/IMPLEMENTATION-PITFALLS.md P21). Sized here, nothing is expanded.
+ */
+private val TouchTarget: Dp = 48.dp;
 
 /** The one word a runner reads this screen's state as. */
 private fun stateName(state: Loadable<*>): String = when (state)

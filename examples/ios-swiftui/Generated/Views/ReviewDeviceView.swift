@@ -40,21 +40,25 @@ public struct ReviewDeviceView: View
                 Task { await model.approve() }
             }
             .accessibilityIdentifier("reviewDevice.approve")
+            .frame(minHeight: touchTarget)
             Button("back")
             {
                 model.back()
             }
             .accessibilityIdentifier("reviewDevice.back")
+            .frame(minHeight: touchTarget)
             Button("deny")
             {
                 Task { await model.deny() }
             }
             .accessibilityIdentifier("reviewDevice.deny")
+            .frame(minHeight: touchTarget)
             Button("retry")
             {
                 Task { await model.retry() }
             }
             .accessibilityIdentifier("reviewDevice.retry")
+            .frame(minHeight: touchTarget)
         }
         // A screen loads its own read once, however it appeared: pushed onto the
         // stack, or already on it because the flow was opened at a whole stack.
@@ -64,6 +68,14 @@ public struct ReviewDeviceView: View
         }
     }
 }
+
+/// The platform's minimum touch target, given to every control and field.
+///
+/// A control smaller than this is reachable only through a hit area larger than itself,
+/// and neighbouring hit areas then overlap: the bounds reported for one control sit on
+/// a neighbour's, and a runner tapping the reported centre taps the neighbour
+/// (docs/IMPLEMENTATION-PITFALLS.md P21).
+private let touchTarget: CGFloat = 44
 
 /// The one word a runner reads this screen's state as.
 private func stateName<Value: Sendable>(_ state: Loadable<Value>) -> String

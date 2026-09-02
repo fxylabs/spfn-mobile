@@ -739,13 +739,40 @@ object SwiftEmitter
         appendLine("    }");
         appendLine("}");
         appendLine();
+        if (screen.actions.isNotEmpty() || typed.isNotEmpty())
+        {
+            append(touchTarget());
+            appendLine();
+        }
         append(stateName(screen));
         appendLine("#endif");
+    }
+
+    /**
+     * The minimum touch target every control and field is given.
+     *
+     * The counterpart of KotlinEmitter's, and stated for the same reason: a control smaller
+     * than the platform minimum is reachable only through an expanded hit area, and expanded
+     * hit areas of neighbouring controls overlap. Compose reported one control's bounds on
+     * top of another's and cell u5 tapped the wrong node
+     * (docs/IMPLEMENTATION-PITFALLS.md P21); SwiftUI's own controls happen to clear 44pt
+     * already, so writing it here changes nothing on this platform except that the rule is
+     * now written down on both.
+     */
+    private fun touchTarget(): String = buildString {
+        appendLine("/// The platform's minimum touch target, given to every control and field.");
+        appendLine("///");
+        appendLine("/// A control smaller than this is reachable only through a hit area larger than itself,");
+        appendLine("/// and neighbouring hit areas then overlap: the bounds reported for one control sit on");
+        appendLine("/// a neighbour's, and a runner tapping the reported centre taps the neighbour");
+        appendLine("/// (docs/IMPLEMENTATION-PITFALLS.md P21).");
+        appendLine("private let touchTarget: CGFloat = 44");
     }
 
     private fun field(screen: ScreenDefinition, input: RouteParameters.Parameter): String = buildString {
         appendLine("            TextField(\"${input.name}\", text: \$${input.name})");
         appendLine("                .accessibilityIdentifier(\"${screen.name}.${input.name}\")");
+        appendLine("                .frame(minHeight: touchTarget)");
     }
 
     private fun control(screen: ScreenDefinition, action: ActionDefinition, bundle: Bundle): String = buildString {
@@ -764,6 +791,7 @@ object SwiftEmitter
         }
         appendLine("            }");
         appendLine("            .accessibilityIdentifier(\"$id\")");
+        appendLine("            .frame(minHeight: touchTarget)");
     }
 
     private fun stateName(screen: ScreenDefinition): String = buildString {

@@ -38,19 +38,30 @@ public struct EnterCodeView: View
             Text("stack=" + String(model.stack.count))
             TextField("userCode", text: $userCode)
                 .accessibilityIdentifier("enterCode.userCode")
+                .frame(minHeight: touchTarget)
             Button("cancel")
             {
                 model.cancel()
             }
             .accessibilityIdentifier("enterCode.cancel")
+            .frame(minHeight: touchTarget)
             Button("submit")
             {
                 Task { await model.submit(userCode: userCode) }
             }
             .accessibilityIdentifier("enterCode.submit")
+            .frame(minHeight: touchTarget)
         }
     }
 }
+
+/// The platform's minimum touch target, given to every control and field.
+///
+/// A control smaller than this is reachable only through a hit area larger than itself,
+/// and neighbouring hit areas then overlap: the bounds reported for one control sit on
+/// a neighbour's, and a runner tapping the reported centre taps the neighbour
+/// (docs/IMPLEMENTATION-PITFALLS.md P21).
+private let touchTarget: CGFloat = 44
 
 /// The one word a runner reads this screen's state as.
 private func stateName(_ state: Busy) -> String
