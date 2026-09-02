@@ -45,7 +45,10 @@ receipt behind. It launches the app once with no fixture first, so the slow firs
 after an install is paid as a warm-up rather than reported as a failed cell. It then drives
 the cells **one at a time**, pulling each cell's receipt out of the container before the
 next flow starts, because every flow opens with `clearState: true` and that wipe empties
-`Documents/receipts` along with everything else. Each cell's line carries both facts, its
+`Documents/receipts` along with everything else. The container itself is looked up again
+after every cell rather than once before the run, because on iOS that wipe does not empty
+the data container — it recreates it under a new id, so a path read before the first flow
+names a directory that no longer exists. Each cell's line carries both facts, its
 flow's exit status and whether its receipt arrived, so a cell that asserted everything and
 still left nothing is reported as that. Receipts come out of the simulator's data container
 through `xcrun simctl get_app_container` and land, with the per-cell Maestro reports, in
