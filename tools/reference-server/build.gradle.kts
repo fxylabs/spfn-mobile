@@ -87,6 +87,12 @@ val integrationControlToken: Provider<String> = providers.gradleProperty("spfn.i
 /// safe default.
 val integrationRestOps: Provider<String> = providers.gradleProperty("spfn.integrationRestOps")
 
+/// Whether an EXTERNAL target's clock can be moved through `/control/advance-clock`. In
+/// process it always can — the server runs on a test clock — so the suite only consults
+/// this against a named target, where a launched server on the wall clock makes no the
+/// safe default and case i out of scope.
+val integrationTestClock: Provider<String> = providers.gradleProperty("spfn.integrationTestClock")
+
 /// The default gate. Integration cases are excluded: they bind a socket and are run by
 /// `spfnIntegrationTest`, so `./gradlew build` stays a unit gate.
 tasks.named<Test>("test") {
@@ -111,6 +117,7 @@ tasks.register<Test>("spfnIntegrationTest") {
     integrationLaunchFile.orNull?.let { systemProperty("spfn.integrationLaunchFile", it) }
     integrationControlToken.orNull?.let { systemProperty("spfn.integrationControlToken", it) }
     integrationRestOps.orNull?.let { systemProperty("spfn.integrationRestOps", it) }
+    integrationTestClock.orNull?.let { systemProperty("spfn.integrationTestClock", it) }
     outputs.upToDateWhen { false }
 
     // A suite that matched nothing is a suite that proved nothing.

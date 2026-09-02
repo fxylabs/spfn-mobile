@@ -166,11 +166,24 @@ interface SpfnReferenceControlSurface
     /** Makes the next [count] requests to [path] wait, so a timeout has something to time out on. */
     fun hold(path: String, millis: Long, count: Int)
 
+    /**
+     * Moves the target's clock forward, or answers false when it runs on the wall clock
+     * and cannot be moved.
+     *
+     * False is a fact about the target, not a failure: a launched server runs on the
+     * system clock on purpose, and a case that needs an expiry it cannot arrange says so
+     * loudly and skips rather than quietly asserting something else.
+     */
+    fun advanceClock(millis: Long): Boolean
+
     fun stats(): SpfnReferenceStats
 }
 
 /** The in-process surface: the same state object the server's own `/control` routes call. */
-class SpfnInProcessControl(private val state: SpfnReferenceState) : SpfnReferenceControlSurface
+class SpfnInProcessControl(
+    private val state: SpfnReferenceState,
+    private val clock: SpfnReferenceClock
+) : SpfnReferenceControlSurface
 {
     override fun reset() = state.reset()
 
@@ -179,6 +192,13 @@ class SpfnInProcessControl(private val state: SpfnReferenceState) : SpfnReferenc
     override fun revokeKey(keyId: String) = state.revokeKey(keyId)
 
     override fun hold(path: String, millis: Long, count: Int) = state.holdPath(path, millis, count)
+
+    override fun advanceClock(millis: Long): Boolean
+    {
+        val testClock = clock as? SpfnReferenceTestClock ?: return false;
+        testClock.advance(millis);
+        return true;
+    }
 
     override fun stats(): SpfnReferenceStats = state.stats()
 }
@@ -212,6 +232,32 @@ class SpfnHttpControl(private val target: SpfnIntegrationTarget) : SpfnReference
             "path" to SpfnCanonicalValue.Text(path)
         )
     )
+
+    /**
+     * The one route allowed to answer a status this surface reads rather than refuses:
+     * `/control/advance-clock` answers 409 when the server is on the system clock, which
+     * is the "cannot be arranged" this returns false for.
+     */
+    override fun advanceClock(millis: Long): Boolean
+    {
+        val builder = Request.Builder()
+            .url(target.baseUrl + SpfnReferenceControl.ADVANCE_CLOCK)
+            .addHeader(SpfnReferenceControl.TOKEN_HEADER, target.controlToken)
+            .post(
+                SpfnCanonicalJson.encode(
+                    SpfnCanonicalValue.Obj(mapOf("millis" to SpfnCanonicalValue.Integer(millis)))
+                ).toRequestBody(JSON)
+            );
+        http.newCall(builder.build()).execute().use { response ->
+            response.body.bytes();
+            if (response.code == HTTP_CONFLICT)
+            {
+                return false;
+            }
+            check(response.isSuccessful) { "${SpfnReferenceControl.ADVANCE_CLOCK} answered ${response.code}" };
+            return true;
+        }
+    }
 
     override fun stats(): SpfnReferenceStats
     {
@@ -256,6 +302,9 @@ class SpfnHttpControl(private val target: SpfnIntegrationTarget) : SpfnReference
     private companion object
     {
         const val CALL_TIMEOUT_SECONDS = 10L
+
+        /** What `/control/advance-clock` answers when the server runs on the wall clock. */
+        const val HTTP_CONFLICT = 409
 
         val JSON = "application/json".toMediaType()
     }

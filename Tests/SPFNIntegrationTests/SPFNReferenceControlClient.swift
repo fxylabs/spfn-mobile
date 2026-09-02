@@ -53,6 +53,42 @@ struct SPFNReferenceControlClient: Sendable
         )
     }
 
+    /// Moves the target's clock forward, or answers false when it runs on the wall clock
+    /// and cannot be moved.
+    ///
+    /// False is a fact about the target, not a failure: a launched server runs on the
+    /// system clock on purpose, and a case that needs an expiry it cannot arrange says so
+    /// loudly and skips rather than quietly asserting something else. This is the one
+    /// route whose refusal is read instead of thrown, which is why it does not go through
+    /// `post`.
+    func advanceClock(millis: Int64) async throws -> Bool
+    {
+        guard let url = URL(string: environment.baseURL + "/control/advance-clock")
+        else
+        {
+            throw SPFNIntegrationFailure.control("/control/advance-clock is not a URL")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.addValue(environment.controlToken, forHTTPHeaderField: "x-spfn-reference-control")
+        request.addValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = Data(SPFNCanonicalJSON.encode(.object(["millis": .integer(millis)])))
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        if status == 409
+        {
+            return false
+        }
+        guard (200 ... 299).contains(status)
+        else
+        {
+            throw SPFNIntegrationFailure.control("/control/advance-clock answered \(status)")
+        }
+        return true
+    }
+
     func stats() async throws -> SPFNReferenceStats
     {
         let value = try await send("GET", "/control/stats", body: nil)
