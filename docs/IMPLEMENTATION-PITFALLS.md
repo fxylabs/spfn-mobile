@@ -219,8 +219,25 @@ grep -n 'is FieldType\.' tools/contract-codegen/src/main/kotlin/xyz/superfunctio
 들여오자 `pending` 응답이 **어느 플랫폼에서도 디코드되지 않았다.** 잠복 필드가 둘
 더 있었다(`ListKeysRequest.includeRevoked`, `RevokeAllKeysRequest.includeCurrent`).
 
+**탐지(3) — 선택적 키의 오타는 "없는 키"와 구별되지 않는다.** 스펙·설정을 읽는 코드가
+**필수** 키만 검사하면, 오타 난 **선택적** 키는 부재와 같은 값으로 읽힌다. `useCase: true`는
+`entry["usecase"] ?: false`를 그냥 지나쳐 기본값 `false`가 되고, 요청된 계층이 조용히 빠진
+앱이 **컴파일까지 된다.** 필수 키의 오타는 이미 "키 없음"으로 붉게 터지므로 이 함정은
+선택적 키에만 있다. 확인 명령:
+
+```
+# 객체를 읽는 자리마다 "모르는 키" 거부가 있는가.
+grep -c checkKeys tools/ui-codegen/src/main/kotlin/xyz/superfunction/spfn/uicodegen/Spec.kt
+```
+
+오늘 기준 8이다(헬퍼 하나 + 호출 일곱: 최상위, `contract`, 서비스 메서드, 플로우, 화면,
+액션, `then`). 일반형은 **"읽는 쪽이 그 객체가 가진 키 전부를 세어 보는가"**이다. 세지
+않으면 그 파일의 오타는 전부 기본값으로 읽힌다. 증거: ui/scaffold-1e 리뷰(2026-09-03) —
+`usecase`를 `useCase`로 고쳐 쓴 스펙이 use-case 계층 없는 화면을 말없이 냈다.
+
 **처방.** 계약 문법 변화는 선언된 변경으로 다뤄 파서 변경 + 양 플랫폼 재생성 +
-결정성 재확인을 함께 한다. upstream 쪽 변화는 소비 전에 대조한다.
+결정성 재확인을 함께 한다. upstream 쪽 변화는 소비 전에 대조한다. 스펙 리더는 필수 키
+검사와 **모르는 키 거부**를 같이 둔다 — 둘은 서로 다른 오타를 잡는다.
 
 **나온 곳.** primitives export 검증(b8e3d2f) — 재핀 전에 blocking으로 보고해 해소.
 

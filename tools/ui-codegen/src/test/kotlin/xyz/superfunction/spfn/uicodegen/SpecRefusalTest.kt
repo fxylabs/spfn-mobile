@@ -104,6 +104,42 @@ class SpecRefusalTest
         );
     }
 
+    /**
+     * The three unknown-key refusals, one per depth an optional key lives at.
+     *
+     * `useCase` is the one a reviewer wrote by hand: it is the correct spelling of an
+     * English compound and the wrong spelling of this spec's key, so it reads right, parses
+     * right, and emits a screen with no use-case layer. The other two are the same mistake
+     * inside an action and inside a `then`, which is where the remaining optional keys are.
+     */
+    @Test
+    fun `a key the generator does not read is refused, by its path`()
+    {
+        assertRefused(
+            "screen-key.json",
+            replaceOnce("\"usecase\": true", "\"useCase\": true"),
+            "screens.reviewDevice.useCase is not a key this generator reads"
+        );
+
+        assertRefused(
+            "action-key.json",
+            replaceOnce(
+                "\"retry\":   { \"call\": \"deviceApproval.lookup\" }",
+                "\"retry\":   { \"call\": \"deviceApproval.lookup\", \"onFailure\": \"pop\" }"
+            ),
+            "screens.reviewDevice.actions.retry.onFailure is not a key this generator reads"
+        );
+
+        assertRefused(
+            "then-key.json",
+            replaceOnce(
+                "\"then\": { \"push\": \"reviewDevice\" }",
+                "\"then\": { \"push\": \"reviewDevice\", \"animated\": true }"
+            ),
+            "screens.enterCode.actions.submit.then.animated is not a key this generator reads"
+        );
+    }
+
     @Test
     fun `generation is a pure function of its two inputs`()
     {

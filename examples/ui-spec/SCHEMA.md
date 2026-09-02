@@ -93,7 +93,7 @@ returns `Void`/`Unit` rather than a value nothing can decode.
 
 An action with neither `call` nor `then` is refused: it is a control that does nothing.
 
-## The five refusals
+## The six refusals
 
 The generator fails, and generates nothing at all, when:
 
@@ -111,6 +111,13 @@ The generator fails, and generates nothing at all, when:
 5. **Unknown service method in `call` or `source`.** `deviceApproval.lookp` is a typo that
    would otherwise reach a Kotlin compiler as a missing method, one stage too late and in
    the wrong file.
+6. **A key the generator does not read.** Every object above — the top level, `contract`, a
+   service method, a flow, a screen, an action and an object `then` — is checked against the
+   keys listed for it, and an extra one is refused by its path: `screens.reviewDevice.useCase
+   is not a key this generator reads`. This is the refusal that makes the promise at the top
+   of this page true for OPTIONAL keys. A required key misspelled is already a missing-key
+   refusal; a misspelled `usecase` is not, and without this rule it would emit a screen whose
+   use-case layer was asked for and quietly left out.
 
 ## How a screen's state type is derived
 

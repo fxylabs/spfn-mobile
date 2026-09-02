@@ -1,10 +1,15 @@
 // The screen spec, as the generator understands it.
 //
-// Reading is strict in both directions: a key the spec must carry and does not is a hard
-// failure, and a value that names something the contract or the spec itself does not
-// declare is a hard failure too. Nothing is defaulted and nothing is guessed — a spec that
-// half-parsed would emit an app whose screens are plausible rather than the ones somebody
-// wrote down, which is the P8 failure moved one layer up.
+// Reading is strict in three directions: a key the spec must carry and does not is a hard
+// failure, a key it carries that this file does not read is a hard failure, and a value
+// that names something the contract or the spec itself does not declare is a hard failure
+// too. Nothing is defaulted and nothing is guessed — a spec that half-parsed would emit an
+// app whose screens are plausible rather than the ones somebody wrote down, which is the P8
+// failure moved one layer up.
+//
+// The middle one is the least obvious and the reason it is here: an optional key cannot be
+// missed by its absence, so `useCase: true` written beside the `usecase` this file reads is
+// a spec whose use-case layer was requested and silently not emitted.
 //
 // examples/ui-spec/SCHEMA.md is this file in prose, written for whoever authors the next
 // spec. The two are meant to be read together; the refusals below are numbered there.
@@ -97,6 +102,7 @@ data class Spec(
         fun read(specText: String, bundle: Bundle): Spec
         {
             val root = Json.parse(specText).obj();
+            checkKeys(root, setOf("specVersion", "contract", "services", "flows", "screens"), "");
             val version = root.required("specVersion").numberOrRefusal();
             if (version != SUPPORTED_VERSION)
             {
@@ -105,6 +111,9 @@ data class Spec(
                         "partially read another"
                 );
             }
+
+            val contract = root.required("contract").obj();
+            checkKeys(contract, setOf("manifestSha256"), "contract.");
 
             val services = readServices(root.required("services").obj(), bundle);
             val methods = services.flatMap { it.methods }.associateBy { it.reference };
@@ -115,10 +124,37 @@ data class Spec(
 
             return Spec(
                 specVersion = version,
-                manifestSha256 = root.required("contract").obj().required("manifestSha256").text(),
+                manifestSha256 = contract.required("manifestSha256").text(),
                 services = services,
                 flows = flows,
                 screens = screens
+            );
+        }
+
+        /**
+         * Refusal 6: every key of every object is one this generator reads.
+         *
+         * SCHEMA.md promises a spec the generator does not fully understand is refused
+         * rather than partially read, and an OPTIONAL key is where that promise is spent.
+         * A required key misspelled is already a missing-key refusal; `useCase: true`
+         * beside the `usecase` this file reads is not — it falls through the `?: false`
+         * and emits a screen with no use-case layer, which is P8 one layer up: nothing
+         * failed, and the app is the one nobody wrote.
+         *
+         * [where] is the path prefix of the object, empty at the top level, so the
+         * message names the key by the path an author can search the spec for.
+         */
+        private fun checkKeys(members: Map<String, JsonValue>, known: Set<String>, where: String)
+        {
+            val unknown = members.keys.filter { it !in known }.sorted();
+            if (unknown.isEmpty())
+            {
+                return;
+            }
+            throw SpecException(
+                unknown.joinToString(", ") { "$where$it" } +
+                    " is not a key this generator reads; the keys it reads here are: " +
+                    known.sorted().joinToString(", ")
             );
         }
 
@@ -139,7 +175,9 @@ data class Spec(
                 ServiceDefinition(
                     name = service,
                     methods = entries.keys.sorted().map { method ->
-                        val operation = entries.getValue(method).obj().required("operation").text();
+                        val entry = entries.getValue(method).obj();
+                        checkKeys(entry, setOf("operation"), "services.$service.$method.");
+                        val operation = entry.required("operation").text();
                         val declaration = declared[operation]
                             ?: throw SpecException(
                                 "services.$service.$method names operation '$operation', which the pinned " +
@@ -155,6 +193,7 @@ data class Spec(
         private fun readFlows(members: Map<String, JsonValue>): List<FlowDefinition> =
             members.keys.sorted().map { flow ->
                 val entry = members.getValue(flow).obj();
+                checkKeys(entry, setOf("entry", "start"), "flows.$flow.");
                 val style = entry.required("entry").text();
                 if (style != "modal" && style != "push")
                 {
@@ -168,6 +207,7 @@ data class Spec(
             methods: Map<String, ServiceMethod>
         ): List<ScreenDefinition> = members.keys.sorted().map { screen ->
             val entry = members.getValue(screen).obj();
+            checkKeys(entry, setOf("flow", "source", "usecase", "actions"), "screens.$screen.");
             val sourceValue = entry.required("source");
             val source = if (sourceValue is JsonValue.Null) null
             else resolve(sourceValue.text(), methods, "screens.$screen.source");
@@ -195,6 +235,7 @@ data class Spec(
             screen: String
         ): List<ActionDefinition> = members.keys.sorted().map { action ->
             val entry = members.getValue(action).obj();
+            checkKeys(entry, setOf("call", "then"), "screens.$screen.actions.$action.");
             val call = entry["call"]?.let { resolve(it.text(), methods, "screens.$screen.actions.$action.call") };
             val then = entry["then"]?.let { readNavigation(it, "screens.$screen.actions.$action.then") };
             if (call == null && then == null)
@@ -211,12 +252,9 @@ data class Spec(
         {
             if (value is JsonValue.Obj)
             {
+                checkKeys(value.members, setOf("push"), "$where.");
                 val push = value.members["push"]
                     ?: throw SpecException("$where is an object with no 'push' key");
-                if (value.members.size != 1)
-                {
-                    throw SpecException("$where carries more than 'push'; a then does one thing");
-                }
                 return Navigation.Push(push.text());
             }
             return when (val word = value.text())
