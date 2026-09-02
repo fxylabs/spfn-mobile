@@ -15,10 +15,12 @@
 #   d. `@Environment(\.dismiss)` in a generated example view fails;
 #   e. a dismiss scan that reads no source fails instead of reporting none;
 #   f. a cell whose runner names Maestro and whose flow file is gone fails;
-#   g. a cell whose runner names the JVM and which no test names fails;
+#   g. a cell whose runner names the JVM and which no test names fails — including when
+#      the tree still MENTIONS it, because a cell id in a comment is not a case;
 #   h. a case table nothing can read cells out of fails instead of reporting full coverage;
 #   i. a bare `- back` in a device cell's flow fails, naming the cell;
-#   j. a flow scan that read no flow fails instead of reporting every flow clean.
+#   j. a flow scan that read no flow fails instead of reporting every flow clean;
+#   k. a test scan that matched no case fails instead of reporting every cell covered.
 #
 # c and e run a ROOT-pinned copy of the validator whose own input has been taken away,
 # because their subject is what the check does when it cannot read — the one condition that
@@ -191,6 +193,15 @@ sed 's/u5/z5/g' "$TMP/celltest.bak" > "$CELLTEST"
 expect_example_fail 'a JVM cell that no test names fails, naming the cell' \
     'u5:no-test'
 
+# The same cell, still MENTIONED by the suite and no longer covered by it: only the case
+# declaration and the assertion are renamed, and the header comment listing every cell the
+# file covers is left alone. A scan that took any occurrence of the id as coverage passed
+# this — the comment proved itself (docs/IMPLEMENTATION-PITFALLS.md P7).
+sed -e 's/`u5 closes the flow and empties its stack`/`z5 closes the flow and empties its stack`/' \
+    -e 's/assertCell("u5"/assertCell("z5"/' "$TMP/celltest.bak" > "$CELLTEST"
+expect_example_fail 'a cell mentioned in a comment but declared by no case fails, naming the cell' \
+    'u5:no-test'
+
 # --- i, j. the bare system back -----------------------------------------------
 # Maestro's `back` is Android's command and completes on iOS without doing anything, so a
 # flow carrying one fails at its next assertion rather than at the step
@@ -204,6 +215,10 @@ expect_example_fail 'a bare system back in a device cell'"'"'s flow fails, namin
 expect_unrunnable 'a flow scan that read no flow fails instead of reporting them clean' \
     'the flow scan read 0 device-cell flows' \
     's#^EXAMPLE_FLOWS=.*#EXAMPLE_FLOWS=/nonexistent-flows#'
+
+expect_unrunnable 'a test scan that matched no case fails instead of reporting every cell covered' \
+    'the test scan matched case declarations for 0 JVM cells' \
+    's#^EXAMPLE_TESTS=.*#EXAMPLE_TESTS=/nonexistent-tests#'
 
 # --- h. a table nothing can read ---------------------------------------------
 # The floor, exercised by taking the table's own key away rather than by editing the

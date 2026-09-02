@@ -2275,6 +2275,12 @@ fi
 CELL_COUNT=$(grep -c . "$TMP/example-cells.txt" || true)
 CELL_PROBLEMS=''
 CELL_FLOWS_READ=0
+CELL_TESTS_READ=0
+
+# A backtick as a value rather than as a character in the pattern below. Inside the double
+# quotes that pattern needs, one would open a command substitution; the pattern needs it
+# literally, because a JUnit case here is named `u5 closes the flow …` between two of them.
+TICK='`'
 
 while IFS=' ' read -r cell runner
 do
@@ -2302,8 +2308,17 @@ do
     esac
     case "$runner" in
         unit|both)
-            if [ -z "$(grep -rlw -- "$cell" "$EXAMPLE_TESTS" 2>/dev/null || true)" ]
+            # A cell id NAMED under the test tree is not a test for that cell. `grep -rlw`
+            # counted one: CellTest.kt's header lists every cell the suite covers, so every
+            # id in that list satisfied the check whether a case existed or not — a comment
+            # proving the thing it describes (P7). What counts is a line that DECLARES a
+            # case for the cell, in the two spellings this repository has: a backticked
+            # JUnit name beginning with the id, and an assertion naming the cell.
+            if grep -rqE "fun $TICK$cell [^$TICK]*$TICK|assertCell\(\"$cell\"" \
+                "$EXAMPLE_TESTS" 2>/dev/null
             then
+                CELL_TESTS_READ=$((CELL_TESTS_READ + 1))
+            else
                 CELL_PROBLEMS="$CELL_PROBLEMS $cell:no-test"
             fi
             ;;
@@ -2326,6 +2341,16 @@ then
     pass "the flow scan read all $CELL_FLOWS_READ device-cell flows looking for a bare system back"
 else
     fail "the flow scan read $CELL_FLOWS_READ device-cell flows; it did not run"
+fi
+
+# The floor under the test scan, stated as a number for the reason the cell count is: a
+# shrinking tree may not lower its own bar. A scan that matched nothing and a scan that
+# could not run are one failure here, which is the point of having a floor at all.
+if [ "$CELL_TESTS_READ" -ge 18 ]
+then
+    pass "the test scan matched a case declaration for $CELL_TESTS_READ JVM cells under $EXAMPLE_TESTS"
+else
+    fail "the test scan matched case declarations for $CELL_TESTS_READ JVM cells, fewer than 18; it did not run"
 fi
 
 if [ -z "$CELL_PROBLEMS" ]
