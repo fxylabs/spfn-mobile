@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    cf1b34a4081059c29f838b9e8b3a973a9fbb5e5e64a576c673f792d9c6b4ca46
-// contractVersion: 0.9.0
+// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
+// contractVersion: 0.10.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -21,11 +21,11 @@ public enum SPFNGeneratedContract
 
     /// The pinned bundle these sources were derived from.
     public static let binding = SPFNContractBinding(
-        importedVersion: "0.9.0",
-        importedManifestSha256: "cf1b34a4081059c29f838b9e8b3a973a9fbb5e5e64a576c673f792d9c6b4ca46",
-        supportedRange: ">=0.9.0 <0.10.0",
+        importedVersion: "0.10.0",
+        importedManifestSha256: "29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c",
+        supportedRange: ">=0.10.0 <0.11.0",
         supportedMajor: 0,
-        supportedMinor: 9,
+        supportedMinor: 10,
         origin: "spfn-primitives-ci-export"
     )
 
@@ -42,6 +42,11 @@ public enum SPFNGeneratedContract
         "auth.keys.list",
         "auth.keys.revoke",
         "auth.keys.revokeAll",
+        "auth.device.start",
+        "auth.device.poll",
+        "auth.device.info",
+        "auth.device.approve",
+        "auth.device.deny",
     ]
 
     /// The replay window the contract fixes, in milliseconds.

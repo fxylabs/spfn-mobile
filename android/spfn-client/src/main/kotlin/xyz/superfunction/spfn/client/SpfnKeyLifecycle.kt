@@ -561,7 +561,8 @@ class SpfnKeyLifecycle(
                 method = template.method,
                 path = template.path.replace("{provider}", provider),
                 authProfile = template.authProfile,
-                requiresSession = template.requiresSession
+                requiresSession = template.requiresSession,
+                declaresResponse = template.declaresResponse
             ),
             encode = { it.canonicalValue() },
             decode = { SpfnOauthNativeResponse.decode(it) }

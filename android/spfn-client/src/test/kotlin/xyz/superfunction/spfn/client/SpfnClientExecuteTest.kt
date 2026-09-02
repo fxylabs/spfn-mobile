@@ -369,7 +369,9 @@ class SpfnClientExecuteTest
                 "ValidationError", "NativeSignInUnsupportedError", "NonceKeyBindingError",
                 "InvalidKeyFingerprintError", "UnverifiedEmailLinkError", "InvalidSocialTokenError",
                 "AccountDisabledError", "AccountPendingDeletionError", "RegistrationRejectedError",
-                "KeyIdAlreadyRegisteredError", "TooManyRequestsError", "Error"
+                "KeyIdAlreadyRegisteredError", "TooManyRequestsError", "Error",
+                "DeviceAuthExpiredError", "DeviceAuthDeniedError", "DeviceAuthNotFoundError",
+                "DeviceAuthAlreadyHandledError"
             ),
             SpfnGeneratedErrorCode.entries.filterNot { it.isAuthFailure() }.map { it.wireCode }
         );

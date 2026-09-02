@@ -19,7 +19,11 @@ import xyz.superfunction.spfn.generated.SpfnEchoResponse
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import xyz.superfunction.spfn.generated.SpfnHandshakeRequest
 import xyz.superfunction.spfn.generated.SpfnHandshakeResponse
+import xyz.superfunction.spfn.generated.SpfnApproveDeviceAuthRequest
+import xyz.superfunction.spfn.generated.SpfnDenyDeviceAuthRequest
+import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoResponse
 import xyz.superfunction.spfn.generated.SpfnItem
+import xyz.superfunction.spfn.generated.SpfnKeyPlatform
 import xyz.superfunction.spfn.generated.SpfnListItemsRequest
 import xyz.superfunction.spfn.generated.SpfnListItemsResponse
 import xyz.superfunction.spfn.generated.SpfnRegisterRequest
@@ -106,6 +110,26 @@ object ExecuteFixtures
     val ROTATE_RESPONSE_BODY: String =
         SpfnCanonicalJson.encode(ROTATE_RESPONSE.canonicalValue()).toString(Charsets.UTF_8)
 
+    /** Contract 0.10.0's bodyless operation. Every value is a synthetic test constant. */
+    val DENY_REQUEST = SpfnDenyDeviceAuthRequest(userCode = "WDJB-MJHT")
+
+    /**
+     * Its sibling that does declare a response, so the two branches of the reader can be
+     * asked the same questions and answer differently.
+     */
+    val APPROVE_REQUEST = SpfnApproveDeviceAuthRequest(userCode = "WDJB-MJHT")
+
+    val APPROVE_RESPONSE = SpfnDeviceAuthInfoResponse(
+        deviceName = "Test Phone",
+        platform = SpfnKeyPlatform.IOS,
+        fingerprintPrefix = "ab12cd34",
+        requestedAtMillis = 1_750_000_000_000,
+        expiresAtMillis = 1_750_000_600_000
+    )
+
+    val APPROVE_RESPONSE_BODY: String =
+        SpfnCanonicalJson.encode(APPROVE_RESPONSE.canonicalValue()).toString(Charsets.UTF_8)
+
     val LIST_REQUEST = SpfnListItemsRequest(limit = 2, cursor = "cursor-1")
 
     val LIST_RESPONSE = SpfnListItemsResponse(
@@ -165,6 +189,26 @@ object ExecuteCalls
     )
 
     /**
+     * The contract's one operation that declares no response type. Built through the
+     * factory rather than by hand: there is nothing to decode, and the factory is where
+     * that decision is written down once.
+     */
+    val DENY = SpfnCall.noResponse<SpfnDenyDeviceAuthRequest>(
+        operation = SpfnGeneratedOperations.authDeviceDeny,
+        encode = { it.canonicalValue() }
+    )
+
+    /**
+     * The same flow's operation that does declare a response, so the regression guard asks
+     * a declared-response operation the questions the bodyless one is asked.
+     */
+    val APPROVE = SpfnCall<SpfnApproveDeviceAuthRequest, SpfnDeviceAuthInfoResponse>(
+        operation = SpfnGeneratedOperations.authDeviceApprove,
+        encode = { it.canonicalValue() },
+        decode = { SpfnDeviceAuthInfoResponse.decode(it) }
+    )
+
+    /**
      * An operation naming an auth class the contract does not declare. The descriptor
      * is hand-built because the generator can never emit one — that is the point.
      */
@@ -174,7 +218,8 @@ object ExecuteCalls
             method = "POST",
             path = "/v1/mystery",
             authProfile = "mysteryV9",
-            requiresSession = true
+            requiresSession = true,
+            declaresResponse = true
         ),
         encode = { it.canonicalValue() },
         decode = { SpfnEchoResponse.decode(it) }

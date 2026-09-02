@@ -39,9 +39,24 @@ data class Operation(
     val requiresSession: Boolean,
     /** Absent only for a contract-declared bodyless operation such as `core.time`. */
     val requestType: String?,
-    val responseType: String,
+    /**
+     * Absent for an operation that declares no response body. Contract 0.10.0's
+     * `restOperations.responseBody` states what that means on the wire: "An operation
+     * that declares no responseType answers 204 with an empty body and there is nothing
+     * to decode". `auth.device.deny` is the first one.
+     */
+    val responseType: String?,
     val summary: String
 )
+{
+    /**
+     * Whether the contract declares a response body for this operation, which is the one
+     * fact the emitted descriptor carries about it. Named for the contract's own word —
+     * an operation *declares* a response type or it does not — rather than for the 204
+     * the rule happens to answer with, so a later status rule does not rename the field.
+     */
+    val declaresResponse: Boolean get() = responseType != null
+}
 
 data class ErrorDefinition(
     val code: String,
@@ -276,10 +291,17 @@ data class Bundle(
         }
 
         /**
-         * Resolves every operation type and closes the one intentional request-body gap.
+         * Resolves every operation type and closes the two intentional body gaps.
+         *
          * A missing request type is valid only for the exact operation the synchronization
          * policy names, whose requestBody is `none`; every other omission is a contract
          * error rather than a bodyless operation inferred by the generator.
+         *
+         * A missing response type is valid anywhere, because contract 0.10.0 gave it a
+         * meaning every operation can carry: one that declares no responseType answers 204
+         * with an empty body. It is still never inferred — the bundle's own omission is the
+         * only way to get it — and the clock operation is exempt below, because its
+         * response is what anchors proof time.
          */
         private fun checkOperationTypes(
             operations: List<Operation>,
@@ -307,10 +329,14 @@ data class Bundle(
                     throw JsonException("operation '${operation.id}' is missing required key 'requestType'");
                 }
 
-                if (operation.responseType !in typesByName)
+                // A declared response type must name something. An absent one is the
+                // contract's bodyless answer and needs no type — but it is never
+                // inferred: only the bundle's own omission produces it.
+                val responseType = operation.responseType;
+                if (responseType != null && responseType !in typesByName)
                 {
                     throw JsonException(
-                        "operation '${operation.id}' references unknown response type '${operation.responseType}'"
+                        "operation '${operation.id}' references unknown response type '$responseType'"
                     );
                 }
             }
@@ -326,7 +352,15 @@ data class Bundle(
                 );
             }
 
-            val response = typesByName.getValue(clockOperation.responseType);
+            // Loudly, and before the epoch field is looked for. The clock operation is
+            // the one whose response the client cannot do without: it is what anchors
+            // proof time, and a bundle that dropped its responseType would otherwise
+            // reach the new bodyless branch and generate a clock that reads nothing.
+            val clockResponseType = clockOperation.responseType
+                ?: throw JsonException(
+                    "clock synchronization operation '$clockOperationId' must declare a responseType"
+                );
+            val response = typesByName.getValue(clockResponseType);
             val epoch = response.fields.firstOrNull { it.name == clockEpochField }
                 ?: throw JsonException(
                     "clock synchronization response '${response.name}' has no epoch field '$clockEpochField'"
@@ -419,7 +453,7 @@ data class Bundle(
                 authProfile = members.required("authProfile").text(),
                 requiresSession = members.required("requiresSession").bool(),
                 requestType = members["requestType"]?.text(),
-                responseType = members.required("responseType").text(),
+                responseType = members["responseType"]?.text(),
                 summary = members.required("summary").text()
             );
         }

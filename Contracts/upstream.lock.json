@@ -12,28 +12,28 @@
   },
   "source": {
     "repository": "git.superfunction.xyz/superfunction/primitives",
-    "commit": "dce33f27b846bcb8d3ffe2704e8432568e266680",
+    "commit": "77fe6246da2041f954b9bd17e3d2cd60501f998b",
     "upstreamBundlePath": "contracts/mobile/spfn-mobile-contract.json",
-    "exporterVersion": "@spfn/auth/contract-bundle@5.1.0",
+    "exporterVersion": "@spfn/auth/contract-bundle@6.0.0",
     "keyNamingRule": "This is not called bundlePath on purpose. The readers of this file match a key name at any depth, so two keys with the same name in different objects would resolve to whichever appears first, and the validator would digest the upstream path instead of the vendored one."
   },
   "publishedPackages": {
     "registry": "https://git.superfunction.xyz/api/packages/superfunction/npm/",
-    "@spfn/auth": "0.3.0-beta.4",
-    "@spfn/core": "0.3.0-beta.4",
+    "@spfn/auth": "0.3.0-beta.8",
+    "@spfn/core": "0.3.0-beta.6",
     "rule": "The npm versions published from source.commit. A commit is not something npm can install, and nothing in an installed @spfn/auth says which contract it implements — the bundle is not shipped in the package and neither is the code that builds it. So the mapping from a package version to a contract version exists only here, written by hand from the commit history, and tools/verify-server/run.sh compares an app's installed tree against it.",
-    "registryRule": "The 0.3.0-beta.4 release is published in the Superfunction Gitea registry. A machine whose npmrc scopes @spfn elsewhere can resolve a different line, and --registry does not override a scope: use --@spfn:registry for an explicit comparison. tools/verify-server/spfn-versions.sh asks both configured registries and refuses to answer with a single number.",
+    "registryRule": "The @spfn/auth 0.3.0-beta.8 and @spfn/core 0.3.0-beta.6 releases are published in the Superfunction Gitea registry. A machine whose npmrc scopes @spfn elsewhere can resolve a different line, and --registry does not override a scope: use --@spfn:registry for an explicit comparison. tools/verify-server/spfn-versions.sh asks both configured registries and refuses to answer with a single number.",
     "peerRangeWarning": "@spfn/auth declares @spfn/core >=0.2.0-beta.54, which a much older core satisfies while lacking the error envelope this contract's codes ride in. The consumer pins @spfn/core exactly rather than letting resolution choose."
   },
   "contract": {
     "name": "spfn-mobile-contract",
-    "version": "0.9.0",
+    "version": "0.10.0",
     "major": 0,
-    "minor": 9,
+    "minor": 10,
     "bundlePath": "Contracts/spfn-mobile-contract.json",
-    "manifestSha256": "cf1b34a4081059c29f838b9e8b3a973a9fbb5e5e64a576c673f792d9c6b4ca46",
-    "supportedRange": ">=0.9.0 <0.10.0",
-    "rangeRule": "The contract line is 0.x, so the breaking axis is the minor rather than the major. A server contract is supported only when its major AND minor match this pin AND its patch is at or above the pinned patch. Here the lock range and the upstream evidence range are identical, because 0.9.0 is the minor's first release and adds core.time plus the clientProofV1 clock synchronization policy. They are allowed to differ — the evidence declares the line upstream supports and the lock declares the window this SDK admits, the second contained in the first — and at the 0.4.1 pin they did."
+    "manifestSha256": "29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c",
+    "supportedRange": ">=0.10.0 <0.11.0",
+    "rangeRule": "The contract line is 0.x, so the breaking axis is the minor rather than the major. A server contract is supported only when its major AND minor match this pin AND its patch is at or above the pinned patch. Here the lock range and the upstream evidence range are identical, because 0.10.0 is the minor's first release: it adds the five auth.device.* operations, the deviceAuthorization section that governs them, the DeviceAuthPollStatus and KeyPlatform enums, and the four device-code error codes, and it states that an operation declaring no responseType answers 204 with an empty body. They are allowed to differ — the evidence declares the line upstream supports and the lock declares the window this SDK admits, the second contained in the first — and at the 0.4.1 pin they did."
   },
   "authProfiles": {
     "allowed": ["clientProofV1"],

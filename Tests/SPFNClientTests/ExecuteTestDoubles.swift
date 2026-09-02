@@ -111,6 +111,26 @@ enum ExecuteFixtures
         String(decoding: SPFNCanonicalJSON.encode(try! rotateResponse.canonicalValue()), as: UTF8.self)
     }
 
+    /// Contract 0.10.0's bodyless operation. Every value is a synthetic test constant.
+    static let denyRequest = SPFNDenyDeviceAuthRequest(userCode: "WDJB-MJHT")
+
+    /// Its sibling that does declare a response, so the two branches of the reader can be
+    /// asked the same questions and answer differently.
+    static let approveRequest = SPFNApproveDeviceAuthRequest(userCode: "WDJB-MJHT")
+
+    static let approveResponse = SPFNDeviceAuthInfoResponse(
+        deviceName: "Test Phone",
+        platform: .ios,
+        fingerprintPrefix: "ab12cd34",
+        requestedAtMillis: 1_750_000_000_000,
+        expiresAtMillis: 1_750_000_600_000
+    )
+
+    static var approveResponseBody: String
+    {
+        String(decoding: SPFNCanonicalJSON.encode(try! approveResponse.canonicalValue()), as: UTF8.self)
+    }
+
     static let listRequest = SPFNListItemsRequest(limit: 2, cursor: "cursor-1")
 
     static let listResponse = SPFNListItemsResponse(
@@ -167,6 +187,22 @@ enum ExecuteCalls
         decode: { try SPFNRotateKeyResponse(canonical: $0) }
     )
 
+    /// The contract's one operation that declares no response type. Built through the
+    /// factory rather than by hand: there is nothing to decode, and the factory is where
+    /// that decision is written down once.
+    static let deny = SPFNCall<SPFNDenyDeviceAuthRequest, SPFNNoResponse>.noResponse(
+        operation: SPFNGeneratedOperations.authDeviceDeny,
+        encode: { try $0.canonicalValue() }
+    )
+
+    /// The same flow's operation that does declare a response, so the regression guard
+    /// asks a declared-response operation the questions the bodyless one is asked.
+    static let approve = SPFNCall<SPFNApproveDeviceAuthRequest, SPFNDeviceAuthInfoResponse>(
+        operation: SPFNGeneratedOperations.authDeviceApprove,
+        encode: { try $0.canonicalValue() },
+        decode: { try SPFNDeviceAuthInfoResponse(canonical: $0) }
+    )
+
     /// An operation naming an auth class the contract does not declare. The descriptor
     /// is hand-built because the generator can never emit one — that is the point.
     static let undeclared = SPFNCall<SPFNEchoRequest, SPFNEchoResponse>(
@@ -175,7 +211,8 @@ enum ExecuteCalls
             method: "POST",
             path: "/v1/mystery",
             authProfile: "mysteryV9",
-            requiresSession: true
+            requiresSession: true,
+            declaresResponse: true
         ),
         encode: { try $0.canonicalValue() },
         decode: { try SPFNEchoResponse(canonical: $0) }

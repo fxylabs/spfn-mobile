@@ -5,6 +5,37 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The pinned contract moves to 0.10.0, and an operation may declare no response
+
+- `Contracts/spfn-mobile-contract.json` and `Contracts/upstream-provenance.json` are byte
+  copies of SPFN primitives commit `77fe6246` (the release commit for `@spfn/core`
+  `0.3.0-beta.6`, `@spfn/auth` `0.3.0-beta.8`, exporter
+  `@spfn/auth/contract-bundle@6.0.0`). The lock names that commit, the digest is
+  `29c26160…`, and the admitted window is `>=0.10.0 <0.11.0` — identical to the range the
+  upstream evidence declares, because 0.10.0 is its minor's first release.
+- Contract 0.10.0 adds the device-code flow: five operations (`auth.device.start`,
+  `auth.device.poll`, `auth.device.info`, `auth.device.approve`, `auth.device.deny`,
+  bringing the total to 16), eight types (31), the `DeviceAuthPollStatus` enum, the four
+  `DeviceAuth*Error` codes (22), and a `deviceAuthorization` section describing the flow.
+  `KeySummary.platform` changes from a bare string to the new `KeyPlatform` enum, which
+  both generated clients now decode strictly. This change set pins and generates the
+  contract; it does not implement device sign-in in the SDK or in the reference server.
+- **An operation may declare no `responseType`.** `restOperations.responseBody` states
+  what that means — "An operation that declares no responseType answers 204 with an empty
+  body and there is nothing to decode" — and `auth.device.deny` is the first one.
+  `tools/contract-codegen` used to require the key; it now reads its absence as the
+  declared fact, refuses a present-but-unknown response type as before, and refuses a
+  bundle whose clock operation lost its response type. Every generated descriptor carries
+  `declaresResponse`, and both execute paths read that field rather than the operation id:
+  a bodyless operation must answer 204 with an empty body, a body on one or a 2xx that is
+  not 204 is refused by name, and an operation that does declare a response still refuses
+  an empty 204 exactly as it did before.
+- The device sign-in evidence is retired. `tools/device-receipts/receipt-gate.sh` judges a
+  receipt against the pinned contract version; the 2026-09-01 receipts name `0.9.0`, so the
+  gate now refuses them and `tools/rc-verify/rc-verify.sh` refuses every candidate. The
+  receipts stay committed as history. A fresh fifteen-cell run against a `0.3.0-beta.8`
+  server is required before publication, and it is owned by a person with two phones.
+
 ### Publication now requires evidence that a person held a phone
 
 - A device session on 2026-09-01 drove all fifteen social sign-in cells — {iOS × Apple,

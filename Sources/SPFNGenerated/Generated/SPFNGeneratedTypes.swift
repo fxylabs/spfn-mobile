@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    cf1b34a4081059c29f838b9e8b3a973a9fbb5e5e64a576c673f792d9c6b4ca46
-// contractVersion: 0.9.0
+// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
+// contractVersion: 0.10.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -34,6 +34,60 @@ public enum SPFNKeyAlgorithm: String, CaseIterable, Sendable
         else
         {
             throw SPFNDecodingError.typeMismatch(path: path, expected: "KeyAlgorithm")
+        }
+        self = value
+    }
+}
+
+/// A value set the contract declares. Decoding is strict: an unknown value is
+/// reported with the raw string preserved rather than mapped onto a member,
+/// because the contract promises no set stays as it is — a value can be added,
+/// and one can be withdrawn for a weakness found later.
+public enum SPFNKeyPlatform: String, CaseIterable, Sendable
+{
+    case ios = "ios"
+    case android = "android"
+    case web = "web"
+    case desktop = "desktop"
+
+    public var canonicalValue: SPFNCanonicalValue
+    {
+        .string(rawValue)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let raw = try SPFNDecoding.string(canonical, at: path)
+        guard let value = SPFNKeyPlatform(rawValue: raw)
+        else
+        {
+            throw SPFNDecodingError.typeMismatch(path: path, expected: "KeyPlatform")
+        }
+        self = value
+    }
+}
+
+/// A value set the contract declares. Decoding is strict: an unknown value is
+/// reported with the raw string preserved rather than mapped onto a member,
+/// because the contract promises no set stays as it is — a value can be added,
+/// and one can be withdrawn for a weakness found later.
+public enum SPFNDeviceAuthPollStatus: String, CaseIterable, Sendable
+{
+    case pending = "pending"
+    case approved = "approved"
+
+    public var canonicalValue: SPFNCanonicalValue
+    {
+        .string(rawValue)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let raw = try SPFNDecoding.string(canonical, at: path)
+        guard let value = SPFNDeviceAuthPollStatus(rawValue: raw)
+        else
+        {
+            throw SPFNDecodingError.typeMismatch(path: path, expected: "DeviceAuthPollStatus")
         }
         self = value
     }
@@ -846,7 +900,7 @@ public struct SPFNKeySummary: Equatable, Sendable
 {
     public var keyId: String
     public var deviceName: String?
-    public var platform: String?
+    public var platform: SPFNKeyPlatform?
     public var algorithm: SPFNKeyAlgorithm
     public var fingerprintPrefix: String
     public var createdAtMillis: Int64
@@ -859,7 +913,7 @@ public struct SPFNKeySummary: Equatable, Sendable
     public init(
         keyId: String,
         deviceName: String? = nil,
-        platform: String? = nil,
+        platform: SPFNKeyPlatform? = nil,
         algorithm: SPFNKeyAlgorithm,
         fingerprintPrefix: String,
         createdAtMillis: Int64,
@@ -900,7 +954,7 @@ public struct SPFNKeySummary: Equatable, Sendable
         }
         if let platform
         {
-            members["platform"] = .string(platform)
+            members["platform"] = platform.canonicalValue
         }
         members["algorithm"] = algorithm.canonicalValue
         members["fingerprintPrefix"] = .string(fingerprintPrefix)
@@ -927,7 +981,7 @@ public struct SPFNKeySummary: Equatable, Sendable
         let members = try SPFNDecoding.object(canonical, at: path)
         self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
         self.deviceName = try SPFNDecoding.optionalString(members["deviceName"], at: "\(path).deviceName")
-        self.platform = try SPFNDecoding.optionalString(members["platform"], at: "\(path).platform")
+        self.platform = try members["platform"].flatMap { $0 == .null ? nil : $0 }.map { try SPFNKeyPlatform(canonical: $0, at: "\(path).platform") }
         self.algorithm = try SPFNKeyAlgorithm(canonical: members["algorithm"] ?? .null, at: "\(path).algorithm")
         self.fingerprintPrefix = try SPFNDecoding.string(members["fingerprintPrefix"], at: "\(path).fingerprintPrefix")
         self.createdAtMillis = try SPFNDecoding.integer(members["createdAtMillis"], at: "\(path).createdAtMillis")
@@ -1109,5 +1163,384 @@ public struct SPFNRevokeAllKeysResponse: Equatable, Sendable
         let members = try SPFNDecoding.object(canonical, at: path)
         self.revokedCount = try SPFNDecoding.integer(members["revokedCount"], at: "\(path).revokedCount")
         self.currentKeyRevoked = try SPFNDecoding.boolean(members["currentKeyRevoked"], at: "\(path).currentKeyRevoked")
+    }
+}
+
+public struct SPFNStartDeviceAuthRequest: Equatable, Sendable
+{
+    public var publicKey: String
+    public var keyId: String
+    public var fingerprint: String
+    public var algorithm: SPFNKeyAlgorithm?
+    public var deviceName: String?
+    public var platform: SPFNKeyPlatform?
+
+    public init(
+        publicKey: String,
+        keyId: String,
+        fingerprint: String,
+        algorithm: SPFNKeyAlgorithm? = nil,
+        deviceName: String? = nil,
+        platform: SPFNKeyPlatform? = nil
+    )
+    {
+        self.publicKey = publicKey
+        self.keyId = keyId
+        self.fingerprint = fingerprint
+        self.algorithm = algorithm
+        self.deviceName = deviceName
+        self.platform = platform
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["publicKey"] = .string(publicKey)
+        members["keyId"] = .string(keyId)
+        members["fingerprint"] = .string(fingerprint)
+        if let algorithm
+        {
+            members["algorithm"] = algorithm.canonicalValue
+        }
+        if let deviceName
+        {
+            members["deviceName"] = .string(deviceName)
+        }
+        if let platform
+        {
+            members["platform"] = platform.canonicalValue
+        }
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.publicKey = try SPFNDecoding.string(members["publicKey"], at: "\(path).publicKey")
+        self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
+        self.fingerprint = try SPFNDecoding.string(members["fingerprint"], at: "\(path).fingerprint")
+        self.algorithm = try members["algorithm"].flatMap { $0 == .null ? nil : $0 }.map { try SPFNKeyAlgorithm(canonical: $0, at: "\(path).algorithm") }
+        self.deviceName = try SPFNDecoding.optionalString(members["deviceName"], at: "\(path).deviceName")
+        self.platform = try members["platform"].flatMap { $0 == .null ? nil : $0 }.map { try SPFNKeyPlatform(canonical: $0, at: "\(path).platform") }
+    }
+}
+
+public struct SPFNStartDeviceAuthResponse: Equatable, Sendable
+{
+    public var deviceCode: String
+    public var userCode: String
+    public var expiresAtMillis: Int64
+    public var intervalMillis: Int64
+
+    public init(
+        deviceCode: String,
+        userCode: String,
+        expiresAtMillis: Int64,
+        intervalMillis: Int64
+    )
+    {
+        self.deviceCode = deviceCode
+        self.userCode = userCode
+        self.expiresAtMillis = expiresAtMillis
+        self.intervalMillis = intervalMillis
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["deviceCode"] = .string(deviceCode)
+        members["userCode"] = .string(userCode)
+        members["expiresAtMillis"] = .integer(expiresAtMillis)
+        members["intervalMillis"] = .integer(intervalMillis)
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.deviceCode = try SPFNDecoding.string(members["deviceCode"], at: "\(path).deviceCode")
+        self.userCode = try SPFNDecoding.string(members["userCode"], at: "\(path).userCode")
+        self.expiresAtMillis = try SPFNDecoding.integer(members["expiresAtMillis"], at: "\(path).expiresAtMillis")
+        self.intervalMillis = try SPFNDecoding.integer(members["intervalMillis"], at: "\(path).intervalMillis")
+    }
+}
+
+public struct SPFNPollDeviceAuthRequest: Equatable, Sendable
+{
+    public var deviceCode: String
+
+    public init(
+        deviceCode: String
+    )
+    {
+        self.deviceCode = deviceCode
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["deviceCode"] = .string(deviceCode)
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.deviceCode = try SPFNDecoding.string(members["deviceCode"], at: "\(path).deviceCode")
+    }
+}
+
+public struct SPFNPollDeviceAuthResponse: Equatable, Sendable
+{
+    public var status: SPFNDeviceAuthPollStatus
+    public var intervalMillis: Int64?
+    public var userId: String?
+    public var publicId: String?
+    public var email: String?
+    public var phone: String?
+    public var passwordChangeRequired: Bool?
+
+    public init(
+        status: SPFNDeviceAuthPollStatus,
+        intervalMillis: Int64? = nil,
+        userId: String? = nil,
+        publicId: String? = nil,
+        email: String? = nil,
+        phone: String? = nil,
+        passwordChangeRequired: Bool? = nil
+    )
+    {
+        self.status = status
+        self.intervalMillis = intervalMillis
+        self.userId = userId
+        self.publicId = publicId
+        self.email = email
+        self.phone = phone
+        self.passwordChangeRequired = passwordChangeRequired
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["status"] = status.canonicalValue
+        if let intervalMillis
+        {
+            members["intervalMillis"] = .integer(intervalMillis)
+        }
+        if let userId
+        {
+            members["userId"] = .string(userId)
+        }
+        if let publicId
+        {
+            members["publicId"] = .string(publicId)
+        }
+        if let email
+        {
+            members["email"] = .string(email)
+        }
+        if let phone
+        {
+            members["phone"] = .string(phone)
+        }
+        if let passwordChangeRequired
+        {
+            members["passwordChangeRequired"] = .bool(passwordChangeRequired)
+        }
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.status = try SPFNDeviceAuthPollStatus(canonical: members["status"] ?? .null, at: "\(path).status")
+        self.intervalMillis = try SPFNDecoding.optionalInteger(members["intervalMillis"], at: "\(path).intervalMillis")
+        self.userId = try SPFNDecoding.optionalString(members["userId"], at: "\(path).userId")
+        self.publicId = try SPFNDecoding.optionalString(members["publicId"], at: "\(path).publicId")
+        self.email = try SPFNDecoding.optionalString(members["email"], at: "\(path).email")
+        self.phone = try SPFNDecoding.optionalString(members["phone"], at: "\(path).phone")
+        self.passwordChangeRequired = try SPFNDecoding.boolean(members["passwordChangeRequired"], at: "\(path).passwordChangeRequired")
+    }
+}
+
+public struct SPFNDeviceAuthInfoRequest: Equatable, Sendable
+{
+    public var userCode: String
+
+    public init(
+        userCode: String
+    )
+    {
+        self.userCode = userCode
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["userCode"] = .string(userCode)
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.userCode = try SPFNDecoding.string(members["userCode"], at: "\(path).userCode")
+    }
+}
+
+public struct SPFNDeviceAuthInfoResponse: Equatable, Sendable
+{
+    public var deviceName: String?
+    public var platform: SPFNKeyPlatform?
+    public var fingerprintPrefix: String
+    public var requestedAtMillis: Int64
+    public var expiresAtMillis: Int64
+
+    public init(
+        deviceName: String? = nil,
+        platform: SPFNKeyPlatform? = nil,
+        fingerprintPrefix: String,
+        requestedAtMillis: Int64,
+        expiresAtMillis: Int64
+    )
+    {
+        self.deviceName = deviceName
+        self.platform = platform
+        self.fingerprintPrefix = fingerprintPrefix
+        self.requestedAtMillis = requestedAtMillis
+        self.expiresAtMillis = expiresAtMillis
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        if let deviceName
+        {
+            members["deviceName"] = .string(deviceName)
+        }
+        if let platform
+        {
+            members["platform"] = platform.canonicalValue
+        }
+        members["fingerprintPrefix"] = .string(fingerprintPrefix)
+        members["requestedAtMillis"] = .integer(requestedAtMillis)
+        members["expiresAtMillis"] = .integer(expiresAtMillis)
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.deviceName = try SPFNDecoding.optionalString(members["deviceName"], at: "\(path).deviceName")
+        self.platform = try members["platform"].flatMap { $0 == .null ? nil : $0 }.map { try SPFNKeyPlatform(canonical: $0, at: "\(path).platform") }
+        self.fingerprintPrefix = try SPFNDecoding.string(members["fingerprintPrefix"], at: "\(path).fingerprintPrefix")
+        self.requestedAtMillis = try SPFNDecoding.integer(members["requestedAtMillis"], at: "\(path).requestedAtMillis")
+        self.expiresAtMillis = try SPFNDecoding.integer(members["expiresAtMillis"], at: "\(path).expiresAtMillis")
+    }
+}
+
+public struct SPFNApproveDeviceAuthRequest: Equatable, Sendable
+{
+    public var userCode: String
+
+    public init(
+        userCode: String
+    )
+    {
+        self.userCode = userCode
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["userCode"] = .string(userCode)
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.userCode = try SPFNDecoding.string(members["userCode"], at: "\(path).userCode")
+    }
+}
+
+public struct SPFNDenyDeviceAuthRequest: Equatable, Sendable
+{
+    public var userCode: String
+
+    public init(
+        userCode: String
+    )
+    {
+        self.userCode = userCode
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["userCode"] = .string(userCode)
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.userCode = try SPFNDecoding.string(members["userCode"], at: "\(path).userCode")
     }
 }
