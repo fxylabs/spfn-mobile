@@ -79,10 +79,12 @@ object SwiftEmitter
         appendLine("/// protocol and the generated request and response types, and");
         appendLine("/// `tools/validate/validate.sh` refuses a `SPFNGeneratedCalls.` reference anywhere");
         appendLine("/// under `examples/` outside this directory.");
-        // No `Sendable` conformance. Everything above this protocol is `@MainActor`, so a
-        // service is only ever reached from one actor; requiring Sendable would force a
-        // hand-written fake with mutable state to be an actor for no property gained.
-        appendLine("public protocol ${type(service.name, "Service")}");
+        // `Sendable`, because the models that hold one are `@MainActor` and its methods
+        // are not: an `async` call out of the main actor carries the service with it, and
+        // Swift 6 refuses that for a value it cannot prove safe. `SPFNClient` is a
+        // Sendable struct, so the default implementation is one for free; a hand-written
+        // fake with counters of its own is an `actor`, which an `async` requirement admits.
+        appendLine("public protocol ${type(service.name, "Service")}: Sendable");
         appendLine("{");
         service.methods.forEachIndexed { index, method ->
             if (index > 0)
@@ -110,7 +112,7 @@ object SwiftEmitter
         appendLine("/// An operation that declares no response type answers 204 with an empty body, so its");
         appendLine("/// method answers `Void` and the descriptor's `SPFNNoResponse` is discarded here rather");
         appendLine("/// than travelling up into a screen.");
-        appendLine("public struct Default${type(service.name, "Service")}: ${type(service.name, "Service")}");
+        appendLine("public struct Default${type(service.name, "Service")}: ${type(service.name, "Service")}, Sendable");
         appendLine("{");
         appendLine("    private let client: SPFNClient");
         appendLine();
@@ -615,13 +617,13 @@ object SwiftEmitter
         appendLine("///");
         appendLine("/// It stands between the model and the service so the hand-written layer has somewhere");
         appendLine("/// to put a rule that is neither the screen's nor the wire's.");
-        appendLine("public protocol $name");
+        appendLine("public protocol $name: Sendable");
         appendLine("{");
         appendLine("    func ${source.name}(${parameterList(parameters)}) async throws -> ${response(source)}");
         appendLine("}");
         appendLine();
         appendLine("/// The pass-through. It adds a seam, not a rule.");
-        appendLine("public struct Default$name: $name");
+        appendLine("public struct Default$name: $name, Sendable");
         appendLine("{");
         appendLine("    private let service: any ${type(source.service, "Service")}");
         appendLine();

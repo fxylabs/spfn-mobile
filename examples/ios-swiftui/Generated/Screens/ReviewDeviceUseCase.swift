@@ -15,13 +15,13 @@ import SPFNGenerated
 ///
 /// It stands between the model and the service so the hand-written layer has somewhere
 /// to put a rule that is neither the screen's nor the wire's.
-public protocol ReviewDeviceUseCase
+public protocol ReviewDeviceUseCase: Sendable
 {
     func lookup(userCode: String) async throws -> SPFNDeviceAuthInfoResponse
 }
 
 /// The pass-through. It adds a seam, not a rule.
-public struct DefaultReviewDeviceUseCase: ReviewDeviceUseCase
+public struct DefaultReviewDeviceUseCase: ReviewDeviceUseCase, Sendable
 {
     private let service: any DeviceApprovalService
 

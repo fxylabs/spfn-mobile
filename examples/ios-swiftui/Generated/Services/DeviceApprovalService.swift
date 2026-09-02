@@ -18,7 +18,7 @@ import SPFNGenerated
 /// protocol and the generated request and response types, and
 /// `tools/validate/validate.sh` refuses a `SPFNGeneratedCalls.` reference anywhere
 /// under `examples/` outside this directory.
-public protocol DeviceApprovalService
+public protocol DeviceApprovalService: Sendable
 {
     /// Lets the waiting device in, answering with the device it just let in.
     func approve(_ request: SPFNApproveDeviceAuthRequest) async throws -> SPFNDeviceAuthInfoResponse
@@ -35,7 +35,7 @@ public protocol DeviceApprovalService
 /// An operation that declares no response type answers 204 with an empty body, so its
 /// method answers `Void` and the descriptor's `SPFNNoResponse` is discarded here rather
 /// than travelling up into a screen.
-public struct DefaultDeviceApprovalService: DeviceApprovalService
+public struct DefaultDeviceApprovalService: DeviceApprovalService, Sendable
 {
     private let client: SPFNClient
 
