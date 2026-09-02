@@ -431,7 +431,7 @@ public actor SPFNKeyLifecycle
         let fingerprint = SPFNDigest.sha256Hex(key.publicKeySpkiDer)
 
         let started = try await client(signingWith: nil).execute(
-            Self.deviceStartCall,
+            SPFNGeneratedCalls.authDeviceStart,
             request: SPFNStartDeviceAuthRequest(
                 publicKey: Data(key.publicKeySpkiDer).base64EncodedString(),
                 keyId: key.keyID,
@@ -561,7 +561,7 @@ public actor SPFNKeyLifecycle
         do
         {
             return try await client(signingWith: nil).execute(
-                Self.devicePollCall,
+                SPFNGeneratedCalls.authDevicePoll,
                 request: SPFNPollDeviceAuthRequest(deviceCode: deviceCode)
             )
         }
@@ -740,7 +740,7 @@ public actor SPFNKeyLifecycle
     ) async throws -> SPFNRotateKeyResponse
     {
         try await client(signingWith: old).execute(
-            Self.rotateCall,
+            SPFNGeneratedCalls.authKeysRotate,
             request: SPFNRotateKeyRequest(
                 publicKey: Data(candidate.publicKeySpkiDer).base64EncodedString(),
                 keyId: candidate.keyID,
@@ -816,33 +816,13 @@ public actor SPFNKeyLifecycle
         SPFNKeyPlatform(rawValue: SPFNClientIdentity.kind)
     }
 
-    private static var deviceStartCall: SPFNCall<SPFNStartDeviceAuthRequest, SPFNStartDeviceAuthResponse>
-    {
-        SPFNCall(
-            operation: SPFNGeneratedOperations.authDeviceStart,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNStartDeviceAuthResponse(canonical: $0) }
-        )
-    }
-
-    private static var devicePollCall: SPFNCall<SPFNPollDeviceAuthRequest, SPFNPollDeviceAuthResponse>
-    {
-        SPFNCall(
-            operation: SPFNGeneratedOperations.authDevicePoll,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNPollDeviceAuthResponse(canonical: $0) }
-        )
-    }
-
-    private static var rotateCall: SPFNCall<SPFNRotateKeyRequest, SPFNRotateKeyResponse>
-    {
-        SPFNCall(
-            operation: SPFNGeneratedOperations.authKeysRotate,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNRotateKeyResponse(canonical: $0) }
-        )
-    }
-
+    /// The one descriptor this file still builds by hand.
+    ///
+    /// Every other operation it sends is a value in `SPFNGeneratedCalls`. This one cannot
+    /// be: the contract's path carries a `{provider}` segment, and the descriptor a request
+    /// actually rides on has to name the route it goes to. So the generated operation is
+    /// the template and the substitution happens here, on a provider id `isProviderID` has
+    /// already judged.
     private static func oauthNativeCall(provider: String) -> SPFNCall<SPFNOauthNativeRequest, SPFNOauthNativeResponse>
     {
         let template = SPFNGeneratedOperations.authEnrollOauthNative

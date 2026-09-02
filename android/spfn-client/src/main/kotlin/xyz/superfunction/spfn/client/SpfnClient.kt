@@ -18,46 +18,15 @@ package xyz.superfunction.spfn.client
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
+import xyz.superfunction.spfn.core.SpfnCall
 import xyz.superfunction.spfn.core.SpfnCanonicalJson
 import xyz.superfunction.spfn.core.SpfnCanonicalValue
 import xyz.superfunction.spfn.core.SpfnErrorEnvelope
-import xyz.superfunction.spfn.core.SpfnNoResponse
 import xyz.superfunction.spfn.core.SpfnOperation
 import xyz.superfunction.spfn.generated.SpfnGeneratedAuthClass
 import xyz.superfunction.spfn.generated.SpfnGeneratedErrorCode
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import kotlin.coroutines.coroutineContext
-
-/**
- * One operation with the two functions that turn its types into contract bytes.
- *
- * The client is generic over request and response rather than knowing any operation, so the
- * per-operation values that fill this in can be generated later without this file changing.
- * Keeping the operation inside the descriptor is what stops a caller pairing `echo.send`
- * with the codec for `items.list`.
- */
-class SpfnCall<Req, Resp>(
-    val operation: SpfnOperation,
-    val encode: (Req) -> SpfnCanonicalValue,
-    val decode: (SpfnCanonicalValue) -> Resp
-)
-{
-    companion object
-    {
-        /**
-         * A call on an operation the contract declares no response type for.
-         *
-         * The decoder is fixed here rather than left to the caller. There is nothing to
-         * decode, so the only correct decoder is the one that answers with the unit value,
-         * and writing that lambda at each call site is how one of them ends up different.
-         */
-        @JvmStatic
-        fun <Req> noResponse(
-            operation: SpfnOperation,
-            encode: (Req) -> SpfnCanonicalValue
-        ): SpfnCall<Req, SpfnNoResponse> = SpfnCall(operation, encode) { SpfnNoResponse }
-    }
-}
 
 /**
  * Sends contract operations over a transport, against one session.

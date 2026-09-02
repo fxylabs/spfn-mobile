@@ -12,6 +12,7 @@ object SwiftEmitter
         "Sources/SPFNGenerated/Generated/SPFNGeneratedContract.swift" to contract(bundle),
         "Sources/SPFNGenerated/Generated/SPFNGeneratedTypes.swift" to types(bundle),
         "Sources/SPFNGenerated/Generated/SPFNGeneratedOperations.swift" to operations(bundle),
+        "Sources/SPFNGenerated/Generated/SPFNGeneratedCalls.swift" to calls(bundle),
         "Sources/SPFNGenerated/Generated/SPFNGeneratedErrors.swift" to errors(bundle)
     )
 
@@ -205,6 +206,78 @@ object SwiftEmitter
         appendLine("    }");
         append("}");
         appendLine();
+    }
+
+    /**
+     * One call descriptor per operation, named exactly as the operation constant is.
+     *
+     * The emission order is the bundle's, the same order the operations file uses, so a
+     * contract change moves both files the same way and the diff reads as one list.
+     */
+    private fun calls(bundle: Bundle): String = buildString {
+        appendLine(header(bundle));
+        appendLine();
+        appendLine("import SPFNCore");
+        appendLine();
+        appendLine("/// Every operation as a value the caller hands to `SPFNClient.execute`.");
+        appendLine("///");
+        appendLine("/// One descriptor per operation and no wrapper functions: an app reaches an");
+        appendLine("/// operation by naming it here, the way it already reaches `auth.keys.revoke`.");
+        appendLine("/// Two of these are listed for completeness rather than for use — the handshake");
+        appendLine("/// is the session's own operation and `execute` refuses it, and an operation");
+        appendLine("/// whose path carries a `{...}` segment needs that segment substituted, which");
+        appendLine("/// is the caller's own descriptor built from the operation constant.");
+        appendLine("public enum SPFNGeneratedCalls");
+        appendLine("{");
+        bundle.operations.forEachIndexed { index, operation ->
+            if (index > 0)
+            {
+                appendLine();
+            }
+            appendLine("    /// ${operation.summary}");
+            append(swiftCall(operation));
+        }
+        append("}");
+        appendLine();
+    }
+
+    /**
+     * The three shapes a descriptor can take, and nothing else.
+     *
+     * A bodyless operation goes through `noResponse` rather than being handed a decoder
+     * written here: the factory is where "there is nothing to decode" is written down
+     * once, and a generated copy of that closure would be one more place for it to drift.
+     * An operation the contract gives no `requestType` — the clock's — carries `Void`,
+     * because the caller that sends it today sends no request value at all.
+     */
+    private fun swiftCall(operation: Operation): String
+    {
+        val name = Names.lowerCamel(operation.id);
+        val request = operation.requestType?.let { Names.swiftType(it) } ?: "Void";
+        val encode = if (operation.requestType == null)
+            "{ _ in SPFNCanonicalValue.object([:]) }"
+        else "{ try \$0.canonicalValue() }";
+
+        val responseType = operation.responseType;
+        if (responseType == null)
+        {
+            return buildString {
+                appendLine("    public static let $name: SPFNCall<$request, SPFNNoResponse> =");
+                appendLine("        SPFNCall<$request, SPFNNoResponse>.noResponse(");
+                appendLine("            operation: SPFNGeneratedOperations.$name,");
+                appendLine("            encode: $encode");
+                appendLine("        )");
+            };
+        }
+
+        val response = Names.swiftType(responseType);
+        return buildString {
+            appendLine("    public static let $name: SPFNCall<$request, $response> = SPFNCall(");
+            appendLine("        operation: SPFNGeneratedOperations.$name,");
+            appendLine("        encode: $encode,");
+            appendLine("        decode: { try $response(canonical: \$0) }");
+            appendLine("    )");
+        };
     }
 
     private fun errors(bundle: Bundle): String = buildString {

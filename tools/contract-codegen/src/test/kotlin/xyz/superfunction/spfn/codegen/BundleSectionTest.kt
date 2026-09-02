@@ -20,6 +20,8 @@ class BundleSectionTest
     private val bundleText: String =
         File("../../Contracts/spfn-mobile-contract.json").readText(Charsets.UTF_8)
 
+    private val kotlinRoot = "android/spfn-generated/src/main/kotlin/xyz/superfunction/spfn/generated"
+
     private fun read(text: String): Bundle = Bundle.read(
         bundleText = text,
         sha256 = "unused-under-test",
@@ -298,6 +300,164 @@ class BundleSectionTest
             bundleText.replace(marker, ""),
             "must declare a responseType"
         );
+    }
+
+    // The per-operation call descriptors. What makes the file worth generating is that it
+    // is complete and that the two shapes the contract distinguishes are not written by
+    // hand — so those are what these three cases hold it to, with every expected name read
+    // out of the bundle rather than out of a list repeated here (P10).
+
+    private fun swiftCalls(bundle: Bundle): String = SwiftEmitter.emit(bundle)
+        .getValue("Sources/SPFNGenerated/Generated/SPFNGeneratedCalls.swift")
+
+    private fun kotlinCalls(bundle: Bundle): String = KotlinEmitter.emit(bundle)
+        .getValue("$kotlinRoot/SpfnGeneratedCalls.kt")
+
+    /**
+     * One descriptor's own text, from its declaration to the `)` that closes it.
+     *
+     * Every assertion below reads a block rather than the whole file. A file-wide
+     * `contains` is the way these cases could pass while proving nothing: an emitter that
+     * paired `echoSend`'s name with `itemsList`'s operation writes both strings somewhere,
+     * and only asking whether they are in the same block catches it.
+     */
+    private fun descriptorBlock(file: String, declaration: String): String
+    {
+        assertTrue("the calls file declares nothing matching '$declaration'", file.contains(declaration));
+        val block = file.substringAfter(declaration).substringBefore("\n    )");
+        assertTrue("the '$declaration' block is unterminated", block.length < file.length);
+        return block;
+    }
+
+    /** Every operation, exactly once, built on its own operation, and nothing else. */
+    @Test
+    fun theCallsFileNamesEveryOperationExactlyOnce()
+    {
+        val bundle = read(bundleText);
+        val swift = swiftCalls(bundle);
+        val kotlin = kotlinCalls(bundle);
+
+        assertEquals(16, bundle.operations.size);
+        bundle.operations.forEach { operation ->
+            val name = Names.lowerCamel(operation.id);
+            assertEquals(
+                "the Swift calls file declares '$name' other than once",
+                1,
+                Regex("public static let $name:").findAll(swift).count()
+            );
+            assertEquals(
+                "the Kotlin calls file declares '$name' other than once",
+                1,
+                Regex("\n    val $name:").findAll(kotlin).count()
+            );
+            // The operation it is built on, inside its own block — not merely somewhere in
+            // a file that also holds fifteen other operation names.
+            assertTrue(
+                "the Swift '$name' descriptor is not built on SPFNGeneratedOperations.$name",
+                descriptorBlock(swift, "public static let $name:")
+                    .contains("operation: SPFNGeneratedOperations.$name,")
+            );
+            assertTrue(
+                "the Kotlin '$name' descriptor is not built on SpfnGeneratedOperations.$name",
+                descriptorBlock(kotlin, "\n    val $name:")
+                    .contains("operation = SpfnGeneratedOperations.$name,")
+            );
+        }
+
+        // Nothing beyond the contract. A descriptor for an operation the bundle does not
+        // declare would pass every assertion above.
+        assertEquals(16, Regex("public static let \\w+:").findAll(swift).count());
+        assertEquals(16, Regex("\n    val \\w+:").findAll(kotlin).count());
+    }
+
+    /**
+     * The bodyless operation goes through the `noResponse` factory. Writing its decoder
+     * into the generated file would compile and behave the same today — and would be a
+     * second place for "there is nothing to decode" to be written down, which is the one
+     * thing the factory exists to prevent.
+     */
+    @Test
+    fun theBodylessOperationIsEmittedThroughTheNoResponseFactory()
+    {
+        val bundle = read(bundleText);
+        val bodyless = bundle.operations.single { it.responseType == null };
+        assertEquals("auth.device.deny", bodyless.id);
+        val name = Names.lowerCamel(bodyless.id);
+        val swiftRequest = Names.swiftType(bodyless.requestType!!);
+        val kotlinRequest = Names.kotlinType(bodyless.requestType!!);
+
+        val swift = swiftCalls(bundle);
+        val swiftBlock = descriptorBlock(swift, "public static let $name:");
+        assertTrue(
+            "the Swift bodyless descriptor does not go through noResponse",
+            swiftBlock.contains("SPFNCall<$swiftRequest, SPFNNoResponse>.noResponse(")
+        );
+        // Nothing to decode means no decoder in the block: a generated `decode:` here
+        // would be the second copy of the factory's one correct closure.
+        assertFalse(
+            "the Swift bodyless descriptor also carries a hand-written decoder",
+            swiftBlock.contains("decode:")
+        );
+        // And it is the only descriptor that uses the factory: a factory call on an
+        // operation that does declare a response would answer with the unit value where
+        // the server sent a body.
+        assertEquals(1, Regex("\\.noResponse\\(").findAll(swift).count());
+
+        val kotlin = kotlinCalls(bundle);
+        val kotlinBlock = descriptorBlock(kotlin, "\n    val $name:");
+        assertTrue(
+            "the Kotlin bodyless descriptor does not go through noResponse",
+            kotlinBlock.contains("SpfnCall<$kotlinRequest, SpfnNoResponse> = SpfnCall.noResponse(")
+        );
+        assertFalse(
+            "the Kotlin bodyless descriptor also carries a hand-written decoder",
+            kotlinBlock.contains("decode =")
+        );
+        assertEquals(1, Regex("SpfnCall\\.noResponse\\(").findAll(kotlin).count());
+    }
+
+    /**
+     * The clock operation is the one the contract gives no `requestType`. Its descriptor
+     * carries the no-request representation — `Void` / `Unit` — because the caller that
+     * sends it today (`SPFNProcessServerClock` / `SpfnProcessServerClock`) sends no
+     * request value at all.
+     */
+    @Test
+    fun theRequestlessOperationIsEmittedWithTheNoRequestRepresentation()
+    {
+        val bundle = read(bundleText);
+        val requestless = bundle.operations.single { it.requestType == null };
+        assertEquals("core.time", requestless.id);
+        val name = Names.lowerCamel(requestless.id);
+        val swiftResponse = Names.swiftType(requestless.responseType!!);
+        val kotlinResponse = Names.kotlinType(requestless.responseType!!);
+
+        val swift = swiftCalls(bundle);
+        val swiftBlock = descriptorBlock(swift, "public static let $name:");
+        assertTrue(
+            "the Swift requestless descriptor does not carry Void",
+            swiftBlock.startsWith(" SPFNCall<Void, $swiftResponse> = SPFNCall(")
+        );
+        assertTrue(
+            "the Swift requestless descriptor does not encode an empty canonical object",
+            swiftBlock.contains("encode: { _ in SPFNCanonicalValue.object([:]) },")
+        );
+        // Only that one. Every other operation names a request type the bundle declares,
+        // and an emitter that read a missing key as "no request" everywhere would put a
+        // second Void descriptor in the file.
+        assertEquals(1, Regex("SPFNCall<Void, ").findAll(swift).count());
+
+        val kotlin = kotlinCalls(bundle);
+        val kotlinBlock = descriptorBlock(kotlin, "\n    val $name:");
+        assertTrue(
+            "the Kotlin requestless descriptor does not carry Unit",
+            kotlinBlock.startsWith(" SpfnCall<Unit, $kotlinResponse> = SpfnCall(")
+        );
+        assertTrue(
+            "the Kotlin requestless descriptor does not encode an empty canonical object",
+            kotlinBlock.contains("encode = { _ -> SpfnCanonicalValue.Obj(emptyMap()) },")
+        );
+        assertEquals(1, Regex("SpfnCall<Unit, ").findAll(kotlin).count());
     }
 
     @Test

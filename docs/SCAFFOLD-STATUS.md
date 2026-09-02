@@ -47,7 +47,6 @@ Each of these is missing because supplying it would mean inventing an approval.
 | Absent | Why |
 | --- | --- |
 | Any exchange with a deployed service | the round trip is proved against `tools/reference-server` and against the SPFN primitives `04-mobile-contract-dev` server, both running the pinned upstream export. Pointing either SDK at a deployed SPFN service is separate work |
-| Generated per-operation call descriptors | the execute path is generic over request and response. The three operations are described by hand in the test suites, so what the generator will own stays visible instead of being pre-empted here |
 | Real CODEOWNERS handles | teams and required-review enforcement are undecided |
 | A license | not selected |
 | Pinned CI action SHAs | pinning by SHA needs a network lookup per action; workflows use no third-party action at all |

@@ -37,7 +37,8 @@ hand-written for the same reason: zero external dependencies.
 | --- | --- |
 | `SPFNGeneratedContract.swift` / `SpfnGeneratedContract.kt` | the contract binding: version, bundle digest, supported range, origin, operation ids, replay window, proof-input field order |
 | `SPFNGeneratedTypes.swift` / `SpfnGeneratedTypes.kt` | one struct per contract type, with canonical encoding and strict decoding |
-| `SPFNGeneratedOperations.swift` / `SpfnGeneratedOperations.kt` | one descriptor per operation, plus lookup by contract id |
+| `SPFNGeneratedOperations.swift` / `SpfnGeneratedOperations.kt` | one operation per contract operation — id, method, path, auth class — plus lookup by contract id |
+| `SPFNGeneratedCalls.swift` / `SpfnGeneratedCalls.kt` | one call descriptor per operation: the operation paired with the codecs for its request and response types, ready to hand to `execute` |
 | `SPFNGeneratedErrors.swift` / `SpfnGeneratedErrors.kt` | every contract error code with its HTTP status and retryability |
 
 Generated directories hold generated files only. A leftover from an earlier contract is

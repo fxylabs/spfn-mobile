@@ -54,20 +54,20 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let fixture = try await Fixture.start()
 
         let echoed = try await fixture.client.execute(
-            Calls.echo,
+            SPFNGeneratedCalls.echoSend,
             request: SPFNEchoRequest(message: "over the wire", sequence: 42)
         )
         XCTAssertEqual(echoed.message, "over the wire")
         XCTAssertEqual(echoed.sequence, 42)
         XCTAssertGreaterThan(echoed.serverTimeMillis, 0)
 
-        let first = try await fixture.client.execute(Calls.listItems, request: SPFNListItemsRequest(limit: 2))
+        let first = try await fixture.client.execute(SPFNGeneratedCalls.itemsList, request: SPFNListItemsRequest(limit: 2))
         XCTAssertEqual(first.items.map(\.id), ["item-0001", "item-0002"])
         XCTAssertEqual(first.items.map(\.name), ["alpha", "bravo"])
         XCTAssertEqual(first.nextCursor, "item-0002")
 
         let rest = try await fixture.client.execute(
-            Calls.listItems,
+            SPFNGeneratedCalls.itemsList,
             request: SPFNListItemsRequest(limit: 10, cursor: "item-0002")
         )
         XCTAssertEqual(rest.items.map(\.id), ["item-0003", "item-0004", "item-0005"])
@@ -88,7 +88,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
     {
         let fixture = try await Fixture.start()
 
-        _ = try await fixture.client.execute(Calls.echo, request: SPFNEchoRequest(message: "before", sequence: 1))
+        _ = try await fixture.client.execute(SPFNGeneratedCalls.echoSend, request: SPFNEchoRequest(message: "before", sequence: 1))
         let opened = try await fixture.control.stats()
         XCTAssertEqual(opened.handshakeCount, 1)
 
@@ -97,7 +97,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         // the refusal that a re-handshake exists to answer.
         try await fixture.control.expireSessions()
 
-        let after = try await fixture.client.execute(Calls.echo, request: SPFNEchoRequest(message: "after", sequence: 2))
+        let after = try await fixture.client.execute(SPFNGeneratedCalls.echoSend, request: SPFNEchoRequest(message: "after", sequence: 2))
         XCTAssertEqual(after.message, "after")
 
         let stats = try await fixture.control.stats()
@@ -114,12 +114,12 @@ final class SPFNReferenceIntegrationTests: XCTestCase
     {
         let fixture = try await Fixture.start()
 
-        _ = try await fixture.client.execute(Calls.echo, request: SPFNEchoRequest(message: "before", sequence: 1))
+        _ = try await fixture.client.execute(SPFNGeneratedCalls.echoSend, request: SPFNEchoRequest(message: "before", sequence: 1))
         try await fixture.control.revokeKey(Self.keyID)
 
         do
         {
-            _ = try await fixture.client.execute(Calls.echo, request: SPFNEchoRequest(message: "after", sequence: 2))
+            _ = try await fixture.client.execute(SPFNGeneratedCalls.echoSend, request: SPFNEchoRequest(message: "after", sequence: 2))
             XCTFail("a revoked key must not answer an operation")
         }
         catch SPFNClientError.auth(let failure)
@@ -173,7 +173,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
     {
         let fixture = try await Fixture.start(timeoutMillis: 400)
 
-        _ = try await fixture.client.execute(Calls.echo, request: SPFNEchoRequest(message: "warm up", sequence: 1))
+        _ = try await fixture.client.execute(SPFNGeneratedCalls.echoSend, request: SPFNEchoRequest(message: "warm up", sequence: 1))
 
         try await fixture.control.hold(
             path: SPFNGeneratedOperations.echoSend.path,
@@ -182,7 +182,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         )
         do
         {
-            _ = try await fixture.client.execute(Calls.echo, request: SPFNEchoRequest(message: "too slow", sequence: 2))
+            _ = try await fixture.client.execute(SPFNGeneratedCalls.echoSend, request: SPFNEchoRequest(message: "too slow", sequence: 2))
             XCTFail("a held request must not answer inside the deadline")
         }
         catch SPFNClientError.transport(let error)
@@ -206,7 +206,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let startedAt = Date()
         let call = Task
         {
-            try await client.execute(Calls.echo, request: SPFNEchoRequest(message: "give up", sequence: 3))
+            try await client.execute(SPFNGeneratedCalls.echoSend, request: SPFNEchoRequest(message: "give up", sequence: 3))
         }
 
         try await Task.sleep(nanoseconds: 200_000_000)
@@ -281,7 +281,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let loadedFirst = try await lifecycle.activeProvider()
         let firstProvider = try XCTUnwrap(loadedFirst)
         let echoed = try await fixture.client(signingWith: firstProvider).execute(
-            Calls.echo,
+            SPFNGeneratedCalls.echoSend,
             request: SPFNEchoRequest(message: "enrolled key proves", sequence: 61)
         )
         XCTAssertEqual(echoed.message, "enrolled key proves")
@@ -295,7 +295,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let newProvider = try XCTUnwrap(loadedNew)
         XCTAssertEqual(newProvider.keyID, rotated.keyID)
         let again = try await fixture.client(signingWith: newProvider).execute(
-            Calls.echo,
+            SPFNGeneratedCalls.echoSend,
             request: SPFNEchoRequest(message: "rotated key proves", sequence: 62)
         )
         XCTAssertEqual(again.message, "rotated key proves")
@@ -307,7 +307,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         do
         {
             _ = try await fixture.client(signingWith: firstProvider).execute(
-                Calls.echo,
+                SPFNGeneratedCalls.echoSend,
                 request: SPFNEchoRequest(message: "stale key", sequence: 63)
             )
             XCTFail("the replaced key must not prove anything")
@@ -345,7 +345,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
 
         // B looks before it decides: the answer names the device that is waiting, and the
         // prefix is over A's real public key rather than over anything B chose.
-        let described = try await approver.execute(Calls.deviceInfo, request: SPFNDeviceAuthInfoRequest(userCode: userCode))
+        let described = try await approver.execute(SPFNGeneratedCalls.authDeviceInfo, request: SPFNDeviceAuthInfoRequest(userCode: userCode))
         XCTAssertEqual(described.deviceName, Self.deviceName)
         XCTAssertEqual(
             described.fingerprintPrefix,
@@ -353,7 +353,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         )
 
         let approved = try await approver.execute(
-            Calls.deviceApprove,
+            SPFNGeneratedCalls.authDeviceApprove,
             request: SPFNApproveDeviceAuthRequest(userCode: userCode)
         )
         XCTAssertEqual(approved.deviceName, Self.deviceName, "approve answers with the device it just let in")
@@ -368,7 +368,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let loaded = try await waiting.lifecycle.activeProvider()
         let provider = try XCTUnwrap(loaded)
         let echoed = try await fixture.client(signingWith: provider).execute(
-            Calls.echo,
+            SPFNGeneratedCalls.echoSend,
             request: SPFNEchoRequest(message: "approved key proves", sequence: 71)
         )
         XCTAssertEqual(echoed.message, "approved key proves")
@@ -379,7 +379,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         XCTAssertNotEqual(rotated.keyID, settled.keyID)
         let loadedNew = try await waiting.lifecycle.activeProvider()
         let rotatedEcho = try await fixture.client(signingWith: try XCTUnwrap(loadedNew)).execute(
-            Calls.echo,
+            SPFNGeneratedCalls.echoSend,
             request: SPFNEchoRequest(message: "rotated after device sign-in", sequence: 72)
         )
         XCTAssertEqual(rotatedEcho.message, "rotated after device sign-in")
@@ -402,7 +402,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let signIn = Self.startSignIn(waiting.lifecycle, showing: shown)
         let userCode = await shown.value()
 
-        let denied = try await approver.execute(Calls.deviceDeny, request: SPFNDenyDeviceAuthRequest(userCode: userCode))
+        let denied = try await approver.execute(SPFNGeneratedCalls.authDeviceDeny, request: SPFNDenyDeviceAuthRequest(userCode: userCode))
         XCTAssertEqual(denied, SPFNNoResponse.value, "a bodyless operation answers with the unit value")
 
         do
@@ -476,14 +476,14 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         // And the server's own answer, on a code this case parks by hand: the two ends
         // agree that an expired record is refused rather than kept waiting on.
         let parked = try await fixture.client.execute(
-            Calls.deviceStart,
+            SPFNGeneratedCalls.authDeviceStart,
             request: Self.startRequest(keyID: "key-swift-i-0002", publicKeySpkiDer: Self.freshKeySpkiDer())
         )
         _ = try await fixture.control.advanceClock(millis: Self.expiryAdvanceMillis)
         do
         {
             _ = try await fixture.client.execute(
-                Calls.devicePoll,
+                SPFNGeneratedCalls.authDevicePoll,
                 request: SPFNPollDeviceAuthRequest(deviceCode: parked.deviceCode)
             )
             XCTFail("the server must refuse an expired code")
@@ -509,10 +509,10 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let signIn = Self.startSignIn(waiting.lifecycle, showing: shown)
         let userCode = await shown.value()
 
-        _ = try await approver.execute(Calls.deviceApprove, request: SPFNApproveDeviceAuthRequest(userCode: userCode))
+        _ = try await approver.execute(SPFNGeneratedCalls.authDeviceApprove, request: SPFNApproveDeviceAuthRequest(userCode: userCode))
         do
         {
-            _ = try await approver.execute(Calls.deviceApprove, request: SPFNApproveDeviceAuthRequest(userCode: userCode))
+            _ = try await approver.execute(SPFNGeneratedCalls.authDeviceApprove, request: SPFNApproveDeviceAuthRequest(userCode: userCode))
             XCTFail("a second approval must be refused")
         }
         catch SPFNClientError.server(let refusal)
@@ -557,7 +557,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         XCTAssertEqual(envelope.code, "CONTRACT_UNSUPPORTED")
 
         // The record was not touched, which the approval that still works proves.
-        _ = try await approver.execute(Calls.deviceApprove, request: SPFNApproveDeviceAuthRequest(userCode: userCode))
+        _ = try await approver.execute(SPFNGeneratedCalls.authDeviceApprove, request: SPFNApproveDeviceAuthRequest(userCode: userCode))
         let settled = try await signIn.value
         XCTAssertEqual(settled.clientID, approver.clientID)
 
@@ -795,57 +795,6 @@ final class SPFNReferenceIntegrationTests: XCTestCase
             defer { lock.unlock() }
             records[slot] = nil
         }
-    }
-
-    /// The call descriptors the contract generator does not emit yet.
-    private enum Calls
-    {
-        // The approver's three. Decision 4: no SDK wrapper — an app reaches them through
-        // the generated descriptors and `execute`, exactly as it reaches
-        // `auth.keys.revoke`, and these are what that costs.
-
-        static let deviceInfo = SPFNCall<SPFNDeviceAuthInfoRequest, SPFNDeviceAuthInfoResponse>(
-            operation: SPFNGeneratedOperations.authDeviceInfo,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNDeviceAuthInfoResponse(canonical: $0) }
-        )
-
-        static let deviceApprove = SPFNCall<SPFNApproveDeviceAuthRequest, SPFNDeviceAuthInfoResponse>(
-            operation: SPFNGeneratedOperations.authDeviceApprove,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNDeviceAuthInfoResponse(canonical: $0) }
-        )
-
-        /// The contract's one bodyless operation: built through the factory, never by hand.
-        static let deviceDeny = SPFNCall<SPFNDenyDeviceAuthRequest, SPFNNoResponse>.noResponse(
-            operation: SPFNGeneratedOperations.authDeviceDeny,
-            encode: { try $0.canonicalValue() }
-        )
-
-        /// The waiting side's two, for the one case that has to send them by hand.
-        static let deviceStart = SPFNCall<SPFNStartDeviceAuthRequest, SPFNStartDeviceAuthResponse>(
-            operation: SPFNGeneratedOperations.authDeviceStart,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNStartDeviceAuthResponse(canonical: $0) }
-        )
-
-        static let devicePoll = SPFNCall<SPFNPollDeviceAuthRequest, SPFNPollDeviceAuthResponse>(
-            operation: SPFNGeneratedOperations.authDevicePoll,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNPollDeviceAuthResponse(canonical: $0) }
-        )
-
-        static let echo = SPFNCall<SPFNEchoRequest, SPFNEchoResponse>(
-            operation: SPFNGeneratedOperations.echoSend,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNEchoResponse(canonical: $0) }
-        )
-
-        static let listItems = SPFNCall<SPFNListItemsRequest, SPFNListItemsResponse>(
-            operation: SPFNGeneratedOperations.itemsList,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNListItemsResponse(canonical: $0) }
-        )
     }
 
     /// Starts the waiting device's sign-in as its own task. A helper rather than an inline

@@ -146,9 +146,12 @@ enum ExecuteFixtures
 
 // MARK: - The three calls
 
-// Hand-written here rather than shipped: what the library owes is one execute path, and
-// the per-operation descriptors that ride on it are the generator's job, not this change
-// set's. Writing them in the suite is what keeps that boundary visible.
+// Hand-written here even though `SPFNGeneratedCalls` now ships one descriptor per
+// operation. These are not a copy of it: this suite holds the one execute path to what it
+// does with whatever descriptor it is handed, and `undeclared` below names an auth class
+// no contract declares, so the generator can never emit it. Asserting against generated
+// values instead would make the client's own regression suite move whenever the contract
+// does, and would leave the refusal that matters most untestable.
 
 enum ExecuteCalls
 {

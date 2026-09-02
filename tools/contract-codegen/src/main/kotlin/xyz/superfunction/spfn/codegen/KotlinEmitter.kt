@@ -14,6 +14,7 @@ object KotlinEmitter
         "$ROOT/SpfnGeneratedContract.kt" to contract(bundle),
         "$ROOT/SpfnGeneratedTypes.kt" to types(bundle),
         "$ROOT/SpfnGeneratedOperations.kt" to operations(bundle),
+        "$ROOT/SpfnGeneratedCalls.kt" to calls(bundle),
         "$ROOT/SpfnGeneratedErrors.kt" to errors(bundle)
     )
 
@@ -231,6 +232,96 @@ object KotlinEmitter
         appendLine("    fun operation(id: String): SpfnOperation? = all.firstOrNull { it.id == id }");
         append("}");
         appendLine();
+    }
+
+    /**
+     * One call descriptor per operation, named exactly as the operation constant is.
+     *
+     * The emission order is the bundle's, the same order the operations file uses, so a
+     * contract change moves both files the same way and the diff reads as one list.
+     */
+    private fun calls(bundle: Bundle): String = buildString {
+        appendLine(header(bundle));
+        appendLine();
+        appendLine("package xyz.superfunction.spfn.generated");
+        appendLine();
+        appendLine("import xyz.superfunction.spfn.core.SpfnCall");
+        // Imported only when an operation needs it. An import nothing uses is a Kotlin
+        // warning, and this module compiles with allWarningsAsErrors.
+        if (bundle.operations.any { it.requestType == null })
+        {
+            appendLine("import xyz.superfunction.spfn.core.SpfnCanonicalValue");
+        }
+        if (bundle.operations.any { it.responseType == null })
+        {
+            appendLine("import xyz.superfunction.spfn.core.SpfnNoResponse");
+        }
+        appendLine();
+        appendLine("/**");
+        appendLine(" * Every operation as a value the caller hands to `SpfnClient.execute`.");
+        appendLine(" *");
+        appendLine(" * One descriptor per operation and no wrapper functions: an app reaches an");
+        appendLine(" * operation by naming it here, the way it already reaches `auth.keys.revoke`.");
+        appendLine(" * Two of these are listed for completeness rather than for use — the handshake");
+        appendLine(" * is the session's own operation and `execute` refuses it, and an operation");
+        appendLine(" * whose path carries a `{...}` segment needs that segment substituted, which");
+        appendLine(" * is the caller's own descriptor built from the operation constant.");
+        appendLine(" *");
+        appendLine(" * Every value is a `@JvmField`, so a Java caller reads");
+        appendLine(" * `SpfnGeneratedCalls.authDeviceApprove` as a field rather than through a getter.");
+        appendLine(" */");
+        appendLine("object SpfnGeneratedCalls");
+        appendLine("{");
+        bundle.operations.forEachIndexed { index, operation ->
+            if (index > 0)
+            {
+                appendLine();
+            }
+            appendLine("    /** ${operation.summary} */");
+            append(kotlinCall(operation));
+        }
+        append("}");
+        appendLine();
+    }
+
+    /**
+     * The three shapes a descriptor can take, and nothing else.
+     *
+     * A bodyless operation goes through `noResponse` rather than being handed a decoder
+     * written here: the factory is where "there is nothing to decode" is written down
+     * once, and a generated copy of that lambda would be one more place for it to drift.
+     * An operation the contract gives no `requestType` — the clock's — carries `Unit`,
+     * because the caller that sends it today sends no request value at all.
+     */
+    private fun kotlinCall(operation: Operation): String
+    {
+        val name = Names.lowerCamel(operation.id);
+        val request = operation.requestType?.let { Names.kotlinType(it) } ?: "Unit";
+        val encode = if (operation.requestType == null)
+            "{ _ -> SpfnCanonicalValue.Obj(emptyMap()) }"
+        else "{ request -> request.canonicalValue() }";
+
+        val responseType = operation.responseType;
+        if (responseType == null)
+        {
+            return buildString {
+                appendLine("    @JvmField");
+                appendLine("    val $name: SpfnCall<$request, SpfnNoResponse> = SpfnCall.noResponse(");
+                appendLine("        operation = SpfnGeneratedOperations.$name,");
+                appendLine("        encode = $encode");
+                appendLine("    )");
+            };
+        }
+
+        val response = Names.kotlinType(responseType);
+        return buildString {
+            appendLine("    @JvmField");
+            appendLine("    val $name: SpfnCall<$request, $response> = SpfnCall(");
+            appendLine("        operation = SpfnGeneratedOperations.$name,");
+            appendLine("        encode = $encode,");
+            appendLine("        decode = { value -> $response.decode(value) }");
+            appendLine("    )");
+        };
     }
 
     private fun errors(bundle: Bundle): String = buildString {

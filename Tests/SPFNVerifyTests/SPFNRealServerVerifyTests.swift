@@ -70,7 +70,7 @@ final class SPFNRealServerVerifyTests: XCTestCase
 
         let enrolled = try await fixture.enroll()
         let listed = try await fixture.client(signingWith: enrolled.provider).execute(
-            Calls.keysList,
+            SPFNGeneratedCalls.authKeysList,
             request: SPFNListKeysRequest()
         )
 
@@ -123,7 +123,7 @@ final class SPFNRealServerVerifyTests: XCTestCase
         let newProvider = try XCTUnwrap(loadedNew)
         XCTAssertEqual(newProvider.keyID, rotated.keyID)
         let listed = try await fixture.client(signingWith: newProvider).execute(
-            Calls.keysList,
+            SPFNGeneratedCalls.authKeysList,
             request: SPFNListKeysRequest()
         )
         XCTAssertNotNil(listed.keys.first { $0.keyId == rotated.keyID })
@@ -136,7 +136,7 @@ final class SPFNRealServerVerifyTests: XCTestCase
         do
         {
             _ = try await fixture.client(signingWith: enrolled.provider).execute(
-                Calls.keysList,
+                SPFNGeneratedCalls.authKeysList,
                 request: SPFNListKeysRequest()
             )
             XCTFail("the replaced key must not prove anything")
@@ -160,21 +160,21 @@ final class SPFNRealServerVerifyTests: XCTestCase
         let victim = try await fixture.enroll()
 
         let revoked = try await fixture.client(signingWith: keeper.provider).execute(
-            Calls.keysRevoke,
+            SPFNGeneratedCalls.authKeysRevoke,
             request: SPFNRevokeKeyRequest(keyId: victim.key.keyID)
         )
         XCTAssertEqual(revoked.keyId, victim.key.keyID)
         XCTAssertFalse(revoked.selfRevoked)
 
         let swept = try await fixture.client(signingWith: keeper.provider).execute(
-            Calls.keysRevokeAll,
+            SPFNGeneratedCalls.authKeysRevokeAll,
             request: SPFNRevokeAllKeysRequest()
         )
         XCTAssertFalse(swept.currentKeyRevoked, "revokeAll spared the calling key by default")
 
         // The caller survived its own sweep and still proves.
         let listed = try await fixture.client(signingWith: keeper.provider).execute(
-            Calls.keysList,
+            SPFNGeneratedCalls.authKeysList,
             request: SPFNListKeysRequest()
         )
         let own = try XCTUnwrap(listed.keys.first { $0.keyId == keeper.key.keyID })
@@ -211,7 +211,7 @@ final class SPFNRealServerVerifyTests: XCTestCase
         // The approver looks before it decides, and what it is shown is derived from the
         // waiting device's own public key rather than from anything the approver chose.
         let described = try await approving.execute(
-            Calls.deviceInfo,
+            SPFNGeneratedCalls.authDeviceInfo,
             request: SPFNDeviceAuthInfoRequest(userCode: userCode)
         )
         XCTAssertFalse(described.fingerprintPrefix.isEmpty)
@@ -222,7 +222,7 @@ final class SPFNRealServerVerifyTests: XCTestCase
         XCTAssertEqual(described.platform, .ios)
 
         _ = try await approving.execute(
-            Calls.deviceApprove,
+            SPFNGeneratedCalls.authDeviceApprove,
             request: SPFNApproveDeviceAuthRequest(userCode: userCode)
         )
 
@@ -248,7 +248,7 @@ final class SPFNRealServerVerifyTests: XCTestCase
         let loaded = try await waiting.lifecycle.activeProvider()
         let provider = try XCTUnwrap(loaded)
         let listed = try await fixture.client(signingWith: provider).execute(
-            Calls.keysList,
+            SPFNGeneratedCalls.authKeysList,
             request: SPFNListKeysRequest()
         )
         let own = try XCTUnwrap(
@@ -274,7 +274,7 @@ final class SPFNRealServerVerifyTests: XCTestCase
         let userCode = await shown.value()
 
         let denied = try await fixture.client(signingWith: approver.provider).execute(
-            Calls.deviceDeny,
+            SPFNGeneratedCalls.authDeviceDeny,
             request: SPFNDenyDeviceAuthRequest(userCode: userCode)
         )
         XCTAssertEqual(denied, SPFNNoResponse.value, "a bodyless operation answers with the unit value")
@@ -310,13 +310,13 @@ final class SPFNRealServerVerifyTests: XCTestCase
         let userCode = await shown.value()
 
         _ = try await approving.execute(
-            Calls.deviceApprove,
+            SPFNGeneratedCalls.authDeviceApprove,
             request: SPFNApproveDeviceAuthRequest(userCode: userCode)
         )
         do
         {
             _ = try await approving.execute(
-                Calls.deviceApprove,
+                SPFNGeneratedCalls.authDeviceApprove,
                 request: SPFNApproveDeviceAuthRequest(userCode: userCode)
             )
             XCTFail("a decision on a device is made once")
@@ -373,7 +373,7 @@ final class SPFNRealServerVerifyTests: XCTestCase
         // defensible answers. What must hold on every server is below: the record the
         // unproven call named was not touched, which the approval that still works shows.
         _ = try await fixture.client(signingWith: approver.provider).execute(
-            Calls.deviceApprove,
+            SPFNGeneratedCalls.authDeviceApprove,
             request: SPFNApproveDeviceAuthRequest(userCode: userCode)
         )
         let settled = try await signIn.value
@@ -403,6 +403,20 @@ final class SPFNRealServerVerifyTests: XCTestCase
     {
         let fixture = try Fixture()
         let enrolled = try await fixture.enroll()
+
+        // The ordering above, asserted rather than trusted. r5's `auth.keys.revokeAll`
+        // spares only its own caller, so an approver enrolled before r5 ran would be
+        // swept away by it and every device cell would fail on a key the server no
+        // longer knows. The receipt r5 writes is the one piece of evidence available
+        // here that it already ran; a runner that reorders these methods breaks the
+        // dependence, and this is where it says so.
+        XCTAssertTrue(
+            fixture.environment.hasReceipt("swift-r5"),
+            "the shared approver enrolled before r5 recorded its receipt: r5's " +
+                "auth.keys.revokeAll would sweep an approver enrolled earlier, so the " +
+                "four device cells depend on r5 having run first"
+        )
+
         await SPFNRealServerVerifyTests.ledger.adopt(enrolled)
         return enrolled
     }
@@ -513,7 +527,7 @@ final class SPFNRealServerVerifyTests: XCTestCase
         for keyID in drained.waitingKeyIDs + [drained.approver.key.keyID]
         {
             _ = try? await revoking.execute(
-                Calls.keysRevoke,
+                SPFNGeneratedCalls.authKeysRevoke,
                 request: SPFNRevokeKeyRequest(keyId: keyID)
             )
         }
@@ -555,7 +569,7 @@ final class SPFNRealServerVerifyTests: XCTestCase
             let fingerprint = SPFNDigest.sha256Hex(key.publicKeySpkiDer)
 
             let response = try await client(signingWith: nil).execute(
-                Calls.login,
+                SPFNGeneratedCalls.authEnrollLogin,
                 request: SPFNLoginRequest(
                     email: environment.email,
                     password: environment.password,
@@ -675,54 +689,6 @@ final class SPFNRealServerVerifyTests: XCTestCase
             defer { lock.unlock() }
             records[slot] = nil
         }
-    }
-
-    /// The call descriptors for the operations these cases drive.
-    private enum Calls
-    {
-        static let login = SPFNCall<SPFNLoginRequest, SPFNLoginResponse>(
-            operation: SPFNGeneratedOperations.authEnrollLogin,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNLoginResponse(canonical: $0) }
-        )
-
-        static let keysList = SPFNCall<SPFNListKeysRequest, SPFNListKeysResponse>(
-            operation: SPFNGeneratedOperations.authKeysList,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNListKeysResponse(canonical: $0) }
-        )
-
-        static let keysRevoke = SPFNCall<SPFNRevokeKeyRequest, SPFNRevokeKeyResponse>(
-            operation: SPFNGeneratedOperations.authKeysRevoke,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNRevokeKeyResponse(canonical: $0) }
-        )
-
-        static let keysRevokeAll = SPFNCall<SPFNRevokeAllKeysRequest, SPFNRevokeAllKeysResponse>(
-            operation: SPFNGeneratedOperations.authKeysRevokeAll,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNRevokeAllKeysResponse(canonical: $0) }
-        )
-
-        // The approver's three device-code operations, the same descriptors the reference
-        // suite sends: `deny` is the contract's one bodyless operation and is built through
-        // the factory, never by hand.
-        static let deviceInfo = SPFNCall<SPFNDeviceAuthInfoRequest, SPFNDeviceAuthInfoResponse>(
-            operation: SPFNGeneratedOperations.authDeviceInfo,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNDeviceAuthInfoResponse(canonical: $0) }
-        )
-
-        static let deviceApprove = SPFNCall<SPFNApproveDeviceAuthRequest, SPFNDeviceAuthInfoResponse>(
-            operation: SPFNGeneratedOperations.authDeviceApprove,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNDeviceAuthInfoResponse(canonical: $0) }
-        )
-
-        static let deviceDeny = SPFNCall<SPFNDenyDeviceAuthRequest, SPFNNoResponse>.noResponse(
-            operation: SPFNGeneratedOperations.authDeviceDeny,
-            encode: { try $0.canonicalValue() }
-        )
     }
 }
 

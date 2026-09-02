@@ -14,16 +14,12 @@ import xyz.superfunction.spfn.client.SpfnKeystoreCustodyKey
 import xyz.superfunction.spfn.client.SpfnKeystoreKeyProvider
 import xyz.superfunction.spfn.client.SpfnSession
 import xyz.superfunction.spfn.client.SpfnSharedPreferencesKeyMetadataStore
-import xyz.superfunction.spfn.client.SpfnCall
 import xyz.superfunction.spfn.generated.SpfnApproveDeviceAuthRequest
 import xyz.superfunction.spfn.generated.SpfnDenyDeviceAuthRequest
 import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoRequest
-import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoResponse
-import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
+import xyz.superfunction.spfn.generated.SpfnGeneratedCalls
 import xyz.superfunction.spfn.generated.SpfnListKeysRequest
-import xyz.superfunction.spfn.generated.SpfnListKeysResponse
 import xyz.superfunction.spfn.generated.SpfnRevokeKeyRequest
-import xyz.superfunction.spfn.generated.SpfnRevokeKeyResponse
 
 /**
  * The harness's whole behaviour.
@@ -166,10 +162,14 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
     /**
      * Revokes the key this install is signing with, which is what makes the next proven
      * call answer SESSION_REVOKED. `revokeAll` spares the caller, so it cannot do this.
+     *
+     * Sent through the generated descriptor and `execute`: revocation has no lifecycle
+     * method — the SDK exposes enrolment and rotation, and revocation is an operation —
+     * so the harness reaches it the way any app would (decision 01kzb8tjxp, D-3).
      */
     suspend fun revokeActiveKey() = run {
         val provider = activeProviderOrThrow();
-        client(provider).execute(Calls.keysRevoke, SpfnRevokeKeyRequest(keyId = provider.keyId));
+        client(provider).execute(SpfnGeneratedCalls.authKeysRevoke, SpfnRevokeKeyRequest(keyId = provider.keyId));
         "revoked:${provider.keyId}";
     };
 
@@ -179,7 +179,7 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
      */
     suspend fun provenCall() = run {
         val provider = activeProviderOrThrow();
-        val listed = client(provider).execute(Calls.keysList, SpfnListKeysRequest());
+        val listed = client(provider).execute(SpfnGeneratedCalls.authKeysList, SpfnListKeysRequest());
         "listed:${listed.keys.size}";
     };
 
@@ -246,20 +246,20 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
      */
     suspend fun describeWaitingDevice() = run {
         val described = client(activeProviderOrThrow())
-            .execute(Calls.deviceInfo, SpfnDeviceAuthInfoRequest(approverCode));
+            .execute(SpfnGeneratedCalls.authDeviceInfo, SpfnDeviceAuthInfoRequest(approverCode));
         "info:${described.deviceName ?: "unnamed"}:${described.fingerprintPrefix}";
     };
 
     suspend fun approveWaitingDevice() = run {
         val approved = client(activeProviderOrThrow())
-            .execute(Calls.deviceApprove, SpfnApproveDeviceAuthRequest(approverCode));
+            .execute(SpfnGeneratedCalls.authDeviceApprove, SpfnApproveDeviceAuthRequest(approverCode));
         "approved:${approved.fingerprintPrefix}";
     };
 
     suspend fun denyWaitingDevice() = run {
         // The answer is 204 with no body, so there is nothing to report but that it
         // applied — which is what the unit value the SDK returns means.
-        client(activeProviderOrThrow()).execute(Calls.deviceDeny, SpfnDenyDeviceAuthRequest(approverCode));
+        client(activeProviderOrThrow()).execute(SpfnGeneratedCalls.authDeviceDeny, SpfnDenyDeviceAuthRequest(approverCode));
         "denied";
     };
 
@@ -442,44 +442,6 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
             baseUrl = configuration.baseUrl
         )
     );
-
-    /**
-     * The call descriptors the harness drives directly. `revoke` has no lifecycle method —
-     * the SDK exposes enrolment and rotation, and revocation is an operation — so the
-     * harness reaches it the way any app would (decision 01kzb8tjxp, D-3).
-     */
-    private object Calls
-    {
-        val keysList = SpfnCall(
-            operation = SpfnGeneratedOperations.authKeysList,
-            encode = { request: SpfnListKeysRequest -> request.canonicalValue() },
-            decode = { canonical -> SpfnListKeysResponse.decode(canonical) }
-        );
-
-        val keysRevoke = SpfnCall(
-            operation = SpfnGeneratedOperations.authKeysRevoke,
-            encode = { request: SpfnRevokeKeyRequest -> request.canonicalValue() },
-            decode = { canonical -> SpfnRevokeKeyResponse.decode(canonical) }
-        );
-
-        val deviceInfo = SpfnCall(
-            operation = SpfnGeneratedOperations.authDeviceInfo,
-            encode = { request: SpfnDeviceAuthInfoRequest -> request.canonicalValue() },
-            decode = { canonical -> SpfnDeviceAuthInfoResponse.decode(canonical) }
-        );
-
-        val deviceApprove = SpfnCall(
-            operation = SpfnGeneratedOperations.authDeviceApprove,
-            encode = { request: SpfnApproveDeviceAuthRequest -> request.canonicalValue() },
-            decode = { canonical -> SpfnDeviceAuthInfoResponse.decode(canonical) }
-        );
-
-        /** The contract's one bodyless operation: built through the factory, never by hand. */
-        val deviceDeny = SpfnCall.noResponse(
-            operation = SpfnGeneratedOperations.authDeviceDeny,
-            encode = { request: SpfnDenyDeviceAuthRequest -> request.canonicalValue() }
-        );
-    }
 
     private companion object
     {

@@ -72,6 +72,19 @@ struct SPFNVerifyEnvironment: Sendable
         )
     }
 
+    /// Whether a case already recorded its receipt.
+    ///
+    /// The receipts are the only evidence one case has that another already ran: the
+    /// cases share no state, and XCTest gives none of them a place to read the others'
+    /// results from. See `approverTask` for the ordering this is asked about.
+    func hasReceipt(_ name: String) -> Bool
+    {
+        FileManager.default.fileExists(
+            atPath: URL(fileURLWithPath: receiptsDirectory, isDirectory: true)
+                .appendingPathComponent(name).path
+        )
+    }
+
     /// Records that one case really ran. See the file comment for why this exists.
     func record(_ name: String) throws
     {
