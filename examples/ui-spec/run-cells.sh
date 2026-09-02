@@ -88,8 +88,9 @@
 # a host with no device at all.
 #
 # It is announced in the output when it is used, and the announcement is the point: a run
-# maestro did not drive is not a device result, and the line above the receipts is where a
-# reader decides that (P12 — a probe convenience must not be a quiet bypass).
+# maestro did not drive is not a device result. It is announced TWICE, at section 1 and on
+# the final `RESULT:` line, because the last line of a log is the line that gets quoted
+# (P12 — a probe convenience must not be a quiet bypass).
 #
 # Requires: maestro, python3, and per platform xcrun or adb.
 
@@ -962,10 +963,18 @@ receipt_gate "$RUN_DIRECTORY" "$CASES" "$MANIFEST" || RECEIPT_STATUS=1
 printf '\n'
 printf 'target: %s (%s)\n' "$TARGET" "$PLATFORM"
 printf 'receipts: %s\n' "$RUN_DIRECTORY"
+
+# What this line may be cited as, carried on the line itself.
+RESULT_LABEL=''
+if [ -n "$FLOW_RUNNER" ]
+then
+    RESULT_LABEL=' (flow-runner, not a device result)'
+fi
+
 if [ "$FLOW_STATUS" -eq 0 ] && [ "$RECEIPT_STATUS" -eq 0 ]
 then
-    printf 'RESULT: PASS\n'
+    printf 'RESULT: PASS%s\n' "$RESULT_LABEL"
     exit 0
 fi
-printf 'RESULT: FAIL\n'
+printf 'RESULT: FAIL%s\n' "$RESULT_LABEL"
 exit 1
