@@ -42,9 +42,14 @@ Build with the commands at the top, install the product on a booted simulator, t
 `run-cells.sh` builds and installs nothing — that is what those commands are for, and its
 own header carries them — and it fails unless every cell whose runner is `both` left a
 receipt behind. It launches the app once with no fixture first, so the slow first draw
-after an install is paid as a warm-up rather than reported as a failed cell. Receipts come
-out of the simulator's data container through `xcrun simctl get_app_container` and land,
-with the Maestro report, in `examples/ui-spec/receipts/ios/<date>/`.
+after an install is paid as a warm-up rather than reported as a failed cell. It then drives
+the cells **one at a time**, pulling each cell's receipt out of the container before the
+next flow starts, because every flow opens with `clearState: true` and that wipe empties
+`Documents/receipts` along with everything else. Each cell's line carries both facts, its
+flow's exit status and whether its receipt arrived, so a cell that asserted everything and
+still left nothing is reported as that. Receipts come out of the simulator's data container
+through `xcrun simctl get_app_container` and land, with the per-cell Maestro reports, in
+`examples/ui-spec/receipts/ios/<date>/`.
 `sh examples/ui-spec/run-cells.sh --probe` proves the receipt gate bites and needs no
 simulator.
 

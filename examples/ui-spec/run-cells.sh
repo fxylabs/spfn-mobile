@@ -31,19 +31,54 @@
 #                examples/android-compose/build/outputs/apk/debug/example-compose-debug.apk
 #
 # ---------------------------------------------------------------------------
+# One flow at a time, and why it is worth the driver restarts
+# ---------------------------------------------------------------------------
+#
+# Every generated flow opens with `launchApp: clearState: true`, and clearState is a wipe
+# of the app's whole store — the data container on iOS, `pm clear` on Android, which also
+# takes `/sdcard/Android/data/<pkg>/files` with it. A receipt lives in that store. So each
+# cell's own first step deletes the receipt the cell before it wrote, and a run that drove
+# all fourteen flows under one maestro and pulled once at the end pulled whatever survived
+# the LAST wipe: on a Mac on 2026-09-03, nine of fourteen flows passed and the pull found
+# `Documents/receipts` gone and `0 of 14 cells left a receipt`.
+#
+# An in-app receipt and a single end-of-run pull cannot both be right. This script keeps
+# the receipt and moves the pull: one `maestro test` per flow file, and that cell's receipt
+# copied off the device before the next flow's launch can wipe it. What it costs is a
+# driver reinstall per flow, which is most of the wall clock — the harness pays it once and
+# derives its per-case verdict from the JUnit report instead (run-harness.sh section 4).
+# The example run buys evidence with that time rather than speed, because the receipt is
+# written by the flow's own last step and so says more than an exit code does.
+#
+# ---------------------------------------------------------------------------
 # What it refuses to do
 # ---------------------------------------------------------------------------
 #
 # A skipped flow is a passed flow as far as an exit code is concerned, so the receipts are
 # the safety and not the exit code: every cell whose runner is `both` must have left a
 # `receipt-<cell>-<millis>.json` behind, and a run missing one fails no matter what maestro
-# said. The receipt is written by the LAST step of every generated flow, so a flow that
-# failed anywhere earlier leaves none — which is what makes a receipt a per-cell verdict
-# rather than a suite-level one.
+# said. The per-flow exit status is printed BESIDE that verdict rather than in place of it,
+# because "the flow failed" and "the flow passed and left nothing behind" are two faults
+# with two different fixes and one line used to say neither.
 #
 # The gate has a floor under it as well: a table it can read no `both` cells out of is a
-# refusal, because a gate that expected nothing would pass on an empty device
-# (docs/IMPLEMENTATION-PITFALLS.md P7). `--probe` proves both halves without a device.
+# refusal, and so is a flow directory holding fewer flows than this repository has, because
+# a gate that expected nothing would pass on an empty device
+# (docs/IMPLEMENTATION-PITFALLS.md P7, P23). `--probe` proves all of it without a device.
+#
+# ---------------------------------------------------------------------------
+# --flow-runner <cmd>: the seam the probe drives
+# ---------------------------------------------------------------------------
+#
+# `<cmd> <cell> <flow file> <destination directory>` replaces the maestro-and-pull step for
+# one cell. It drives that cell however it likes, copies the receipts the cell wrote into
+# the destination directory, and exits with the flow's own status. `--probe` points it at a
+# fixture that models a wipe before every flow, which is how the per-flow pull is proven on
+# a host with no device at all.
+#
+# It is announced in the output when it is used, and the announcement is the point: a run
+# maestro did not drive is not a device result, and the line above the receipts is where a
+# reader decides that (P12 — a probe convenience must not be a quiet bypass).
 #
 # Requires: maestro, python3, and per platform xcrun or adb.
 
@@ -60,8 +95,9 @@ RECEIPT_ROOT=examples/ui-spec/receipts
 # halves of one example and neither is the harness, whose id ends in `.harness`.
 APP_ID=xyz.superfunction.spfn.example
 
-# Every cell of the table that a device runner drives. The floor below is stated as a
-# number rather than derived, so a table that lost its cells cannot lower its own bar.
+# Every cell of the table that a device runner drives, and every flow file that drives one.
+# The floor below is stated as a number rather than derived, so a table or a flow directory
+# that lost its entries cannot lower its own bar.
 EXPECTED_FLOOR=14
 
 WORK=$(mktemp -d)
@@ -75,6 +111,12 @@ pass()
 fail()
 {
     printf 'FAIL  %s\n' "$1"
+}
+
+die()
+{
+    printf '%s\n' "$1" >&2
+    exit 1
 }
 
 require()
@@ -111,6 +153,19 @@ for cell in table.get("cells", []):
     if cell.get("runner") == "both":
         print(cell["id"])
 CELLS
+}
+
+# The flow files, sorted, space separated. Refuses a directory holding fewer than the floor
+# rather than driving what it found: the loop below takes its work from this list, so a
+# list that shrank would quietly shrink the run and still reach the gate with a full table.
+flow_files()
+{
+    FOUND=$(find "$FLOWS" -name '*.yaml' | sort)
+    if [ "$(printf '%s' "$FOUND" | grep -c . || true)" -lt "$EXPECTED_FLOOR" ]
+    then
+        die "$FLOWS holds fewer than $EXPECTED_FLOOR flow files; the run would prove less than it claims"
+    fi
+    printf '%s' "$FOUND" | tr '\n' ' '
 }
 
 # The gate. Every cell of table $2 that claims a device runner left a receipt in $1.
@@ -155,16 +210,172 @@ receipt_gate()
 }
 
 # ---------------------------------------------------------------------------
-# --probe: the gate, driven against a fixture directory
+# Driving one cell
 # ---------------------------------------------------------------------------
-# Runs on any host, device or no device, because what it tests is the only part of this
-# script that decides anything. Three questions, and the middle one is the one that
-# matters: a receipt taken away has to turn a pass into a failure.
-probe()
-{
-    printf 'SPFN Mobile — the example cell receipt gate, probed\n\n'
-    PROBE_STATUS=0
 
+# Cell $1's receipts, off the device and into $2.
+#
+# Matched by the cell's own name rather than swept wholesale, because a receipt is that
+# cell's evidence and one carrying another cell's name is not it — that is what makes a
+# receipt prove the launch argument arrived, which the generated flows' own comment relies
+# on. Failure here is silent on purpose: this step collects, and what decides is the gate,
+# which counts what arrived and names every cell that brought nothing.
+pull_receipts()
+{
+    if [ "$PLATFORM" = ios ]
+    then
+        SOURCE=$CONTAINER/Documents/receipts
+    else
+        # The external files directory, which is the one an `adb pull` reaches without root
+        # and the one examples/android-compose/README.md names. Cleared before the pull:
+        # adb replaces nothing it does not find, so a cell whose wipe left no receipts
+        # directory at all would otherwise be judged against the cell before it.
+        rm -rf "$WORK/receipts"
+        adb -s "$TARGET" pull "/sdcard/Android/data/$APP_ID/files/receipts" "$WORK" \
+            > /dev/null 2>&1 || true
+        SOURCE=$WORK/receipts
+    fi
+    cp "$SOURCE"/receipt-"$1"-*.json "$2"/ 2> /dev/null || true
+}
+
+# One flow, then the pull, before the next flow's launch can wipe what it wrote. Answers
+# with the flow's own exit status. $FLOW_RUNNER stands in for both halves when set.
+drive_flow()
+{
+    if [ -n "$FLOW_RUNNER" ]
+    then
+        "$FLOW_RUNNER" "$1" "$2" "$3"
+        return $?
+    fi
+
+    FLOW_OUTCOME=0
+    maestro --device "$TARGET" test "$2" \
+        --format junit \
+        --output "$3/$1.xml" \
+        -e APP_ID="$APP_ID" \
+        > "$3/maestro-$1.log" 2>&1 || FLOW_OUTCOME=1
+    pull_receipts "$1" "$3"
+    return "$FLOW_OUTCOME"
+}
+
+# One line per cell carrying both facts. The verdict stays the receipt — the reason the
+# earlier run chose it stands, since a skipped flow is a passed flow to an exit code — and
+# the flow's status rides beside it so a cell that asserted everything and left nothing is
+# reported as exactly that rather than as a bare missing receipt.
+report_cell()
+{
+    if ls "$3"/receipt-"$1"-*.json > /dev/null 2>&1
+    then
+        RECEIPTS_PULLED=$((RECEIPTS_PULLED + 1))
+        if [ "$2" -eq 0 ]
+        then
+            pass "$1 — flow passed, receipt pulled"
+        else
+            pass "$1 — receipt pulled, but the flow itself failed; see $3/maestro-$1.log"
+        fi
+        return 0
+    fi
+
+    if [ "$2" -eq 0 ]
+    then
+        fail "$1 — flow passed and left NO receipt: it never reached its last step, or wrote another cell's name"
+    else
+        fail "$1 — flow failed and left no receipt; see $3/maestro-$1.log"
+    fi
+    return 1
+}
+
+# Section 3's loop: every flow driven and pulled on its own, receipts into $1.
+#
+# Answers non-zero when any flow failed. The receipts are judged by the gate afterwards and
+# not here, so that one loop cannot both collect the evidence and decide about it.
+collect_cells()
+{
+    CELLS_RUN=0
+    FLOWS_PASSED=0
+    RECEIPTS_PULLED=0
+    COLLECT_STATUS=0
+
+    for FLOW in $FLOW_FILES
+    do
+        CELL=$(basename "$FLOW" .yaml)
+        CELLS_RUN=$((CELLS_RUN + 1))
+        FLOW_STATE=0
+        drive_flow "$CELL" "$FLOW" "$1" || FLOW_STATE=1
+        if [ "$FLOW_STATE" -eq 0 ]
+        then
+            FLOWS_PASSED=$((FLOWS_PASSED + 1))
+        else
+            COLLECT_STATUS=1
+        fi
+        report_cell "$CELL" "$FLOW_STATE" "$1" || true
+    done
+
+    printf '      %s flows run, %s passed, %s receipts pulled\n' \
+        "$CELLS_RUN" "$FLOWS_PASSED" "$RECEIPTS_PULLED"
+    return "$COLLECT_STATUS"
+}
+
+# ---------------------------------------------------------------------------
+# --probe: the gate and the per-flow pull, driven against fixtures
+# ---------------------------------------------------------------------------
+# Runs on any host, device or no device, because what it tests is every part of this script
+# that decides anything. Four questions, and the last two are the ones that matter: a
+# receipt taken away has to turn a pass into a failure, and a wipe before every flow has to
+# cost the run everything if the pull waits until the end.
+
+# A stand-in for maestro and the pull, driving a "device" directory that every launch wipes
+# exactly as `launchApp: clearState: true` does. Every cell writes its receipt and exits 0;
+# the one named in $PROBE_SILENT_CELL wipes and writes nothing and exits 1, which is the
+# flow that failed before its last step — the shape that left the Mac's tree empty.
+write_fixture_runner()
+{
+    cat > "$WORK/fixture-runner.sh" <<'RUNNER'
+#!/bin/sh
+set -eu
+rm -rf "$PROBE_DEVICE"
+mkdir -p "$PROBE_DEVICE"
+if [ "$1" = "$PROBE_SILENT_CELL" ]
+then
+    exit 1
+fi
+printf '{"cell": "%s"}\n' "$1" > "$PROBE_DEVICE/receipt-$1-1756800000000.json"
+cp "$PROBE_DEVICE"/receipt-"$1"-*.json "$3"/
+RUNNER
+    chmod +x "$WORK/fixture-runner.sh"
+}
+
+# The receipts a full run of the fixture leaves under the two collection orders. $1 is
+# where the per-flow pull puts them; $2 is where one pull after the last flow would.
+run_fixture()
+{
+    mkdir -p "$1" "$2" "$PROBE_DEVICE"
+    FLOW_RUNNER=$WORK/fixture-runner.sh
+    collect_cells "$1" > "$WORK/collect.log" 2>&1 || true
+    FLOW_RUNNER=''
+
+    # The old spelling, and nothing more than it: whatever is still on the device once the
+    # last flow has run. Everything earlier is behind that flow's own wipe.
+    cp "$PROBE_DEVICE"/receipt-*.json "$2"/ 2> /dev/null || true
+}
+
+# How many receipts landed in $1. Counted over a glob rather than a listing, so a name
+# nothing expected is still one file and not two.
+receipt_count()
+{
+    COUNT=0
+    for RECEIPT in "$1"/receipt-*.json
+    do
+        if [ -f "$RECEIPT" ]
+        then
+            COUNT=$((COUNT + 1))
+        fi
+    done
+    printf '%s' "$COUNT"
+}
+
+probe_gate_cases()
+{
     mkdir -p "$WORK/receipts"
     for CELL in $(expected_cells "$CASES")
     do
@@ -202,6 +413,59 @@ probe()
     else
         pass 'a table with no cells fails the gate instead of reporting full coverage'
     fi
+}
+
+# The case this script was rewritten for. Same fixture, same fourteen flows, two collection
+# orders: the per-flow pull keeps every receipt but the one no flow wrote, and one pull
+# after the last flow keeps none of them at all.
+probe_pull_case()
+{
+    PROBE_DEVICE=$WORK/device
+    PROBE_SILENT_CELL=$(basename "$(printf '%s' "$FLOW_FILES" | awk '{print $NF}')" .yaml)
+    export PROBE_DEVICE PROBE_SILENT_CELL
+    write_fixture_runner
+    run_fixture "$WORK/per-flow" "$WORK/end-of-run"
+
+    WROTE=$(( $(printf '%s' "$FLOW_FILES" | wc -w) - 1 ))
+    if [ "$(receipt_count "$WORK/per-flow")" -eq "$WROTE" ]
+    then
+        pass "a pull after every flow keeps all $WROTE receipts the flows wrote"
+    else
+        fail "a pull after every flow kept $(receipt_count "$WORK/per-flow") receipts, not $WROTE"
+        PROBE_STATUS=1
+    fi
+
+    if [ "$(receipt_count "$WORK/end-of-run")" -eq 0 ]
+    then
+        pass 'one pull after the last flow keeps none of them — the 2026-09-03 tree'
+    else
+        fail "one pull after the last flow kept $(receipt_count "$WORK/end-of-run") receipts; the fixture models no wipe"
+        PROBE_STATUS=1
+    fi
+
+    # Both orders fail the gate here, and they have to fail it differently: the per-flow
+    # pull names the one cell that wrote nothing, the end-of-run pull names all fourteen.
+    receipt_gate "$WORK/per-flow" "$CASES" > "$WORK/per-flow.log" 2>&1 || true
+    receipt_gate "$WORK/end-of-run" "$CASES" > "$WORK/end-of-run.log" 2>&1 || true
+    if grep -q "cells with no receipt: $PROBE_SILENT_CELL\$" "$WORK/per-flow.log" \
+        && grep -q "0 of $EXPECTED_FLOOR cells left a receipt" "$WORK/end-of-run.log"
+    then
+        pass "the gate blames one cell after the per-flow pull and all $EXPECTED_FLOOR after the end-of-run pull"
+    else
+        fail 'the two collection orders did not reach the gate differently'
+        sed 's/^/      per-flow: /' "$WORK/per-flow.log"
+        sed 's/^/      end-of-run: /' "$WORK/end-of-run.log"
+        PROBE_STATUS=1
+    fi
+}
+
+probe()
+{
+    printf 'SPFN Mobile — the example cell receipt gate and per-flow pull, probed\n\n'
+    PROBE_STATUS=0
+
+    probe_gate_cases
+    probe_pull_case
 
     printf '\n'
     if [ "$PROBE_STATUS" -eq 0 ]
@@ -216,54 +480,65 @@ probe()
 # ---------------------------------------------------------------------------
 # The arguments
 # ---------------------------------------------------------------------------
-if [ "${1-}" = '--probe' ]
+PLATFORM=${1-}
+TARGET=''
+FLOW_RUNNER=''
+
+if [ "$PLATFORM" = '--probe' ]
 then
     require python3 'the case table is read with it; see expected_cells'
+    FLOW_FILES=$(flow_files)
     probe
 fi
 
-PLATFORM=${1-}
 case "$PLATFORM" in
     ios | android) shift ;;
     *)
-        printf 'usage: sh examples/ui-spec/run-cells.sh ios|android [--device <id>]\n' >&2
+        printf 'usage: sh examples/ui-spec/run-cells.sh ios|android [--device <id>] [--flow-runner <cmd>]\n' >&2
         printf '       sh examples/ui-spec/run-cells.sh --probe\n' >&2
         printf 'the platform is named rather than detected: a guessed platform is a guessed result.\n' >&2
         exit 1
         ;;
 esac
 
-TARGET=''
-if [ "${1-}" = '--device' ]
-then
-    TARGET=${2-}
-    if [ -z "$TARGET" ]
-    then
-        printf '--device needs a simulator udid or an adb serial.\n' >&2
-        exit 1
-    fi
-    shift 2
-fi
-if [ $# -gt 0 ]
-then
-    printf 'run-cells.sh does not understand: %s\n' "$*" >&2
-    exit 1
-fi
+while [ $# -gt 0 ]
+do
+    case "$1" in
+        --device)
+            TARGET=${2-}
+            [ -n "$TARGET" ] || die '--device needs a simulator udid or an adb serial.'
+            shift 2
+            ;;
+        --flow-runner)
+            FLOW_RUNNER=${2-}
+            [ -n "$FLOW_RUNNER" ] || die '--flow-runner needs a command; its contract is in the header of this file.'
+            shift 2
+            ;;
+        *)
+            die "run-cells.sh does not understand: $1"
+            ;;
+    esac
+done
 
 printf 'SPFN Mobile — the example cell run\n'
 printf 'root: %s\n' "$ROOT"
 printf 'platform: %s\n\n' "$PLATFORM"
 
 require python3 'the case table is read with it; see expected_cells'
-require maestro 'install it with: brew install mobile-dev-inc/tap/maestro'
+FLOW_FILES=$(flow_files)
 
 # ---------------------------------------------------------------------------
 printf '1. the target\n'
 # ---------------------------------------------------------------------------
 # One target or none. Two attached and no choice made is a result nobody can attribute to
 # a device, which is the rule tools/harness/run-harness.sh states at greater length.
-if [ "$PLATFORM" = ios ]
+if [ -n "$FLOW_RUNNER" ]
 then
+    pass "flows driven by $FLOW_RUNNER, not maestro — this run is not a device result"
+    TARGET='(none)'
+elif [ "$PLATFORM" = ios ]
+then
+    require maestro 'install it with: brew install mobile-dev-inc/tap/maestro'
     require xcrun
     if [ -z "$TARGET" ]
     then
@@ -279,6 +554,7 @@ then
     fi
     pass "iOS simulator $TARGET"
 else
+    require maestro 'install it with: brew install mobile-dev-inc/tap/maestro'
     require adb
     if [ -z "$TARGET" ]
     then
@@ -314,6 +590,7 @@ printf '\n2. the warm-up\n'
 #
 # With no fixture the app installs no fake service and reaches nothing: it draws its
 # unconfigured root, whose readouts are the ones waited for here.
+WARM_UP_LOG="$RUN_DIRECTORY/warm-up.log"
 cat > "$WORK/warm-up.yaml" <<WARMUP
 appId: \${APP_ID}
 name: warm-up
@@ -327,79 +604,51 @@ name: warm-up
     timeout: 120000
 WARMUP
 
-if maestro --device "$TARGET" test "$WORK/warm-up.yaml" -e APP_ID="$APP_ID" \
-    > "$WORK/warm-up.log" 2>&1
+if [ -n "$FLOW_RUNNER" ]
+then
+    pass 'skipped: there is no app to warm up when maestro is not driving'
+elif maestro --device "$TARGET" test "$WORK/warm-up.yaml" -e APP_ID="$APP_ID" \
+    > "$WARM_UP_LOG" 2>&1
 then
     pass 'the app launched and drew its root readout'
 else
     fail 'the app never drew a root readout, so no cell can be driven'
     fail "is $APP_ID installed? this script installs nothing — see this file's header"
-    sed 's/^/      /' "$WORK/warm-up.log" | tail -20
+    # Three lines, not the whole trace. A maestro failure prints its own stack, and the
+    # hundred lines of that buried the two lines above — which are the ones that say what
+    # to do — the last time this fired.
+    sed -n '1,3p' "$WARM_UP_LOG" | sed 's/^/      /'
+    printf '      full log: %s\n' "$WARM_UP_LOG"
     exit 1
 fi
 
 # ---------------------------------------------------------------------------
-printf '\n3. the flows\n'
+printf '\n3. the flows, one at a time\n'
 # ---------------------------------------------------------------------------
-# ONE maestro invocation for every flow, not one per flow: maestro reinstalls and
-# relaunches its driver on every start, and that setup was most of the time each flow took
-# when the harness measured it. What it costs is the per-flow exit code, which section 4
-# recovers from the receipts — better evidence than an exit code, since a receipt is
-# written by the flow's own last step.
-REPORT="$RUN_DIRECTORY/report.xml"
-FLOW_FILES=$(find "$FLOWS" -name '*.yaml' | sort | tr '\n' ' ')
-if [ -z "$(printf '%s' "$FLOW_FILES" | tr -d ' ')" ]
+# Each flow driven and then pulled, because the next flow's launch wipes the store this
+# one's receipt is in — see this file's header for the run that measured it.
+if [ "$PLATFORM" = ios ] && [ -z "$FLOW_RUNNER" ]
 then
-    fail "no flow files under $FLOWS; nothing would be run and the run would report nothing"
-    exit 1
-fi
-
-FLOW_STATUS=0
-# shellcheck disable=SC2086
-maestro --device "$TARGET" test $FLOW_FILES \
-    --format junit \
-    --output "$REPORT" \
-    -e APP_ID="$APP_ID" \
-    > "$RUN_DIRECTORY/maestro.log" 2>&1 || FLOW_STATUS=1
-
-if [ "$FLOW_STATUS" -eq 0 ]
-then
-    pass 'maestro reported every flow passing'
-else
-    fail 'maestro reported at least one flow failing; section 4 names which'
-fi
-printf '      report: %s\n' "$REPORT"
-
-# ---------------------------------------------------------------------------
-printf '\n4. the receipts\n'
-# ---------------------------------------------------------------------------
-# Pulled off the device into this run's own directory, which is where they stay: unlike
-# the harness's, these receipts outlive the run, because the case table is a claim about
-# two platforms and the receipts are what a reader checks it against.
-if [ "$PLATFORM" = ios ]
-then
+    # Looked up once. clearState empties the container but does not move it: the Mac run on
+    # 2026-09-03 read `Documents/` out of this same path after fourteen of them.
     CONTAINER=$(xcrun simctl get_app_container "$TARGET" "$APP_ID" data 2> /dev/null || true)
     if [ -z "$CONTAINER" ]
     then
         fail "$APP_ID has no data container on $TARGET, so it was never installed or never ran"
         exit 1
     fi
-    SOURCE="$CONTAINER/Documents/receipts"
-else
-    # The external files directory, which is the one an `adb pull` reaches without root
-    # and the one examples/android-compose/README.md names.
-    SOURCE="$WORK/pulled"
-    mkdir -p "$SOURCE"
-    adb -s "$TARGET" pull "/sdcard/Android/data/$APP_ID/files/receipts" "$SOURCE" \
-        > /dev/null 2>&1 || true
 fi
 
-find "$SOURCE" -name 'receipt-*.json' -exec cp {} "$RUN_DIRECTORY/" \; 2> /dev/null || true
-pass "receipts collected into $RUN_DIRECTORY"
+FLOW_STATUS=0
+collect_cells "$RUN_DIRECTORY" || FLOW_STATUS=1
 
 # ---------------------------------------------------------------------------
-printf '\n5. every cell really ran\n'
+printf '\n4. every cell really ran\n'
 # ---------------------------------------------------------------------------
+# Unchanged by the rewrite above: the cells the table claims a device runner for, against
+# the receipts that reached this run's own directory, which is where they stay. Unlike the
+# harness's, these receipts outlive the run, because the case table is a claim about two
+# platforms and the receipts are what a reader checks it against.
 RECEIPT_STATUS=0
 receipt_gate "$RUN_DIRECTORY" "$CASES" || RECEIPT_STATUS=1
 
@@ -410,11 +659,6 @@ if [ "$FLOW_STATUS" -eq 0 ] && [ "$RECEIPT_STATUS" -eq 0 ]
 then
     printf 'RESULT: PASS\n'
     exit 0
-fi
-if [ "$FLOW_STATUS" -ne 0 ]
-then
-    printf '  --    maestro output:\n'
-    sed 's/^/      /' "$RUN_DIRECTORY/maestro.log" | tail -40
 fi
 printf 'RESULT: FAIL\n'
 exit 1

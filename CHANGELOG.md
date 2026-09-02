@@ -21,15 +21,32 @@ Entries under an unreleased heading describe repository state, not shipped softw
   wait is now 45 s while every later wait stays at 20 s, and `run-cells.sh` launches the
   app once with no fixture and waits for its root readout before any cell runs, so the
   cold start is paid outside the table.
+- **A per-flow `clearState` wipes the receipt the flow before it wrote.** On an
+  iPhone 17 Pro simulator on 2026-09-03, `run-cells.sh ios` drove all fourteen flows under
+  one maestro, nine passed, and the gate then reported `0 of 14 cells left a receipt`:
+  `Documents/` was there and `Documents/receipts` was not. Every generated flow opens with
+  `launchApp: clearState: true`, which empties the app's whole store — the data container
+  on iOS, `pm clear` plus `/sdcard/Android/data/<pkg>/files` on Android — so each cell's
+  first step deleted the previous cell's evidence and a single pull at the end collected
+  what survived the last wipe. An in-app receipt and one end-of-run pull cannot both be
+  right; `run-cells.sh` now runs one `maestro test` per flow and pulls that cell's receipt
+  before the next launch. `tools/harness/run-harness.sh` is untouched: it derives its
+  per-case verdict host-side from the JUnit report and never had the problem. Registered as
+  `docs/IMPLEMENTATION-PITFALLS.md` P23.
 - **`examples/ui-spec/run-cells.sh <ios|android>` runs the example cells**, in
   `tools/harness/run-harness.sh`'s shape and with its rule: it builds and installs nothing
-  — the two commands per platform are in its header — runs every flow in one maestro
-  invocation on the named device (`--device`), pulls the receipts off it, and fails unless
-  every cell whose runner is `both` left one. Receipts and the Maestro report land in
-  `examples/ui-spec/receipts/<platform>/<date>/`, gitignored but for a `.keep`.
-  `--probe` proves the gate bites with no device at all: a full fixture directory passes,
-  one receipt removed fails, and a table with no cells refuses to run rather than reporting
-  full coverage.
+  — the two commands per platform are in its header — runs each flow on its own against
+  the named device (`--device`), pulls that cell's receipt off it before the next flow's
+  launch, and fails unless every cell whose runner is `both` left one. Each cell's line
+  carries its flow's exit status beside that verdict, because a flow that failed and a flow
+  that passed and left nothing are two faults with two fixes. Receipts and the per-cell
+  Maestro reports land in `examples/ui-spec/receipts/<platform>/<date>/`, gitignored but
+  for a `.keep`. `--probe` proves the gate bites with no device at all — a full fixture
+  directory passes, one receipt removed fails, and a table with no cells refuses to run
+  rather than reporting full coverage — and proves the per-flow pull matters, by running
+  one fixture that wipes before every flow through both collection orders: pulling per
+  flow keeps 13 of 14, pulling once at the end keeps none. `--flow-runner <cmd>` is the
+  seam it drives, and a run that used it says so in its own output.
 - **A `Modal` flow covers its host on Android as well.** `spfn-ui`'s `FlowHost` draws a
   modal flow as an opaque, touch-tight cover filling everything the host gave it, where
   before it rendered inline under the host's own content while the same flow covered the

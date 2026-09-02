@@ -41,8 +41,13 @@ else it could carry.
 `run-cells.sh` builds and installs nothing — those two commands are yours, and its own
 header carries them — and it fails unless every cell whose runner is `both` left a receipt
 behind. It launches the app once with no fixture first, so the slow first draw after an
-install or a wipe is paid as a warm-up rather than reported as a failed cell. Receipts and
-the Maestro report land in `examples/ui-spec/receipts/android/<date>/`.
+install or a wipe is paid as a warm-up rather than reported as a failed cell. It then
+drives the cells **one at a time**, pulling each cell's receipt off the device before the
+next flow starts, because every flow opens with `clearState: true` — which on Android is a
+`pm clear` that takes the external files directory, and the receipt in it, with it. Each
+cell's line carries both facts, its flow's exit status and whether its receipt arrived, so
+a cell that asserted everything and still left nothing is reported as that. Receipts and
+the per-cell Maestro reports land in `examples/ui-spec/receipts/android/<date>/`.
 `sh examples/ui-spec/run-cells.sh --probe` proves the receipt gate bites and needs no
 device.
 
