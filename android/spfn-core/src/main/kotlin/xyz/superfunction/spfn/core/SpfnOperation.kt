@@ -190,6 +190,28 @@ object SpfnDecoding
         return value.value;
     }
 
+    /**
+     * An optional boolean: absent and null both read as nothing.
+     *
+     * Its own reader rather than [boolean] with a fallback, for the reason every other
+     * `optional*` above exists: a default would turn "the server said nothing" into
+     * "the server said false", and the first field to need this — an approved device
+     * poll's `passwordChangeRequired`, absent on the pending branch — is one where the
+     * two readings are a login rule apart.
+     */
+    fun optionalBoolean(value: SpfnCanonicalValue?, path: String): Boolean?
+    {
+        if (value == null || value is SpfnCanonicalValue.Null)
+        {
+            return null;
+        }
+        if (value !is SpfnCanonicalValue.Bool)
+        {
+            throw SpfnDecodingException("TYPE_MISMATCH", "expected boolean at $path");
+        }
+        return value.value;
+    }
+
     fun array(value: SpfnCanonicalValue?, path: String): List<SpfnCanonicalValue>
     {
         if (value == null || value is SpfnCanonicalValue.Null)

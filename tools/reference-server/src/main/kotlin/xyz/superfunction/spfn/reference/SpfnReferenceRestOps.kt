@@ -59,6 +59,43 @@ class SpfnReferenceRestRefusal(val code: String, val httpStatus: Int, val messag
             501,
             "this reference fixture does not implement that operation"
         )
+
+        // ---- the device-code flow's four refusals -------------------------------
+        //
+        // These four ARE contract codes, unlike the three above, and their statuses are
+        // the ones the bundle declares. They are built here rather than in
+        // SpfnReferenceRefusal because that type carries only the six clientProofV1
+        // codes and its header forbids a seventh; these belong to the REST surface, and
+        // both device operations that answer them are unproven ones the six could never
+        // describe.
+
+        /** The code passed its TTL, whatever state it was in. */
+        fun deviceAuthExpired(): SpfnReferenceRestRefusal =
+            SpfnReferenceRestRefusal("DeviceAuthExpiredError", 400, "the device code has expired")
+
+        /** The account owner refused this device, so it stops polling rather than timing out. */
+        fun deviceAuthDenied(): SpfnReferenceRestRefusal =
+            SpfnReferenceRestRefusal("DeviceAuthDeniedError", 403, "the device request was denied")
+
+        /**
+         * The code names no record this operation can act on — never issued, or already
+         * spent. The two answer alike on purpose, so a guess that landed cannot be told
+         * from one that did not.
+         */
+        fun deviceAuthNotFound(): SpfnReferenceRestRefusal =
+            SpfnReferenceRestRefusal("DeviceAuthNotFoundError", 404, "no device request under that code")
+
+        /** A decision on a device is made once, and this is also what the loser of two is told. */
+        fun deviceAuthAlreadyHandled(): SpfnReferenceRestRefusal =
+            SpfnReferenceRestRefusal("DeviceAuthAlreadyHandledError", 409, "the device request was already answered")
+
+        /** The parked key names a keyId this server already holds a registration for. */
+        fun keyIdAlreadyRegistered(): SpfnReferenceRestRefusal =
+            SpfnReferenceRestRefusal("KeyIdAlreadyRegisteredError", 409, "that keyId is already registered")
+
+        /** The fingerprint is not the SHA-256 of the public key the same request carried. */
+        fun invalidKeyFingerprint(): SpfnReferenceRestRefusal =
+            SpfnReferenceRestRefusal("InvalidKeyFingerprintError", 400, "fingerprint is not the SHA-256 of publicKey")
     }
 }
 

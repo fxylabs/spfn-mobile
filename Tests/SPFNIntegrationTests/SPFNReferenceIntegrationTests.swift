@@ -10,6 +10,15 @@
 //   (d) a request replayed byte for byte is refused
 //   (e) a timeout and a cancellation both work while a real server is holding the call
 //
+// Contract 0.10.0 adds the device-code flow, which needs two SDKs at once — one waiting
+// and one approving — and so is five more:
+//   (f) enrollment, a proof, a rotation and the new key's proof
+//   (g) a waiting device is approved from a device already signed in, and can then prove
+//   (h) a denial ends the wait, over the contract's one bodyless operation
+//   (i) an expired code ends the wait locally, before the server is asked
+//   (j) a second approval of one code is refused
+//   (k) an approval nobody proved is refused by admission
+//
 // Every case records a receipt. `sh tools/reference-server/run-integration.sh` checks the
 // receipts afterwards, so this suite skipping — which XCTest reports as success — is
 // turned into a failure by the runner rather than being read as a pass.
@@ -251,6 +260,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
             transport: fixture.transport,
             store: store,
             baseURL: fixture.environment.baseURL,
+            proofClock: fixture.proofClock,
             makeKey: { SPFNCustodyKey.generate(keyID: $0, preferSecureEnclave: false) }
         )
 
@@ -310,6 +320,379 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         try fixture.environment.record("swift-f")
     }
 
+    // MARK: - The device-code flow: two SDKs, one code
+    //
+    // Every case here runs SDK A (waiting, with a fresh store) and SDK B (already signed
+    // in, the approver) against one server. A's entry point blocks until somebody
+    // answers, so it runs in its own task and the case does B's half in between — which
+    // is exactly the shape the flow has in life.
+
+    /// Case g, the happy path: A shows a code, B recognises the device by its fingerprint
+    /// prefix and approves, A's next poll lands the approval, and A can then prove with
+    /// the key that approval registered — and rotate it, because a key enrolled this way
+    /// has to be indistinguishable from one `enroll()` produced.
+    func testCaseGAWaitingDeviceIsApprovedAndCanThenProveAndRotate() async throws
+    {
+        let fixture = try await Fixture.start()
+        try skipUnlessRestOps("g")
+
+        let approver = try await enrolApprover(fixture, userID: "user-swift-g-0001")
+        let waiting = waitingDevice(fixture)
+        let shown = ShownCode()
+
+        let signIn = Self.startSignIn(waiting.lifecycle, showing: shown)
+        let userCode = await shown.value()
+
+        // B looks before it decides: the answer names the device that is waiting, and the
+        // prefix is over A's real public key rather than over anything B chose.
+        let described = try await approver.execute(Calls.deviceInfo, request: SPFNDeviceAuthInfoRequest(userCode: userCode))
+        XCTAssertEqual(described.deviceName, Self.deviceName)
+        XCTAssertEqual(
+            described.fingerprintPrefix,
+            String(SPFNDigest.sha256Hex(try XCTUnwrap(waiting.mintedPublicKey())).prefix(Self.fingerprintPrefixLength))
+        )
+
+        let approved = try await approver.execute(
+            Calls.deviceApprove,
+            request: SPFNApproveDeviceAuthRequest(userCode: userCode)
+        )
+        XCTAssertEqual(approved.deviceName, Self.deviceName, "approve answers with the device it just let in")
+
+        let settled = try await signIn.value
+        XCTAssertEqual(settled.clientID, approver.clientID, "the approver's account is the one A joined")
+        XCTAssertEqual(settled.keyID, waiting.keyID)
+        XCTAssertFalse(settled.passwordChangeRequired)
+        let state = try await waiting.lifecycle.state()
+        XCTAssertEqual(state, .enrolled)
+
+        let loaded = try await waiting.lifecycle.activeProvider()
+        let provider = try XCTUnwrap(loaded)
+        let echoed = try await fixture.client(signingWith: provider).execute(
+            Calls.echo,
+            request: SPFNEchoRequest(message: "approved key proves", sequence: 71)
+        )
+        XCTAssertEqual(echoed.message, "approved key proves")
+
+        // A record this flow saved must be one every other lifecycle path accepts.
+        let rotated = try await waiting.lifecycle.rotate()
+        XCTAssertEqual(rotated.clientID, approver.clientID)
+        XCTAssertNotEqual(rotated.keyID, settled.keyID)
+        let loadedNew = try await waiting.lifecycle.activeProvider()
+        let rotatedEcho = try await fixture.client(signingWith: try XCTUnwrap(loadedNew)).execute(
+            Calls.echo,
+            request: SPFNEchoRequest(message: "rotated after device sign-in", sequence: 72)
+        )
+        XCTAssertEqual(rotatedEcho.message, "rotated after device sign-in")
+
+        try fixture.environment.record("swift-g")
+    }
+
+    /// Case h, the denial — and the end-to-end proof of the contract's one bodyless
+    /// operation: `deny` answers 204 with an empty body, the SDK decodes that as the unit
+    /// value, and A ends holding no key at all.
+    func testCaseHADenialEndsTheWaitAndLeavesNoKey() async throws
+    {
+        let fixture = try await Fixture.start()
+        try skipUnlessRestOps("h")
+
+        let approver = try await enrolApprover(fixture, userID: "user-swift-h-0001")
+        let waiting = waitingDevice(fixture)
+        let shown = ShownCode()
+
+        let signIn = Self.startSignIn(waiting.lifecycle, showing: shown)
+        let userCode = await shown.value()
+
+        let denied = try await approver.execute(Calls.deviceDeny, request: SPFNDenyDeviceAuthRequest(userCode: userCode))
+        XCTAssertEqual(denied, SPFNNoResponse.value, "a bodyless operation answers with the unit value")
+
+        do
+        {
+            _ = try await signIn.value
+            XCTFail("a denied device must not enroll")
+        }
+        catch SPFNClientError.server(let refusal)
+        {
+            XCTAssertEqual(refusal.code, .deviceAuthDeniedError)
+        }
+        let state = try await waiting.lifecycle.state()
+        XCTAssertEqual(state, .unenrolled)
+        let provider = try await waiting.lifecycle.activeProvider()
+        XCTAssertNil(provider, "a refused device keeps no key")
+
+        try fixture.environment.record("swift-h")
+    }
+
+    /// Case i, expiry: the wait ends on A's own deadline before the server is asked, and a
+    /// poll sent by hand afterwards is what shows the server would have refused it too.
+    ///
+    /// A's sleeper is injected here and nowhere else in this file. The case has to advance
+    /// the server's clock while A is between two polls, and racing a real wait would make
+    /// the assertion "no poll was sent" true or false by scheduling. A's proof clock is
+    /// injected for the same reason it exists: the shipped process clock anchors once and
+    /// then runs on this machine's monotonic source, which cannot follow a server clock a
+    /// test moved fifteen minutes forward.
+    func testCaseIAnExpiredCodeEndsTheWaitBeforeTheServerIsAsked() async throws
+    {
+        let fixture = try await Fixture.start()
+        try skipUnlessRestOps("i")
+        try skipUnlessTestClock()
+
+        let clockMoved = Gate()
+        let waiting = waitingDevice(
+            fixture,
+            sleeper: GatedSleeper(gate: clockMoved),
+            proofClock: ServerSampledProofClock()
+        )
+
+        let shown = ShownCode()
+        let signIn = Self.startSignIn(waiting.lifecycle, showing: shown)
+        _ = await shown.value()
+
+        guard try await fixture.control.advanceClock(millis: Self.expiryAdvanceMillis)
+        else
+        {
+            signIn.cancel()
+            return XCTFail(
+                "case i was expected to run but the target's clock cannot be moved; "
+                    + "run without SPFN_INTEGRATION_TEST_CLOCK=1 when the target is on the wall clock"
+            )
+        }
+        await clockMoved.open()
+
+        do
+        {
+            _ = try await signIn.value
+            XCTFail("an expired code must not enroll")
+        }
+        catch
+        {
+            XCTAssertEqual(error as? SPFNKeyLifecycleError, .deviceCodeExpired, "the expiry is A's own judgment")
+        }
+        let polls = await waiting.transport.pollCount()
+        XCTAssertEqual(polls, 0, "no poll was sent for a code A knows is dead")
+        let state = try await waiting.lifecycle.state()
+        XCTAssertEqual(state, .unenrolled)
+
+        // And the server's own answer, on a code this case parks by hand: the two ends
+        // agree that an expired record is refused rather than kept waiting on.
+        let parked = try await fixture.client.execute(
+            Calls.deviceStart,
+            request: Self.startRequest(keyID: "key-swift-i-0002", publicKeySpkiDer: Self.freshKeySpkiDer())
+        )
+        _ = try await fixture.control.advanceClock(millis: Self.expiryAdvanceMillis)
+        do
+        {
+            _ = try await fixture.client.execute(
+                Calls.devicePoll,
+                request: SPFNPollDeviceAuthRequest(deviceCode: parked.deviceCode)
+            )
+            XCTFail("the server must refuse an expired code")
+        }
+        catch SPFNClientError.server(let refusal)
+        {
+            XCTAssertEqual(refusal.code, .deviceAuthExpiredError)
+        }
+
+        try fixture.environment.record("swift-i")
+    }
+
+    /// Case j: a decision on a device is made once, and the second approval is told so.
+    func testCaseJASecondApprovalOfOneCodeIsRefused() async throws
+    {
+        let fixture = try await Fixture.start()
+        try skipUnlessRestOps("j")
+
+        let approver = try await enrolApprover(fixture, userID: "user-swift-j-0001")
+        let waiting = waitingDevice(fixture)
+        let shown = ShownCode()
+
+        let signIn = Self.startSignIn(waiting.lifecycle, showing: shown)
+        let userCode = await shown.value()
+
+        _ = try await approver.execute(Calls.deviceApprove, request: SPFNApproveDeviceAuthRequest(userCode: userCode))
+        do
+        {
+            _ = try await approver.execute(Calls.deviceApprove, request: SPFNApproveDeviceAuthRequest(userCode: userCode))
+            XCTFail("a second approval must be refused")
+        }
+        catch SPFNClientError.server(let refusal)
+        {
+            XCTAssertEqual(refusal.code, .deviceAuthAlreadyHandledError)
+        }
+
+        let settled = try await signIn.value
+        XCTAssertEqual(settled.clientID, approver.clientID, "the first approval still stands")
+
+        try fixture.environment.record("swift-j")
+    }
+
+    /// Case k: `approve` is the one call that binds an account, so it is the one that has
+    /// to be proved. Sent through the transport rather than the client, because the SDK
+    /// cannot be talked into sending a proven operation unproven — which is itself the
+    /// point, and is why this is asserted against the server instead.
+    func testCaseKAnApprovalNobodyProvedIsRefusedByAdmission() async throws
+    {
+        let fixture = try await Fixture.start()
+        try skipUnlessRestOps("k")
+
+        let approver = try await enrolApprover(fixture, userID: "user-swift-k-0001")
+        let waiting = waitingDevice(fixture)
+        let shown = ShownCode()
+
+        let signIn = Self.startSignIn(waiting.lifecycle, showing: shown)
+        let userCode = await shown.value()
+
+        let operation = SPFNGeneratedOperations.authDeviceApprove
+        let unproven = try await fixture.transport.execute(
+            SPFNTransportRequest(
+                method: operation.method,
+                url: fixture.environment.baseURL + operation.path,
+                headers: [("content-type", "application/json")],
+                body: SPFNCanonicalJSON.encode(try SPFNApproveDeviceAuthRequest(userCode: userCode).canonicalValue()),
+                timeoutMillis: 5_000
+            )
+        )
+        XCTAssertGreaterThanOrEqual(unproven.statusCode, 400, "an unproven approval must not be applied")
+        let envelope = try SPFNErrorEnvelope.decode(try SPFNCanonicalJSON.parse(unproven.body))
+        XCTAssertEqual(envelope.code, "CONTRACT_UNSUPPORTED")
+
+        // The record was not touched, which the approval that still works proves.
+        _ = try await approver.execute(Calls.deviceApprove, request: SPFNApproveDeviceAuthRequest(userCode: userCode))
+        let settled = try await signIn.value
+        XCTAssertEqual(settled.clientID, approver.clientID)
+
+        try fixture.environment.record("swift-k")
+    }
+
+    // MARK: - What the five device cases are built out of
+
+    /// SDK B: a device already signed in, which is who approves.
+    private struct Approver
+    {
+        let clientID: String
+        let client: SPFNClient
+
+        func execute<Request, Response>(
+            _ call: SPFNCall<Request, Response>,
+            request: Request
+        ) async throws -> Response
+        {
+            try await client.execute(call, request: request)
+        }
+    }
+
+    /// SDK A: the waiting device, with its own store, minted keys and counted transport.
+    private struct WaitingDevice
+    {
+        let lifecycle: SPFNKeyLifecycle
+        let keyID: String
+        let transport: CountingTransport
+        let minted: MintedKeys
+
+        /// A's public key before the approval lands. There is no record to read it from
+        /// until then, so the mint is recorded as it happens.
+        func mintedPublicKey() -> [UInt8]?
+        {
+            minted.firstPublicKeySpkiDer
+        }
+    }
+
+    private func enrolApprover(_ fixture: Fixture, userID: String) async throws -> Approver
+    {
+        let lifecycle = SPFNKeyLifecycle(
+            transport: fixture.transport,
+            store: IntegrationKeyStore(),
+            baseURL: fixture.environment.baseURL,
+            proofClock: fixture.proofClock,
+            makeKey: { SPFNCustodyKey.generate(keyID: $0, preferSecureEnclave: false) }
+        )
+        let enrolled = try await lifecycle.enroll(provider: "google")
+        { nonce in
+            "spfn-test-idtoken.google.\(userID).\(nonce.requestValue)"
+        }
+        let loaded = try await lifecycle.activeProvider()
+        let provider = try XCTUnwrap(loaded)
+        return Approver(clientID: enrolled.clientID, client: fixture.client(signingWith: provider))
+    }
+
+    private func waitingDevice(
+        _ fixture: Fixture,
+        sleeper: any SPFNSleeper = SPFNTaskSleeper(),
+        proofClock: (any SPFNProofClock)? = nil
+    ) -> WaitingDevice
+    {
+        let keyID = "key-\(UUID().uuidString.lowercased())"
+        let minted = MintedKeys()
+        let transport = CountingTransport(fixture.transport)
+        let lifecycle = SPFNKeyLifecycle(
+            transport: transport,
+            store: IntegrationKeyStore(),
+            baseURL: fixture.environment.baseURL,
+            proofClock: proofClock ?? fixture.proofClock,
+            sleeper: sleeper,
+            // The first key is the named one, so a case can talk about the key it parked;
+            // every later one is fresh, because a rotation that reused the id would mint
+            // its candidate over the old key's own name.
+            newKeyID: { minted.nextKeyID(first: keyID) },
+            makeKey: { minted.record(SPFNCustodyKey.generate(keyID: $0, preferSecureEnclave: false)) }
+        )
+        return WaitingDevice(lifecycle: lifecycle, keyID: keyID, transport: transport, minted: minted)
+    }
+
+    private static func startRequest(keyID: String, publicKeySpkiDer: [UInt8]) -> SPFNStartDeviceAuthRequest
+    {
+        SPFNStartDeviceAuthRequest(
+            publicKey: Data(publicKeySpkiDer).base64EncodedString(),
+            keyId: keyID,
+            fingerprint: SPFNDigest.sha256Hex(publicKeySpkiDer),
+            algorithm: .es256,
+            deviceName: deviceName,
+            platform: .ios
+        )
+    }
+
+    private static func freshKeySpkiDer() -> [UInt8]
+    {
+        SPFNCustodyKey.generate(keyID: "key-swift-probe", preferSecureEnclave: false).publicKeySpkiDer
+    }
+
+    /// The device cases need the `/_auth` surface. In process it is always there; against
+    /// a named target it is not, so the run says which it has and a case that cannot be
+    /// arranged skips loudly rather than asserting something weaker.
+    private func skipUnlessRestOps(_ caseLetter: String) throws
+    {
+        guard ProcessInfo.processInfo.environment["SPFN_INTEGRATION_REST_OPS"] == "1"
+        else
+        {
+            let reason = "SPFN integration case \(caseLetter) SKIPPED: SPFN_INTEGRATION_REST_OPS is not set, "
+                + "so the target is assumed to carry only the dev three-operation surface."
+            print(reason)
+            throw XCTSkip(reason)
+        }
+    }
+
+    /// Case i additionally needs a clock a test may move, which a launched server has not.
+    private func skipUnlessTestClock() throws
+    {
+        guard ProcessInfo.processInfo.environment["SPFN_INTEGRATION_TEST_CLOCK"] == "1"
+        else
+        {
+            let reason = "SPFN integration case i SKIPPED: the target runs on the wall clock, "
+                + "so an expired device code cannot be arranged."
+            print(reason)
+            throw XCTSkip(reason)
+        }
+    }
+
+    /// The label the waiting device gives itself; display only, nothing is authorized by it.
+    private static let deviceName = "Swift waiting device"
+
+    /// Past any device code's TTL, so the record is expired whatever state it is in.
+    private static let expiryAdvanceMillis: Int64 = 900_000
+
+    /// Upstream `KEY_FINGERPRINT_PREFIX_LENGTH`, which is what the approver is shown.
+    private static let fingerprintPrefixLength = 8
+
     // MARK: - Fixture
 
     /// One SDK client pointed at the running reference server, with the server reset.
@@ -318,6 +701,17 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         let environment: SPFNIntegrationEnvironment
         let control: SPFNReferenceControlClient
         let transport: any SPFNTransport
+
+        /// One `SPFNProcessServerClock` per fixture, and never `.shared`.
+        ///
+        /// The shipped clock anchors once per instance: it fetches `core.time` on its
+        /// first read and afterwards derives time from this machine's monotonic source.
+        /// Case i moves the launched server's clock fifteen minutes forward, so an anchor
+        /// taken before that is fifteen minutes behind afterwards — and a process-wide
+        /// anchor is taken by whichever case ran first and then kept for every case after
+        /// it. A fresh instance per fixture re-anchors after any move, so each case is
+        /// signing against the server time its own case really sees.
+        let proofClock: SPFNProcessServerClock
         let session: SPFNSession
         let client: SPFNClient
 
@@ -337,6 +731,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
             }
 
             let transport = SPFNURLSessionTransport()
+            let proofClock = SPFNProcessServerClock()
             let session = SPFNSession(
                 transport: transport,
                 keyProvider: try SPFNSoftwareKeyProvider(
@@ -345,12 +740,14 @@ final class SPFNReferenceIntegrationTests: XCTestCase
                     privateKeyDer: [UInt8](privateKeyDer)
                 ),
                 baseURL: environment.baseURL,
+                clock: proofClock,
                 timeoutMillis: timeoutMillis
             )
             return Fixture(
                 environment: environment,
                 control: control,
                 transport: transport,
+                proofClock: proofClock,
                 session: session,
                 client: SPFNClient(transport: transport, session: session, timeoutMillis: timeoutMillis)
             )
@@ -364,6 +761,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
                 transport: transport,
                 keyProvider: provider,
                 baseURL: environment.baseURL,
+                clock: proofClock,
                 timeoutMillis: timeoutMillis
             )
             return SPFNClient(transport: transport, session: signingSession, timeoutMillis: timeoutMillis)
@@ -402,6 +800,41 @@ final class SPFNReferenceIntegrationTests: XCTestCase
     /// The call descriptors the contract generator does not emit yet.
     private enum Calls
     {
+        // The approver's three. Decision 4: no SDK wrapper — an app reaches them through
+        // the generated descriptors and `execute`, exactly as it reaches
+        // `auth.keys.revoke`, and these are what that costs.
+
+        static let deviceInfo = SPFNCall<SPFNDeviceAuthInfoRequest, SPFNDeviceAuthInfoResponse>(
+            operation: SPFNGeneratedOperations.authDeviceInfo,
+            encode: { try $0.canonicalValue() },
+            decode: { try SPFNDeviceAuthInfoResponse(canonical: $0) }
+        )
+
+        static let deviceApprove = SPFNCall<SPFNApproveDeviceAuthRequest, SPFNDeviceAuthInfoResponse>(
+            operation: SPFNGeneratedOperations.authDeviceApprove,
+            encode: { try $0.canonicalValue() },
+            decode: { try SPFNDeviceAuthInfoResponse(canonical: $0) }
+        )
+
+        /// The contract's one bodyless operation: built through the factory, never by hand.
+        static let deviceDeny = SPFNCall<SPFNDenyDeviceAuthRequest, SPFNNoResponse>.noResponse(
+            operation: SPFNGeneratedOperations.authDeviceDeny,
+            encode: { try $0.canonicalValue() }
+        )
+
+        /// The waiting side's two, for the one case that has to send them by hand.
+        static let deviceStart = SPFNCall<SPFNStartDeviceAuthRequest, SPFNStartDeviceAuthResponse>(
+            operation: SPFNGeneratedOperations.authDeviceStart,
+            encode: { try $0.canonicalValue() },
+            decode: { try SPFNStartDeviceAuthResponse(canonical: $0) }
+        )
+
+        static let devicePoll = SPFNCall<SPFNPollDeviceAuthRequest, SPFNPollDeviceAuthResponse>(
+            operation: SPFNGeneratedOperations.authDevicePoll,
+            encode: { try $0.canonicalValue() },
+            decode: { try SPFNPollDeviceAuthResponse(canonical: $0) }
+        )
+
         static let echo = SPFNCall<SPFNEchoRequest, SPFNEchoResponse>(
             operation: SPFNGeneratedOperations.echoSend,
             encode: { try $0.canonicalValue() },
@@ -413,5 +846,200 @@ final class SPFNReferenceIntegrationTests: XCTestCase
             encode: { try $0.canonicalValue() },
             decode: { try SPFNListItemsResponse(canonical: $0) }
         )
+    }
+
+    /// Starts the waiting device's sign-in as its own task. A helper rather than an inline
+    /// `Task { ... }` with a trailing closure, which the Swift 6.2 region-isolation checker
+    /// refuses to analyse ("pattern that the region based isolation checker does not
+    /// understand how to check").
+    private static func startSignIn(
+        _ lifecycle: SPFNKeyLifecycle,
+        showing shown: ShownCode
+    ) -> Task<SPFNDeviceCodeEnrollmentResult, any Error>
+    {
+        Task
+        {
+            try await lifecycle.enrollByDeviceCode(
+                deviceName: Self.deviceName,
+                showCode: { code, _ in shown.record(code) }
+            )
+        }
+    }
+}
+
+// MARK: - What the device cases inject
+
+/// What the `showCode` callback was handed, and a way to wait for it.
+///
+/// The callback is synchronous — the SDK calls it the moment `start` answers and does not
+/// wait for it — so this cannot be an actor: it is a lock plus the continuations of
+/// whoever asked for the code before it existed.
+final class ShownCode: @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var code: String?
+    private var waiting: [CheckedContinuation<String, Never>] = []
+
+    func record(_ userCode: String)
+    {
+        lock.lock()
+        code = userCode
+        let pending = waiting
+        waiting = []
+        lock.unlock()
+        for continuation in pending
+        {
+            continuation.resume(returning: userCode)
+        }
+    }
+
+    func value() async -> String
+    {
+        await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+            lock.lock()
+            if let code
+            {
+                lock.unlock()
+                continuation.resume(returning: code)
+                return
+            }
+            waiting.append(continuation)
+            lock.unlock()
+        }
+    }
+}
+
+/// A one-shot gate: `wait()` returns once `open()` has been called, whichever order the
+/// two happen in. Case i needs the waiting device to be provably between two polls before
+/// the clock moves, and a sleep would be a race the case loses half the time.
+actor Gate
+{
+    private var opened = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func open()
+    {
+        opened = true
+        for continuation in waiting
+        {
+            continuation.resume()
+        }
+        waiting = []
+    }
+
+    func wait() async
+    {
+        guard !opened
+        else
+        {
+            return
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            waiting.append(continuation)
+        }
+    }
+}
+
+/// A wait that ends when a case says so rather than when a duration elapses.
+struct GatedSleeper: SPFNSleeper
+{
+    let gate: Gate
+
+    func sleep(millis _: Int64) async throws
+    {
+        await gate.wait()
+    }
+}
+
+/// Counts what one SDK sent, by path.
+///
+/// Case i asserts that a device whose code expired sent no poll at all, and "no request"
+/// is only assertable per client: the fixture's transport is shared with the approver,
+/// which is busy sending its own.
+actor CountingTransport: SPFNTransport
+{
+    private let delegate: any SPFNTransport
+    private var urls: [String] = []
+
+    init(_ delegate: any SPFNTransport)
+    {
+        self.delegate = delegate
+    }
+
+    func pollCount() -> Int
+    {
+        urls.filter { $0.hasSuffix(SPFNGeneratedOperations.authDevicePoll.path) }.count
+    }
+
+    func execute(_ request: SPFNTransportRequest) async throws -> SPFNTransportResponse
+    {
+        urls.append(request.url)
+        return try await delegate.execute(request)
+    }
+}
+
+/// The keys one waiting device minted, in order.
+///
+/// On this platform a parked key is a value inside the call that made it, so a case that
+/// has to know the waiting device's public half before the approval lands records the
+/// mint as it happens rather than reading a record that does not exist yet.
+final class MintedKeys: @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var keys: [SPFNCustodyKey] = []
+    private var issued = 0
+
+    func nextKeyID(first: String) -> String
+    {
+        lock.lock()
+        defer { lock.unlock() }
+        issued += 1
+        return issued == 1 ? first : "key-\(UUID().uuidString.lowercased())"
+    }
+
+    @discardableResult
+    func record(_ key: SPFNCustodyKey) -> SPFNCustodyKey
+    {
+        lock.lock()
+        defer { lock.unlock() }
+        keys.append(key)
+        return key
+    }
+
+    var firstPublicKeySpkiDer: [UInt8]?
+    {
+        lock.lock()
+        defer { lock.unlock() }
+        return keys.first?.publicKeySpkiDer
+    }
+}
+
+/// A proof clock that asks the server every time.
+///
+/// The shipped process clock anchors once and then runs on this machine's monotonic
+/// source, which is right in life and wrong for the one case that moves the server's
+/// clock fifteen minutes forward: the anchor would not follow, and the device would judge
+/// its deadline against a server time that stopped being true. Sampling per call is what
+/// the Android suite gets for free from an in-process server whose test clock is also its
+/// monotonic source.
+struct ServerSampledProofClock: SPFNProofClock
+{
+    func nowMillis(
+        transport: any SPFNTransport,
+        baseURL: String,
+        timeoutMillis: Int64
+    ) async throws -> Int64
+    {
+        let operation = SPFNGeneratedOperations.coreTime
+        let response = try await transport.execute(
+            SPFNTransportRequest(
+                method: operation.method,
+                url: baseURL + operation.path,
+                headers: [],
+                body: nil,
+                timeoutMillis: timeoutMillis
+            )
+        )
+        return try SPFNServerTimeResponse(canonical: try SPFNCanonicalJSON.parse(response.body)).serverTimeMillis
     }
 }

@@ -24,12 +24,21 @@ import xyz.superfunction.spfn.client.SpfnProofClock
 import xyz.superfunction.spfn.client.SpfnSession
 import xyz.superfunction.spfn.client.SpfnSystemClock
 import xyz.superfunction.spfn.client.SpfnTransport
+import xyz.superfunction.spfn.core.SpfnNoResponse
+import xyz.superfunction.spfn.generated.SpfnApproveDeviceAuthRequest
+import xyz.superfunction.spfn.generated.SpfnDenyDeviceAuthRequest
+import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoRequest
+import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoResponse
 import xyz.superfunction.spfn.generated.SpfnEchoRequest
 import xyz.superfunction.spfn.generated.SpfnEchoResponse
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import xyz.superfunction.spfn.generated.SpfnListItemsRequest
 import xyz.superfunction.spfn.generated.SpfnListItemsResponse
+import xyz.superfunction.spfn.generated.SpfnPollDeviceAuthRequest
+import xyz.superfunction.spfn.generated.SpfnPollDeviceAuthResponse
 import xyz.superfunction.spfn.generated.SpfnServerTimeResponse
+import xyz.superfunction.spfn.generated.SpfnStartDeviceAuthRequest
+import xyz.superfunction.spfn.generated.SpfnStartDeviceAuthResponse
 import java.util.concurrent.TimeUnit
 
 /** The call descriptors the three operations need, spelled out once. */
@@ -45,6 +54,41 @@ object SpfnReferenceCalls
         operation = SpfnGeneratedOperations.itemsList,
         encode = { request -> request.canonicalValue() },
         decode = { value -> SpfnListItemsResponse.decode(value) }
+    )
+
+    // The approver's three calls. Decision 4: no SDK wrapper — an app reaches them
+    // through the generated descriptors and `execute`, exactly as it reaches
+    // `auth.keys.revoke`, and these three lines are what that costs.
+
+    val deviceInfo: SpfnCall<SpfnDeviceAuthInfoRequest, SpfnDeviceAuthInfoResponse> = SpfnCall(
+        operation = SpfnGeneratedOperations.authDeviceInfo,
+        encode = { request -> request.canonicalValue() },
+        decode = { value -> SpfnDeviceAuthInfoResponse.decode(value) }
+    )
+
+    val deviceApprove: SpfnCall<SpfnApproveDeviceAuthRequest, SpfnDeviceAuthInfoResponse> = SpfnCall(
+        operation = SpfnGeneratedOperations.authDeviceApprove,
+        encode = { request -> request.canonicalValue() },
+        decode = { value -> SpfnDeviceAuthInfoResponse.decode(value) }
+    )
+
+    /** The contract's one bodyless operation: built through the factory, never by hand. */
+    val deviceDeny: SpfnCall<SpfnDenyDeviceAuthRequest, SpfnNoResponse> = SpfnCall.noResponse(
+        operation = SpfnGeneratedOperations.authDeviceDeny,
+        encode = { request -> request.canonicalValue() }
+    )
+
+    /** The waiting side's two, for the one case that has to send them by hand. */
+    val deviceStart: SpfnCall<SpfnStartDeviceAuthRequest, SpfnStartDeviceAuthResponse> = SpfnCall(
+        operation = SpfnGeneratedOperations.authDeviceStart,
+        encode = { request -> request.canonicalValue() },
+        decode = { value -> SpfnStartDeviceAuthResponse.decode(value) }
+    )
+
+    val devicePoll: SpfnCall<SpfnPollDeviceAuthRequest, SpfnPollDeviceAuthResponse> = SpfnCall(
+        operation = SpfnGeneratedOperations.authDevicePoll,
+        encode = { request -> request.canonicalValue() },
+        decode = { value -> SpfnPollDeviceAuthResponse.decode(value) }
     )
 }
 
@@ -87,7 +131,7 @@ private class SpfnReferenceMode(
             return SpfnReferenceMode(
                 local = server,
                 baseUrl = server.baseUrl,
-                control = SpfnInProcessControl(server.server.state),
+                control = SpfnInProcessControl(server.server.state, server.clock),
                 expectedServerTimeMillis = SpfnReferenceTestClock.DEFAULT_START_MILLIS,
                 clientClock = SpfnClock { SpfnReferenceTestClock.DEFAULT_START_MILLIS },
                 // The in-process server deliberately freezes time so expiry tests can
@@ -273,6 +317,15 @@ class SpfnIntegrationSoftwareEngine : xyz.superfunction.spfn.client.SpfnKeystore
     }
 
     override fun publicKeySpkiDer(alias: String): ByteArray? = keys[alias]?.public?.encoded
+
+    /**
+     * The public half of the one key this engine holds.
+     *
+     * What a case needs when it has to know the waiting device's key before that device
+     * is enrolled: until the approval lands there is no record and no provider to ask,
+     * and the alias naming rule is the lifecycle's business rather than a test's.
+     */
+    fun onlyPublicKeySpkiDer(): ByteArray = keys.values.single().public.encoded
 
     override fun signDer(alias: String, message: ByteArray): ByteArray
     {

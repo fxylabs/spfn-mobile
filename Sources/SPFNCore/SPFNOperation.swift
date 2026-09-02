@@ -255,6 +255,28 @@ public enum SPFNDecoding
         return flag
     }
 
+    /// An optional boolean: absent and null both read as nothing.
+    ///
+    /// Its own reader rather than `boolean` with a fallback, for the reason every other
+    /// `optional*` above exists: a default would turn "the server said nothing" into
+    /// "the server said false", and the first field to need this — an approved device
+    /// poll's `passwordChangeRequired`, absent on the pending branch — is one where the
+    /// two readings are a login rule apart.
+    public static func optionalBoolean(_ value: SPFNCanonicalValue?, at path: String) throws -> Bool?
+    {
+        guard let value, value != .null
+        else
+        {
+            return nil
+        }
+        guard case .bool(let flag) = value
+        else
+        {
+            throw SPFNDecodingError.typeMismatch(path: path, expected: "boolean")
+        }
+        return flag
+    }
+
     public static func array(_ value: SPFNCanonicalValue?, at path: String) throws -> [SPFNCanonicalValue]
     {
         guard let value, value != .null

@@ -2,6 +2,8 @@ package xyz.superfunction.spfn.harness
 
 import android.app.Activity
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import java.io.IOException
 import kotlin.coroutines.cancellation.CancellationException
 import xyz.superfunction.spfn.client.SpfnAndroidKeystoreEngine
@@ -13,6 +15,10 @@ import xyz.superfunction.spfn.client.SpfnKeystoreKeyProvider
 import xyz.superfunction.spfn.client.SpfnSession
 import xyz.superfunction.spfn.client.SpfnSharedPreferencesKeyMetadataStore
 import xyz.superfunction.spfn.client.SpfnCall
+import xyz.superfunction.spfn.generated.SpfnApproveDeviceAuthRequest
+import xyz.superfunction.spfn.generated.SpfnDenyDeviceAuthRequest
+import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoRequest
+import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoResponse
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import xyz.superfunction.spfn.generated.SpfnListKeysRequest
 import xyz.superfunction.spfn.generated.SpfnListKeysResponse
@@ -77,7 +83,35 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
     var receipt: String = "none"
         private set;
 
+    /**
+     * The code this device is showing while it waits to be approved, or `none`.
+     *
+     * Written by the SDK's `showCode` callback and by nothing else. It is cleared when the
+     * wait ends however it ends: a code still on screen after the wait is over is a code
+     * somebody would type into the other phone for nothing.
+     */
+    var deviceCode: String = "none"
+        private set;
+
+    /** When that code stops being usable, so the screen can count down to it, or null. */
+    var deviceCodeExpiresAtMillis: Long? = null
+        private set;
+
+    /**
+     * The code a person typed on THIS device to approve another one. Its own field rather
+     * than the one above: one is shown by this device and the other is read off a
+     * different screen, and a single field would let a device approve itself.
+     */
+    var approverCode: String = ""
+        private set;
+
+    /** Set by the screen: what to run on the main thread once a code is on the model. */
+    var onDeviceCodeShown: () -> Unit = {};
+
     private val transport = HarnessTransport();
+
+    /** Where anything that ends up on screen has to be written from. */
+    private val mainThread = Handler(Looper.getMainLooper());
 
     /**
      * The application context, not the Activity: a receipt store outlives no screen, and
@@ -162,6 +196,71 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
     suspend fun wipe() = run {
         lifecycle.wipe();
         "wiped";
+    };
+
+    // ---- the device-code flow ----------------------------------------------
+
+    fun setApproverCode(value: String)
+    {
+        approverCode = value;
+    }
+
+    /**
+     * Signs this device in with a code somebody approves elsewhere.
+     *
+     * The callback is called once, as soon as the server answers, and it arrives on
+     * whatever dispatcher this action is running on — the IO one, here, because that is
+     * where [perform] puts every action. The SDK switches to no dispatcher of its own, so
+     * an app that draws from the callback gets itself to the main thread; this one posts.
+     */
+    suspend fun signInWithACode() = run {
+        try
+        {
+            val settled = lifecycle.enrollByDeviceCode(deviceName = DEVICE_NAME)
+            { userCode, expiresAtMillis ->
+                mainThread.post {
+                    // Exactly as the server spelled it. The server folds case, spaces and
+                    // dashes on the way back in, so nothing here reformats what a person
+                    // is about to read out.
+                    deviceCode = userCode;
+                    deviceCodeExpiresAtMillis = expiresAtMillis;
+                    onDeviceCodeShown();
+                };
+            };
+            "signed-in:${settled.keyId}";
+        }
+        finally
+        {
+            // However the wait ended, the code on screen is spent.
+            mainThread.post {
+                deviceCode = "none";
+                deviceCodeExpiresAtMillis = null;
+                onDeviceCodeShown();
+            };
+        }
+    };
+
+    /**
+     * The approver's three calls, reached through the generated descriptors and `execute`
+     * — the SDK wraps none of them, exactly as it wraps no revocation.
+     */
+    suspend fun describeWaitingDevice() = run {
+        val described = client(activeProviderOrThrow())
+            .execute(Calls.deviceInfo, SpfnDeviceAuthInfoRequest(approverCode));
+        "info:${described.deviceName ?: "unnamed"}:${described.fingerprintPrefix}";
+    };
+
+    suspend fun approveWaitingDevice() = run {
+        val approved = client(activeProviderOrThrow())
+            .execute(Calls.deviceApprove, SpfnApproveDeviceAuthRequest(approverCode));
+        "approved:${approved.fingerprintPrefix}";
+    };
+
+    suspend fun denyWaitingDevice() = run {
+        // The answer is 204 with no body, so there is nothing to report but that it
+        // applied — which is what the unit value the SDK returns means.
+        client(activeProviderOrThrow()).execute(Calls.deviceDeny, SpfnDenyDeviceAuthRequest(approverCode));
+        "denied";
     };
 
     /**
@@ -362,5 +461,32 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
             encode = { request: SpfnRevokeKeyRequest -> request.canonicalValue() },
             decode = { canonical -> SpfnRevokeKeyResponse.decode(canonical) }
         );
+
+        val deviceInfo = SpfnCall(
+            operation = SpfnGeneratedOperations.authDeviceInfo,
+            encode = { request: SpfnDeviceAuthInfoRequest -> request.canonicalValue() },
+            decode = { canonical -> SpfnDeviceAuthInfoResponse.decode(canonical) }
+        );
+
+        val deviceApprove = SpfnCall(
+            operation = SpfnGeneratedOperations.authDeviceApprove,
+            encode = { request: SpfnApproveDeviceAuthRequest -> request.canonicalValue() },
+            decode = { canonical -> SpfnDeviceAuthInfoResponse.decode(canonical) }
+        );
+
+        /** The contract's one bodyless operation: built through the factory, never by hand. */
+        val deviceDeny = SpfnCall.noResponse(
+            operation = SpfnGeneratedOperations.authDeviceDeny,
+            encode = { request: SpfnDenyDeviceAuthRequest -> request.canonicalValue() }
+        );
+    }
+
+    private companion object
+    {
+        /**
+         * The label this device gives itself to the approver. Display only, and a
+         * constant: the SDK reads nothing from the OS, and neither does this.
+         */
+        const val DEVICE_NAME = "SPFN Android harness"
     }
 }

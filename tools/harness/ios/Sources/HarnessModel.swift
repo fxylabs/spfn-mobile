@@ -50,6 +50,22 @@ final class HarnessModel: ObservableObject
     /// sleeping for a guessed number of seconds.
     @Published private(set) var busy = false
 
+    /// The code this device is showing while it waits to be approved, or `none`.
+    ///
+    /// Written by the SDK's `showCode` callback and by nothing else. It is cleared when
+    /// the wait ends however it ends: a code still on screen after the wait is over is a
+    /// code somebody would type into the other phone for nothing.
+    @Published private(set) var deviceCode = "none"
+
+    /// When that code stops being usable, so the screen can count down to it. Nil when no
+    /// code is showing.
+    @Published private(set) var deviceCodeExpiresAtMillis: Int64?
+
+    /// The code a person typed on THIS device to approve another one. Its own field
+    /// rather than the one above: one is shown by this device and the other is read off a
+    /// different screen, and a single field would let a device approve itself.
+    @Published var approverCode = ""
+
     /// The provider whose button must be showing a spinner, or nil.
     ///
     /// `busy` cannot answer this. It is true for any of the twelve actions on the screen,
@@ -469,6 +485,92 @@ final class HarnessModel: ObservableObject
         }
     }
 
+    // MARK: - The device-code flow
+
+    /// Signs this device in with a code somebody approves elsewhere.
+    ///
+    /// The callback is called once, as soon as the server answers, and this model is a
+    /// `@MainActor` type — so the hop onto the main actor is written here rather than
+    /// assumed. The SDK switches to no executor of its own: it calls back on whatever the
+    /// caller was running on, which is what lets an app decide where its own drawing
+    /// happens.
+    func signInWithACode() async
+    {
+        await run
+        {
+            let settled = try await self.lifecycle.enrollByDeviceCode(deviceName: Self.deviceName)
+            { userCode, expiresAtMillis in
+                Task { @MainActor in self.showCode(userCode, expiresAtMillis: expiresAtMillis) }
+            }
+            return "signed-in:\(settled.keyID)"
+        }
+        // However the wait ended, the code on screen is spent.
+        deviceCode = "none"
+        deviceCodeExpiresAtMillis = nil
+    }
+
+    private func showCode(_ userCode: String, expiresAtMillis: Int64)
+    {
+        // Exactly as the server spelled it. The server folds case, spaces and dashes on
+        // the way back in, so nothing here reformats what a person is about to read out.
+        deviceCode = userCode
+        deviceCodeExpiresAtMillis = expiresAtMillis
+    }
+
+    /// The approver's three calls, reached through the generated descriptors and
+    /// `execute` — the SDK wraps none of them, exactly as it wraps no revocation.
+    func describeWaitingDevice() async
+    {
+        await run
+        {
+            let described = try await self.approverClient().execute(
+                Calls.deviceInfo,
+                request: SPFNDeviceAuthInfoRequest(userCode: self.approverCode)
+            )
+            return "info:\(described.deviceName ?? "unnamed"):\(described.fingerprintPrefix)"
+        }
+    }
+
+    func approveWaitingDevice() async
+    {
+        await run
+        {
+            let approved = try await self.approverClient().execute(
+                Calls.deviceApprove,
+                request: SPFNApproveDeviceAuthRequest(userCode: self.approverCode)
+            )
+            return "approved:\(approved.fingerprintPrefix)"
+        }
+    }
+
+    func denyWaitingDevice() async
+    {
+        await run
+        {
+            // The answer is 204 with no body, so there is nothing to report but that it
+            // applied — which is what the unit value the SDK returns means.
+            _ = try await self.approverClient().execute(
+                Calls.deviceDeny,
+                request: SPFNDenyDeviceAuthRequest(userCode: self.approverCode)
+            )
+            return "denied"
+        }
+    }
+
+    private func approverClient() async throws -> SPFNClient
+    {
+        guard let provider = try await lifecycle.activeProvider()
+        else
+        {
+            throw HarnessError.noActiveKey
+        }
+        return client(signingWith: provider)
+    }
+
+    /// The label this device gives itself to the approver. Display only, and a constant:
+    /// the SDK reads nothing from the OS, and neither does this.
+    private static let deviceName = "SPFN iOS harness"
+
     /// Which custody this device actually gives a client key.
     ///
     /// Generated through the same call and the same default `SPFNKeyLifecycle` uses for
@@ -587,6 +689,24 @@ final class HarnessModel: ObservableObject
             operation: SPFNGeneratedOperations.authKeysRevoke,
             encode: { try $0.canonicalValue() },
             decode: { try SPFNRevokeKeyResponse(canonical: $0) }
+        )
+
+        static let deviceInfo = SPFNCall<SPFNDeviceAuthInfoRequest, SPFNDeviceAuthInfoResponse>(
+            operation: SPFNGeneratedOperations.authDeviceInfo,
+            encode: { try $0.canonicalValue() },
+            decode: { try SPFNDeviceAuthInfoResponse(canonical: $0) }
+        )
+
+        static let deviceApprove = SPFNCall<SPFNApproveDeviceAuthRequest, SPFNDeviceAuthInfoResponse>(
+            operation: SPFNGeneratedOperations.authDeviceApprove,
+            encode: { try $0.canonicalValue() },
+            decode: { try SPFNDeviceAuthInfoResponse(canonical: $0) }
+        )
+
+        /// The contract's one bodyless operation: built through the factory, never by hand.
+        static let deviceDeny = SPFNCall<SPFNDenyDeviceAuthRequest, SPFNNoResponse>.noResponse(
+            operation: SPFNGeneratedOperations.authDeviceDeny,
+            encode: { try $0.canonicalValue() }
         )
     }
 }

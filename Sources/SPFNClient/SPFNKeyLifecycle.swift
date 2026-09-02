@@ -24,6 +24,12 @@
 // a well-formed old-key proof failing verification means the old key is gone — which is
 // what a completed rotation looks like from the outside.
 //
+// Device-code enrollment adds no state to that machine. The key it parks and the device
+// code it polls with live in this call's own frame for as long as the call runs, and the
+// install stays `unenrolled` until the approval is saved — so a process death, a
+// cancellation or any refusal leaves nothing behind to resume, which is exactly the
+// difference between it and a rotation.
+//
 // android/spfn-client/.../SpfnKeyLifecycle.kt is the same machine in Kotlin.
 
 import Foundation
@@ -63,6 +69,60 @@ public struct SPFNEnrollmentResult: Equatable, Sendable
     }
 }
 
+/// What a device-code enrollment settled.
+///
+/// Its own type rather than `SPFNEnrollmentResult`: the two flows answer with different
+/// facts. A social enrollment learns whether the account was created just now; a device
+/// approval learns whether the account it joined is owed a password change. Neither
+/// question has an answer on the other path, and one type carrying both would be a type
+/// where half the fields are always meaningless.
+///
+/// `publicId`, `email` and `phone` reach the client on the approved poll and are not
+/// carried here: the lifecycle owns keys, and an account's profile is the app's to read
+/// through its own operations.
+public struct SPFNDeviceCodeEnrollmentResult: Equatable, Sendable
+{
+    /// The key owner's identity — the approved poll's `userId`, which is what every
+    /// proof's `clientId` must equal from now on (the contract's `clientIdRule`).
+    public let clientID: String
+
+    /// The key this flow parked and the approval registered. This SDK's own identifier,
+    /// minted before `auth.device.start` was sent.
+    public let keyID: String
+
+    /// The login rule the account carries, exactly as the approved poll stated it.
+    public let passwordChangeRequired: Bool
+
+    public init(clientID: String, keyID: String, passwordChangeRequired: Bool)
+    {
+        self.clientID = clientID
+        self.keyID = keyID
+        self.passwordChangeRequired = passwordChangeRequired
+    }
+}
+
+/// How the wait between two polls is spent.
+///
+/// A seam for the same reason the clock is one: the device-code flow's only observable
+/// timing rule is "wait exactly what the server asked for", and a suite that really
+/// waited five seconds per poll could not assert it in a unit test.
+public protocol SPFNSleeper: Sendable
+{
+    func sleep(millis: Int64) async throws
+}
+
+/// The default sleeper. `Task.sleep` is cancellation-aware, which is what makes a
+/// cancelled wait stop at the wait rather than at the next request.
+public struct SPFNTaskSleeper: SPFNSleeper
+{
+    public init() {}
+
+    public func sleep(millis: Int64) async throws
+    {
+        try await Task.sleep(nanoseconds: UInt64(max(0, millis)) * 1_000_000)
+    }
+}
+
 /// Everything the lifecycle refuses on its own, before or instead of the network.
 public enum SPFNKeyLifecycleError: Error, Equatable, Sendable
 {
@@ -98,6 +158,12 @@ public enum SPFNKeyLifecycleError: Error, Equatable, Sendable
     /// A record exists but its key cannot be opened on this device. Re-enrollment is
     /// the only way forward.
     case keyUnloadable
+
+    /// The device code reached the `expiresAtMillis` the `start` answer named before
+    /// anyone approved it, judged on the proof clock. The wait ends here rather than at
+    /// the server's own refusal: a client that polled past the expiry it was told would
+    /// be asking about a code it already knows is dead.
+    case deviceCodeExpired
 }
 
 /// Owns the key slots and drives enrollment and rotation over the execute path.
@@ -116,6 +182,7 @@ public actor SPFNKeyLifecycle
     private let clock: any SPFNClock
     private let proofClock: any SPFNProofClock
     private let nonceGenerator: any SPFNNonceGenerator
+    private let sleeper: any SPFNSleeper
     private let timeoutMillis: Int64
     private let newKeyID: @Sendable () -> String
     private let makeKey: @Sendable (String) -> SPFNCustodyKey
@@ -137,6 +204,7 @@ public actor SPFNKeyLifecycle
         clock: any SPFNClock = SPFNSystemClock(),
         proofClock: any SPFNProofClock = SPFNProcessServerClock.shared,
         nonceGenerator: any SPFNNonceGenerator = SPFNRandomNonceGenerator(),
+        sleeper: any SPFNSleeper = SPFNTaskSleeper(),
         timeoutMillis: Int64 = 15_000,
         newKeyID: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() },
         makeKey: @escaping @Sendable (String) -> SPFNCustodyKey = { SPFNCustodyKey.generate(keyID: $0) }
@@ -148,6 +216,7 @@ public actor SPFNKeyLifecycle
         self.clock = clock
         self.proofClock = proofClock
         self.nonceGenerator = nonceGenerator
+        self.sleeper = sleeper
         self.timeoutMillis = timeoutMillis
         self.newKeyID = newKeyID
         self.makeKey = makeKey
@@ -290,6 +359,239 @@ public actor SPFNKeyLifecycle
             slot: Self.activeSlot
         )
         return SPFNEnrollmentResult(clientID: response.userId, keyID: key.keyID, isNewUser: response.isNewUser)
+    }
+
+    // MARK: - M8: enrollment by device code
+
+    /// Enrolls this device by showing a code somebody approves on a device already
+    /// signed in — the contract's `deviceAuthorization` flow, from the waiting side.
+    ///
+    /// One call, for the same reason `enroll` is one: the key has to exist before
+    /// `auth.device.start` can park it, the code the user reads names that parked key,
+    /// and an approval nobody comes back to collect would strand a key nobody
+    /// registered. Owning the whole wait is what lets this destroy it.
+    ///
+    /// `showCode` is called exactly once, immediately after `start` answers, with the
+    /// code as the server spelled it (`XXXX-XXXX` — the server folds case, spaces and
+    /// dashes on the way back in, so nothing here reformats it) and the instant it
+    /// expires. It is called on whatever executor the caller's task is running on; this
+    /// SDK switches to no thread of its own, so an app that must draw from the main
+    /// thread hops there itself.
+    ///
+    /// The rules, in the order they are enforced (M8):
+    ///
+    ///   1. The state checks and the in-flight claim are `enroll`'s, and the claim is
+    ///      the same flag: a device-code enrollment and a social one cannot both be
+    ///      running, because both would register a key while the store still reads
+    ///      `unenrolled`.
+    ///   2. The `start` body is exact: the public key as SPKI DER base64, the minted
+    ///      keyId, the fingerprint as the SHA-256 of the SPKI DER in lowercase base16,
+    ///      the literal algorithm name, this build's client kind as the platform, and
+    ///      the caller's `deviceName` when it gave one. Nothing is read off the OS.
+    ///   3. The wait obeys the server: `intervalMillis` from `start`, then from each
+    ///      `pending`. There is no client-side default and no backoff. A `pending`
+    ///      answer is not a failure; every refusal the contract marks retryable — one
+    ///      today, `TooManyRequestsError` — and every lost response are asked again
+    ///      after that same interval, and everything else ends the wait.
+    ///   4. The deadline is `start`'s `expiresAtMillis` judged on the proof clock, the
+    ///      one `core.time` synchronised. The device's own wall clock never enters it,
+    ///      and a lost `core.time` fetch is a lost poll: it costs the same interval and
+    ///      is asked again, so the deadline is judged when the clock answers.
+    ///   5. Every exit that is not an approval destroys the key, cancellation included.
+    ///      No fourth lifecycle state exists: until the approval is saved this install
+    ///      is `unenrolled`, and a process death leaves it that way.
+    public func enrollByDeviceCode(
+        deviceName: String? = nil,
+        showCode: @Sendable (_ userCode: String, _ expiresAtMillis: Int64) -> Void
+    ) async throws -> SPFNDeviceCodeEnrollmentResult
+    {
+        switch try state()
+        {
+        case .enrolled:
+            throw SPFNKeyLifecycleError.alreadyEnrolled
+        case .rotationPending:
+            throw SPFNKeyLifecycleError.rotationUnresolved
+        case .unenrolled:
+            break
+        }
+        // Claimed before the first `await`, so the check above and this claim are one
+        // indivisible step from any other call's point of view — including `enroll`'s.
+        guard !enrollmentInFlight
+        else
+        {
+            throw SPFNKeyLifecycleError.enrollmentInFlight
+        }
+        enrollmentInFlight = true
+        defer { enrollmentInFlight = false }
+
+        // The key exists only as this local until the approval is saved. Every throw
+        // below therefore destroys it by dropping it, and the install stays unenrolled;
+        // the Android counterpart deletes a Keystore alias at the same points.
+        let key = makeKey(newKeyID())
+        let fingerprint = SPFNDigest.sha256Hex(key.publicKeySpkiDer)
+
+        let started = try await client(signingWith: nil).execute(
+            Self.deviceStartCall,
+            request: SPFNStartDeviceAuthRequest(
+                publicKey: Data(key.publicKeySpkiDer).base64EncodedString(),
+                keyId: key.keyID,
+                fingerprint: fingerprint,
+                algorithm: Self.algorithmName,
+                deviceName: deviceName,
+                platform: Self.platform
+            )
+        )
+        showCode(started.userCode, started.expiresAtMillis)
+
+        let approved = try await awaitApproval(
+            deviceCode: started.deviceCode,
+            expiresAtMillis: started.expiresAtMillis,
+            intervalMillis: try Self.waitMillis(started.intervalMillis)
+        )
+
+        // Saved exactly as `enroll` saves it, so a key this flow enrolled is a key
+        // `rotate` can replace and `activeProvider` can sign with.
+        try store.save(
+            key.record(clientID: approved.clientID, createdAtMillis: clock.nowMillis()),
+            slot: Self.activeSlot
+        )
+        return SPFNDeviceCodeEnrollmentResult(
+            clientID: approved.clientID,
+            keyID: key.keyID,
+            passwordChangeRequired: approved.passwordChangeRequired
+        )
+    }
+
+    /// What an approved poll settled, before the key it belongs to is saved.
+    private struct SPFNDeviceApproval
+    {
+        let clientID: String
+        let passwordChangeRequired: Bool
+    }
+
+    /// The wait: sleep the interval, judge the deadline, poll, read the answer.
+    ///
+    /// The deadline is checked between the sleep and the request rather than after it,
+    /// so a code that expired while this device was waiting costs no request at all.
+    ///
+    /// Two things can be lost inside one iteration and both cost the same interval: the
+    /// clock read and the poll. On a fresh install the first iteration's clock read is a
+    /// real `core.time` request, and a network that dropped it says exactly as much about
+    /// the code as a network that dropped the poll one line below — nothing.
+    private func awaitApproval(
+        deviceCode: String,
+        expiresAtMillis: Int64,
+        intervalMillis: Int64
+    ) async throws -> SPFNDeviceApproval
+    {
+        var waitMillis = intervalMillis
+        while true
+        {
+            try await sleeper.sleep(millis: waitMillis)
+
+            guard let now = try await clockNow()
+            else
+            {
+                continue
+            }
+            guard now < expiresAtMillis
+            else
+            {
+                throw SPFNKeyLifecycleError.deviceCodeExpired
+            }
+
+            guard let answer = try await pollOnce(deviceCode: deviceCode)
+            else
+            {
+                continue
+            }
+
+            // The branch is read from `status` and never from which fields arrived: the
+            // contract's `pollStatusRule` states that every field but the discriminant
+            // is optional because it belongs to one branch, so guessing from presence
+            // would be reading a shape nothing declared.
+            switch answer.status
+            {
+            case .pending:
+                waitMillis = try Self.waitMillis(answer.intervalMillis)
+            case .approved:
+                guard let clientID = answer.userId, let passwordChangeRequired = answer.passwordChangeRequired
+                else
+                {
+                    throw SPFNClientError.decoding(.notTheDeclaredResponse)
+                }
+                return SPFNDeviceApproval(clientID: clientID, passwordChangeRequired: passwordChangeRequired)
+            }
+        }
+    }
+
+    /// The proof clock, or nil for the one failure that means "ask again after the
+    /// interval".
+    ///
+    /// A lost `core.time` fetch is not an answer about the device code, so it does not
+    /// end the wait and destroy the key: it waits and reads again, and the deadline is
+    /// judged when the clock finally answers. Only the transport failure is retried.
+    /// A refusal to synchronize at all — an untrusted base URL, a contract with no usable
+    /// clock operation — is the same on every retry and ends the wait, and cancellation
+    /// is the caller withdrawing and is rethrown as itself.
+    private func clockNow() async throws -> Int64?
+    {
+        do
+        {
+            return try await proofClock.nowMillis(
+                transport: transport,
+                baseURL: baseURL,
+                timeoutMillis: timeoutMillis
+            )
+        }
+        catch SPFNClockSynchronizationError.requestFailed
+        {
+            return nil
+        }
+    }
+
+    /// One poll, or nil for the two answers that mean "ask again after the interval".
+    ///
+    /// A lost response is one of them: the poll applies nothing, so re-sending it cannot
+    /// apply anything twice — which is why this operation may be retried where the
+    /// execute path retries nothing. A cancelled call is not a lost one and is rethrown
+    /// as itself, because the caller withdrawing is not a network failure.
+    private func pollOnce(deviceCode: String) async throws -> SPFNPollDeviceAuthResponse?
+    {
+        do
+        {
+            return try await client(signingWith: nil).execute(
+                Self.devicePollCall,
+                request: SPFNPollDeviceAuthRequest(deviceCode: deviceCode)
+            )
+        }
+        catch SPFNClientError.transport(let failure) where failure != .cancelled
+        {
+            return nil
+        }
+        catch SPFNClientError.server(let failure) where failure.code.isRetryable
+        {
+            // `TooManyRequestsError` today, and whatever the contract marks retryable
+            // tomorrow: the code is still live, this device only asked too fast.
+            return nil
+        }
+    }
+
+    /// The interval the server asked this device to wait, or a decoding refusal.
+    ///
+    /// Absent, zero and negative are one answer: one this client cannot obey. The
+    /// contract declares an integer and the server's own configuration refuses anything
+    /// but a positive whole number of milliseconds, so a value outside that is a server
+    /// this client does not understand — and waiting zero would spin the poll straight
+    /// into the rate limit the interval exists to stay under.
+    private static func waitMillis(_ intervalMillis: Int64?) throws -> Int64
+    {
+        guard let intervalMillis, intervalMillis > 0
+        else
+        {
+            throw SPFNClientError.decoding(.notTheDeclaredResponse)
+        }
+        return intervalMillis
     }
 
     // MARK: - M4–M5: rotation
@@ -503,6 +805,34 @@ public actor SPFNKeyLifecycle
     /// The contract declares the set, so a value outside it is now a compile error here
     /// instead of a refusal the server has to raise.
     private static let algorithmName: SPFNKeyAlgorithm = .es256
+
+    /// The platform a parked key is registered under, and it is the identity header's
+    /// own value rather than a second constant: `x-spfn-client-kind` is what the server
+    /// already judges this build by, and two spellings of one fact are two facts as soon
+    /// as somebody edits one. Nil would mean this build reports a kind the contract's
+    /// `KeyPlatform` set does not name, which is a mismatch the field cannot state.
+    private static var platform: SPFNKeyPlatform?
+    {
+        SPFNKeyPlatform(rawValue: SPFNClientIdentity.kind)
+    }
+
+    private static var deviceStartCall: SPFNCall<SPFNStartDeviceAuthRequest, SPFNStartDeviceAuthResponse>
+    {
+        SPFNCall(
+            operation: SPFNGeneratedOperations.authDeviceStart,
+            encode: { try $0.canonicalValue() },
+            decode: { try SPFNStartDeviceAuthResponse(canonical: $0) }
+        )
+    }
+
+    private static var devicePollCall: SPFNCall<SPFNPollDeviceAuthRequest, SPFNPollDeviceAuthResponse>
+    {
+        SPFNCall(
+            operation: SPFNGeneratedOperations.authDevicePoll,
+            encode: { try $0.canonicalValue() },
+            decode: { try SPFNPollDeviceAuthResponse(canonical: $0) }
+        )
+    }
 
     private static var rotateCall: SPFNCall<SPFNRotateKeyRequest, SPFNRotateKeyResponse>
     {

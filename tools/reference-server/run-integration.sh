@@ -24,7 +24,7 @@
 #   SPFN_INTEGRATION_LAUNCH_FILE=/path/to/launch.json \
 #       sh tools/reference-server/run-integration.sh
 #
-# Same ten cases, same receipts, same exit rules — against whatever is on the other end.
+# Same cases, same receipts, same exit rules — against whatever is on the other end.
 # The point is the canonical implementation: everything this repository proves today it
 # proves against its own reference server, which is two ends built from one reading of the
 # contract. The launch file is the shape SpfnReferenceMain writes and the SPFN primitives
@@ -51,14 +51,33 @@ TOKEN_HEADER=x-spfn-reference-control
 # Every case both suites are required to have run. Read as "platform-case"; the letters
 # are the matrix in the change set brief: round trip, expiry, revocation, replay,
 # cancellation or timeout — and, where the target carries the REST surface, the
-# enrollment-rotation end-to-end (case f).
+# enrollment-rotation end-to-end (case f) and the device-code flow (cases g-k).
 EXPECTED_RECEIPTS='swift-a swift-b swift-c swift-d swift-e kotlin-a kotlin-b kotlin-c kotlin-d kotlin-e'
 
 # Whether the target implements the contract 0.3.0 REST operations (/_auth). The local
 # reference server always does. An external target usually does NOT — the primitives
-# dev server carries the three dev operations only — so case f is out of scope there
+# dev server carries the three dev operations only — so cases f–k are out of scope there
 # unless the caller states otherwise by exporting SPFN_INTEGRATION_REST_OPS=1.
 REST_OPS=${SPFN_INTEGRATION_REST_OPS-}
+
+# Whether the target's clock can be moved through /control/advance-clock. The server this
+# script launches is started with --test-clock and always can. An external target usually
+# cannot — it runs on a wall clock nothing here may move — so case i, a device code that
+# reaches its expiry, is out of scope there unless the caller says otherwise. Its own flag
+# rather than REST_OPS's: a target can implement every /_auth operation and still have no
+# clock a test may move, and folding the two would demand a receipt for a case that cannot
+# run.
+TEST_CLOCK=${SPFN_INTEGRATION_TEST_CLOCK-}
+
+# The instant the launched server's test clock starts at, and the literal value of
+# SpfnReferenceTestClock.DEFAULT_START_MILLIS (2025-06-15T14:26:40Z) — a shell script
+# cannot read a Kotlin constant. It is an ordinary epoch instant rather than zero because
+# the server refuses a proof whose issuedAtMillis is outside the replay window of its own
+# clock; the SDKs synchronise to core.time, which answers from this same clock, so both
+# ends sit at this instant and the window is measuring the rule instead of the gap between
+# two epochs. From there the launched clock ticks at the rate of real time, like the SDK
+# proof clocks anchored to it; only the in-process unit suites freeze theirs.
+TEST_CLOCK_START_MILLIS=1750000000000
 
 WORK=$(mktemp -d)
 RECEIPTS="$WORK/receipts"
@@ -252,9 +271,9 @@ then
 
     if [ "$REST_OPS" = "1" ]
     then
-        printf '  --    the caller declared the target implements the REST operations; case f is expected\n'
+        printf '  --    the caller declared the target implements the REST operations; cases f-k are expected\n'
     else
-        printf '  --    external target: the REST operations (case f) are out of scope — the primitives\n'
+        printf '  --    external target: the REST operations (cases f-k) are out of scope — the primitives\n'
         printf '  --    dev surface carries the three dev operations only. Export SPFN_INTEGRATION_REST_OPS=1\n'
         printf '  --    when the target really implements /_auth.\n'
     fi
@@ -275,9 +294,16 @@ else
     # A plain java process rather than a Gradle JavaExec: this script needs the server's own
     # PID so the trap above can stop it, and a forked JavaExec outlives the Gradle client that
     # started it. --parent-pid gives the server a second way to notice this run is over.
+    # --test-clock, because the Swift suite reaches its server only through this process:
+    # case i has to arrange a device code that expired, /control/advance-clock is the only
+    # way to say so from another process, and that route refuses a server on the wall
+    # clock. TEST_CLOCK=1 below is what the suites are told, and the two are set together
+    # on purpose — a run that claimed a movable clock and launched a wall-clock server is
+    # the failure this flag exists to end.
     java -cp "$(cat "$LAUNCH_INFO")" "$MAIN_CLASS" \
         --port-file "$LAUNCH_FILE" \
-        --parent-pid "$$" > "$SERVER_LOG" 2>&1 &
+        --parent-pid "$$" \
+        --test-clock "$TEST_CLOCK_START_MILLIS" > "$SERVER_LOG" 2>&1 &
     SERVER_PID=$!
 
     ATTEMPT=0
@@ -323,15 +349,27 @@ else
     fi
 
     # The server this script starts is this repository's own, so the REST surface is
-    # always present and case f is always expected.
+    # always present, and it was launched with --test-clock: every case is expected.
     REST_OPS=1
+    TEST_CLOCK=1
 
     pass "reference server ready at $BASE_URL (pid $SERVER_PID)"
 fi
 
 if [ "$REST_OPS" = "1" ]
 then
+    # f is the social enrollment end to end; g–k are the device-code flow, which needs
+    # the same /_auth surface and two SDKs at once.
     EXPECTED_RECEIPTS="$EXPECTED_RECEIPTS swift-f kotlin-f"
+    EXPECTED_RECEIPTS="$EXPECTED_RECEIPTS swift-g kotlin-g swift-h kotlin-h swift-j kotlin-j swift-k kotlin-k"
+    if [ "$TEST_CLOCK" = "1" ]
+    then
+        EXPECTED_RECEIPTS="$EXPECTED_RECEIPTS swift-i kotlin-i"
+    else
+        printf '  --    the target runs on the wall clock, so case i (an expired device code) is out of\n'
+        printf '  --    scope and its receipt is not expected. Export SPFN_INTEGRATION_TEST_CLOCK=1 when\n'
+        printf '  --    the target has a clock /control/advance-clock can move.\n'
+    fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -344,6 +382,7 @@ SPFN_REFERENCE_SERVER_URL="$BASE_URL" \
     SPFN_REFERENCE_CONTROL_TOKEN="$CONTROL_TOKEN" \
     SPFN_INTEGRATION_RECEIPTS="$RECEIPTS" \
     SPFN_INTEGRATION_REST_OPS="$REST_OPS" \
+    SPFN_INTEGRATION_TEST_CLOCK="$TEST_CLOCK" \
     swift test --filter SPFNIntegrationTests > "$SWIFT_LOG" 2>&1
 SWIFT_STATUS=$?
 set -e
@@ -369,6 +408,7 @@ then
         "-Pspfn.integrationReceipts=$RECEIPTS" \
         "-Pspfn.integrationTargetUrl=$BASE_URL" \
         "-Pspfn.integrationRestOps=$REST_OPS" \
+        "-Pspfn.integrationTestClock=$TEST_CLOCK" \
         "-Pspfn.integrationLaunchFile=$KOTLIN_LAUNCH_FILE" > "$KOTLIN_LOG" 2>&1
 else
     ./gradlew --console=plain :reference-server:spfnIntegrationTest \

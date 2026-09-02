@@ -135,18 +135,19 @@ class SpfnReferenceControl(
     }
 
     /**
-     * Moves a test clock forward. Refused when the server is running on the wall clock,
-     * because silently doing nothing is how a test passes for the wrong reason.
+     * Moves a movable clock forward — the frozen one the unit suites run on and the
+     * ticking one a launch builds alike. Refused when the server is running on the wall
+     * clock, because silently doing nothing is how a test passes for the wrong reason.
      */
     private fun advanceClock(body: ByteArray): SpfnReferenceAnswer
     {
-        val testClock = clock as? SpfnReferenceTestClock
+        val movableClock = clock as? SpfnReferenceMovableClock
             ?: return answer(
                 HTTP_CONFLICT,
                 mapOf("ok" to SpfnCanonicalValue.Bool(false), "reason" to text("server is running on the system clock"))
             );
         val millis = integer(body, "millis") ?: return badRequest("millis");
-        testClock.advance(millis);
+        movableClock.advance(millis);
         return ok(emptyMap());
     }
 

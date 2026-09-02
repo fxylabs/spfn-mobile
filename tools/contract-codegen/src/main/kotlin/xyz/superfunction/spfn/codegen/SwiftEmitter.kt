@@ -367,7 +367,8 @@ object SwiftEmitter
                 if (field.optional) "        self.${field.name} = try SPFNDecoding.optionalInteger($member, at: \"$path\")"
                 else "        self.${field.name} = try SPFNDecoding.integer($member, at: \"$path\")"
             is FieldType.BooleanType ->
-                "        self.${field.name} = try SPFNDecoding.boolean($member, at: \"$path\")"
+                if (field.optional) "        self.${field.name} = try SPFNDecoding.optionalBoolean($member, at: \"$path\")"
+                else "        self.${field.name} = try SPFNDecoding.boolean($member, at: \"$path\")"
             // An optional composite reads absent and null alike as nothing, which is what
             // the encoder writes: it omits an absent optional rather than spelling it
             // null. Decoding `?? .null` for an optional field instead would hand the

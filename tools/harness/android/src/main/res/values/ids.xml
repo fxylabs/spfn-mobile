@@ -49,4 +49,17 @@
     <item type="id" name="btn_case_user_cancel" />
     <item type="id" name="btn_case_network_failure" />
     <item type="id" name="btn_case_server_reject" />
+
+    <!--
+      The device-code flow: one button that signs THIS device in with a code somebody
+      approves elsewhere, a field for a code read off another screen, and the approver's
+      three operations. `btn_device_` keeps the no-substring property the rest of this
+      file has, and `input_device_code` is a field rather than a button so its name says
+      which it is.
+    -->
+    <item type="id" name="btn_device_sign_in" />
+    <item type="id" name="input_device_code" />
+    <item type="id" name="btn_device_info" />
+    <item type="id" name="btn_device_approve" />
+    <item type="id" name="btn_device_deny" />
 </resources>

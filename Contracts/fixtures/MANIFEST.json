@@ -19,8 +19,8 @@
     },
     {
       "path": "Contracts/fixtures/enrollment/enrollment.json",
-      "sha256": "f208f58ea0159852157a31c3d90edb1038ae7d75264d1b9f49be3e1c18475352",
-      "bytes": 3119
+      "sha256": "8e46c481370ca9b1ff88fe606adc5884803980a0d5197fe1ddcf2b66f78dc629",
+      "bytes": 5400
     },
     {
       "path": "Contracts/fixtures/error/envelopes.json",

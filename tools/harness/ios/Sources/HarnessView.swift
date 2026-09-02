@@ -35,6 +35,7 @@
 // and the same readout text.
 
 import Combine
+import Foundation
 import SPFNHarnessSupport
 import SwiftUI
 
@@ -46,6 +47,12 @@ struct HarnessView: View
     /// the model because when it goes away is a fact about this screen and nothing else.
     @State private var shown: HarnessSignal?
 
+    /// Bumped once a second so the `expires-in` readout recomputes. Its value means
+    /// nothing; changing is the whole job.
+    @State private var countdown = 0
+
+    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
     var body: some View
     {
         ScrollView
@@ -55,6 +62,7 @@ struct HarnessView: View
                 readouts
                 Divider()
                 deviceMode
+                deviceCodeSection
                 lifecycleDivider
                 actions
             }
@@ -145,6 +153,8 @@ struct HarnessView: View
             readout("config", model.configSummary)
             readout("case", model.deviceCase.rawValue)
             readout("receipt", model.receipt)
+            readout("device-code", model.deviceCode)
+            readout("expires-in", expiresIn)
         }
         .font(.system(.body, design: .monospaced))
     }
@@ -154,6 +164,57 @@ struct HarnessView: View
     private func readout(_ label: String, _ value: String) -> some View
     {
         Text("\(label)=\(value)")
+    }
+
+    /// Whole seconds until the shown code expires, or `-` when none is showing.
+    ///
+    /// Recomputed on every redraw, and `tick` is what causes one each second. The value
+    /// is a countdown rather than an instant because what the person holding this phone
+    /// needs to know is how long they have to walk to the other one.
+    private var expiresIn: String
+    {
+        guard let expiry = model.deviceCodeExpiresAtMillis
+        else
+        {
+            return "-"
+        }
+        let remaining = expiry - Int64(Date().timeIntervalSince1970 * 1000)
+        return remaining > 0 ? "\(remaining / 1000)s" : "expired"
+    }
+
+    /// Signing this device in with a code, and approving another device that shows one.
+    ///
+    /// Two halves of one flow on one screen, because a harness has one phone in front of
+    /// it at a time and either half has to be reachable. The code a person types to
+    /// approve is its own field: a single one would let this device approve itself.
+    private var deviceCodeSection: some View
+    {
+        VStack(alignment: .leading, spacing: 10)
+        {
+            Divider()
+            Text("device code")
+                .font(.system(.headline, design: .monospaced))
+            asyncButton("btn_device_sign_in", "sign-in-with-a-code") { await model.signInWithACode() }
+
+            Text("approve a device")
+                .font(.system(.caption, design: .monospaced))
+            TextField("XXXX-XXXX", text: $model.approverCode)
+                .font(.system(.body, design: .monospaced))
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("input_device_code")
+            asyncButton("btn_device_info", "device-info") { await model.describeWaitingDevice() }
+            asyncButton("btn_device_approve", "device-approve") { await model.approveWaitingDevice() }
+            asyncButton("btn_device_deny", "device-deny") { await model.denyWaitingDevice() }
+        }
+        .onReceive(tick)
+        { _ in
+            // A redraw a second, so `expires-in` counts down rather than sitting at
+            // whatever it was when the code arrived. Nothing else on this screen changes
+            // without an action, which is why this is the only timer here.
+            countdown += 1
+        }
     }
 
     /// The half of the screen a person drives and no flow does. It sits above the

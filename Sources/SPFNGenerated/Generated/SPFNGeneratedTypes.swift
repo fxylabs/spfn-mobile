@@ -892,7 +892,7 @@ public struct SPFNListKeysRequest: Equatable, Sendable
     public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
     {
         let members = try SPFNDecoding.object(canonical, at: path)
-        self.includeRevoked = try SPFNDecoding.boolean(members["includeRevoked"], at: "\(path).includeRevoked")
+        self.includeRevoked = try SPFNDecoding.optionalBoolean(members["includeRevoked"], at: "\(path).includeRevoked")
     }
 }
 
@@ -1125,7 +1125,7 @@ public struct SPFNRevokeAllKeysRequest: Equatable, Sendable
     public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
     {
         let members = try SPFNDecoding.object(canonical, at: path)
-        self.includeCurrent = try SPFNDecoding.boolean(members["includeCurrent"], at: "\(path).includeCurrent")
+        self.includeCurrent = try SPFNDecoding.optionalBoolean(members["includeCurrent"], at: "\(path).includeCurrent")
     }
 }
 
@@ -1387,7 +1387,7 @@ public struct SPFNPollDeviceAuthResponse: Equatable, Sendable
         self.publicId = try SPFNDecoding.optionalString(members["publicId"], at: "\(path).publicId")
         self.email = try SPFNDecoding.optionalString(members["email"], at: "\(path).email")
         self.phone = try SPFNDecoding.optionalString(members["phone"], at: "\(path).phone")
-        self.passwordChangeRequired = try SPFNDecoding.boolean(members["passwordChangeRequired"], at: "\(path).passwordChangeRequired")
+        self.passwordChangeRequired = try SPFNDecoding.optionalBoolean(members["passwordChangeRequired"], at: "\(path).passwordChangeRequired")
     }
 }
 

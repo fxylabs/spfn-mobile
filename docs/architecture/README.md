@@ -221,6 +221,41 @@ sign with, and the contract declares that rather than the SDK deciding it. Rotat
 not in that class: it is proven with the key being replaced, which is what makes it a
 rotation rather than a second enrollment.
 
+## Device-code sign-in
+
+Contract 0.10.0's `deviceAuthorization` flow lets a device with no key on file park its
+public key, show a short code, and be let in by somebody holding a device that is already
+signed in. It lives where enrollment lives — one more entry point on `SPFNKeyLifecycle` /
+`SpfnKeyLifecycle`, beside the social `enroll()` — because it is the same act: it ends
+with one public key registered under one account and one record in the active slot. The
+approver's three calls (`auth.device.info`, `approve`, `deny`) get no wrapper at all; an
+app reaches them through the generated descriptors and `execute`, the way it already
+reaches `auth.keys.revoke`.
+
+**There is no fourth lifecycle state.** The parked key and the device code live in the
+call's own frame for as long as the wait runs, and the install stays `unenrolled` until
+the approval is saved — so a process death, a cancellation or any refusal leaves nothing
+behind and nothing to resume. That is the difference between this and a rotation: a
+rotation persists its candidate because the server may already know about it, and a
+device code the server never approved is a record the server will expire on its own.
+Adding a state would mean promising to resume a wait across a launch, which would mean
+persisting a credential (the device code) that the flow is designed to hand out once.
+
+The waiting device obeys the server and nothing else: it waits the `intervalMillis` the
+`start` answer named and then whatever each `pending` names, with no client default and
+no backoff, and it stops at the `expiresAtMillis` it was told — judged on the
+`core.time`-synchronised proof clock, never the device's wall clock, so a device with a
+wrong clock neither gives up early nor polls a code it was told is dead.
+
+**A lost network answer is a lost poll wherever it happens in the wait.** Each iteration
+makes two requests that can be dropped: the `core.time` fetch that anchors the proof clock
+— a real request on a fresh install, where nothing has anchored it yet — and the poll
+itself. Both cost the same interval and are asked again, because neither says anything
+about the device code, and the deadline is judged when the clock finally answers. A clock
+that refuses to synchronise at all is a different answer and ends the wait: an untrusted
+base URL and a contract carrying no usable clock operation are the same on every retry,
+so a device that retried them would poll until a deadline it can never read went past.
+
 ## Contract import model
 
 SPFN primitives owns the canonical route DSL, schemas and the `clientProofV1` server

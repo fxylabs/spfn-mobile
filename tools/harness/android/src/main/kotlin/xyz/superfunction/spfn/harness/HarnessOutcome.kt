@@ -77,6 +77,7 @@ object HarnessOutcome
         is SpfnKeyLifecycleException.MalformedProviderId -> "malformedProviderID"
         is SpfnKeyLifecycleException.ServerNamedAnotherKey -> "serverNamedAnotherKey"
         is SpfnKeyLifecycleException.KeyUnloadable -> "keyUnloadable"
+        is SpfnKeyLifecycleException.DeviceCodeExpired -> "deviceCodeExpired"
     };
 
     /**
