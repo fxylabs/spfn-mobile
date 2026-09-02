@@ -428,6 +428,10 @@ final class HarnessModel: ObservableObject
 
     /// Revokes the key this install is signing with, which is what makes the next proven
     /// call answer SESSION_REVOKED. `revokeAll` spares the caller, so it cannot do this.
+    ///
+    /// Sent through the generated descriptor and `execute`: revocation has no lifecycle
+    /// method — the SDK exposes enrolment and rotation, and revocation is an operation —
+    /// so the harness reaches it the way any app would (decision 01kzb8tjxp, D-3).
     func revokeActiveKey() async
     {
         await run
@@ -438,7 +442,7 @@ final class HarnessModel: ObservableObject
                 throw HarnessError.noActiveKey
             }
             _ = try await self.client(signingWith: provider).execute(
-                Calls.keysRevoke,
+                SPFNGeneratedCalls.authKeysRevoke,
                 request: SPFNRevokeKeyRequest(keyId: provider.keyID)
             )
             return "revoked:\(provider.keyID)"
@@ -457,7 +461,7 @@ final class HarnessModel: ObservableObject
                 throw HarnessError.noActiveKey
             }
             let listed = try await self.client(signingWith: provider).execute(
-                Calls.keysList,
+                SPFNGeneratedCalls.authKeysList,
                 request: SPFNListKeysRequest()
             )
             return "listed:\(listed.keys.count)"
@@ -524,7 +528,7 @@ final class HarnessModel: ObservableObject
         await run
         {
             let described = try await self.approverClient().execute(
-                Calls.deviceInfo,
+                SPFNGeneratedCalls.authDeviceInfo,
                 request: SPFNDeviceAuthInfoRequest(userCode: self.approverCode)
             )
             return "info:\(described.deviceName ?? "unnamed"):\(described.fingerprintPrefix)"
@@ -536,7 +540,7 @@ final class HarnessModel: ObservableObject
         await run
         {
             let approved = try await self.approverClient().execute(
-                Calls.deviceApprove,
+                SPFNGeneratedCalls.authDeviceApprove,
                 request: SPFNApproveDeviceAuthRequest(userCode: self.approverCode)
             )
             return "approved:\(approved.fingerprintPrefix)"
@@ -550,7 +554,7 @@ final class HarnessModel: ObservableObject
             // The answer is 204 with no body, so there is nothing to report but that it
             // applied — which is what the unit value the SDK returns means.
             _ = try await self.approverClient().execute(
-                Calls.deviceDeny,
+                SPFNGeneratedCalls.authDeviceDeny,
                 request: SPFNDenyDeviceAuthRequest(userCode: self.approverCode)
             )
             return "denied"
@@ -671,42 +675,6 @@ final class HarnessModel: ObservableObject
                 keyProvider: provider,
                 baseURL: configuration.baseURL
             )
-        )
-    }
-
-    /// The call descriptors the harness drives directly. `revoke` has no lifecycle
-    /// method — the SDK exposes enrolment and rotation, and revocation is an operation —
-    /// so the harness reaches it the way any app would (decision 01kzb8tjxp, D-3).
-    private enum Calls
-    {
-        static let keysList = SPFNCall<SPFNListKeysRequest, SPFNListKeysResponse>(
-            operation: SPFNGeneratedOperations.authKeysList,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNListKeysResponse(canonical: $0) }
-        )
-
-        static let keysRevoke = SPFNCall<SPFNRevokeKeyRequest, SPFNRevokeKeyResponse>(
-            operation: SPFNGeneratedOperations.authKeysRevoke,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNRevokeKeyResponse(canonical: $0) }
-        )
-
-        static let deviceInfo = SPFNCall<SPFNDeviceAuthInfoRequest, SPFNDeviceAuthInfoResponse>(
-            operation: SPFNGeneratedOperations.authDeviceInfo,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNDeviceAuthInfoResponse(canonical: $0) }
-        )
-
-        static let deviceApprove = SPFNCall<SPFNApproveDeviceAuthRequest, SPFNDeviceAuthInfoResponse>(
-            operation: SPFNGeneratedOperations.authDeviceApprove,
-            encode: { try $0.canonicalValue() },
-            decode: { try SPFNDeviceAuthInfoResponse(canonical: $0) }
-        )
-
-        /// The contract's one bodyless operation: built through the factory, never by hand.
-        static let deviceDeny = SPFNCall<SPFNDenyDeviceAuthRequest, SPFNNoResponse>.noResponse(
-            operation: SPFNGeneratedOperations.authDeviceDeny,
-            encode: { try $0.canonicalValue() }
         )
     }
 }

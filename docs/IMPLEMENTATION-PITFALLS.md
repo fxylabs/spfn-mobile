@@ -65,33 +65,41 @@
 광고했다. 번들 필드라 못 고쳐 `admittedRange`를 도입했다.
 범용: [declared-constraint-vs-enforced-rule](https://git.superfunction.xyz/spfn-core-projects/coding-context/src/branch/main/reliability/declared-constraint-vs-enforced-rule.md)
 
-## P2. digest는 11개 파일에 있고 역할이 넷으로 갈린다 {#p2}
+## P2. digest는 13개 파일에 있고 역할이 넷으로 갈린다 {#p2}
 
 **증상.** 번들을 교체했는데 어딘가가 옛 digest를 들고 있어 빌드나 검증이 깨진다.
 또는 더 나쁘게, 한 곳만 갱신되어 검사끼리 서로 다른 파일을 가리킨다.
 
-**탐지.** `git grep -l <digest>`로 세는 것이 유일하게 정확하다. 오늘 기준 11개다.
-개수를 외우지 말고 **역할**을 기억한다 — 넷은 서로 다르게 갱신되고, **손으로 고치는
-것은 하나뿐이다.**
+**탐지.** `git grep -l <digest>`로 세는 것이 유일하게 정확하다. 오늘 기준 역할을 지닌
+파일은 13개이고, 명령 자체는 14개를 낸다 — `CHANGELOG.md`가 산문 안에서 digest를
+축약해 언급하기 때문이다. 그것은 역할이 아니라 기록이다. 개수를 외우지 말고 **역할**을
+기억한다 — 넷은 서로 다르게 갱신되고, **손으로 고치는 것은 하나뿐이다.**
 
 | 역할 | 파일 | 어떻게 갱신되나 | 확인 |
 | --- | --- | --- | --- |
 | 손으로 고정 | `Contracts/upstream.lock.json` (`contract.manifestSha256`) | 유일하게 직접 편집하는 자리 | 번들 파일의 실제 sha256과 같은지 재계산해 대조. validator 5절이 강제한다 |
 | fixture 파생물 | `Contracts/fixtures/MANIFEST.json` (`bundleSha256`) | `derive-expected-values.py` 재실행. **손으로 고치지 않는다** | 파일 안 `derivedBy` 필드가 스스로 밝힌다 |
-| codegen 산출물 | 생성 파일 8개 헤더 (Swift 4 + Kotlin 4) | codegen 재생성. **손으로 고치지 않는다** | `:contract-codegen:spfnCodegenVerify` |
+| codegen 산출물 | 생성 파일 10개 헤더 (Swift 5 + Kotlin 5) | codegen 재생성. **손으로 고치지 않는다** | `:contract-codegen:spfnCodegenVerify` |
 | upstream 제공 | `Contracts/upstream-provenance.json` (`bundleSha256`) | 새 번들과 함께 도착한다. 갱신 대상이 아니라 **대조 대상** | validator 5절이 lock과 필드 단위로 맞춰 본다 |
 
 **처방.** 번들 교체는 lock 직접 편집 → `derive-expected-values.py` 재실행 →
-codegen 재생성 → 결정성 확인이 한 묶음이다. 나머지 셋 중 둘(MANIFEST, 생성 파일 8개)은
+codegen 재생성 → 결정성 확인이 한 묶음이다. 나머지 셋 중 둘(MANIFEST, 생성 파일 10개)은
 이 저장소의 **파생물**이라 손으로 편집하면 자기 생성기와 어긋난다. 네 번째는 파생물이
 아니라 **upstream이 발행한 증거**다 — 우리 도구 중 무엇도 그것을 쓰지 않는다. 그것을
 "우리가 갱신할 것"으로 착각하면 evidence를 lock에 맞춰 편집하게 되는데, 그것은
 provenance 게이트가 정확히 잡으려는 행위다([P1](#p1)).
 
-**검증.** `git grep -l <digest> | wc -l`이 11이고, 그중 `upstream-provenance.json`이
+**검증.** `git grep -l <digest> | wc -l`이 14이고, 그중 `upstream-provenance.json`이
 포함돼 있으며 그 값이 lock과 같은지 본다. 개수가 늘었다면 새 소비처가 생긴 것이니
 **그 파일이 스스로 파생물임을 밝히는지**(`derivedBy` 류 필드, 생성기 헤더) 먼저 보고
 역할을 판정해 이 표에 추가한다.
+
+**갱신.** w-0j1z8이 연산별 호출 서술자 파일(`SPFNGeneratedCalls.swift` /
+`SpfnGeneratedCalls.kt`)을 추가하면서 생성 파일이 8개에서 10개가 됐다. 확인은
+`git grep -l <digest> | wc -l`로 했고 12에서 14로 늘었다 — 새 헤더 둘, 그리고
+`CHANGELOG.md`의 산문 언급 하나는 그대로다. 이 항목이 세 번째로 틀렸던 자리도 여기다:
+"11"은 `CHANGELOG.md`를 빼고 센 수였는데 검증 문장은 명령의 출력과 비교하라고 적혀
+있었다. 이제 둘을 나눠 적는다.
 
 **나온 곳.** cs-6jcny — dev bundle → upstream export 전환. 항목 자체는 두 번 틀렸다.
 cs-mzv14 r1이 "세 곳"을 잡았고(`upstream-provenance.json` 누락), r2가 그 수정을 다시

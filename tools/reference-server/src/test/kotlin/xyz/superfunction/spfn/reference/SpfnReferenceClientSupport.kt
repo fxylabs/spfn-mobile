@@ -1,9 +1,9 @@
 // SPFN Mobile — the Android SDK, wired to a reference server.
 //
 // The integration suite uses the shipped client rather than a copy of it: the same
-// `SpfnClient`, `SpfnSession` and `SpfnOkHttpTransport` an app would link. The only thing
-// assembled here is the per-operation call descriptor, which the contract generator does
-// not emit yet (docs/SCAFFOLD-STATUS.md), and the clock, which every test injects.
+// `SpfnClient`, `SpfnSession` and `SpfnOkHttpTransport` an app would link, and the
+// generated `SpfnGeneratedCalls` descriptors an app would send. The only thing assembled
+// here is the clock, which every test injects.
 //
 // The reference server is started in process by default and left alone when the run names
 // an external one; see `SpfnReferenceTarget.kt` for how that is chosen and why a named
@@ -12,7 +12,6 @@
 package xyz.superfunction.spfn.reference
 
 import okhttp3.OkHttpClient
-import xyz.superfunction.spfn.client.SpfnCall
 import xyz.superfunction.spfn.client.SpfnClient
 import xyz.superfunction.spfn.client.SpfnClock
 import xyz.superfunction.spfn.client.SpfnKeyProvider
@@ -24,73 +23,9 @@ import xyz.superfunction.spfn.client.SpfnProofClock
 import xyz.superfunction.spfn.client.SpfnSession
 import xyz.superfunction.spfn.client.SpfnSystemClock
 import xyz.superfunction.spfn.client.SpfnTransport
-import xyz.superfunction.spfn.core.SpfnNoResponse
-import xyz.superfunction.spfn.generated.SpfnApproveDeviceAuthRequest
-import xyz.superfunction.spfn.generated.SpfnDenyDeviceAuthRequest
-import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoRequest
-import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoResponse
-import xyz.superfunction.spfn.generated.SpfnEchoRequest
-import xyz.superfunction.spfn.generated.SpfnEchoResponse
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
-import xyz.superfunction.spfn.generated.SpfnListItemsRequest
-import xyz.superfunction.spfn.generated.SpfnListItemsResponse
-import xyz.superfunction.spfn.generated.SpfnPollDeviceAuthRequest
-import xyz.superfunction.spfn.generated.SpfnPollDeviceAuthResponse
 import xyz.superfunction.spfn.generated.SpfnServerTimeResponse
-import xyz.superfunction.spfn.generated.SpfnStartDeviceAuthRequest
-import xyz.superfunction.spfn.generated.SpfnStartDeviceAuthResponse
 import java.util.concurrent.TimeUnit
-
-/** The call descriptors the three operations need, spelled out once. */
-object SpfnReferenceCalls
-{
-    val echo: SpfnCall<SpfnEchoRequest, SpfnEchoResponse> = SpfnCall(
-        operation = SpfnGeneratedOperations.echoSend,
-        encode = { request -> request.canonicalValue() },
-        decode = { value -> SpfnEchoResponse.decode(value) }
-    )
-
-    val listItems: SpfnCall<SpfnListItemsRequest, SpfnListItemsResponse> = SpfnCall(
-        operation = SpfnGeneratedOperations.itemsList,
-        encode = { request -> request.canonicalValue() },
-        decode = { value -> SpfnListItemsResponse.decode(value) }
-    )
-
-    // The approver's three calls. Decision 4: no SDK wrapper — an app reaches them
-    // through the generated descriptors and `execute`, exactly as it reaches
-    // `auth.keys.revoke`, and these three lines are what that costs.
-
-    val deviceInfo: SpfnCall<SpfnDeviceAuthInfoRequest, SpfnDeviceAuthInfoResponse> = SpfnCall(
-        operation = SpfnGeneratedOperations.authDeviceInfo,
-        encode = { request -> request.canonicalValue() },
-        decode = { value -> SpfnDeviceAuthInfoResponse.decode(value) }
-    )
-
-    val deviceApprove: SpfnCall<SpfnApproveDeviceAuthRequest, SpfnDeviceAuthInfoResponse> = SpfnCall(
-        operation = SpfnGeneratedOperations.authDeviceApprove,
-        encode = { request -> request.canonicalValue() },
-        decode = { value -> SpfnDeviceAuthInfoResponse.decode(value) }
-    )
-
-    /** The contract's one bodyless operation: built through the factory, never by hand. */
-    val deviceDeny: SpfnCall<SpfnDenyDeviceAuthRequest, SpfnNoResponse> = SpfnCall.noResponse(
-        operation = SpfnGeneratedOperations.authDeviceDeny,
-        encode = { request -> request.canonicalValue() }
-    )
-
-    /** The waiting side's two, for the one case that has to send them by hand. */
-    val deviceStart: SpfnCall<SpfnStartDeviceAuthRequest, SpfnStartDeviceAuthResponse> = SpfnCall(
-        operation = SpfnGeneratedOperations.authDeviceStart,
-        encode = { request -> request.canonicalValue() },
-        decode = { value -> SpfnStartDeviceAuthResponse.decode(value) }
-    )
-
-    val devicePoll: SpfnCall<SpfnPollDeviceAuthRequest, SpfnPollDeviceAuthResponse> = SpfnCall(
-        operation = SpfnGeneratedOperations.authDevicePoll,
-        encode = { request -> request.canonicalValue() },
-        decode = { value -> SpfnPollDeviceAuthResponse.decode(value) }
-    )
-}
 
 /**
  * Which server this run is talking to, and everything that differs because of it.

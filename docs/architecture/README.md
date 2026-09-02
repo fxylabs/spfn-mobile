@@ -41,6 +41,13 @@ and Maven coordinate lists from the graph.
 | `SPFNSocialApple` | — (iOS only) | client | — |
 | `SPFNSocialGoogle` | `spfn-social-google` | client | GoogleSignIn (trait), Credential Manager ×3 |
 
+`SPFNCall` / `SpfnCall` — one operation paired with the codecs for its request and
+response types — is in core, not in the client. The type depends on an operation, a
+canonical value and the unit answer a bodyless operation gives back, all three of which
+core owns; putting it there is what lets the generated module, which depends on core
+alone, hold one descriptor per operation in `SPFNGeneratedCalls` / `SpfnGeneratedCalls`.
+The client stays generic over request and response and knows no operation at all.
+
 The graph gained two keys with the provider adapters. `swiftTrait` names the SwiftPM
 trait a module's external dependency hangs off, and `externalDeps` is the allowlist the
 validator holds both manifests to — in both directions, so an undeclared dependency and
@@ -229,8 +236,8 @@ signed in. It lives where enrollment lives — one more entry point on `SPFNKeyL
 `SpfnKeyLifecycle`, beside the social `enroll()` — because it is the same act: it ends
 with one public key registered under one account and one record in the active slot. The
 approver's three calls (`auth.device.info`, `approve`, `deny`) get no wrapper at all; an
-app reaches them through the generated descriptors and `execute`, the way it already
-reaches `auth.keys.revoke`.
+app reaches them through the generated descriptors — `SPFNGeneratedCalls.authDeviceApprove`
+and its two neighbours — and `execute`, the way it already reaches `auth.keys.revoke`.
 
 **There is no fourth lifecycle state.** The parked key and the device code live in the
 call's own frame for as long as the wait runs, and the install stays `unenrolled` until

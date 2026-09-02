@@ -57,6 +57,7 @@ import xyz.superfunction.spfn.generated.SpfnApproveDeviceAuthRequest
 import xyz.superfunction.spfn.generated.SpfnDenyDeviceAuthRequest
 import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoRequest
 import xyz.superfunction.spfn.generated.SpfnEchoRequest
+import xyz.superfunction.spfn.generated.SpfnGeneratedCalls
 import xyz.superfunction.spfn.generated.SpfnGeneratedErrorCode
 import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import xyz.superfunction.spfn.generated.SpfnKeyAlgorithm
@@ -78,7 +79,7 @@ class SpfnAndroidReferenceIntegrationTest
             );
             val echoed = try
             {
-                harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("over the wire", 42));
+                harness.client.execute(SpfnGeneratedCalls.echoSend, SpfnEchoRequest("over the wire", 42));
             }
             catch (failure: SpfnClientError.Auth)
             {
@@ -91,13 +92,13 @@ class SpfnAndroidReferenceIntegrationTest
             assertEquals(42L, echoed.sequence);
             assertServerTime(harness, echoed.serverTimeMillis);
 
-            val first = harness.client.execute(SpfnReferenceCalls.listItems, SpfnListItemsRequest(limit = 2));
+            val first = harness.client.execute(SpfnGeneratedCalls.itemsList, SpfnListItemsRequest(limit = 2));
             assertEquals(listOf("item-0001", "item-0002"), first.items.map { it.id });
             assertEquals(listOf("alpha", "bravo"), first.items.map { it.name });
             assertEquals("item-0002", first.nextCursor);
 
             val rest = harness.client.execute(
-                SpfnReferenceCalls.listItems,
+                SpfnGeneratedCalls.itemsList,
                 SpfnListItemsRequest(limit = 10, cursor = "item-0002")
             );
             assertEquals(listOf("item-0003", "item-0004", "item-0005"), rest.items.map { it.id });
@@ -117,7 +118,7 @@ class SpfnAndroidReferenceIntegrationTest
     fun `case b - an expired session is recovered with exactly one re-handshake`() = runBlocking<Unit>
     {
         SpfnReferenceClientHarness().use { harness ->
-            harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("before", 1));
+            harness.client.execute(SpfnGeneratedCalls.echoSend, SpfnEchoRequest("before", 1));
             assertEquals(1, harness.stats().handshakeCount);
 
             // The server drops the session without touching the expiry it advertised, so
@@ -127,7 +128,7 @@ class SpfnAndroidReferenceIntegrationTest
             // that moved a test clock would only be runnable against the local one.
             harness.control.expireSessions();
 
-            val after = harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("after", 2));
+            val after = harness.client.execute(SpfnGeneratedCalls.echoSend, SpfnEchoRequest("after", 2));
             assertEquals("after", after.message);
 
             val stats = harness.stats();
@@ -143,12 +144,12 @@ class SpfnAndroidReferenceIntegrationTest
     fun `case c - a revoked key surfaces after the one re-handshake fails too`() = runBlocking<Unit>
     {
         SpfnReferenceClientHarness().use { harness ->
-            harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("before", 1));
+            harness.client.execute(SpfnGeneratedCalls.echoSend, SpfnEchoRequest("before", 1));
 
             harness.control.revokeKey(SpfnReferenceTestKeys.KEY_ID);
 
             val failure = runCatching {
-                harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("after", 2))
+                harness.client.execute(SpfnGeneratedCalls.echoSend, SpfnEchoRequest("after", 2))
             }.exceptionOrNull();
 
             val auth = failure as? SpfnClientError.Auth ?: throw AssertionError("expected an auth failure, got $failure");
@@ -200,11 +201,11 @@ class SpfnAndroidReferenceIntegrationTest
     {
         SpfnReferenceClientHarness(timeoutMillis = 400).use { harness ->
             runBlocking {
-                harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("warm up", 1));
+                harness.client.execute(SpfnGeneratedCalls.echoSend, SpfnEchoRequest("warm up", 1));
 
                 harness.control.hold(SpfnGeneratedOperations.echoSend.path, HOLD_MILLIS, 1);
                 val timedOut = runCatching {
-                    harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("too slow", 2))
+                    harness.client.execute(SpfnGeneratedCalls.echoSend, SpfnEchoRequest("too slow", 2))
                 }.exceptionOrNull();
 
                 val transportFailure = timedOut as? SpfnClientError.Transport
@@ -220,7 +221,7 @@ class SpfnAndroidReferenceIntegrationTest
 
                 val startedAt = System.nanoTime();
                 val call = async {
-                    harness.client.execute(SpfnReferenceCalls.echo, SpfnEchoRequest("give up", 3))
+                    harness.client.execute(SpfnGeneratedCalls.echoSend, SpfnEchoRequest("give up", 3))
                 };
                 delay(200);
                 call.cancel();
@@ -289,7 +290,7 @@ class SpfnAndroidReferenceIntegrationTest
             // A proven round trip under the enrolled key: handshake, echo, exact values.
             val firstProvider = requireNotNull(lifecycle.activeProvider());
             val echoed = harness.client(firstProvider).execute(
-                SpfnReferenceCalls.echo,
+                SpfnGeneratedCalls.echoSend,
                 SpfnEchoRequest("enrolled key proves", 61)
             );
             assertEquals("enrolled key proves", echoed.message);
@@ -302,7 +303,7 @@ class SpfnAndroidReferenceIntegrationTest
             val newProvider = requireNotNull(lifecycle.activeProvider());
             assertEquals(rotated.keyId, newProvider.keyId);
             val again = harness.client(newProvider).execute(
-                SpfnReferenceCalls.echo,
+                SpfnGeneratedCalls.echoSend,
                 SpfnEchoRequest("rotated key proves", 62)
             );
             assertEquals("rotated key proves", again.message);
@@ -315,7 +316,7 @@ class SpfnAndroidReferenceIntegrationTest
             try
             {
                 harness.client(firstProvider).execute(
-                    SpfnReferenceCalls.echo,
+                    SpfnGeneratedCalls.echoSend,
                     SpfnEchoRequest("stale key", 63)
                 );
                 org.junit.Assert.fail("the replaced key must not prove anything");
@@ -367,7 +368,7 @@ class SpfnAndroidReferenceIntegrationTest
             // B looks before it decides: the answer names the device that is waiting, and
             // the prefix is over A's real public key rather than over anything B chose.
             val described = approver.client.execute(
-                SpfnReferenceCalls.deviceInfo,
+                SpfnGeneratedCalls.authDeviceInfo,
                 SpfnDeviceAuthInfoRequest(userCode)
             );
             assertEquals(DEVICE_NAME, described.deviceName);
@@ -377,7 +378,7 @@ class SpfnAndroidReferenceIntegrationTest
             );
 
             val approved = approver.client.execute(
-                SpfnReferenceCalls.deviceApprove,
+                SpfnGeneratedCalls.authDeviceApprove,
                 SpfnApproveDeviceAuthRequest(userCode)
             );
             assertEquals("approve answers with the device it just let in", DEVICE_NAME, approved.deviceName);
@@ -390,7 +391,7 @@ class SpfnAndroidReferenceIntegrationTest
 
             val provider = requireNotNull(waiting.lifecycle.activeProvider());
             val echoed = harness.client(provider).execute(
-                SpfnReferenceCalls.echo,
+                SpfnGeneratedCalls.echoSend,
                 SpfnEchoRequest("approved key proves", 71)
             );
             assertEquals("approved key proves", echoed.message);
@@ -400,7 +401,7 @@ class SpfnAndroidReferenceIntegrationTest
             assertEquals(approver.clientId, rotated.clientId);
             assertTrue(rotated.keyId != settled.keyId);
             val rotatedEcho = harness.client(requireNotNull(waiting.lifecycle.activeProvider())).execute(
-                SpfnReferenceCalls.echo,
+                SpfnGeneratedCalls.echoSend,
                 SpfnEchoRequest("rotated after device sign-in", 72)
             );
             assertEquals("rotated after device sign-in", rotatedEcho.message);
@@ -431,7 +432,7 @@ class SpfnAndroidReferenceIntegrationTest
             };
             val userCode = shown.await();
 
-            val denied = approver.client.execute(SpfnReferenceCalls.deviceDeny, SpfnDenyDeviceAuthRequest(userCode));
+            val denied = approver.client.execute(SpfnGeneratedCalls.authDeviceDeny, SpfnDenyDeviceAuthRequest(userCode));
             assertSame("a bodyless operation answers with the unit value", SpfnNoResponse, denied);
 
             val failure = signIn.await().exceptionOrNull();
@@ -491,12 +492,12 @@ class SpfnAndroidReferenceIntegrationTest
             // And the server's own answer, on a code this case parks by hand: the two
             // ends agree that an expired record is refused rather than kept waiting on.
             val parked = harness.client.execute(
-                SpfnReferenceCalls.deviceStart,
+                SpfnGeneratedCalls.authDeviceStart,
                 startRequest("key-kotlin-i-0002", freshKeySpkiDer())
             );
             harness.control.advanceClock(EXPIRY_ADVANCE_MILLIS);
             val refused = runCatching {
-                harness.client.execute(SpfnReferenceCalls.devicePoll, SpfnPollDeviceAuthRequest(parked.deviceCode))
+                harness.client.execute(SpfnGeneratedCalls.authDevicePoll, SpfnPollDeviceAuthRequest(parked.deviceCode))
             }.exceptionOrNull() as? SpfnClientError.Server
                 ?: throw AssertionError("expected the server to refuse an expired code");
             assertEquals(SpfnGeneratedErrorCode.DeviceAuthExpiredError, refused.failure.code);
@@ -521,9 +522,9 @@ class SpfnAndroidReferenceIntegrationTest
             };
             val userCode = shown.await();
 
-            approver.client.execute(SpfnReferenceCalls.deviceApprove, SpfnApproveDeviceAuthRequest(userCode));
+            approver.client.execute(SpfnGeneratedCalls.authDeviceApprove, SpfnApproveDeviceAuthRequest(userCode));
             val second = runCatching {
-                approver.client.execute(SpfnReferenceCalls.deviceApprove, SpfnApproveDeviceAuthRequest(userCode))
+                approver.client.execute(SpfnGeneratedCalls.authDeviceApprove, SpfnApproveDeviceAuthRequest(userCode))
             }.exceptionOrNull() as? SpfnClientError.Server
                 ?: throw AssertionError("a second approval must be refused");
             assertEquals(SpfnGeneratedErrorCode.DeviceAuthAlreadyHandledError, second.failure.code);
@@ -572,7 +573,7 @@ class SpfnAndroidReferenceIntegrationTest
             );
 
             // The record was not touched, which the approval that still works proves.
-            approver.client.execute(SpfnReferenceCalls.deviceApprove, SpfnApproveDeviceAuthRequest(userCode));
+            approver.client.execute(SpfnGeneratedCalls.authDeviceApprove, SpfnApproveDeviceAuthRequest(userCode));
             assertEquals(approver.clientId, signIn.await().clientId);
 
             SpfnIntegrationReceipt.record("kotlin-k");

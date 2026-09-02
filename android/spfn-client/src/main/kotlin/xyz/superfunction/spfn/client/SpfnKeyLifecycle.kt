@@ -38,9 +38,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import xyz.superfunction.spfn.auth.SpfnAuthException
+import xyz.superfunction.spfn.core.SpfnCall
 import xyz.superfunction.spfn.core.SpfnDigest
 import xyz.superfunction.spfn.core.SpfnOperation
 import xyz.superfunction.spfn.generated.SpfnDeviceAuthPollStatus
+import xyz.superfunction.spfn.generated.SpfnGeneratedCalls
 import xyz.superfunction.spfn.generated.SpfnGeneratedContract
 import xyz.superfunction.spfn.generated.SpfnKeyAlgorithm
 import xyz.superfunction.spfn.generated.SpfnKeyPlatform
@@ -53,7 +55,6 @@ import xyz.superfunction.spfn.generated.SpfnPollDeviceAuthResponse
 import xyz.superfunction.spfn.generated.SpfnRotateKeyRequest
 import xyz.superfunction.spfn.generated.SpfnRotateKeyResponse
 import xyz.superfunction.spfn.generated.SpfnStartDeviceAuthRequest
-import xyz.superfunction.spfn.generated.SpfnStartDeviceAuthResponse
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.encoding.Base64
@@ -478,7 +479,7 @@ class SpfnKeyLifecycle(
             try
             {
                 val started = client(signer = null).execute(
-                    deviceStartCall(),
+                    SpfnGeneratedCalls.authDeviceStart,
                     SpfnStartDeviceAuthRequest(
                         publicKey = Base64.encode(key.publicKeySpkiDer),
                         keyId = key.keyId,
@@ -620,7 +621,7 @@ class SpfnKeyLifecycle(
     {
         try
         {
-            return client(signer = null).execute(devicePollCall(), SpfnPollDeviceAuthRequest(deviceCode));
+            return client(signer = null).execute(SpfnGeneratedCalls.authDevicePoll, SpfnPollDeviceAuthRequest(deviceCode));
         }
         catch (failure: SpfnClientError.Transport)
         {
@@ -659,18 +660,6 @@ class SpfnKeyLifecycle(
         }
         return intervalMillis;
     }
-
-    private fun deviceStartCall(): SpfnCall<SpfnStartDeviceAuthRequest, SpfnStartDeviceAuthResponse> = SpfnCall(
-        operation = SpfnGeneratedOperations.authDeviceStart,
-        encode = { it.canonicalValue() },
-        decode = { SpfnStartDeviceAuthResponse.decode(it) }
-    )
-
-    private fun devicePollCall(): SpfnCall<SpfnPollDeviceAuthRequest, SpfnPollDeviceAuthResponse> = SpfnCall(
-        operation = SpfnGeneratedOperations.authDevicePoll,
-        encode = { it.canonicalValue() },
-        decode = { SpfnPollDeviceAuthResponse.decode(it) }
-    )
 
     // ---- M4–M5: rotation ---------------------------------------------------
 
@@ -824,7 +813,7 @@ class SpfnKeyLifecycle(
 
     private suspend fun send(candidate: SpfnKeystoreCustodyKey, old: SpfnKeystoreKeyProvider): SpfnRotateKeyResponse =
         client(signer = old).execute(
-            rotateCall(),
+            SpfnGeneratedCalls.authKeysRotate,
             SpfnRotateKeyRequest(
                 publicKey = Base64.encode(candidate.publicKeySpkiDer),
                 keyId = candidate.keyId,
@@ -892,12 +881,15 @@ class SpfnKeyLifecycle(
             throw IllegalStateException("the unproven path never signs; nothing may ask this provider to");
     }
 
-    private fun rotateCall(): SpfnCall<SpfnRotateKeyRequest, SpfnRotateKeyResponse> = SpfnCall(
-        operation = SpfnGeneratedOperations.authKeysRotate,
-        encode = { it.canonicalValue() },
-        decode = { SpfnRotateKeyResponse.decode(it) }
-    )
-
+    /**
+     * The one descriptor this file still builds by hand.
+     *
+     * Every other operation it sends is a value in [SpfnGeneratedCalls]. This one cannot
+     * be: the contract's path carries a `{provider}` segment, and the descriptor a request
+     * actually rides on has to name the route it goes to. So the generated operation is
+     * the template and the substitution happens here, on a provider id
+     * [isProviderId] has already judged.
+     */
     private fun oauthNativeCall(provider: String): SpfnCall<SpfnOauthNativeRequest, SpfnOauthNativeResponse>
     {
         val template = SpfnGeneratedOperations.authEnrollOauthNative;

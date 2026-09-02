@@ -5,6 +5,31 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The call descriptor is generated, one per operation
+
+- **`SPFNCall` / `SpfnCall` move from the client module to the core module** —
+  `Sources/SPFNCore/SPFNCall.swift` and `xyz.superfunction.spfn.core.SpfnCall`, with the
+  `noResponse` factory. The type never needed anything the client owns, and the generated
+  module — which depends on core alone — is where the per-operation values now live. An
+  app that imported `SPFNClient` / `spfn-client` reaches the type exactly as before, since
+  both depend on core; a Swift file that named `SPFNCall` without `import SPFNCore` needs
+  that import.
+- **The generator emits one call descriptor per operation**, into
+  `SPFNGeneratedCalls.swift` / `SpfnGeneratedCalls.kt`: `SPFNGeneratedCalls.echoSend`,
+  `SPFNGeneratedCalls.authDeviceApprove`, one value per operation named exactly as its
+  operation constant is. `auth.device.deny` is emitted through `noResponse`, and
+  `core.time` — the one operation the contract gives no `requestType` — carries `Void` /
+  `Unit`, because the caller that sends it today sends no request value. The Kotlin values
+  are `@JvmField`, so a Java caller reads a field rather than a getter. Decision 4 stands:
+  no wrapper functions, and nothing else is added to the SDK surface.
+- **Every hand-written copy is gone.** The two Swift suites, the two harnesses and the
+  reference-server support file each held their own private descriptor set — five copies
+  of the same seven lines, and the drift between two of them broke a compile. They all
+  send the generated values now, as do the lifecycle's `auth.device.start`,
+  `auth.device.poll` and `auth.keys.rotate`. `auth.enroll.oauthNative` is the one
+  descriptor the SDK still builds by hand: its path carries a `{provider}` segment that
+  has to be substituted before the request rides on it.
+
 ### Device-code sign-in, on both platforms
 
 - **The waiting device is one new entry point**, `SPFNKeyLifecycle.enrollByDeviceCode` /
