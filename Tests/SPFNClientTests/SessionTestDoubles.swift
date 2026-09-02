@@ -44,6 +44,53 @@ final class FakeClock: SPFNClock, SPFNProofClock, @unchecked Sendable
     }
 }
 
+/// A proof clock whose reads are scripted, so a case can lose a `core.time` fetch.
+///
+/// The device-code wait reads the proof clock once per iteration, and what the SDK owes a
+/// failed read differs by failure — a lost fetch is asked again, a refusal to synchronize
+/// ends the wait. Neither is reachable through `FakeClock`, which always answers, or
+/// through the scripted transport, which the injected clock never consults.
+///
+/// [script] is read in order: an entry that holds an error is a read that throws it, and
+/// `nil` — including every read past the end — answers [millis].
+final class ScriptedProofClock: SPFNProofClock, @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var script: [(any Error)?]
+    private var recorded = 0
+    private let millis: Int64
+
+    init(_ millis: Int64, throwing script: [(any Error)?] = [])
+    {
+        self.millis = millis
+        self.script = script
+    }
+
+    /// How many times the wait asked what time it is.
+    var reads: Int
+    {
+        lock.withLock { recorded }
+    }
+
+    func nowMillis(
+        transport _: any SPFNTransport,
+        baseURL _: String,
+        timeoutMillis _: Int64
+    ) async throws -> Int64
+    {
+        let next: (any Error)? = lock.withLock
+        {
+            recorded += 1
+            return script.isEmpty ? nil : script.removeFirst()
+        }
+        if let next
+        {
+            throw next
+        }
+        return millis
+    }
+}
+
 /// A sleeper that records what it was asked to wait and never really waits.
 ///
 /// The device-code suite asserts the interval the SDK obeyed, which is only observable if

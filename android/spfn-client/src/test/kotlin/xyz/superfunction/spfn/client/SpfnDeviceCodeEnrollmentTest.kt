@@ -1,6 +1,6 @@
 // SPFN Mobile — device-code enrollment (M8), one test per cell of the D table.
 //
-// The table is closed: D1–D18 are every state and every answer the waiting side of the
+// The table is closed: D1–D20 are every state and every answer the waiting side of the
 // contract's `deviceAuthorization` flow can meet, and each test is named after its cell.
 // What the flow sends is compared against Contracts/fixtures/enrollment/enrollment.json,
 // which a third implementation derived from the contract text (P10) — never against what
@@ -457,6 +457,75 @@ class SpfnDeviceCodeEnrollmentTest
         }
     }
 
+    // ---- D19, D20: the clock read the wait depends on ----------------------
+
+    /**
+     * D19: on a fresh install the first iteration's proof-clock read is a real `core.time`
+     * request, and a network that dropped it says nothing about the device code — exactly
+     * as much as a network that drops the poll (D14). So it costs the same interval and is
+     * asked again, and the deadline is judged when the clock finally answers. Ending the
+     * wait here would delete the key for a dropped packet the very next line retries.
+     */
+    @Test
+    fun d19_aLostClockFetchCostsTheIntervalAndTheWaitGoesOn() = runBlocking {
+        val proofClock = ScriptedProofClock(
+            startedAtMillis,
+            listOf(SpfnClockSynchronizationException.RequestFailed())
+        );
+        val sleeper = ScriptedSleeper();
+        val transport = ScriptedTransport(listOf(startAnswer(), approvedAnswer()));
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair());
+        val lifecycle = makeLifecycle(
+            transport, store, engine,
+            keyIds = listOf("key-test-0001"),
+            proofClock = proofClock,
+            sleeper = sleeper
+        );
+
+        val result = lifecycle.enrollByDeviceCode { _, _ -> };
+
+        assertEquals("key-test-0001", result.keyId);
+        assertEquals("the clock was asked again rather than given up on", 2, proofClock.reads);
+        assertEquals("a lost clock fetch costs the same wait, not a new one",
+            listOf(intervalMillis, intervalMillis), sleeper.waits);
+        assertEquals("the lost fetch cost no poll, and one poll approved",
+            listOf(DEVICE_CODE), polledDeviceCodes(transport));
+    }
+
+    /**
+     * D20: the other half. A clock that refuses to synchronize at all is not a lost fetch
+     * — an untrusted base URL and a contract with no usable clock operation answer the
+     * same on every retry — so retrying would poll until the code expired against a
+     * deadline this device can never read. It ends the wait and deletes the key.
+     */
+    @Test
+    fun d20_aClockSynchronizationRefusalEndsTheWaitWithoutAPoll() = runBlocking {
+        val refusals = listOf(
+            SpfnClockSynchronizationException.UntrustedBaseUrl(),
+            SpfnClockSynchronizationException.ContractIncompatible()
+        );
+        for (refusal in refusals)
+        {
+            val proofClock = ScriptedProofClock(startedAtMillis, listOf(refusal));
+            val transport = ScriptedTransport(listOf(startAnswer(), approvedAnswer()));
+            val store = InMemoryKeyMetadataStore();
+            val engine = scriptedEngine(testKeyPair());
+            val lifecycle = makeLifecycle(
+                transport, store, engine,
+                keyIds = listOf("key-test-0001"),
+                proofClock = proofClock
+            );
+
+            val thrown = failureOf { lifecycle.enrollByDeviceCode { _, _ -> } };
+
+            assertEquals(refusal, thrown);
+            assertEquals("$refusal was retried", 1, proofClock.reads);
+            assertEquals("no poll is sent after $refusal", 1, transport.callCount);
+            assertNoKeySurvived(store, engine, lifecycle);
+        }
+    }
+
     // ---- assembly ----------------------------------------------------------
 
     /** D9–D11 differ only in the code, so the shared body is written once. */
@@ -566,7 +635,7 @@ class SpfnDeviceCodeEnrollmentTest
         engine: SpfnKeystoreEngine,
         keyIds: List<String>,
         clock: FakeClock = FakeClock(startedAtMillis),
-        proofClock: FakeClock = FakeClock(startedAtMillis),
+        proofClock: SpfnProofClock = FakeClock(startedAtMillis),
         sleeper: SpfnSleeper = ScriptedSleeper()
     ): SpfnKeyLifecycle
     {

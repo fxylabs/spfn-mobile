@@ -107,7 +107,10 @@ client.execute(deviceDeny, SpfnDenyDeviceAuthRequest(typed))
 What the app must show is the `userCode` exactly as it arrived — `XXXX-XXXX`, unmodified,
 since the server folds case, spaces and dashes when it is typed back in — and that it
 expires: the callback's second argument is the instant it stops working, and the call ends
-by itself at that instant with the SDK's device-code expiry error. The callback runs on
+by itself at that instant with the SDK's device-code expiry error. Only that expiry and a
+real refusal end the wait — a request the network lost, whichever of the wait's two it was,
+costs the interval and is asked again — so an app has no retry of its own to write. The
+callback runs on
 whatever executor the caller was on; the SDK switches to none of its own, so an app that
 draws from it hops to its own main thread. The approver should be shown what `info`
 answers — the device name and the fingerprint prefix — before approving, because that is

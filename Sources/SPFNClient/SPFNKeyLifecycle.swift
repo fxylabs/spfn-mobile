@@ -394,7 +394,9 @@ public actor SPFNKeyLifecycle
     ///      today, `TooManyRequestsError` — and every lost response are asked again
     ///      after that same interval, and everything else ends the wait.
     ///   4. The deadline is `start`'s `expiresAtMillis` judged on the proof clock, the
-    ///      one `core.time` synchronised. The device's own wall clock never enters it.
+    ///      one `core.time` synchronised. The device's own wall clock never enters it,
+    ///      and a lost `core.time` fetch is a lost poll: it costs the same interval and
+    ///      is asked again, so the deadline is judged when the clock answers.
     ///   5. Every exit that is not an approval destroys the key, cancellation included.
     ///      No fourth lifecycle state exists: until the approval is saved this install
     ///      is `unenrolled`, and a process death leaves it that way.
@@ -471,6 +473,11 @@ public actor SPFNKeyLifecycle
     ///
     /// The deadline is checked between the sleep and the request rather than after it,
     /// so a code that expired while this device was waiting costs no request at all.
+    ///
+    /// Two things can be lost inside one iteration and both cost the same interval: the
+    /// clock read and the poll. On a fresh install the first iteration's clock read is a
+    /// real `core.time` request, and a network that dropped it says exactly as much about
+    /// the code as a network that dropped the poll one line below — nothing.
     private func awaitApproval(
         deviceCode: String,
         expiresAtMillis: Int64,
@@ -482,11 +489,11 @@ public actor SPFNKeyLifecycle
         {
             try await sleeper.sleep(millis: waitMillis)
 
-            let now = try await proofClock.nowMillis(
-                transport: transport,
-                baseURL: baseURL,
-                timeoutMillis: timeoutMillis
-            )
+            guard let now = try await clockNow()
+            else
+            {
+                continue
+            }
             guard now < expiresAtMillis
             else
             {
@@ -515,6 +522,31 @@ public actor SPFNKeyLifecycle
                 }
                 return SPFNDeviceApproval(clientID: clientID, passwordChangeRequired: passwordChangeRequired)
             }
+        }
+    }
+
+    /// The proof clock, or nil for the one failure that means "ask again after the
+    /// interval".
+    ///
+    /// A lost `core.time` fetch is not an answer about the device code, so it does not
+    /// end the wait and destroy the key: it waits and reads again, and the deadline is
+    /// judged when the clock finally answers. Only the transport failure is retried.
+    /// A refusal to synchronize at all — an untrusted base URL, a contract with no usable
+    /// clock operation — is the same on every retry and ends the wait, and cancellation
+    /// is the caller withdrawing and is rethrown as itself.
+    private func clockNow() async throws -> Int64?
+    {
+        do
+        {
+            return try await proofClock.nowMillis(
+                transport: transport,
+                baseURL: baseURL,
+                timeoutMillis: timeoutMillis
+            )
+        }
+        catch SPFNClockSynchronizationError.requestFailed
+        {
+            return nil
         }
     }
 

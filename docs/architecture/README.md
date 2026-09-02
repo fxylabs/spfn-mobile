@@ -247,6 +247,15 @@ no backoff, and it stops at the `expiresAtMillis` it was told — judged on the
 `core.time`-synchronised proof clock, never the device's wall clock, so a device with a
 wrong clock neither gives up early nor polls a code it was told is dead.
 
+**A lost network answer is a lost poll wherever it happens in the wait.** Each iteration
+makes two requests that can be dropped: the `core.time` fetch that anchors the proof clock
+— a real request on a fresh install, where nothing has anchored it yet — and the poll
+itself. Both cost the same interval and are asked again, because neither says anything
+about the device code, and the deadline is judged when the clock finally answers. A clock
+that refuses to synchronise at all is a different answer and ends the wait: an untrusted
+base URL and a contract carrying no usable clock operation are the same on every retry,
+so a device that retried them would poll until a deadline it can never read went past.
+
 ## Contract import model
 
 SPFN primitives owns the canonical route DSL, schemas and the `clientProofV1` server

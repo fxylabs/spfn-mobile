@@ -29,6 +29,42 @@ class FakeClock(millis: Long) : SpfnClock, SpfnProofClock
 }
 
 /**
+ * A proof clock whose reads are scripted, so a case can lose a `core.time` fetch.
+ *
+ * The device-code wait reads the proof clock once per iteration, and what the SDK owes a
+ * failed read differs by failure — a lost fetch is asked again, a refusal to synchronize
+ * ends the wait. Neither is reachable through [FakeClock], which always answers, or
+ * through the scripted transport, which the injected clock never consults.
+ *
+ * [script] is read in order: an entry that holds a throwable is a read that throws it, and
+ * `null` — including every read past the end — answers [millis].
+ */
+class ScriptedProofClock(
+    private val millis: Long,
+    script: List<Throwable?> = emptyList()
+) : SpfnProofClock
+{
+    private val remaining = ArrayDeque(script)
+    private var recorded = 0
+
+    /** How many times the wait asked what time it is. */
+    val reads: Int get() = synchronized(this) { recorded }
+
+    override suspend fun nowMillis(transport: SpfnTransport, baseUrl: String, timeoutMillis: Long): Long
+    {
+        val next = synchronized(this) {
+            recorded += 1;
+            if (remaining.isEmpty()) null else remaining.removeFirst();
+        };
+        if (next != null)
+        {
+            throw next;
+        }
+        return millis;
+    }
+}
+
+/**
  * A sleeper that records what it was asked to wait and never really waits.
  *
  * The device-code suite asserts the interval the SDK obeyed, which is only observable if

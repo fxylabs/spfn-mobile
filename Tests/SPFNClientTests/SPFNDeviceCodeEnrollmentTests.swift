@@ -1,6 +1,6 @@
 // SPFN Mobile — device-code enrollment (M8), one test per cell of the D table.
 //
-// The table is closed: D1–D18 are every state and every answer the waiting side of the
+// The table is closed: D1–D20 are every state and every answer the waiting side of the
 // contract's `deviceAuthorization` flow can meet, and each test is named after its cell.
 // What the flow sends is compared against Contracts/fixtures/enrollment/enrollment.json,
 // which a third implementation derived from the contract text (P10) — never against what
@@ -515,6 +515,73 @@ final class SPFNDeviceCodeEnrollmentTests: XCTestCase
         }
     }
 
+    // MARK: - D19, D20: the clock read the wait depends on
+
+    /// D19: on a fresh install the first iteration's proof-clock read is a real
+    /// `core.time` request, and a network that dropped it says nothing about the device
+    /// code — exactly as much as a network that drops the poll (D14). So it costs the
+    /// same interval and is asked again, and the deadline is judged when the clock
+    /// finally answers. Ending the wait here would destroy the key for a dropped packet
+    /// the very next line retries.
+    func testD19ALostClockFetchCostsTheIntervalAndTheWaitGoesOn() async throws
+    {
+        let proofClock = ScriptedProofClock(
+            startedAtMillis,
+            throwing: [SPFNClockSynchronizationError.requestFailed]
+        )
+        let sleeper = ScriptedSleeper()
+        let transport = ScriptedTransport([startAnswer(), approvedAnswer()])
+        let lifecycle = makeLifecycle(
+            transport,
+            store: InMemoryKeyStore(),
+            keys: [try testKey()],
+            keyIDs: ["key-test-0001"],
+            proofClock: proofClock,
+            sleeper: sleeper
+        )
+
+        let result = try await lifecycle.enrollByDeviceCode { _, _ in }
+
+        XCTAssertEqual(result.keyID, "key-test-0001")
+        XCTAssertEqual(proofClock.reads, 2, "the clock was asked again rather than given up on")
+        XCTAssertEqual(
+            sleeper.waits,
+            [intervalMillis, intervalMillis],
+            "a lost clock fetch costs the same wait, not a new one"
+        )
+        let polled = try await polledDeviceCodes(transport)
+        XCTAssertEqual(polled, [Self.deviceCode], "the lost fetch cost no poll, and one poll approved")
+    }
+
+    /// D20: the other half. A clock that refuses to synchronize at all is not a lost
+    /// fetch — an untrusted base URL and a contract with no usable clock operation answer
+    /// the same on every retry — so retrying would poll until the code expired against a
+    /// deadline this device can never read. It ends the wait and destroys the key.
+    func testD20AClockSynchronizationRefusalEndsTheWaitWithoutAPoll() async throws
+    {
+        for refusal in [SPFNClockSynchronizationError.untrustedBaseURL, .contractIncompatible]
+        {
+            let proofClock = ScriptedProofClock(startedAtMillis, throwing: [refusal])
+            let transport = ScriptedTransport([startAnswer(), approvedAnswer()])
+            let store = InMemoryKeyStore()
+            let lifecycle = makeLifecycle(
+                transport,
+                store: store,
+                keys: [try testKey()],
+                keyIDs: ["key-test-0001"],
+                proofClock: proofClock
+            )
+
+            let thrown = await failure { _ = try await lifecycle.enrollByDeviceCode { _, _ in } }
+
+            XCTAssertEqual(thrown as? SPFNClockSynchronizationError, refusal)
+            XCTAssertEqual(proofClock.reads, 1, "\(refusal) was retried")
+            let calls = await transport.callCount
+            XCTAssertEqual(calls, 1, "no poll is sent after \(refusal)")
+            try await assertNoKeySurvived(store, lifecycle)
+        }
+    }
+
     // MARK: - Assembly
 
     /// D9–D11 differ only in the code, so the shared body is written once.
@@ -620,7 +687,7 @@ final class SPFNDeviceCodeEnrollmentTests: XCTestCase
         keys: [SPFNCustodyKey],
         keyIDs: [String],
         clock: FakeClock? = nil,
-        proofClock: FakeClock? = nil,
+        proofClock: (any SPFNProofClock)? = nil,
         sleeper: any SPFNSleeper = ScriptedSleeper()
     ) -> SPFNKeyLifecycle
     {
