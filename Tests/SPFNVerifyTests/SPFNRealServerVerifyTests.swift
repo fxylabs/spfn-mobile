@@ -703,6 +703,26 @@ final class SPFNRealServerVerifyTests: XCTestCase
             encode: { try $0.canonicalValue() },
             decode: { try SPFNRevokeAllKeysResponse(canonical: $0) }
         )
+
+        // The approver's three device-code operations, the same descriptors the reference
+        // suite sends: `deny` is the contract's one bodyless operation and is built through
+        // the factory, never by hand.
+        static let deviceInfo = SPFNCall<SPFNDeviceAuthInfoRequest, SPFNDeviceAuthInfoResponse>(
+            operation: SPFNGeneratedOperations.authDeviceInfo,
+            encode: { try $0.canonicalValue() },
+            decode: { try SPFNDeviceAuthInfoResponse(canonical: $0) }
+        )
+
+        static let deviceApprove = SPFNCall<SPFNApproveDeviceAuthRequest, SPFNDeviceAuthInfoResponse>(
+            operation: SPFNGeneratedOperations.authDeviceApprove,
+            encode: { try $0.canonicalValue() },
+            decode: { try SPFNDeviceAuthInfoResponse(canonical: $0) }
+        )
+
+        static let deviceDeny = SPFNCall<SPFNDenyDeviceAuthRequest, SPFNNoResponse>.noResponse(
+            operation: SPFNGeneratedOperations.authDeviceDeny,
+            encode: { try $0.canonicalValue() }
+        )
     }
 }
 
