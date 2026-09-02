@@ -77,22 +77,53 @@ its host and port are shown, which is what a reader needs in order to act.
 
 ## What the suite covers, and what it does not
 
-The cases use only operations a deployed SPFN server serves: enrolment through
-`/_auth/login` with a freshly generated key, a proven `auth.keys.list` under it,
-`auth.keys.rotate`, a proven call under the new key while the replaced one is refused,
-and revocation.
+The cases use only operations a deployed SPFN server serves — enrolment, the key
+lifecycle, and the device-code flow contract 0.10.0 added:
 
-Two things are deliberately absent.
+| Case | What it proves |
+|---|---|
+| r1 | `/_auth/login` with the seeded account enrolls a freshly generated key |
+| r2 | a proven `auth.keys.list` under the enrolled key names it, active |
+| r3 | `auth.keys.rotate` under the old key registers the candidate |
+| r4 | the new key proves a call while the replaced key is refused with `SESSION_REVOKED` |
+| r5 | `auth.keys.revoke` removes a named key and `auth.keys.revokeAll` spares the caller |
+| r6 | a device waiting on a code is approved from a device already signed in, and enrolls |
+| r7 | a denial ends the wait and leaves the waiting device holding nothing |
+| r8 | a second approval of one code is refused and the first one still stands |
+| r9 | an approval nobody proved is refused and applies nothing |
+
+The four device-code cases each run two SDKs against the one server — a waiting device
+and an approver — and each spends one real five-second poll interval, because the waiting
+side obeys the interval the server names and this server names five seconds. Every key
+they put on the seeded account is revoked when the class ends, after the receipts are
+written, so a run repeated all day does not leave a key behind each time.
+
+Three things are deliberately absent.
 
 **No `/control` surface.** The reference server has one because it must be able to revoke
 and expire on demand. A real server has no such hooks, so the cases are written to need
 none.
+
+**No expired code.** The reference suite's case i moves a clock fifteen minutes forward.
+A real server has no clock to move and the code's TTL is ten minutes, so the only way to
+write that case here would be to sit out the TTL — a hang, not a case. It stays a
+reference-server cell.
 
 **No social enrolment.** `/_auth/oauth/{provider}/native` verifies a real id_token
 against the provider's keys, so a headless runner cannot enrol through it — the reference
 server accepts a shaped test token, and a real server correctly does not. Proving that a
 real Apple or Google sign-in reaches a real server is device work, and it is work unit
 `w-9jqtj`. A suite here that faked it would be another reference server.
+
+## The login budget
+
+The seeded account allows ten `/_auth/login` calls a minute, which is the server's own
+auth-login rate limit and not a setting of this runner. One run spends seven: six for
+r1–r5, and one for the single approver the four device cells share. A device-code
+enrolment costs no login at all, so every waiting device is free. That is why the approver
+is enrolled once for the whole class rather than per case — and why a second full run
+started inside the same minute can meet a 429 on its later cases, which shows up as an
+unknown-code failure rather than as a silent skip.
 
 ## Creating the app
 

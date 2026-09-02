@@ -39,6 +39,22 @@ Entries under an unreleased heading describe repository state, not shipped softw
   bodyless operation, a code that expires, a second approval, and an unproven approval —
   and `Contracts/fixtures/enrollment/enrollment.json` gains the `start` body each platform
   must send, derived from the contract rather than captured from either SDK.
+- **The real-server suite gains four of those five**, r6–r9: an approval, a denial over
+  the bodyless operation, a second approval of one code, and an approval nobody proved.
+  They are the reference cases g, h, j and k run against the published `@spfn/auth` on a
+  real PostgreSQL, so the flow is now proven against a server this repository did not
+  write. Case i has no twin — an expiry is judged by moving a clock, a real server has
+  none to move, and sitting out the ten-minute TTL would be a hang rather than a case.
+  `tools/verify-server/run.sh` requires their receipts like the other five.
+- **The four cells share one approver**, enrolled once by whichever cell asks first. The
+  seeded account's rate limit allows ten `/_auth/login` calls a minute and r1–r5 already
+  spend six; a device-code enrolment spends none, so the whole device-code half of the
+  suite costs one login. The keys the cells add are revoked when the class ends, after the
+  receipts are written, so a repeated run does not accumulate keys on the seeded account.
+- The unproven approval is asserted as "refused and applied nothing" rather than by code.
+  This deployment answers 401 `UnauthorizedError`, which the mobile contract does not
+  list, where the reference server answers `CONTRACT_UNSUPPORTED`; both are refusals, and
+  pinning either would pin a real server to one of two defensible answers.
 
 ### The pinned contract moves to 0.10.0, and an operation may declare no response
 
