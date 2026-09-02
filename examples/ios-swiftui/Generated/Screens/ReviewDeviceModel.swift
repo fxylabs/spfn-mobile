@@ -32,7 +32,7 @@ public final class ReviewDeviceModel
     public private(set) var state: Loadable<SPFNDeviceAuthInfoResponse> = .loading
 
     private let useCase: any ReviewDeviceUseCase
-    private let service: any DeviceApprovalService
+    private let deviceApproval: any DeviceApprovalService
     private let flow: Flow<ApproveDeviceRoute>
     private let userCode: String
 
@@ -49,13 +49,13 @@ public final class ReviewDeviceModel
 
     public init(
         useCase: any ReviewDeviceUseCase,
-        service: any DeviceApprovalService,
+        deviceApproval: any DeviceApprovalService,
         flow: Flow<ApproveDeviceRoute>,
         userCode: String
     )
     {
         self.useCase = useCase
-        self.service = service
+        self.deviceApproval = deviceApproval
         self.flow = flow
         self.userCode = userCode
     }
@@ -103,7 +103,7 @@ public final class ReviewDeviceModel
         writing = true
         do
         {
-            _ = try await service.approve(SPFNApproveDeviceAuthRequest(userCode: userCode))
+            _ = try await deviceApproval.approve(SPFNApproveDeviceAuthRequest(userCode: userCode))
         }
         catch
         {
@@ -145,7 +145,7 @@ public final class ReviewDeviceModel
         writing = true
         do
         {
-            try await service.deny(SPFNDenyDeviceAuthRequest(userCode: userCode))
+            try await deviceApproval.deny(SPFNDenyDeviceAuthRequest(userCode: userCode))
         }
         catch
         {

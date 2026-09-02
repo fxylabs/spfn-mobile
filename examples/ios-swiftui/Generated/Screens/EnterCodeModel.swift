@@ -26,7 +26,7 @@ public final class EnterCodeModel
     /// What this screen's write is doing.
     public private(set) var state: Busy = .idle
 
-    private let service: any DeviceApprovalService
+    private let deviceApproval: any DeviceApprovalService
     private let flow: Flow<ApproveDeviceRoute>
 
     /// Which request is the current one.
@@ -37,9 +37,12 @@ public final class EnterCodeModel
     /// nobody is looking at any more.
     private var generation: Int = 0
 
-    public init(service: any DeviceApprovalService, flow: Flow<ApproveDeviceRoute>)
+    public init(
+        deviceApproval: any DeviceApprovalService,
+        flow: Flow<ApproveDeviceRoute>
+    )
     {
-        self.service = service
+        self.deviceApproval = deviceApproval
         self.flow = flow
     }
 
@@ -73,7 +76,7 @@ public final class EnterCodeModel
         state = .busy
         do
         {
-            _ = try await service.lookup(SPFNDeviceAuthInfoRequest(userCode: userCode))
+            _ = try await deviceApproval.lookup(SPFNDeviceAuthInfoRequest(userCode: userCode))
         }
         catch
         {

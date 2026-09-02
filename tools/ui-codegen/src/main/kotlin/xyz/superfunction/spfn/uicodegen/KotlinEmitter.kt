@@ -263,16 +263,39 @@ object KotlinEmitter
         appendLine("import kotlinx.coroutines.flow.MutableStateFlow");
         appendLine("import kotlinx.coroutines.flow.StateFlow");
         appendLine("import kotlinx.coroutines.flow.asStateFlow");
-        appendLine("import xyz.superfunction.spfn.client.SpfnClientError");
+        if (screen.calls)
+        {
+            appendLine("import xyz.superfunction.spfn.client.SpfnClientError");
+        }
         requestImports(screen).forEach { appendLine("import xyz.superfunction.spfn.generated.$it") };
         appendLine("import $PACKAGE.flows.${route(flow)}");
-        appendLine("import $PACKAGE.services.${type(screen.source?.service ?: callService(screen), "Service")}");
+        screen.services.forEach { appendLine("import $PACKAGE.services.${type(it, "Service")}") };
         appendLine("import xyz.superfunction.spfn.ui.$stateImport");
         appendLine("import xyz.superfunction.spfn.ui.Flow");
     }
 
-    private fun callService(screen: ScreenDefinition): String =
-        screen.actions.firstNotNullOf { it.call }.service
+    /**
+     * A screen model's constructor, in the order a reader expects it: the optional use
+     * case, then one parameter per service the screen calls, then the flow, then whatever
+     * the route carries. Each service is named after itself, because a screen with two of
+     * them has no `service`.
+     */
+    private fun modelParameters(flow: FlowDefinition, screen: ScreenDefinition, bundle: Bundle): List<String>
+    {
+        val parameters = mutableListOf<String>();
+        if (screen.usecase)
+        {
+            parameters += "useCase: ${type(screen.name, "UseCase")}";
+        }
+        screen.services.forEach { parameters += "$it: ${type(it, "Service")}" };
+        parameters += "flow: Flow<${route(flow)}>";
+        RouteParameters.of(screen, bundle).forEach { parameters += "${it.name}: ${kotlinType(it.type)}" };
+        return parameters;
+    }
+
+    /** The parameter list as a constructor's lines, with the commas where a person puts them. */
+    private fun constructorLines(parameters: List<String>): String =
+        parameters.joinToString(",\n") { "    private val $it" } + "\n"
 
     private fun requestImports(screen: ScreenDefinition): List<String>
     {
@@ -308,8 +331,7 @@ object KotlinEmitter
         appendLine(" * real [Flow] with no device, no composition and no server.");
         appendLine(" */");
         appendLine("class $name(");
-        appendLine("    private val service: ${type(callService(screen), "Service")},");
-        appendLine("    private val flow: Flow<${route(flow)}>");
+        append(constructorLines(modelParameters(flow, screen, bundle)));
         appendLine(")");
         appendLine("{");
         appendLine("    private val mutableState: MutableStateFlow<Busy> = MutableStateFlow(Busy.Idle);");
@@ -319,12 +341,43 @@ object KotlinEmitter
         appendLine();
         appendLine("    /** The flow's stack, so the screen can print its depth as a readout. */");
         appendLine("    val stack: StateFlow<List<${route(flow)}>> = flow.stack;");
-        appendLine();
-        append(generationField());
+        if (screen.calls)
+        {
+            appendLine();
+            append(generationField());
+        }
         screen.actions.forEach { action -> append(busyAction(spec, flow, screen, action, bundle)) };
-        appendLine();
-        append(isCurrent());
+        if (screen.calls)
+        {
+            appendLine();
+            append(isCurrent());
+        }
         appendLine("}");
+    }
+
+    /**
+     * An action that only navigates, on either kind of model.
+     *
+     * It abandons whatever this screen had in flight before it moves, which is what the
+     * generation bump is. A screen that calls nothing has no generation to bump and no
+     * answer to abandon, so on one of those the body is the navigation alone.
+     */
+    private fun navigationOnlyAction(
+        spec: Spec,
+        flow: FlowDefinition,
+        screen: ScreenDefinition,
+        action: ActionDefinition,
+        bundle: Bundle
+    ): String = buildString {
+        appendLine("    /** ${navigationSentence(action)} */");
+        appendLine("    fun ${action.name}()");
+        appendLine("    {");
+        if (screen.calls)
+        {
+            appendLine("        generation++;");
+        }
+        appendLine("        ${navigationCall(spec, flow, action, bundle)};");
+        appendLine("    }");
     }
 
     private fun generationField(): String = buildString {
@@ -356,12 +409,7 @@ object KotlinEmitter
         val parameters = inputs.joinToString(", ") { "${it.name}: ${kotlinType(it.type)}" };
         if (action.call == null)
         {
-            appendLine("    /** ${navigationSentence(action)} */");
-            appendLine("    fun ${action.name}()");
-            appendLine("    {");
-            appendLine("        generation++;");
-            appendLine("        ${navigationCall(spec, flow, action, bundle)};");
-            appendLine("    }");
+            append(navigationOnlyAction(spec, flow, screen, action, bundle));
             return@buildString;
         }
         appendLine("    /**");
@@ -387,7 +435,7 @@ object KotlinEmitter
         appendLine("        mutableState.value = Busy.Busy;");
         appendLine("        try");
         appendLine("        {");
-        appendLine("            service.${action.call.name}(${requestLiteral(action.call, screen, bundle)});");
+        appendLine("            ${action.call.service}.${action.call.name}(${requestLiteral(action.call, screen, bundle)});");
         appendLine("        }");
         // SpfnClientError and not Exception: CancellationException is not one of these, so
         // a cancelled coroutine propagates instead of being recorded as a server refusal.
@@ -477,13 +525,7 @@ object KotlinEmitter
         appendLine(" * real [Flow] with no device, no composition and no server.");
         appendLine(" */");
         appendLine("class ${type(screen.name, "Model")}(");
-        if (screen.usecase)
-        {
-            appendLine("    private val useCase: ${type(screen.name, "UseCase")},");
-        }
-        appendLine("    private val service: ${type(callService(screen), "Service")},");
-        appendLine("    private val flow: Flow<${route(flow)}>,");
-        RouteParameters.of(screen, bundle).forEach { appendLine("    private val ${it.name}: ${kotlinType(it.type)},") };
+        append(constructorLines(modelParameters(flow, screen, bundle)));
         appendLine(")");
         appendLine("{");
         appendLine("    private val mutableState: MutableStateFlow<Loadable<$value>> =");
@@ -510,7 +552,7 @@ object KotlinEmitter
     private fun readMethod(screen: ScreenDefinition, bundle: Bundle): String = buildString {
         val source = requireNotNull(screen.source);
         val call = if (screen.usecase) "useCase.${source.name}(${sourceArguments(screen, bundle)})"
-        else "service.${source.name}(${requestLiteral(source, screen, bundle)})";
+        else "${source.service}.${source.name}(${requestLiteral(source, screen, bundle)})";
         appendLine("    /** Reads this screen's source. Called once when the screen appears, however it appeared. */");
         appendLine("    suspend fun load()");
         appendLine("    {");
@@ -548,12 +590,7 @@ object KotlinEmitter
         appendLine();
         if (action.call == null)
         {
-            appendLine("    /** ${navigationSentence(action)} */");
-            appendLine("    fun ${action.name}()");
-            appendLine("    {");
-            appendLine("        generation++;");
-            appendLine("        ${navigationCall(spec, flow, action, bundle)};");
-            appendLine("    }");
+            append(navigationOnlyAction(spec, flow, screen, action, bundle));
             return@buildString;
         }
         if (action.call.reference == screen.source?.reference && action.then == null)
@@ -602,7 +639,7 @@ object KotlinEmitter
         appendLine("        writing = true;");
         appendLine("        try");
         appendLine("        {");
-        appendLine("            service.${call.name}(${requestLiteral(call, screen, bundle)});");
+        appendLine("            ${call.service}.${call.name}(${requestLiteral(call, screen, bundle)});");
         appendLine("        }");
         appendLine("        catch (failure: SpfnClientError)");
         appendLine("        {");
@@ -925,7 +962,7 @@ object KotlinEmitter
         appendLine();
         appendLine("/** The app's one graph: services in, flows and screen models out. */");
         appendLine("class AppContainer(");
-        spec.services.forEach { appendLine("    private val ${it.name}: ${type(it.name, "Service")}") };
+        append(constructorLines(spec.services.map { "${it.name}: ${type(it.name, "Service")}" }));
         appendLine(")");
         appendLine("{");
         spec.flows.forEach { flow ->
@@ -941,13 +978,12 @@ object KotlinEmitter
     private fun modelFactory(spec: Spec, screen: ScreenDefinition, bundle: Bundle): String = buildString {
         val flow = spec.flows.first { it.name == screen.flow };
         val parameters = RouteParameters.of(screen, bundle);
-        val service = screen.source?.service ?: callService(screen);
         val arguments = mutableListOf<String>();
         if (screen.usecase)
         {
-            arguments += "Default${type(screen.name, "UseCase")}($service)";
+            arguments += "Default${type(screen.name, "UseCase")}(${requireNotNull(screen.source).service})";
         }
-        arguments += service;
+        arguments += screen.services;
         arguments += "${flow.name}Flow";
         parameters.forEach { arguments += it.name };
         appendLine("    /** A fresh model for one appearance of `${screen.name}`. */");

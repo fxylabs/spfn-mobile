@@ -42,13 +42,13 @@ public final class AppContainer
     /// A fresh model for one appearance of `enterCode`.
     public func enterCodeModel() -> EnterCodeModel
     {
-        EnterCodeModel(service: deviceApproval, flow: approveDeviceFlow)
+        EnterCodeModel(deviceApproval: deviceApproval, flow: approveDeviceFlow)
     }
 
     /// A fresh model for one appearance of `reviewDevice`.
     public func reviewDeviceModel(userCode: String) -> ReviewDeviceModel
     {
-        ReviewDeviceModel(useCase: DefaultReviewDeviceUseCase(service: deviceApproval), service: deviceApproval, flow: approveDeviceFlow, userCode: userCode)
+        ReviewDeviceModel(useCase: DefaultReviewDeviceUseCase(service: deviceApproval), deviceApproval: deviceApproval, flow: approveDeviceFlow, userCode: userCode)
     }
 
     /// The app against a real server: one transport, one session, one client.

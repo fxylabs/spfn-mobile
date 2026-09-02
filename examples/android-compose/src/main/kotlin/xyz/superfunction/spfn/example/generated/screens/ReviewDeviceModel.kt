@@ -32,9 +32,9 @@ import xyz.superfunction.spfn.ui.Flow
  */
 class ReviewDeviceModel(
     private val useCase: ReviewDeviceUseCase,
-    private val service: DeviceApprovalService,
+    private val deviceApproval: DeviceApprovalService,
     private val flow: Flow<ApproveDeviceRoute>,
-    private val userCode: String,
+    private val userCode: String
 )
 {
     private val mutableState: MutableStateFlow<Loadable<SpfnDeviceAuthInfoResponse>> =
@@ -97,7 +97,7 @@ class ReviewDeviceModel(
         writing = true;
         try
         {
-            service.approve(SpfnApproveDeviceAuthRequest(userCode = userCode));
+            deviceApproval.approve(SpfnApproveDeviceAuthRequest(userCode = userCode));
         }
         catch (failure: SpfnClientError)
         {
@@ -138,7 +138,7 @@ class ReviewDeviceModel(
         writing = true;
         try
         {
-            service.deny(SpfnDenyDeviceAuthRequest(userCode = userCode));
+            deviceApproval.deny(SpfnDenyDeviceAuthRequest(userCode = userCode));
         }
         catch (failure: SpfnClientError)
         {

@@ -140,6 +140,112 @@ class SpecRefusalTest
         );
     }
 
+    /**
+     * The screen shapes SCHEMA.md permits and the worked example does not have.
+     *
+     * `device-approval.json` has one service and gives every screen an action that calls
+     * it, so it cannot say what the emitters do with a screen that calls nothing or with
+     * one whose actions span two services. The fixture beside it keeps the skeleton the
+     * case rules cover and adds exactly those two shapes; the assertions below are on the
+     * EMITTED TEXT, because no app is built from it — the compilers that read these two
+     * languages are the example apps' own, and they read the worked example.
+     */
+    private val shapesSpec = "tools/ui-codegen/src/test/resources/screen-shapes.json"
+
+    private fun assertEmits(generated: Map<String, String>, path: String, expected: String)
+    {
+        val content = generated[path] ?: fail("the generator wrote no $path") as String;
+        assertTrue("$path does not carry:\n$expected\n\nit carries:\n$content", content.contains(expected));
+    }
+
+    /**
+     * A sourced screen whose actions call nothing is generable, and so is one with no
+     * service at all. Both threw before: the injected service was chosen with a
+     * `firstNotNullOf` over the actions' calls, which has nothing to answer with on a
+     * screen whose actions only navigate.
+     */
+    @Test
+    fun `a screen with no service-calling action still generates`()
+    {
+        val generated = generate(repoRoot, shapesSpec);
+
+        assertEmits(
+            generated,
+            "${KotlinEmitter.ROOT}/screens/AuditDeviceModel.kt",
+            "class AuditDeviceModel(\n" +
+                "    private val deviceAudit: DeviceAuditService,\n" +
+                "    private val flow: Flow<ApproveDeviceRoute>,\n" +
+                "    private val userCode: String\n" +
+                ")"
+        );
+        assertEmits(
+            generated,
+            "${SwiftEmitter.ROOT}/Screens/AuditDeviceModel.swift",
+            "    public init(\n" +
+                "        deviceAudit: any DeviceAuditService,\n" +
+                "        flow: Flow<ApproveDeviceRoute>,\n" +
+                "        userCode: String\n" +
+                "    )"
+        );
+
+        // And a screen that names no service at all is given none, on either platform.
+        assertEmits(generated, "${KotlinEmitter.ROOT}/screens/LeafletModel.kt", "class LeafletModel(\n    private val flow: Flow<ApproveDeviceRoute>\n)");
+        assertEmits(generated, "${SwiftEmitter.ROOT}/Screens/LeafletModel.swift", "    public init(\n        flow: Flow<ApproveDeviceRoute>\n    )");
+        assertEmits(generated, "${KotlinEmitter.ROOT}/AppContainer.kt", "LeafletModel(approveDeviceFlow);");
+        assertEmits(generated, "${SwiftEmitter.ROOT}/AppContainer.swift", "LeafletModel(flow: approveDeviceFlow)");
+    }
+
+    /**
+     * A screen whose actions span two services takes two of them, mirrored on both
+     * platforms and passed by `AppContainer`. One injected service could not represent
+     * this at all: `deny` would have been called on the service `approve` came from.
+     */
+    @Test
+    fun `a screen calling two services takes two of them on both platforms`()
+    {
+        val generated = generate(repoRoot, shapesSpec);
+
+        assertEmits(
+            generated,
+            "${KotlinEmitter.ROOT}/screens/ReviewDeviceModel.kt",
+            "class ReviewDeviceModel(\n" +
+                "    private val useCase: ReviewDeviceUseCase,\n" +
+                "    private val deviceApproval: DeviceApprovalService,\n" +
+                "    private val deviceAudit: DeviceAuditService,\n" +
+                "    private val flow: Flow<ApproveDeviceRoute>,\n" +
+                "    private val userCode: String\n" +
+                ")"
+        );
+        assertEmits(
+            generated,
+            "${KotlinEmitter.ROOT}/screens/ReviewDeviceModel.kt",
+            "deviceAudit.deny(SpfnDenyDeviceAuthRequest(userCode = userCode));"
+        );
+        assertEmits(
+            generated,
+            "${SwiftEmitter.ROOT}/Screens/ReviewDeviceModel.swift",
+            "    private let deviceApproval: any DeviceApprovalService\n" +
+                "    private let deviceAudit: any DeviceAuditService\n"
+        );
+        assertEmits(
+            generated,
+            "${SwiftEmitter.ROOT}/Screens/ReviewDeviceModel.swift",
+            "try await deviceAudit.deny(SPFNDenyDeviceAuthRequest(userCode: userCode))"
+        );
+
+        assertEmits(
+            generated,
+            "${KotlinEmitter.ROOT}/AppContainer.kt",
+            "ReviewDeviceModel(DefaultReviewDeviceUseCase(deviceApproval), deviceApproval, deviceAudit, approveDeviceFlow, userCode);"
+        );
+        assertEmits(
+            generated,
+            "${SwiftEmitter.ROOT}/AppContainer.swift",
+            "ReviewDeviceModel(useCase: DefaultReviewDeviceUseCase(service: deviceApproval), deviceApproval: deviceApproval, " +
+                "deviceAudit: deviceAudit, flow: approveDeviceFlow, userCode: userCode)"
+        );
+    }
+
     @Test
     fun `generation is a pure function of its two inputs`()
     {

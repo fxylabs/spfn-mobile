@@ -77,6 +77,22 @@ data class ScreenDefinition(
      * flight (SCHEMA.md, "How a screen's state type is derived").
      */
     val isLoadable: Boolean get() = source != null;
+
+    /**
+     * The services this screen's model is given, deduplicated and sorted: the one its
+     * source reads through, and the one each of its actions calls.
+     *
+     * Derived rather than assumed, and a LIST rather than one name, because the spec
+     * permits both ends of that. A sourced screen whose actions only navigate calls
+     * exactly one service; a screen with `"actions": {}` and no source calls none and
+     * takes none; and an action may call a service its screen's source does not read
+     * through, which is two constructor parameters and not a choice between them.
+     */
+    val services: List<String> get() =
+        (listOfNotNull(source) + actions.mapNotNull { it.call }).map { it.service }.distinct().sorted();
+
+    /** Whether anything on this screen calls a service, and therefore has an answer to drop. */
+    val calls: Boolean get() = source != null || actions.any { it.call != null };
 }
 
 data class FlowDefinition(val name: String, val entry: String, val start: String)

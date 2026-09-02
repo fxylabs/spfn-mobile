@@ -21,6 +21,9 @@ object SwiftEmitter
 {
     const val ROOT: String = "examples/ios-swiftui/Generated";
 
+    /** One name and one type, which is all a stored property and an init parameter share. */
+    private data class Parameter(val name: String, val type: String)
+
     fun emit(spec: Spec, bundle: Bundle, inputs: Inputs): Map<String, String>
     {
         val files = mutableMapOf<String, String>();
@@ -249,13 +252,16 @@ object SwiftEmitter
         else busyModel(spec, flow, screen, bundle, inputs);
     }
 
-    private fun modelPreamble(inputs: Inputs): String = buildString {
+    private fun modelPreamble(screen: ScreenDefinition, inputs: Inputs): String = buildString {
         appendLine(header(inputs));
         appendLine();
         appendLine("import Foundation");
         appendLine("import Observation");
-        appendLine("import SPFNClient");
-        appendLine("import SPFNGenerated");
+        if (screen.calls)
+        {
+            appendLine("import SPFNClient");
+            appendLine("import SPFNGenerated");
+        }
         appendLine("import SPFNUI");
     }
 
@@ -266,7 +272,7 @@ object SwiftEmitter
         bundle: Bundle,
         inputs: Inputs
     ): String = buildString {
-        append(modelPreamble(inputs));
+        append(modelPreamble(screen, inputs));
         appendLine();
         appendLine("/// The `${screen.name}` screen's state and rules, with no toolkit in sight.");
         appendLine("///");
@@ -274,28 +280,54 @@ object SwiftEmitter
         appendLine("/// real `Flow` with no device, no view and no server.");
         appendLine("@MainActor");
         appendLine("@Observable");
+        val parameters = modelParameters(flow, screen, bundle);
         appendLine("public final class ${type(screen.name, "Model")}");
         appendLine("{");
         appendLine("    /// What this screen's write is doing.");
         appendLine("    public private(set) var state: Busy = .idle");
         appendLine();
-        appendLine("    private let service: any ${type(callService(screen), "Service")}");
-        appendLine("    private let flow: Flow<${route(flow)}>");
+        append(storedProperties(parameters));
+        if (screen.calls)
+        {
+            appendLine();
+            append(generationField());
+        }
         appendLine();
-        append(generationField());
-        appendLine();
-        appendLine("    public init(service: any ${type(callService(screen), "Service")}, flow: Flow<${route(flow)}>)");
-        appendLine("    {");
-        appendLine("        self.service = service");
-        appendLine("        self.flow = flow");
-        appendLine("    }");
+        append(modelInit(parameters));
         appendLine();
         appendLine("    /// The flow's stack, so the screen can print its depth as a readout.");
         appendLine("    public var stack: [${route(flow)}] { flow.stack }");
         screen.actions.forEach { action -> append(busyAction(spec, screen, action, bundle)) };
-        appendLine();
-        append(isCurrent());
+        if (screen.calls)
+        {
+            appendLine();
+            append(isCurrent());
+        }
         appendLine("}");
+    }
+
+    /**
+     * An action that only navigates, on either kind of model.
+     *
+     * It abandons whatever this screen had in flight before it moves, which is what the
+     * generation bump is. A screen that calls nothing has no generation to bump and no
+     * answer to abandon, so on one of those the body is the navigation alone.
+     */
+    private fun navigationOnlyAction(
+        spec: Spec,
+        screen: ScreenDefinition,
+        action: ActionDefinition,
+        bundle: Bundle
+    ): String = buildString {
+        appendLine("    /// ${navigationSentence(action)}");
+        appendLine("    public func ${action.name}()");
+        appendLine("    {");
+        if (screen.calls)
+        {
+            appendLine("        generation += 1");
+        }
+        appendLine("        ${navigationCall(spec, action, bundle)}");
+        appendLine("    }");
     }
 
     private fun generationField(): String = buildString {
@@ -327,12 +359,7 @@ object SwiftEmitter
         val parameters = typed.joinToString(", ") { "${it.name}: ${swiftType(it.type)}" };
         if (action.call == null)
         {
-            appendLine("    /// ${navigationSentence(action)}");
-            appendLine("    public func ${action.name}()");
-            appendLine("    {");
-            appendLine("        generation += 1");
-            appendLine("        ${navigationCall(spec, action, bundle)}");
-            appendLine("    }");
+            append(navigationOnlyAction(spec, screen, action, bundle));
             return@buildString;
         }
         appendLine("    /// ${action.call.declaration.summary}");
@@ -357,7 +384,7 @@ object SwiftEmitter
         appendLine("        state = .busy");
         appendLine("        do");
         appendLine("        {");
-        appendLine("            ${discard(action.call)}try await service.${action.call.name}(${requestLiteral(action.call, bundle)})");
+        appendLine("            ${discard(action.call)}try await ${action.call.service}.${action.call.name}(${requestLiteral(action.call, bundle)})");
         appendLine("        }");
         appendLine("        catch");
         appendLine("        {");
@@ -411,9 +438,6 @@ object SwiftEmitter
         null -> "Does nothing to the flow."
     }
 
-    private fun callService(screen: ScreenDefinition): String =
-        screen.actions.firstNotNullOf { it.call }.service
-
     private fun loadableModel(
         spec: Spec,
         flow: FlowDefinition,
@@ -423,8 +447,8 @@ object SwiftEmitter
     ): String = buildString {
         val source = requireNotNull(screen.source);
         val value = response(source);
-        val parameters = RouteParameters.of(screen, bundle);
-        append(modelPreamble(inputs));
+        val parameters = modelParameters(flow, screen, bundle);
+        append(modelPreamble(screen, inputs));
         appendLine();
         appendLine("/// The `${screen.name}` screen's state and rules, with no toolkit in sight.");
         appendLine("///");
@@ -442,20 +466,14 @@ object SwiftEmitter
         appendLine("    /// What this screen's read has produced so far.");
         appendLine("    public private(set) var state: Loadable<$value> = .loading");
         appendLine();
-        if (screen.usecase)
-        {
-            appendLine("    private let useCase: any ${type(screen.name, "UseCase")}");
-        }
-        appendLine("    private let service: any ${type(callService(screen), "Service")}");
-        appendLine("    private let flow: Flow<${route(flow)}>");
-        parameters.forEach { appendLine("    private let ${it.name}: ${swiftType(it.type)}") };
+        append(storedProperties(parameters));
         appendLine();
         append(generationField());
         appendLine();
         appendLine("    /// Whether one of this screen's writes is in flight.");
         appendLine("    private var writing: Bool = false");
         appendLine();
-        append(loadableInit(screen, flow, parameters));
+        append(modelInit(parameters));
         appendLine();
         appendLine("    /// The flow's stack, so the screen can print its depth as a readout.");
         appendLine("    public var stack: [${route(flow)}] { flow.stack }");
@@ -467,31 +485,35 @@ object SwiftEmitter
         appendLine("}");
     }
 
-    private fun loadableInit(
-        screen: ScreenDefinition,
-        flow: FlowDefinition,
-        parameters: List<RouteParameters.Parameter>
-    ): String = buildString {
-        val arguments = mutableListOf<String>();
+    /**
+     * A screen model's parameters, in the order a reader expects them: the optional use
+     * case, then one per service the screen calls, then the flow, then whatever the route
+     * carries. Each service is named after itself, because a screen with two of them has
+     * no `service`. The Kotlin half builds the same list in the same order.
+     */
+    private fun modelParameters(flow: FlowDefinition, screen: ScreenDefinition, bundle: Bundle): List<Parameter>
+    {
+        val parameters = mutableListOf<Parameter>();
         if (screen.usecase)
         {
-            arguments += "useCase: any ${type(screen.name, "UseCase")}";
+            parameters += Parameter("useCase", "any ${type(screen.name, "UseCase")}");
         }
-        arguments += "service: any ${type(callService(screen), "Service")}";
-        arguments += "flow: Flow<${route(flow)}>";
-        parameters.forEach { arguments += "${it.name}: ${swiftType(it.type)}" };
+        screen.services.forEach { parameters += Parameter(it, "any ${type(it, "Service")}") };
+        parameters += Parameter("flow", "Flow<${route(flow)}>");
+        RouteParameters.of(screen, bundle).forEach { parameters += Parameter(it.name, swiftType(it.type)) };
+        return parameters;
+    }
+
+    private fun storedProperties(parameters: List<Parameter>): String =
+        parameters.joinToString("\n") { "    private let ${it.name}: ${it.type}" } + "\n"
+
+    private fun modelInit(parameters: List<Parameter>): String = buildString {
         appendLine("    public init(");
-        arguments.forEachIndexed { index, argument ->
-            appendLine("        $argument${if (index == arguments.size - 1) "" else ","}");
+        parameters.forEachIndexed { index, parameter ->
+            appendLine("        ${parameter.name}: ${parameter.type}${if (index == parameters.size - 1) "" else ","}");
         };
         appendLine("    )");
         appendLine("    {");
-        if (screen.usecase)
-        {
-            appendLine("        self.useCase = useCase");
-        }
-        appendLine("        self.service = service");
-        appendLine("        self.flow = flow");
         parameters.forEach { appendLine("        self.${it.name} = ${it.name}") };
         appendLine("    }");
     }
@@ -499,7 +521,7 @@ object SwiftEmitter
     private fun readMethod(screen: ScreenDefinition, bundle: Bundle): String = buildString {
         val source = requireNotNull(screen.source);
         val call = if (screen.usecase) "useCase.${source.name}(${sourceArguments(screen, bundle)})"
-        else "service.${source.name}(${requestLiteral(source, bundle)})";
+        else "${source.service}.${source.name}(${requestLiteral(source, bundle)})";
         appendLine("    /// Reads this screen's source. Called once when the screen appears, however it appeared.");
         appendLine("    public func load() async");
         appendLine("    {");
@@ -538,12 +560,7 @@ object SwiftEmitter
         appendLine();
         if (action.call == null)
         {
-            appendLine("    /// ${navigationSentence(action)}");
-            appendLine("    public func ${action.name}()");
-            appendLine("    {");
-            appendLine("        generation += 1");
-            appendLine("        ${navigationCall(spec, action, bundle)}");
-            appendLine("    }");
+            append(navigationOnlyAction(spec, screen, action, bundle));
             return@buildString;
         }
         if (action.call.reference == screen.source?.reference && action.then == null)
@@ -579,7 +596,7 @@ object SwiftEmitter
         appendLine("        writing = true");
         appendLine("        do");
         appendLine("        {");
-        appendLine("            ${discard(call)}try await service.${call.name}(${requestLiteral(call, bundle)})");
+        appendLine("            ${discard(call)}try await ${call.service}.${call.name}(${requestLiteral(call, bundle)})");
         appendLine("        }");
         appendLine("        catch");
         appendLine("        {");
@@ -876,13 +893,12 @@ object SwiftEmitter
     private fun modelFactory(spec: Spec, screen: ScreenDefinition, bundle: Bundle): String = buildString {
         val flow = spec.flows.first { it.name == screen.flow };
         val parameters = RouteParameters.of(screen, bundle);
-        val service = screen.source?.service ?: callService(screen);
         val arguments = mutableListOf<String>();
         if (screen.usecase)
         {
-            arguments += "useCase: Default${type(screen.name, "UseCase")}(service: $service)";
+            arguments += "useCase: Default${type(screen.name, "UseCase")}(service: ${requireNotNull(screen.source).service})";
         }
-        arguments += "service: $service";
+        screen.services.forEach { arguments += "$it: $it" };
         arguments += "flow: ${flow.name}Flow";
         parameters.forEach { arguments += "${it.name}: ${it.name}" };
         appendLine();

@@ -29,7 +29,7 @@ import xyz.superfunction.spfn.ui.Flow
  * real [Flow] with no device, no composition and no server.
  */
 class EnterCodeModel(
-    private val service: DeviceApprovalService,
+    private val deviceApproval: DeviceApprovalService,
     private val flow: Flow<ApproveDeviceRoute>
 )
 {
@@ -79,7 +79,7 @@ class EnterCodeModel(
         mutableState.value = Busy.Busy;
         try
         {
-            service.lookup(SpfnDeviceAuthInfoRequest(userCode = userCode));
+            deviceApproval.lookup(SpfnDeviceAuthInfoRequest(userCode = userCode));
         }
         catch (failure: SpfnClientError)
         {
