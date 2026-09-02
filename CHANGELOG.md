@@ -15,7 +15,7 @@ Entries under an unreleased heading describe repository state, not shipped softw
   upstream evidence declares, because 0.10.0 is its minor's first release.
 - Contract 0.10.0 adds the device-code flow: five operations (`auth.device.start`,
   `auth.device.poll`, `auth.device.info`, `auth.device.approve`, `auth.device.deny`,
-  bringing the total to 16), eight types (30), the `DeviceAuthPollStatus` enum, the four
+  bringing the total to 16), eight types (31), the `DeviceAuthPollStatus` enum, the four
   `DeviceAuth*Error` codes (22), and a `deviceAuthorization` section describing the flow.
   `KeySummary.platform` changes from a bare string to the new `KeyPlatform` enum, which
   both generated clients now decode strictly. This change set pins and generates the
