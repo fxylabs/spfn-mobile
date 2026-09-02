@@ -24,6 +24,12 @@
 // owned a one-line nonce accessor and a seam the app fills in anyway. An Android app
 // signing in with Apple needs `SpfnSocialNonce`, its `requestValue` and
 // `enroll(provider = "apple", …)` — all three live in spfn-client and always did.
+//
+// This module is Apple-only, which tools/module-graph.json states as `"linux":
+// false` on its row. SwiftPM cannot leave a target out of a platform, so the whole
+// file is guarded on the framework it is written against and the target compiles to
+// an empty module where that framework does not exist.
+#if canImport(AuthenticationServices)
 
 import AuthenticationServices
 import Foundation
@@ -261,3 +267,5 @@ struct SPFNSocialAppleAuthorizationDriver: SPFNSocialAppleDriver
             .identityToken(requestNonce: requestNonce)
     }
 }
+
+#endif

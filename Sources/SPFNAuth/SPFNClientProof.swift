@@ -12,7 +12,12 @@
 // android/spfn-auth/.../SpfnClientProof.kt implements the same algorithm, and
 // Contracts/fixtures/proof/ pins the agreed output of both.
 
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
+
 import Foundation
 import SPFNCore
 

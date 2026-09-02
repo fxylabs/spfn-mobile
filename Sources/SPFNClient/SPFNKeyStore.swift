@@ -13,7 +13,6 @@
 
 import Foundation
 import SPFNCore
-import Security
 
 /// Which custody actually holds a private key.
 ///
@@ -115,6 +114,14 @@ public struct SPFNKeyStoreError: Error, Equatable, Sendable
         self.status = status
     }
 }
+
+// The keychain is Security's, and Security is Apple's. The whole store below is
+// guarded on it rather than stubbed out with a file-based fallback, because a fallback
+// would silently change the protection class of a real key — the same reason the seam
+// exists at all. A platform without Security has `SPFNKeyStore` and the in-memory
+// implementations the suites inject, and no keychain.
+#if canImport(Security)
+import Security
 
 /// The platform keychain as an `SPFNKeyStore`.
 ///
@@ -246,3 +253,4 @@ public struct SPFNKeychainKeyStore: SPFNKeyStore
         )
     }
 }
+#endif

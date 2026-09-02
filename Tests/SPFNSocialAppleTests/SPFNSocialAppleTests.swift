@@ -5,6 +5,11 @@
 // from a failure, and what happens when a completed authorization brings no token.
 // Nothing here needs a device, and nothing here would be more true on one: the rows are
 // about this module's decisions, not about Apple's UI.
+//
+// The module under test is Apple-only (`"linux": false` in tools/module-graph.json),
+// so this file is guarded the same way its subject is: on Linux the target compiles
+// to an empty module and there is nothing here to run.
+#if canImport(AuthenticationServices)
 
 import AuthenticationServices
 import Foundation
@@ -190,3 +195,5 @@ actor RecordingAppleDriver: SPFNSocialAppleDriver
         }
     }
 }
+
+#endif

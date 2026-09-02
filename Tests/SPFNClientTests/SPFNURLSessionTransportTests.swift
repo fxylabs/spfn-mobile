@@ -199,6 +199,15 @@ final class SPFNURLSessionTransportTests: XCTestCase
         }
     }
 
+    /// swift-corelibs-foundation does not implement
+    /// `URLProtocolClient.urlProtocol(_:wasRedirectedTo:redirectResponse:)`: its
+    /// `_ProtocolClient` witness traps, so a stub that hands the session a redirect
+    /// the way a real protocol does kills the test process on Linux before any
+    /// assertion runs. Handing the 3xx over as an ordinary response instead would make
+    /// the row pass without exercising the session's redirect handling at all, which is
+    /// the exact defect a probe against this suite already found once. So the row is
+    /// Apple-only rather than weakened, and the transport is not touched to suit it.
+    #if canImport(Darwin)
     func testRedirectIsReturnedNotFollowed() async throws
     {
         stubRegistry.install { _ in .redirect(status: 302, location: "https://elsewhere.invalid/v1/thing") }
@@ -212,6 +221,7 @@ final class SPFNURLSessionTransportTests: XCTestCase
             "https://elsewhere.invalid/v1/thing"
         )
     }
+    #endif
 
     func testTimeoutSurfacesAsTimedOut() async
     {

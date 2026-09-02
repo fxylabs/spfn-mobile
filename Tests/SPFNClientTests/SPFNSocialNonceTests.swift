@@ -10,7 +10,12 @@
 // bottom is what pins the two platforms' character classification to each other (P9).
 // The byte-to-hex vector lives in SPFNCoreTests, beside the encoder it asserts against.
 
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
+
 import Foundation
 import XCTest
 import SPFNClient

@@ -25,6 +25,10 @@ enum StubOutcome: Sendable
     /// treats a delivered response as final and never asks the delegate anything. A
     /// redirect test built that way passes whether or not redirects are blocked, which is
     /// what a probe against this suite found.
+    ///
+    /// Apple-only in practice: swift-corelibs-foundation's `_ProtocolClient` traps in
+    /// `urlProtocol(_:wasRedirectedTo:redirectResponse:)`, so driving this outcome on
+    /// Linux kills the process. The one row that uses it is guarded there.
     case redirect(status: Int, location: String)
 
     /// Accepts the request and never answers, so the caller's cancellation is the only

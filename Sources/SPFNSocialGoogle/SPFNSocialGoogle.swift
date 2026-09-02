@@ -14,6 +14,14 @@
 // trait off.
 //
 // Nothing here reads or logs anything but the token (decision 1).
+//
+// This module is Apple-only, which tools/module-graph.json states as `"linux":
+// false` on its row. SwiftPM cannot leave a target out of a platform, so the whole
+// file is guarded on the frameworks the platform flow is presented from — UIKit on
+// iOS, AppKit on macOS — and the target compiles to an empty module where neither
+// exists. Guarding on UIKit alone would empty the module on macOS too, where this
+// adapter builds and its rows run.
+#if canImport(UIKit) || canImport(AppKit)
 
 import Foundation
 import SPFNClient
@@ -183,4 +191,6 @@ struct SPFNSocialGoogleSignInDriver: SPFNSocialGoogleDriver
         return result.user.idToken?.tokenString
     }
 }
+#endif
+
 #endif

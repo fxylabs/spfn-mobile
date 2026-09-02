@@ -32,14 +32,14 @@ fixture generator, `tools/rc-verify/rc-verify.sh` and
 `tools/rc-verify/verify-published.sh` derive their consumer dependency lists, imports
 and Maven coordinate lists from the graph.
 
-| Swift target | Android module | Depends on | External |
-| --- | --- | --- | --- |
-| `SPFNCore` | `spfn-core` | — | — |
-| `SPFNGenerated` | `spfn-generated` | core | — |
-| `SPFNAuth` | `spfn-auth` | core | — |
-| `SPFNClient` | `spfn-client` | core, auth, generated | OkHttp, coroutines (Android) |
-| `SPFNSocialApple` | — (iOS only) | client | — |
-| `SPFNSocialGoogle` | `spfn-social-google` | client | GoogleSignIn (trait), Credential Manager ×3 |
+| Swift target | Android module | Linux | Depends on | External |
+| --- | --- | --- | --- | --- |
+| `SPFNCore` | `spfn-core` | yes | — | swift-crypto (Linux) |
+| `SPFNGenerated` | `spfn-generated` | yes | core | — |
+| `SPFNAuth` | `spfn-auth` | yes | core | swift-crypto (Linux) |
+| `SPFNClient` | `spfn-client` | yes | core, auth, generated | swift-crypto (Linux), OkHttp, coroutines (Android) |
+| `SPFNSocialApple` | — (declared absent) | — (declared absent) | client | — |
+| `SPFNSocialGoogle` | `spfn-social-google` | — (declared absent) | client | GoogleSignIn (trait), Credential Manager ×3 |
 
 `SPFNCall` / `SpfnCall` — one operation paired with the codecs for its request and
 response types — is in core, not in the client. The type depends on an operation, a
@@ -68,6 +68,40 @@ both as "skip" reports a clean graph having read nothing. So the validator bucke
 module line into Android-backed or declared-iOS-only, fails unless the buckets add up to
 the number of lines, and counts the two platforms against separate floors — one number
 covering both would pass with an entire platform at zero.
+
+schemaVersion 4 said the same thing about the Swift side, in the shape the Swift side
+needs. `linux` is either ABSENT — the module builds on Linux — or the literal `false`,
+which means declared absent. There is no name to carry the way `androidModule` does,
+because there is one Swift target either way; what differs is whether that target has
+anything in it on Linux. `SPFNSocialApple` and `SPFNSocialGoogle` are the two: one is
+written against AuthenticationServices, the other against UIKit and AppKit, and neither
+framework exists off Apple's platforms.
+
+SwiftPM cannot condition a *target* on a platform — only a target's dependency edge —
+so `linux: false` is not something `Package.swift` can state. What makes it true in the
+build is in the sources: every source and test file of such a module is guarded whole,
+`#if canImport(…)` as its first line of code and `#endif` as its last, so the target
+compiles to an empty module on Linux. The validator reads that file by file and checks
+both ends, because a guard closed early still *looks* guarded while whatever trails it
+compiles anyway. It checks the other direction too: a module without the key may not
+import AuthenticationServices, UIKit, AppKit, LocalAuthentication or Security outside a
+`canImport` guard, and no file anywhere may import CryptoKit outside one. `Package.swift`
+carries a comment saying where the mechanism lives; the comment is not the source of
+truth, the graph is.
+
+The three-state rule is the same one `androidModule` follows and it is there for the
+same reason: absent, `false`, and a value the reader could not understand are three
+different events. So the validator buckets every module line into Linux-capable or
+declared-absent, fails unless the two add up to the number of lines, and fails a line
+carrying `"linux":` followed by anything but `false` as unread rather than skipping it.
+
+`swift-crypto` is the second external Swift package and the first that is not
+trait-gated. CryptoKit is Apple's and ships with every platform the SDK supports;
+Linux has none, and swift-crypto is Apple's own port of the same API, so core, auth and
+client swap an import and nothing else. Every target edge to it carries
+`.when(platforms: [.linux])`, so an iOS or macOS build never links it. SwiftPM still
+*resolves* a platform-conditional dependency everywhere, so the lockfile names it on
+macOS too; `Package.resolved` is untracked here, so none of that is committed.
 
 A module appears here only once it carries an implementation. `SPFNPersistence` /
 `spfn-sync` and `SPFNHybrid` / `spfn-hybrid` were declared in the Step 1 scaffold from

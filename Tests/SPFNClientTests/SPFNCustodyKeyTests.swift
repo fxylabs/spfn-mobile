@@ -9,7 +9,12 @@
 //
 // SpfnKeystoreKeyProviderTest.kt is the Android counterpart over the same case set.
 
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
+
 import Foundation
 import XCTest
 @testable import SPFNClient
@@ -159,6 +164,12 @@ final class SPFNCustodyKeyTests: XCTestCase
     /// The keychain store itself needs an entitlement the test runner does not have,
     /// but its record format does not: a record must survive its own round trip, and a
     /// blob of foreign bytes must be refused rather than read as a key.
+    ///
+    /// `SPFNKeychainKeyStore` is built out of Security and exists only where Security
+    /// does, so this row runs on Apple platforms and is absent on Linux. That is the
+    /// type being unavailable, not a Linux defect and not a gap in the format: the
+    /// format is one type's own encoding, and the platform that has the type checks it.
+    #if canImport(Security)
     func testTheKeychainRecordFormatRoundTripsAndRefusesForeignBytes() throws
     {
         let key = SPFNCustodyKey.generate(keyID: "key-custody-0008", preferSecureEnclave: false)
@@ -173,6 +184,7 @@ final class SPFNCustodyKeyTests: XCTestCase
             "an unknown custody name is refused, never defaulted"
         )
     }
+    #endif
 }
 
 // MARK: - The injected store

@@ -140,6 +140,65 @@ equals()
     fi
 }
 
+# The Swift packages the module graph allows ONE module, read from that module's own
+# line. Line-scoped because `externalDeps` holds one array per platform and a
+# whole-file read would return the first module's list for every module (P5).
+graph_swift_external()
+{
+    grep -F "\"swiftTarget\": \"$1\"" "$GRAPH" \
+        | sed -n 's/.*"externalDeps": {"swift": \[\([^]]*\)\].*/\1/p' \
+        | tr ',' '\n' | tr -d '" ' | grep -v '^$'
+}
+
+# A manifest target line with every external product the graph allows that module —
+# each behind the Linux platform condition — erased, and with its indentation and
+# trailing comma trimmed. What comes back is the declaration as it would read with no
+# external product on it at all.
+#
+# Erasing rather than parsing is what makes this exact. A product literal carries
+# commas of its own, so a comma-split read of the dependency list mis-splits it; a
+# product that differs ANYWHERE — another package, another condition, no condition at
+# all — is simply not erased and stays visible as leftover text.
+strip_linux_products()
+{
+    STRIPPED=$(printf '%s' "$1" | sed -E 's/^[[:space:]]*//; s/,[[:space:]]*$//')
+    for package in $(graph_swift_external "$2")
+    do
+        STRIPPED=$(printf '%s' "$STRIPPED" | sed -E \
+            "s/(, )?\.product\(name: \"[A-Za-z0-9_]+\", package: \"$package\", condition: \.when\(platforms: \[\.linux\]\)\)//g")
+    done
+    printf '%s' "$STRIPPED"
+}
+
+# Every import in one file that reaches a named framework with nothing making it
+# conditional, as `path:line ` pairs.
+#
+# The `#if` nesting is tracked rather than pattern-matched: an import can sit at any
+# depth inside a guard, and a line-anchored read would call every one of them
+# unguarded. Only `#if canImport(...)` counts as a guard — `#if os(iOS)` and a trait
+# condition say WHEN to compile, not WHETHER the framework is there — and the `#else`
+# arm of a canImport guard stays admitted, because that arm is the platform that
+# does not have it.
+unguarded_imports()
+{
+    awk -v frameworks="$2" '
+        BEGIN { depth = 0; guarded = 0 }
+        /^[[:space:]]*#if/ {
+            depth++
+            canimport[depth] = ($0 ~ /#if[[:space:]]*canImport\(/) ? 1 : 0
+            guarded += canimport[depth]
+            next
+        }
+        /^[[:space:]]*#endif/ {
+            if (depth > 0) { guarded -= canimport[depth]; depth-- }
+            next
+        }
+        guarded == 0 && $0 ~ ("^[[:space:]]*import[[:space:]]+(" frameworks ")[[:space:]]*$") {
+            printf "%s:%d ", FILENAME, FNR
+        }
+    ' "$1"
+}
+
 printf 'SPFN Mobile — offline repository validation\n'
 printf 'root: %s\n' "$ROOT"
 
@@ -1305,7 +1364,26 @@ do
 
     if [ -z "$swift_deps" ]
     then
-        contains Package.swift ".target(name: \"$swift_target\")" "Package.swift target $swift_target has no dependencies"
+        # A module with no graph edges used to be held to the literal
+        # `.target(name: "X")`, and that was the whole check. It may now carry an
+        # external product — SPFNCore hashes with swift-crypto where there is no
+        # CryptoKit — so two shapes are admitted: the bare target, and a dependency
+        # list holding nothing but products the graph allows THIS module, each behind
+        # `.when(platforms: [.linux])`.
+        #
+        # Section 7 holds the package NAME to `externalDeps`; what is held here is that
+        # nothing else rode in on the relaxation. An unconditional product is not
+        # erased and fails, and so does a product allowed to some other module — which
+        # is the refusal tools/validate/probe-social-adapter-rules.sh exercises.
+        NO_EDGE_LINE=$(grep -F ".target(name: \"$swift_target\"" Package.swift | head -1)
+        NO_EDGE_REST=$(strip_linux_products "$NO_EDGE_LINE" "$swift_target")
+        if [ "$NO_EDGE_REST" = ".target(name: \"$swift_target\")" ] \
+            || [ "$NO_EDGE_REST" = ".target(name: \"$swift_target\", dependencies: [])" ]
+        then
+            pass "Package.swift target $swift_target declares no dependency beyond the external products the graph allows it"
+        else
+            fail "Package.swift target $swift_target has no graph edges but declares: $NO_EDGE_REST"
+        fi
     else
         # The graph's edges are the LEADING dependencies of the target, in order, and
         # the closing bracket is deliberately not part of the match: a target may carry
@@ -1388,6 +1466,150 @@ then
     pass "the coherence loop read all $MODULE_COUNT modules ($MODULES_WITH_ANDROID Android-backed, $MODULES_IOS_ONLY iOS-only)"
 else
     fail "the coherence loop read $MODULES_WITH_ANDROID + $MODULES_IOS_ONLY of $MODULE_COUNT modules and could not read $MODULES_UNREADABLE"
+fi
+
+# ---------------------------------------------------------------------------
+# The Linux half of the graph (schemaVersion 4).
+# ---------------------------------------------------------------------------
+# `linux` is ABSENT on a module that builds on Linux and the literal false on a module
+# that has no Linux half at all. The three-state rule `androidModule` follows applies
+# here for the same reason: an absent key, a declared false and a value nobody could
+# read are three different events, and a reader that folds the third into either of the
+# first two reports a clean graph having read nothing (P7). So every module line is
+# bucketed and the two buckets must add up; a line carrying `"linux":` followed by
+# anything but false lands in neither and fails as unread.
+#
+# SwiftPM cannot condition a TARGET on a platform, so `linux: false` is not something
+# Package.swift can state. The mechanism is in the sources: every file of such a module
+# is guarded whole — first line of code to last — so the target compiles to an empty
+# module. That is what is checked below, file by file, and so is the other direction:
+# a module WITHOUT the key may not reach an Apple-only framework outside a guard.
+grep '"linux": false' "$TMP/modules.txt" > "$TMP/linux-absent.txt" || true
+grep -v '"linux":' "$TMP/modules.txt" > "$TMP/linux-capable.txt" || true
+LINUX_ABSENT=$(wc -l < "$TMP/linux-absent.txt" | tr -d ' ')
+LINUX_CAPABLE=$(wc -l < "$TMP/linux-capable.txt" | tr -d ' ')
+
+if [ "$((LINUX_ABSENT + LINUX_CAPABLE))" = "$MODULE_COUNT" ]
+then
+    pass "every one of the $MODULE_COUNT graph modules builds on Linux or declares it absent ($LINUX_CAPABLE Linux-capable, $LINUX_ABSENT declared absent)"
+else
+    fail "$((MODULE_COUNT - LINUX_ABSENT - LINUX_CAPABLE)) module lines in $GRAPH carry a \"linux\" key that is not false; they were not read"
+fi
+
+# A module that declares no Linux half must really have none, and the only thing that
+# makes that true is the guard on each of its files. Both ends are checked: the first
+# line of code is `#if canImport(...)`, and the last is its `#endif`. Checking only the
+# first would admit a guard closed early, which leaves whatever trails it — a final
+# extension, a helper type — compiling on Linux inside a module that claims to be empty.
+GUARD_SCANNED=0
+GUARD_PROBLEMS=''
+while IFS= read -r line
+do
+    absent_target=$(printf '%s' "$line" | sed -n 's/.*"swiftTarget": "\([^"]*\)".*/\1/p')
+    for directory in "Sources/$absent_target" "Tests/${absent_target}Tests"
+    do
+        if [ ! -d "$directory" ]
+        then
+            GUARD_PROBLEMS="$GUARD_PROBLEMS $directory:missing"
+            continue
+        fi
+        find "$directory" -name '*.swift' | sort > "$TMP/guard-files.txt"
+        while IFS= read -r source
+        do
+            GUARD_SCANNED=$((GUARD_SCANNED + 1))
+            grep -vE '^[[:space:]]*(//|$)' "$source" > "$TMP/guard-body.txt" || true
+            FIRST_CODE=$(head -1 "$TMP/guard-body.txt")
+            LAST_CODE=$(tail -1 "$TMP/guard-body.txt")
+            case $FIRST_CODE in
+                '#if canImport('*) ;;
+                *) GUARD_PROBLEMS="$GUARD_PROBLEMS $source:opens-with-unguarded-code" ;;
+            esac
+            if [ "$LAST_CODE" != '#endif' ]
+            then
+                GUARD_PROBLEMS="$GUARD_PROBLEMS $source:guard-closes-before-the-end"
+            fi
+        done < "$TMP/guard-files.txt"
+    done
+done < "$TMP/linux-absent.txt"
+
+# The floor. A loop that visited nothing reports the same empty problem list as a loop
+# that found everything guarded, and the two must not share an outcome.
+if [ "$GUARD_SCANNED" -ge 3 ]
+then
+    pass "the whole-file guard scan read $GUARD_SCANNED sources across the $LINUX_ABSENT modules that declare no Linux half"
+else
+    fail "the whole-file guard scan read only $GUARD_SCANNED sources; it did not run"
+fi
+
+if [ -z "$GUARD_PROBLEMS" ]
+then
+    pass 'every source of a module that declares no Linux half is guarded whole, so the target compiles to an empty module'
+else
+    fail "a module declaring no Linux half has sources that are not guarded whole:$GUARD_PROBLEMS"
+fi
+
+# The other direction. Every Swift file that is NOT part of a declared-absent module has
+# to compile on Linux, so an Apple-only framework may only be reached from inside a
+# `#if canImport(` guard. The file list is the whole tree minus those modules, rather
+# than the module directories the graph names, so the test targets that belong to no
+# module — conformance, repository, integration, verify — are covered too.
+find Sources Tests -name '*.swift' | sort > "$TMP/all-swift.txt"
+cp "$TMP/all-swift.txt" "$TMP/linux-swift-files.txt"
+while IFS= read -r line
+do
+    absent_target=$(printf '%s' "$line" | sed -n 's/.*"swiftTarget": "\([^"]*\)".*/\1/p')
+    grep -v "^Sources/$absent_target/" "$TMP/linux-swift-files.txt" \
+        | grep -v "^Tests/${absent_target}Tests/" > "$TMP/linux-swift-kept.txt" || true
+    mv "$TMP/linux-swift-kept.txt" "$TMP/linux-swift-files.txt"
+done < "$TMP/linux-absent.txt"
+
+APPLE_ONLY_FRAMEWORKS='AuthenticationServices|UIKit|AppKit|LocalAuthentication|Security'
+APPLE_IMPORT_SCANNED=0
+APPLE_IMPORT_HITS=''
+while IFS= read -r source
+do
+    APPLE_IMPORT_SCANNED=$((APPLE_IMPORT_SCANNED + 1))
+    APPLE_IMPORT_HITS="$APPLE_IMPORT_HITS$(unguarded_imports "$source" "$APPLE_ONLY_FRAMEWORKS")"
+done < "$TMP/linux-swift-files.txt"
+
+if [ "$APPLE_IMPORT_SCANNED" -ge 20 ]
+then
+    pass "the Apple-framework import scan read $APPLE_IMPORT_SCANNED sources outside the modules that declare no Linux half"
+else
+    fail "the Apple-framework import scan read only $APPLE_IMPORT_SCANNED sources; it did not run"
+fi
+
+if [ -z "$APPLE_IMPORT_HITS" ]
+then
+    pass 'no module that builds on Linux imports an Apple-only framework outside a canImport guard'
+else
+    fail "an Apple-only framework is imported unconditionally in a module that builds on Linux: $APPLE_IMPORT_HITS"
+fi
+
+# CryptoKit is the one framework the rule covers everywhere, including inside the
+# modules that declare no Linux half. It is the SDK's cryptography, swift-crypto is the
+# same API where CryptoKit is absent, and the swap is an import: a file that imports
+# CryptoKit unconditionally is a file that has no Linux half and did not say so.
+CRYPTO_IMPORT_SCANNED=0
+CRYPTO_IMPORT_HITS=''
+while IFS= read -r source
+do
+    CRYPTO_IMPORT_SCANNED=$((CRYPTO_IMPORT_SCANNED + 1))
+    CRYPTO_IMPORT_HITS="$CRYPTO_IMPORT_HITS$(unguarded_imports "$source" 'CryptoKit')"
+done < "$TMP/all-swift.txt"
+
+if [ "$CRYPTO_IMPORT_SCANNED" -ge 20 ]
+then
+    pass "the CryptoKit import scan read all $CRYPTO_IMPORT_SCANNED Swift sources"
+else
+    fail "the CryptoKit import scan read only $CRYPTO_IMPORT_SCANNED sources; it did not run"
+fi
+
+if [ -z "$CRYPTO_IMPORT_HITS" ]
+then
+    pass 'every CryptoKit import is behind a canImport guard, so swift-crypto can stand in where CryptoKit is absent'
+else
+    fail "CryptoKit is imported outside a canImport guard: $CRYPTO_IMPORT_HITS"
 fi
 
 # The two platforms no longer carry the same modules, so they are counted against

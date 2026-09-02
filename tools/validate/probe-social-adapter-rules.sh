@@ -32,6 +32,22 @@
 #   o. a deprecation suppression anywhere in SDK sources fails;
 #   p. dropping one of the three declared Android coordinates fails.
 #
+# schemaVersion 4 added `linux`, which is absent on a module that builds on Linux and
+# the literal false on a module that has no Linux half at all. SwiftPM cannot condition
+# a target on a platform, so what makes `linux: false` true in the build is a guard on
+# every one of that module's files — a mechanism a validator can only check by reading
+# the files. Each half of that reading gets a case, and so does the relaxation the same
+# change made to the section 8 dependency rule:
+#
+#   q. a source of a declared-absent module that opens with unguarded code fails;
+#   r. a guard closed before the end of such a file fails;
+#   s. an Apple-only framework imported unconditionally in a Linux-capable module fails;
+#   t. CryptoKit imported outside a canImport guard fails;
+#   u. a `linux` key that is neither absent nor false fails as unread;
+#   v. an unconditional external product on a target with no graph edges fails;
+#   w. a product allowed to another module fails on the target it was not allowed to;
+#   x. an import scan that reads no source at all fails instead of reporting none.
+#
 # The last three mutate a copy of the validator with its ROOT pinned, because their
 # subject is what the check does when its own input is unavailable — the one condition
 # that cannot be produced by editing the tree without destroying it.
@@ -71,6 +87,8 @@ GRAPH=tools/module-graph.json
 CLIENT_BUILD=android/spfn-client/build.gradle.kts
 GOOGLE_BUILD=android/spfn-social-google/build.gradle.kts
 GOOGLE_SOURCE=android/spfn-social-google/src/main/kotlin/xyz/superfunction/spfn/social/google/SpfnSocialGoogle.kt
+DIGEST_SOURCE=Sources/SPFNCore/SPFNDigest.swift
+KEY_STORE_SOURCE=Sources/SPFNClient/SPFNKeyStore.swift
 
 cp "$APPLE_SOURCE" "$TMP/apple.bak"
 cp "$MANIFEST" "$TMP/manifest.bak"
@@ -78,6 +96,8 @@ cp "$GRAPH" "$TMP/graph.bak"
 cp "$CLIENT_BUILD" "$TMP/client-build.bak"
 cp "$GOOGLE_BUILD" "$TMP/google-build.bak"
 cp "$GOOGLE_SOURCE" "$TMP/google-source.bak"
+cp "$DIGEST_SOURCE" "$TMP/digest-source.bak"
+cp "$KEY_STORE_SOURCE" "$TMP/key-store-source.bak"
 
 restore()
 {
@@ -89,6 +109,8 @@ restore()
         cp "$TMP/client-build.bak" "$CLIENT_BUILD"
         cp "$TMP/google-build.bak" "$GOOGLE_BUILD"
         cp "$TMP/google-source.bak" "$GOOGLE_SOURCE"
+        cp "$TMP/digest-source.bak" "$DIGEST_SOURCE"
+        cp "$TMP/key-store-source.bak" "$KEY_STORE_SOURCE"
         rm -rf "$TMP"
     fi
 }
@@ -112,6 +134,8 @@ restore_files()
     cp "$TMP/client-build.bak" "$CLIENT_BUILD"
     cp "$TMP/google-build.bak" "$GOOGLE_BUILD"
     cp "$TMP/google-source.bak" "$GOOGLE_SOURCE"
+    cp "$TMP/digest-source.bak" "$DIGEST_SOURCE"
+    cp "$TMP/key-store-source.bak" "$KEY_STORE_SOURCE"
 }
 
 # Runs the validator expecting failure on a specific rule, then restores every file.
@@ -215,6 +239,59 @@ restore_files
 sed 's#"androidx-credentials-play-services-auth", ##' "$TMP/graph.bak" > "$GRAPH"
 expect_fail 'dropping one of the declared Android coordinates fails' \
     'undeclared(androidx-credentials-play-services-auth)'
+
+# --- q, r. the guard is what makes `linux: false` true, so it is read file by file --
+# A module that declares no Linux half compiles to an empty module only because every
+# one of its files is guarded whole. Both ends of that guard are probed, because a
+# guard closed early is the failure that still LOOKS guarded: the file opens with
+# `#if canImport(...)` and only the tail escapes it.
+sed '/^#if canImport(AuthenticationServices)$/d' "$TMP/apple.bak" > "$APPLE_SOURCE"
+expect_fail 'a source of a module declaring no Linux half that opens with unguarded code fails' \
+    'opens-with-unguarded-code'
+
+printf 'extension SPFNSocialAppleError { }\n' >> "$APPLE_SOURCE"
+expect_fail 'a whole-file guard closed before the end of the file fails' \
+    'guard-closes-before-the-end'
+
+# --- s, t. the other direction: what a module that DOES build on Linux may import ---
+printf 'import Security\n' >> "$KEY_STORE_SOURCE"
+expect_fail 'an Apple-only framework imported unconditionally in a Linux-capable module fails' \
+    'an Apple-only framework is imported unconditionally'
+
+printf 'import CryptoKit\n' >> "$DIGEST_SOURCE"
+expect_fail 'CryptoKit imported outside a canImport guard fails' \
+    'CryptoKit is imported outside a canImport guard'
+
+# The guard has to be a canImport guard. `#if os(iOS)` says WHEN to compile the import,
+# not whether the framework is there, so it leaves a Linux build with an import of
+# something Linux does not have — and a reader that admitted any `#if` would pass it.
+printf '#if os(iOS)\nimport CryptoKit\n#endif\n' >> "$DIGEST_SOURCE"
+expect_fail 'a CryptoKit import behind #if os(iOS) rather than canImport still fails' \
+    'CryptoKit is imported outside a canImport guard'
+
+# --- u. the `linux` key has three states and the third is not a skip ----------------
+sed 's#"linux": false#"linux": true#' "$TMP/graph.bak" > "$GRAPH"
+expect_fail 'a linux key that is neither absent nor false fails as unread' \
+    'they were not read'
+
+# --- v, w. the section 8 relaxation admits a conditional product and nothing else ---
+# A target with no graph edges may now carry an external product, which is exactly the
+# kind of relaxation that swallows the rule it relaxed. Two ways past it are probed:
+# dropping the condition, and naming a package the graph allows some OTHER module.
+sed '/"SPFNCore", dependencies:/ s#, condition: \.when(platforms: \[\.linux\])##' \
+    "$TMP/manifest.bak" > "$MANIFEST"
+expect_fail 'an unconditional external product on a target with no graph edges fails' \
+    'has no graph edges but declares'
+
+sed '/"SPFNCore", dependencies:/ s#package: "swift-crypto"#package: "GoogleSignIn-iOS"#' \
+    "$TMP/manifest.bak" > "$MANIFEST"
+expect_fail 'a product the graph allows another module fails on the target it was not allowed to' \
+    'has no graph edges but declares'
+
+# --- x. an import scan that reads nothing is not a clean import scan ----------------
+expect_unrunnable 'an import scan that reads no source at all fails instead of reporting none' \
+    'it did not run' \
+    's#^find Sources Tests -name .[*].swift. | sort#find Sources Tests -name "*.no-such-suffix" | sort#'
 
 # --- the unmodified tree still passes ----------------------------------------------
 if sh tools/validate/validate.sh > "$TMP/run.log" 2>&1

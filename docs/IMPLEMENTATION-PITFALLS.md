@@ -45,6 +45,7 @@
 | Xcode 타깃에서 SwiftPM 패키지 트레이트 켜기 | [P17](#p17) |
 | 테스트 더블에 키 id·별칭을 주입하고 두 번째 키를 만드는 흐름 | [P18](#p18) |
 | 본문 없는(204) 응답을 서버에 추가 | [P19](#p19) |
+| 플랫폼 `#if canImport(...)` 가드 추가, 한 플랫폼에서 모듈 비우기 | [P20](#p20) [P7](#p7) |
 
 ---
 
@@ -464,6 +465,42 @@ xcodebuild -project <proj> -resolvePackageDependencies -scheme <scheme> 2>&1 \
 
 **나온 곳.** w-253gk — `auth.device.deny`가 이 저장소 서버가 처음으로 답하는 본문 없는
 오퍼레이션이다. 통합 케이스 h가 end-to-end로 고정한다.
+
+## P20. `canImport(UIKit)`은 macOS에서도 거짓이다 {#p20}
+
+**증상.** Linux에서 빼려는 모듈을 파일 통째로 `#if canImport(UIKit)`으로 감싼다. Linux
+에서는 의도대로 타깃이 빈 모듈로 컴파일된다 — **그리고 macOS에서도 그렇게 된다.** macOS
+에는 UIKit이 없고 AppKit이 있기 때문이다. 실패는 조용하다: 에러도 경고도 없이 macOS
+`swift test`의 실행 개수만 줄어든다. Linux 게이트는 초록이고 "Linux에서 비웠다"는 보고와
+완전히 일치하므로, 무엇도 macOS를 가리키지 않는다. UIKit뿐이 아니다 — `Darwin`,
+`AuthenticationServices`, `Security`는 애플 전 플랫폼에 있고 `UIKit`·`AppKit`·
+`WatchKit`은 그중 일부에만 있다. "애플 전용 프레임워크"와 "Linux에 없는 프레임워크"는
+같은 집합이 아니다.
+
+**탐지.** 가드를 붙이기 전과 후의 **macOS 테스트 개수를 비교한다.** 줄었으면 적중.
+
+```
+swift test 2>&1 | grep -E 'Executed [0-9]+ tests' | tail -1
+```
+
+그리고 가드로 고른 프레임워크가 그 파일의 **모든 `#if` 분기**를 덮는지 본다. `#else`에
+`import AppKit`이 있는 파일은 UIKit 파일이 아니다.
+
+```
+grep -rn 'import ' Sources/<Target> Tests/<Target>Tests | grep -v '^.*://' | sort -u
+```
+
+**처방.** 파일이 실제로 쓰는 프레임워크들의 **합집합**으로 가드한다 —
+`#if canImport(UIKit) || canImport(AppKit)`. 또는 애플 전 플랫폼에 정말로 있는 것
+(`AuthenticationServices`, `Security`, `Darwin`)을 고른다. 어느 쪽이든 두 플랫폼에서
+개수를 다시 센다: 한쪽 플랫폼의 행을 떨어뜨리는 가드는 검사 대상을 바꾼 가드다.
+`Sources/`뿐 아니라 `Tests/`도 같은 가드를 받으므로 사라지는 것은 코드가 아니라 **행**이다.
+
+**나온 곳.** w-dpv9h — 브리프가 Google 어댑터에 `#if canImport(UIKit)`을 지정했는데, 그
+파일의 macOS 분기는 `import AppKit`이고 `SPFNGooglePresentingContext = NSWindow`다.
+UIKit만으로 감쌌다면 macOS `swift test`에서 `SPFNSocialGoogleTests` 6행이 조용히
+사라진 채 Linux 게이트만 초록이었을 것이다. `|| canImport(AppKit)`으로 바꿔 macOS
+290행을 지켰다.
 
 ## 원장
 
