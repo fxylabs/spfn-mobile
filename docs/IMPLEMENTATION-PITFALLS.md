@@ -48,6 +48,7 @@
 | 본문 없는(204) 응답을 서버에 추가 | [P19](#p19) |
 | 플랫폼 `#if canImport(...)` 가드 추가, 한 플랫폼에서 모듈 비우기 | [P20](#p20) [P7](#p7) |
 | 러너가 id로 탭하는 컨트롤 추가·수정 (Compose·SwiftUI 뷰) | [P21](#p21) |
+| Maestro 플로우 생성·수정 | [P22](#p22) [P21](#p21) |
 
 ---
 
@@ -561,6 +562,59 @@ adb -s emulator-5554 shell dumpsys input_method | grep -o 'mInputShown=[a-z]*'
 컨트롤은 멀쩡했다. 모든 컨트롤에 48dp를 준 뒤 덤프는 `userCode [0,577][270,709]`,
 `cancel [0,709][122,841]`, `submit [0,841][124,973]`로 서로 겹치지 않았고 u5·u7·u8·u1이
 모두 통과했다.
+
+## P22. 한 플랫폼 전용 Maestro 명령은 다른 플랫폼에서 조용히 성공한다 {#p22}
+
+**증상.** `- back`은 **Android 전용** 명령이다. iOS에서는 실패하지 않는다 — 아무 일도
+하지 않고 성공으로 끝난다. 그래서 플로우는 그 명령이 아니라 **다음 단언**에서 깨지고,
+로그는 "back 통과, assertVisible 실패"로 남는다. 읽는 사람은 화면 상태나 셀렉터를 의심하며
+시간을 쓰고, 정작 아무것도 하지 않은 단계는 초록으로 지나간다. 명령이 없는 것이 아니라
+**있고 무해하게 성공하는 것**이 이 함정의 전부다.
+
+**탐지.** 한 줄이면 된다. `when: platform:` 블록 밖의 top-level `- back`은 하나도 없어야
+한다 — 조건부 블록 안에서는 들여쓰기가 되므로 `^`가 그 둘을 가른다.
+
+```
+grep -n "^- back" examples/ui-spec/generated/flows/*.yaml tools/harness/flows/*.yaml
+```
+
+생성된 플로우만 보고 끝내지 않는다. **하네스 자신의 플로우가 두 번째로 볼 곳**이다:
+`tools/harness/flows`는 손으로 쓴 플로우이고 같은 명령을 같은 이유로 부를 수 있다.
+(2026-09-02 기준 그쪽은 깨끗하다 — `- back`을 하나도 쓰지 않는다.)
+`tools/validate/validate.sh` 14절이 `both` 셀의 플로우에 대해 이 규칙을 강제하고,
+`tools/validate/probe-example-scaffold-rules.sh`가 그 거부가 실제로 무는지 증명한다.
+
+**처방.** 플랫폼마다 그 플랫폼의 제스처를 준다. 시스템 back은 Android에서는 `back`이고
+iOS에서는 화면 왼쪽 가장자리에서 시작하는 interactive-pop 스와이프다.
+
+```yaml
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - back
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - swipe:
+          start: "1%, 50%"
+          end: "90%, 50%"
+          duration: 600
+```
+
+플로우를 **생성기가 찍는다면 규칙은 생성기에 둔다**. 두 플랫폼이 공유하는 플로우 파일
+하나에 조건부 쌍을 넣는 것이지, 플랫폼별 플로우 파일을 두 벌 만드는 것이 아니다 —
+케이스 표는 두 플랫폼이 같은 셀을 같은 파일로 돈다는 주장이고, 파일이 갈라지면 그
+주장이 사라진다.
+
+**나온 곳.** w-w823n의 Mac 실기 라운드, 2026-09-02. iPhone 17 Pro 시뮬레이터(iOS 26.3)
+14셀 중 12셀 통과, 실패한 둘은 u7b·u10b — 시스템 back을 쓰는 두 셀 전부였다. `- back`
+직후의 계층 덤프는 여전히 `stack=2` / `state=ready`였다: 스택은 움직이지 않았고 명령은
+성공했다. `tools/ui-codegen`의 `CaseTable.kt`에는 "iOS에서 Maestro가 이것을 가장자리
+스와이프로 실현한다"는 주석이 있었으나 **측정된 적 없는 가정이었고 거짓이다.** 위의 쌍은
+같은 시뮬레이터에서 end-to-end로 확인했다 — `stack=1`, `state=idle`, 리시트 기록까지.
+같은 라운드의 Android(Pixel 3a API 34) 쪽 12/14는 이 항목이 아니라 [P21](#p21)이었다.
 
 ## 원장
 

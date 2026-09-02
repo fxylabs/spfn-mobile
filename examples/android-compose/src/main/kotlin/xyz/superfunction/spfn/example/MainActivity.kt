@@ -18,6 +18,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
@@ -127,8 +128,13 @@ class MainActivity : ComponentActivity()
  *
  * The receipt control lives here rather than on a screen because a cell that ends with the
  * flow closed has no screen left to press. Every generated flow unwinds itself before
- * reaching it, which is also what makes the control reachable on iOS, where a modal flow
- * covers this view entirely.
+ * reaching it, which is what makes the control reachable at all: a Modal flow covers this
+ * view entirely while it is open, on Android as well as on iOS.
+ *
+ * A `Box` rather than a `Column`, and that is the whole reason the cover works. The flow
+ * host is the last child, so it is drawn OVER the readouts instead of below them; in a
+ * Column it would be laid out beside them and cover nothing. That is the one thing
+ * `FlowHost` asks of a host app that presents a flow modally — its own header states it.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -142,29 +148,31 @@ private fun ExampleRoot(
     var receipt by remember { mutableStateOf("none") };
     val depth = container.approveDeviceFlow.stack.collectAsState().value.size;
 
-    Column(modifier = Modifier.fillMaxSize().semantics { testTagsAsResourceId = true })
+    Box(modifier = Modifier.fillMaxSize().semantics { testTagsAsResourceId = true })
     {
-        BasicText(text = "fixture=$cell");
-        BasicText(text = "stack=$depth");
-        BasicText(text = "receipt=$receipt");
-        BasicText(
-            text = "write receipt",
-            modifier = Modifier
-                .testTag("example.receipt")
-                .heightIn(min = 48.dp)
-                .clickable {
-                    receipt = receipts.write(
-                        ExampleReceipt(
-                            cell = cell,
-                            fixture = fixture,
-                            stackDepth = depth,
-                            timestampMillis = System.currentTimeMillis(),
-                            sdkVersion = SpfnVersion.CURRENT,
-                            contractVersion = SpfnGeneratedContract.BINDING.importedVersion
-                        )
-                    );
-                }
-        );
+        Column {
+            BasicText(text = "fixture=$cell");
+            BasicText(text = "stack=$depth");
+            BasicText(text = "receipt=$receipt");
+            BasicText(
+                text = "write receipt",
+                modifier = Modifier
+                    .testTag("example.receipt")
+                    .heightIn(min = 48.dp)
+                    .clickable {
+                        receipt = receipts.write(
+                            ExampleReceipt(
+                                cell = cell,
+                                fixture = fixture,
+                                stackDepth = depth,
+                                timestampMillis = System.currentTimeMillis(),
+                                sdkVersion = SpfnVersion.CURRENT,
+                                contractVersion = SpfnGeneratedContract.BINDING.importedVersion
+                            )
+                        );
+                    }
+            );
+        }
         ApproveDeviceFlowHost(container);
     }
 }

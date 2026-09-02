@@ -16,7 +16,9 @@
 #   e. a dismiss scan that reads no source fails instead of reporting none;
 #   f. a cell whose runner names Maestro and whose flow file is gone fails;
 #   g. a cell whose runner names the JVM and which no test names fails;
-#   h. a case table nothing can read cells out of fails instead of reporting full coverage.
+#   h. a case table nothing can read cells out of fails instead of reporting full coverage;
+#   i. a bare `- back` in a device cell's flow fails, naming the cell;
+#   j. a flow scan that read no flow fails instead of reporting every flow clean.
 #
 # c and e run a ROOT-pinned copy of the validator whose own input has been taken away,
 # because their subject is what the check does when it cannot read — the one condition that
@@ -188,6 +190,20 @@ expect_example_fail 'a Maestro cell whose flow file is gone fails, naming the ce
 sed 's/u5/z5/g' "$TMP/celltest.bak" > "$CELLTEST"
 expect_example_fail 'a JVM cell that no test names fails, naming the cell' \
     'u5:no-test'
+
+# --- i, j. the bare system back -----------------------------------------------
+# Maestro's `back` is Android's command and completes on iOS without doing anything, so a
+# flow carrying one fails at its next assertion rather than at the step
+# (docs/IMPLEMENTATION-PITFALLS.md P22). Appended at the TOP level, which is the only shape
+# the rule forbids: the generated flows still hold an indented one inside their
+# Android-only `runFlow` block and must stay clean.
+{ cat "$TMP/flow.bak"; printf -- '- back\n'; } > "$FLOW"
+expect_example_fail 'a bare system back in a device cell'"'"'s flow fails, naming the cell' \
+    'u1:bare-back'
+
+expect_unrunnable 'a flow scan that read no flow fails instead of reporting them clean' \
+    'the flow scan read 0 device-cell flows' \
+    's#^EXAMPLE_FLOWS=.*#EXAMPLE_FLOWS=/nonexistent-flows#'
 
 # --- h. a table nothing can read ---------------------------------------------
 # The floor, exercised by taking the table's own key away rather than by editing the

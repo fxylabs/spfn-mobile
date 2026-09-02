@@ -5,6 +5,46 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### What two real devices changed about the example cells
+
+- **Maestro's `back` is Android's command and does nothing on iOS.** The generated flows
+  for cells u7b and u10b failed on an iPhone 17 Pro simulator (iOS 26.3) on 2026-09-02 —
+  not at the step, which reported success, but at the assertion after it, with the
+  hierarchy still reading `stack=2`. `tools/ui-codegen` now emits a platform-conditional
+  pair for a system back: `back` under `when: platform: Android`, the interactive-pop edge
+  swipe under `when: platform: iOS`, which is the gesture `FlowHost`'s path binding
+  reconciles. Registered as `docs/IMPLEMENTATION-PITFALLS.md` P22, and `validate.sh`
+  section 14 now fails on a top-level `- back` in any `both` cell's flow. The harness's own
+  hand-written flows were checked for the same shape and use no `back` at all.
+- **A cold start is not a cell failure.** Cell u14 timed out once on a freshly wiped
+  Pixel 3a emulator and passed twice on the same build warm. Every generated flow's FIRST
+  wait is now 45 s while every later wait stays at 20 s, and `run-cells.sh` launches the
+  app once with no fixture and waits for its root readout before any cell runs, so the
+  cold start is paid outside the table.
+- **`examples/ui-spec/run-cells.sh <ios|android>` runs the example cells**, in
+  `tools/harness/run-harness.sh`'s shape and with its rule: it builds and installs nothing
+  — the two commands per platform are in its header — runs every flow in one maestro
+  invocation on the named device (`--device`), pulls the receipts off it, and fails unless
+  every cell whose runner is `both` left one. Receipts and the Maestro report land in
+  `examples/ui-spec/receipts/<platform>/<date>/`, gitignored but for a `.keep`.
+  `--probe` proves the gate bites with no device at all: a full fixture directory passes,
+  one receipt removed fails, and a table with no cells refuses to run rather than reporting
+  full coverage.
+- **A `Modal` flow covers its host on Android as well.** `spfn-ui`'s `FlowHost` draws a
+  modal flow as an opaque, touch-tight cover filling everything the host gave it, where
+  before it rendered inline under the host's own content while the same flow covered the
+  host on iOS. It is deliberately not a `Dialog`: a dialog's content is a second semantics
+  owner, and `testTagsAsResourceId` is resolved by walking semantics PARENTS, so every
+  control in the flow would lose the resource id a Maestro `id:` selector matches. The
+  cost of the choice is stated in the file: the host's content stays in the accessibility
+  tree behind the cover, where iOS's `fullScreenCover` removes it. `spfn-ui` gained
+  `androidx.compose.foundation` for `fillMaxSize` and `background`, declared in
+  `tools/module-graph.json` like every other artifact it links.
+- **`Generated/` has one owner again.** XcodeGen wrote the iOS example's `Info.plist` into
+  `examples/ios-swiftui/Generated/`, which is `tools/ui-codegen`'s directory — whose write
+  mode deletes what it did not emit and whose verify mode fails on what it finds. The
+  plist moved beside that directory rather than into it.
+
 ### One spec, two app scaffolds: `ui-codegen` and the example apps
 
 - **`tools/ui-codegen` generates the screen scaffold from one JSON spec.** Registered as
@@ -62,7 +102,7 @@ Entries under an unreleased heading describe repository state, not shipped softw
   test its runner declares, where `both` means both rather than either. All three carry a
   floor and report what they read, because a scan that read nothing looks exactly like a
   clean tree (P7). `tools/validate/probe-example-scaffold-rules.sh` proves each refusal
-  bites, in 9 cases.
+  bites, in 11 cases.
 
 ### The `ui` module, and an iOS 17 baseline
 

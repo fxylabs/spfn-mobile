@@ -140,6 +140,17 @@ refused outright in `SPFNUI` and the validator's section 13 enforces it: it clos
 presentation without telling the flow, which is exactly how a host ends up dismissed over
 a flow that still believes it is open.
 
+A `Modal` entry COVERS. That is the one rule the host adds to the flow's own: a modal
+flow was presented over something, so both halves draw it as an opaque cover — a
+`fullScreenCover` on iOS, and on Android a surface that fills everything the host gave the
+composable and takes the touches inside it. Android is deliberately not a `Dialog`: a
+dialog's content is a second semantics owner, and `testTagsAsResourceId` — the switch that
+turns a Compose test tag into the resource id a device runner selects on — is resolved by
+walking semantics parents, so a flow inside one would lose every selector it has. The cost
+of staying in one window is that the host's content remains in the accessibility tree
+behind the cover, where iOS's presentation removes it. A `Push` flow covers nothing: it
+was pushed into the host's own navigation and is part of it.
+
 The two platforms are asymmetric in `externalDeps` because they are asymmetric in fact.
 SwiftUI and Observation are frameworks the OS ships, so SwiftPM resolves no package for
 them and the Swift allowlist is empty; Compose and Navigation 3 are Maven artifacts like

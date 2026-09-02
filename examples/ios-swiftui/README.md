@@ -32,10 +32,33 @@ collectable off a phone. A receipt carries a cell id, a fixture name, a stack de
 version strings; this app never enrols and holds no key, so there is nothing else it could
 carry.
 
+## Running all of them
+
+Build with the commands at the top, install the product on a booted simulator, then:
+
+    xcrun simctl install <udid> <path to SPFNExample.app>
+    sh examples/ui-spec/run-cells.sh ios --device <udid>
+
+`run-cells.sh` builds and installs nothing — that is what those commands are for, and its
+own header carries them — and it fails unless every cell whose runner is `both` left a
+receipt behind. It launches the app once with no fixture first, so the slow first draw
+after an install is paid as a warm-up rather than reported as a failed cell. Receipts come
+out of the simulator's data container through `xcrun simctl get_app_container` and land,
+with the Maestro report, in `examples/ui-spec/receipts/ios/<date>/`.
+`sh examples/ui-spec/run-cells.sh --probe` proves the receipt gate bites and needs no
+simulator.
+
 ## What is generated and what is not
 
-    Generated/   tools/ui-codegen's, never edited
-    Sources/     the human's
+    Generated/    tools/ui-codegen's, never edited
+    Sources/      the human's
+    Info.plist    XcodeGen's, written from project.yml and gitignored
+
+One directory, one owner. `Info.plist` sits beside `Generated/` rather than inside it
+because `spfnGenerateUi` DELETES every file under `Generated/` it did not emit and
+`spfnUiVerify` fails on one it finds there — two tools writing into one directory means
+whichever runs last is right. `tools/harness/ios` keeps its own plist under a `Generated/`
+of its own for the opposite reason: nothing else writes there.
 
 Under `Generated/` are the service, the flow and its routes, one screen model per screen,
 the use case a screen asked for, and a view skeleton per screen. The skeletons are

@@ -31,6 +31,21 @@ Receipts land in `<external files>/receipts/receipt-<cell>-<millis>.json`, which
 depth and two version strings; this app never enrols and holds no key, so there is nothing
 else it could carry.
 
+## Running all of them
+
+    ./gradlew :example-compose:assembleDebug
+    adb -s <serial> install -r \
+        examples/android-compose/build/outputs/apk/debug/example-compose-debug.apk
+    sh examples/ui-spec/run-cells.sh android --device <serial>
+
+`run-cells.sh` builds and installs nothing — those two commands are yours, and its own
+header carries them — and it fails unless every cell whose runner is `both` left a receipt
+behind. It launches the app once with no fixture first, so the slow first draw after an
+install or a wipe is paid as a warm-up rather than reported as a failed cell. Receipts and
+the Maestro report land in `examples/ui-spec/receipts/android/<date>/`.
+`sh examples/ui-spec/run-cells.sh --probe` proves the receipt gate bites and needs no
+device.
+
 ## What is generated and what is not
 
     src/main/kotlin/xyz/superfunction/spfn/example/generated/   tools/ui-codegen's, never edited
@@ -46,6 +61,12 @@ survive the next regeneration.
 The four hand-written files are `MainActivity.kt` (the launch, the receipt, the root
 readouts), `Fixtures.kt` (which seeding a cell runs under), `FakeDeviceApprovalService.kt`
 (what that seeding answers) and `ExampleReceipt.kt`.
+
+`MainActivity`'s root is a `Box` and the flow host is its last child, which is what lets a
+modal flow cover the readouts rather than sit under them — `FlowHost` draws a `Modal` entry
+as a cover filling its parent, and a `Column` would lay it out beside the root's own
+content instead. That is the one thing the host asks of an app that presents a flow
+modally; `android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/FlowHost.kt` states it.
 
 ## The one rule the validator enforces here
 

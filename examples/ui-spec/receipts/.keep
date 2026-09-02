@@ -1,0 +1,4 @@
+Receipts and Maestro reports from `sh examples/ui-spec/run-cells.sh <ios|android>` land in
+`<platform>/<date>/` under this directory. They are evidence of one run on one device and
+are gitignored; this file is what keeps the directory itself in the tree, so a runner never
+has to decide whether it may create one.

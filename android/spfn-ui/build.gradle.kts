@@ -78,6 +78,10 @@ dependencies {
     // it arrives transitively either way, and a module that compiles against a type
     // declares the artifact it comes from.
     implementation(libs.androidx.compose.ui)
+    // `fillMaxSize` and `background`, which are what a Modal entry's cover is made of.
+    // This module still holds no widget: nothing here draws a control, and the whole of
+    // what foundation is used for is stated in FlowHost.kt's header.
+    implementation(libs.androidx.compose.foundation)
     // BackHandler, for the one case Navigation 3's own back handling leaves alone: a
     // Modal flow standing on its last route, which closes rather than popping.
     implementation(libs.androidx.activity.compose)

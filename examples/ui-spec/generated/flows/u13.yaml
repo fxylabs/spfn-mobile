@@ -22,10 +22,15 @@ name: u13
 # The app is up once a screen is drawing its stack readout. That the right FIXTURE
 # is installed is proven at the end instead, by the receipt's own name: an app that
 # never got the launch argument writes no receipt for this cell at all.
+#
+# This first wait is the long one. The FIRST launch after an install or a wipe draws
+# later than every launch after it, and a cold start that outran this wait is a
+# stall reported as a cell failure — cell u14 did exactly that on a wiped emulator
+# on 2026-09-02 and passed twice warm. Every later wait stays at 20000.
 - extendedWaitUntil:
     visible:
       text: "stack=.*"
-    timeout: 20000
+    timeout: 45000
 
 - tapOn:
     id: "enterCode.userCode"

@@ -54,8 +54,15 @@ targets:
         product: SPFNClient
       - package: SPFNMobile
         product: SPFNUI
+    # NOT under `Generated/`. That directory belongs to tools/ui-codegen, whose write mode
+    # DELETES every file it did not emit and whose verify mode fails on one it finds — so
+    # an Info.plist written there is removed by the next `spfnGenerateUi` and fails
+    # `spfnUiVerify` in between. One directory, one owner: `Generated/` is the ui
+    # generator's, `Sources/` is the human's, and this file is XcodeGen's and sits beside
+    # both. tools/harness/ios keeps its plist under a `Generated/` of its own because
+    # nothing else writes there; here something does.
     info:
-      path: Generated/Info.plist
+      path: Info.plist
       properties:
         CFBundleDisplayName: SPFN Example
         UILaunchScreen: {}

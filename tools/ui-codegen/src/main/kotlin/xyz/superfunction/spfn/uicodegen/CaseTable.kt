@@ -12,6 +12,24 @@ object CaseTable
 {
     const val DIRECTORY: String = "examples/ui-spec/generated";
 
+    /**
+     * How long a flow waits for a readout to arrive, in milliseconds.
+     *
+     * Two values, and the difference is a cold start. A flow's FIRST wait is the one that
+     * stands between the launch and the app's first draw, and the first draw after an
+     * install or a device wipe is slower than every draw after it — cell u14 timed out
+     * once on a wiped Pixel 3a emulator on 2026-09-02 and passed twice on the same build
+     * warm. Every later wait is about the app doing work it has already been asked to do,
+     * so it keeps the shorter value: a stall there is a defect and should be reported as
+     * one rather than waited out (docs/IMPLEMENTATION-PITFALLS.md P7).
+     *
+     * `examples/ui-spec/run-cells.sh` covers the same ground from the other side by
+     * launching the app once before the cells run.
+     */
+    private const val FIRST_WAIT_MILLIS: Int = 45000;
+
+    private const val WAIT_MILLIS: Int = 20000;
+
     /** Every file this emitter owns, by repository-relative path. */
     fun emit(spec: Spec, cells: List<Cell>, inputs: Inputs): Map<String, String>
     {
@@ -138,10 +156,15 @@ object CaseTable
         appendLine("# The app is up once a screen is drawing its stack readout. That the right FIXTURE");
         appendLine("# is installed is proven at the end instead, by the receipt's own name: an app that");
         appendLine("# never got the launch argument writes no receipt for this cell at all.");
+        appendLine("#");
+        appendLine("# This first wait is the long one. The FIRST launch after an install or a wipe draws");
+        appendLine("# later than every launch after it, and a cold start that outran this wait is a");
+        appendLine("# stall reported as a cell failure — cell u14 did exactly that on a wiped emulator");
+        appendLine("# on 2026-09-02 and passed twice warm. Every later wait stays at ${WAIT_MILLIS}.");
         appendLine("- extendedWaitUntil:");
         appendLine("    visible:");
         appendLine("      text: \"stack=.*\"");
-        appendLine("    timeout: 20000");
+        appendLine("    timeout: $FIRST_WAIT_MILLIS");
         cell.steps.forEach { step ->
             appendLine();
             append(render(step));
@@ -177,15 +200,45 @@ object CaseTable
             appendLine("- tapOn:");
             appendLine("    id: \"${step.id}\"");
         }
-        // Android's own gesture; on iOS Maestro realises it as the edge swipe that means
-        // the same thing. Nav 3's handling of it is what cell u7b exists to check.
-        Step.SystemBack -> "- back\n"
+        Step.SystemBack -> systemBack()
         is Step.Await -> buildString {
             appendLine("- extendedWaitUntil:");
             appendLine("    visible:");
             appendLine("      text: \"${step.readout}\"");
-            appendLine("    timeout: 20000");
+            appendLine("    timeout: $WAIT_MILLIS");
         }
+    }
+
+    /**
+     * The platform's own back gesture, once per platform.
+     *
+     * Maestro's `back` is ANDROID'S command and Android's alone. On iOS it completes
+     * without doing anything — measured on an iPhone 17 Pro simulator, iOS 26.3, on
+     * 2026-09-02: the hierarchy after it still read `stack=2` / `state=ready`. A step that
+     * does nothing and reports success fails the flow at the next ASSERTION rather than at
+     * itself, which is what makes it expensive to read (docs/IMPLEMENTATION-PITFALLS.md
+     * P22).
+     *
+     * So iOS gets the gesture that really means back there: the interactive-pop edge
+     * swipe. `FlowHost`'s path binding is what reconciles it — SwiftUI shortens the
+     * NavigationStack path itself and the binding's setter turns that into one `flow.pop()`
+     * per dropped entry. Probed end to end on the simulator: `stack=1`, `state=idle`,
+     * receipt written.
+     */
+    private fun systemBack(): String = buildString {
+        appendLine("- runFlow:");
+        appendLine("    when:");
+        appendLine("      platform: Android");
+        appendLine("    commands:");
+        appendLine("      - back");
+        appendLine("- runFlow:");
+        appendLine("    when:");
+        appendLine("      platform: iOS");
+        appendLine("    commands:");
+        appendLine("      - swipe:");
+        appendLine("          start: \"1%, 50%\"");
+        appendLine("          end: \"90%, 50%\"");
+        appendLine("          duration: 600");
     }
 
     private fun describe(step: Step): String = when (step)

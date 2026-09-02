@@ -2165,7 +2165,9 @@ section '14. the example apps hold the generated boundary'
 #      it inside SPFNUI: it closes a presentation without telling the flow, which leaves a
 #      host dismissed over a flow that still believes it is open.
 #   c. every cell of the case table is covered by something. A table is a claim about what
-#      was checked, and a cell with neither a flow nor a test is a claim nobody honoured.
+#      was checked, and a cell with neither a flow nor a test is a claim nobody honoured —
+#      and a `both` cell's flow may not carry a bare `- back`, because that command is
+#      Android's and does nothing at all on iOS (P22).
 #
 # Every one of them has a floor. A scan that read no file produces no hits, and no hits is
 # what a clean tree also produces — so each check states how much it read and fails when
@@ -2261,13 +2263,30 @@ else
 fi
 CELL_COUNT=$(grep -c . "$TMP/example-cells.txt" || true)
 CELL_PROBLEMS=''
+CELL_FLOWS_READ=0
 
 while IFS=' ' read -r cell runner
 do
     [ -n "$cell" ] || continue
     case "$runner" in
         maestro|both)
-            [ -f "$EXAMPLE_FLOWS/$cell.yaml" ] || CELL_PROBLEMS="$CELL_PROBLEMS $cell:no-flow"
+            if [ -f "$EXAMPLE_FLOWS/$cell.yaml" ]
+            then
+                CELL_FLOWS_READ=$((CELL_FLOWS_READ + 1))
+                # A TOP-LEVEL `- back` only. Maestro's `back` is Android's own command and
+                # on iOS it completes without doing anything, so a flow that used it there
+                # failed at the next assertion rather than at the step — cells u7b and u10b
+                # did exactly that on an iPhone 17 Pro simulator on 2026-09-02 (P22). The
+                # anchor is what makes this a rule about the flow rather than a ban on the
+                # word: inside `runFlow: when: platform: Android` the command is indented,
+                # which is the one place it means what it says.
+                if grep -q '^- back' "$EXAMPLE_FLOWS/$cell.yaml"
+                then
+                    CELL_PROBLEMS="$CELL_PROBLEMS $cell:bare-back"
+                fi
+            else
+                CELL_PROBLEMS="$CELL_PROBLEMS $cell:no-flow"
+            fi
             ;;
     esac
     case "$runner" in
@@ -2289,6 +2308,13 @@ then
     pass "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES"
 else
     fail "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES; it did not run"
+fi
+
+if [ "$CELL_FLOWS_READ" -ge 14 ]
+then
+    pass "the flow scan read all $CELL_FLOWS_READ device-cell flows looking for a bare system back"
+else
+    fail "the flow scan read $CELL_FLOWS_READ device-cell flows; it did not run"
 fi
 
 if [ -z "$CELL_PROBLEMS" ]
