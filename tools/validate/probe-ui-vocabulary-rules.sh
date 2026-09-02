@@ -9,7 +9,10 @@
 #
 #   a. a renamed Swift case fails, naming the type;
 #   b. a renamed Kotlin state fails;
-#   c. a Flow method that exists on one platform only fails, in either direction;
+#   c. a Flow method that exists on one platform only fails, in either direction — and
+#      still fails when it is spelled with a MODIFIER (`public suspend fun`,
+#      `public mutating func`), because a grammar that recognised only the bare spelling
+#      would not report that method as extra, it would not see it at all;
 #   d. a Swift case list written on ONE line is still read — first that it passes, then
 #      that a rename inside that one line still fails, because a form the reader silently
 #      skips would pass the first half and the second;
@@ -207,6 +210,21 @@ sed 's#^    /\*\* Closes the flow and forgets its routes\. A no-op on a flow tha
     "$TMP/kotlin-flow.bak" > "$KOTLIN_FLOW"
 expect_ui_fail 'a Flow method only the Kotlin half has fails' \
     'Flow differs between platforms'
+
+# A method only one platform has, spelled with a modifier between `public` and the keyword.
+# It is the same divergence as the two cases above and the reader has to reach it through a
+# grammar rather than through a fixed string: `suspend` is the modifier a Kotlin coroutine
+# API grows first, and `static`/`mutating` are Swift's. A reader blind to them reports
+# parity over a vocabulary that differs.
+sed 's#^    public fun push(route: R)$#    public suspend fun reopen(at: List<R>) { open(at); }\n\n    public fun push(route: R)#' \
+    "$TMP/kotlin-flow.bak" > "$KOTLIN_FLOW"
+expect_ui_fail 'a Kotlin Flow method spelled `public suspend fun` is read, and its absence in Swift fails' \
+    'only in Kotlin: reopen'
+
+sed 's#^    public func push(_ route: Route)$#    public mutating func reopen(at stack: [Route]) { }\n\n    public func push(_ route: Route)#' \
+    "$TMP/swift-flow.bak" > "$SWIFT_FLOW"
+expect_ui_fail 'a Swift Flow method spelled `public mutating func` is read, and its absence in Kotlin fails' \
+    'only in Swift: reopen'
 
 # --- d. the one-line case list is read, not skipped --------------------------------
 one_line_swift_cases > "$SWIFT_LOADABLE"

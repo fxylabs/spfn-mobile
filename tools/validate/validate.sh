@@ -1995,6 +1995,14 @@ UI_KOTLIN_DIR=android/spfn-ui/src/main/kotlin
 # public methods. A case list may be written on one line (`case loading, ready(Value)`) or
 # one case per line, and both are read — a payload is erased before the comma split, so a
 # payload that carries a comma of its own cannot be mistaken for a second case.
+#
+# A method is read whatever MODIFIERS stand between `public` and `func` — `public static
+# func`, `public mutating func`, `public nonisolated func`. A grammar that recognised one
+# spelling would not report the others as extra names, it would not see them at all: both
+# floors stay satisfied, both sides stay equal, and the section reports parity over a
+# method only one platform has (P7). Visibility is still the anchor, so `internal func`
+# and `private func` are read by neither half, which is what makes this a comparison of
+# the two PUBLIC vocabularies.
 swift_ui_names()
 {
     find "$UI_SWIFT_DIR" -name '*.swift' | sort > "$TMP/ui-swift-files.txt"
@@ -2032,9 +2040,9 @@ swift_ui_names()
                 if (name != "") { print tolower(name) }
             }
         }
-        current == want && kind == "func" && /^[[:space:]]+public func / {
+        current == want && kind == "func" && /^[[:space:]]+public ([a-z]+ )*func / {
             name = $0
-            sub(/^[[:space:]]+public func /, "", name)
+            sub(/^[[:space:]]+public ([a-z]+ )*func /, "", name)
             sub(/[^A-Za-z0-9_].*$/, "", name)
             if (name != "") { print tolower(name) }
         }
@@ -2043,7 +2051,10 @@ swift_ui_names()
 
 # The same, for the Kotlin half. A sealed interface's states are its nested `object` and
 # `data class` declarations, which is that language's spelling of an enum case with a
-# payload; a class's names are its public functions.
+# payload; a class's names are its public functions — `public suspend fun`,
+# `public inline fun` and every other modifier sequence included, for the reason the Swift
+# half states. `internal` is not a visibility this reads: it is not public, and a method
+# the other platform cannot call is not part of the shared vocabulary.
 kotlin_ui_names()
 {
     find "$UI_KOTLIN_DIR" -name '*.kt' | sort > "$TMP/ui-kotlin-files.txt"
@@ -2074,9 +2085,9 @@ kotlin_ui_names()
             sub(/[^A-Za-z0-9_].*$/, "", name)
             if (name != "") { print tolower(name) }
         }
-        current == want && kind == "fun" && /^[[:space:]]+public fun / {
+        current == want && kind == "fun" && /^[[:space:]]+public ([a-z]+ )*fun / {
             name = $0
-            sub(/^[[:space:]]+public fun /, "", name)
+            sub(/^[[:space:]]+public ([a-z]+ )*fun /, "", name)
             sub(/[^A-Za-z0-9_].*$/, "", name)
             if (name != "") { print tolower(name) }
         }
