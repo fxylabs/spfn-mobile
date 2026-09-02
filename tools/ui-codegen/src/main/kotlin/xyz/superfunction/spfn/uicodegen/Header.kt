@@ -33,7 +33,13 @@ object Header
         lines(inputs).joinToString("\n") { if (it.isEmpty()) "#" else "# $it" }
 }
 
-/** The two inputs a generated file is a pure function of, and their digests. */
+/**
+ * What a generated file is a pure function of, named exactly.
+ *
+ * The two digests are the bytes; [specPath] is here because the header prints it, which
+ * makes the path an input to the output and not merely how the run was invoked. It is
+ * repository-relative for that reason.
+ */
 data class Inputs(
     val specPath: String,
     val specSha256: String,

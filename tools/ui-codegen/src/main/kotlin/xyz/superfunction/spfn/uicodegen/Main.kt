@@ -6,8 +6,17 @@
 //
 // The same two properties the contract generator holds to:
 //   - Zero network. The inputs are the vendored bundle and the spec, both on disk.
-//   - Deterministic. Output is a pure function of those two files' bytes: no timestamp,
-//     no host name, no absolute path, no unordered iteration.
+//   - Deterministic. Output is a pure function of the SPEC BYTES, the BUNDLE BYTES, the
+//     spec's repository-relative PATH and the lock's CONTRACT BLOCK: no timestamp, no
+//     host name, no absolute path, no unordered iteration.
+//
+// The last two of those four are named because they are real and easy to miss. The path
+// is in every generated header and in the case table's `spec` field, which is what makes
+// it an input rather than an invocation detail — so it is kept repository-relative, and
+// generating the same spec through a path with a `../` in it is a different output. The
+// lock's contract block decides which file the bundle bytes are read from and refuses the
+// whole run when its digest disagrees with them; nothing else of it reaches the output,
+// and the `contractVersion` a header carries is the bundle's own field.
 //
 // And one more of its own: verification covers the FLOWS and the CASE TABLE as well as
 // the sources. The table is the artefact both runners read, and an unverified table is not

@@ -12,6 +12,14 @@ with a message naming the field, not a warning.
     ./gradlew :ui-codegen:spfnGenerateUi     # rewrite the generated scaffolds
     ./gradlew :ui-codegen:spfnUiVerify       # fail if they are not up to date
 
+What comes out is a pure function of the **spec bytes**, the **bundle bytes**, the spec's
+**repository-relative path** and the lock's **contract block** — nothing else, and in
+particular no timestamp, host name or absolute path. The path is on that list because every
+generated header prints it, so it is an input to the output rather than a detail of how the
+run was invoked; the lock's contract block is on it because it names the bundle file and
+the digest its bytes must have, which decides which bytes are read and whether the run
+happens at all.
+
 ## Top level
 
 | Field | Type | Rule |

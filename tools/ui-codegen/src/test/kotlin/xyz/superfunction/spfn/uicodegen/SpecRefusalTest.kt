@@ -247,7 +247,7 @@ class SpecRefusalTest
     }
 
     @Test
-    fun `generation is a pure function of its two inputs`()
+    fun `generation is a pure function of its stated inputs`()
     {
         val first = generate(repoRoot, specPath);
         val second = generate(repoRoot, specPath);

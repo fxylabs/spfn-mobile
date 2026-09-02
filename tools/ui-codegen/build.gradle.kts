@@ -5,9 +5,11 @@
 // requires, so the repository does not acquire a second toolchain
 // (docs/architecture/README.md).
 //
-// Zero external dependencies and zero network access at generation time. Its two inputs
-// are both on disk: the vendored contract bundle, read through :contract-codegen's own
-// reader rather than through a second copy of it, and the screen spec.
+// Zero external dependencies and zero network access at generation time. Its inputs are
+// all on disk: the vendored contract bundle, read through :contract-codegen's own reader
+// rather than through a second copy of it, the screen spec, the spec's repository-relative
+// path — which every generated header prints — and the lock's contract block, which
+// chooses the bundle file and refuses a run whose digest disagrees with it.
 
 plugins {
     alias(libs.plugins.kotlin.jvm)

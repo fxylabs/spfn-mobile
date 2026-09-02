@@ -5,12 +5,17 @@ One JSON spec in, two app scaffolds and a case table out.
     ./gradlew :ui-codegen:spfnGenerateUi   # rewrite everything below
     ./gradlew :ui-codegen:spfnUiVerify     # fail if any of it is not up to date (wired into `check`)
 
-Inputs, and there are exactly two:
+Inputs — two files, the repository-relative path of one of them, and the lock that
+chooses the other:
 
 - `examples/ui-spec/device-approval.json` — the screens, written by a person. Its fields
-  and its five refusals are `examples/ui-spec/SCHEMA.md`.
+  and its six refusals are `examples/ui-spec/SCHEMA.md`. Its PATH is an input too: every
+  generated header prints it.
 - `Contracts/spfn-mobile-contract.json` — the pinned bundle, read through
   `:contract-codegen`'s own reader rather than a second copy of it.
+- `Contracts/upstream.lock.json`'s `contract` block — it names the bundle file and the
+  digest the bundle's bytes must have, so it decides which bytes the run reads and whether
+  the run happens at all. Nothing of it reaches the output directly.
 
 Outputs:
 
@@ -35,8 +40,9 @@ names the contract generator emits, derived with `Names.lowerCamel` — the same
 `SwiftEmitter` and `KotlinEmitter` name their descriptors with. Two copies of that rule
 would drift, and the drift would arrive as a compile error in a file nobody wrote.
 
-**Determinism.** Output is a pure function of the two inputs' bytes: sorted iteration, no
-timestamp, no host name, no absolute path. `SpecRefusalTest` generates twice and compares.
+**Determinism.** Output is a pure function of the spec bytes, the bundle bytes, the spec's
+repository-relative path and the lock's contract block: sorted iteration, no timestamp, no
+host name, no absolute path. `SpecRefusalTest` generates twice and compares.
 
 **Where the expectations come from.** The case table is derived from the rule table in
 `src/main/kotlin/xyz/superfunction/spfn/uicodegen/Rules.kt` and the spec's shape; the
