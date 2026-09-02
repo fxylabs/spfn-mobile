@@ -84,6 +84,8 @@ enum HarnessOutcome
             return "serverNamedAnotherKey"
         case .keyUnloadable:
             return "keyUnloadable"
+        case .deviceCodeExpired:
+            return "deviceCodeExpired"
         }
     }
 

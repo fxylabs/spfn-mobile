@@ -8,10 +8,13 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.text.InputType
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RadioButton
@@ -21,8 +24,10 @@ import android.widget.TextView
 import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -78,6 +83,15 @@ class HarnessActivity : Activity()
     /** What the selected case asks a person to do at the sheet. Not a readout a flow reads. */
     private lateinit var preconditionLabel: TextView;
 
+    private lateinit var deviceCodeLabel: TextView;
+    private lateinit var expiresLabel: TextView;
+
+    /** Where a person types a code read off another device's screen. */
+    private lateinit var approverField: EditText;
+
+    /** Redraws the countdown once a second while a code is on screen, and nothing else. */
+    private var countdown: Job? = null;
+
     /**
      * The spinner beside `sign-in-google`, shown for as long as that attempt runs.
      *
@@ -118,6 +132,10 @@ class HarnessActivity : Activity()
     {
         super.onCreate(savedInstanceState);
         model = HarnessModel(this, HarnessConfiguration.fromLaunch(intent));
+        // The model posts the callback onto this thread and then calls this, so the code
+        // reaches the screen the moment the server answers rather than when the whole
+        // sign-in finishes — which is the point of showing a code at all.
+        model.onDeviceCodeShown = { render() };
         setContentView(buildScreen());
         model.refresh();
         render();
@@ -147,8 +165,11 @@ class HarnessActivity : Activity()
         caseLabel = label(column);
         socialLabel = label(column);
         receiptLabel = label(column);
+        deviceCodeLabel = label(column);
+        expiresLabel = label(column);
 
         column.addView(deviceMode());
+        column.addView(deviceCodeMode());
         column.addView(lifecycleDivider());
 
         for (action in actions())
@@ -347,6 +368,84 @@ class HarnessActivity : Activity()
         return view;
     }
 
+    /**
+     * Signing this device in with a code, and approving another device that shows one.
+     *
+     * Two halves of one flow on one screen, because a harness has one phone in front of
+     * it at a time and either half has to be reachable. The code a person types to approve
+     * is its own field: a single one would let this device approve itself.
+     */
+    private fun deviceCodeMode(): ViewGroup
+    {
+        val block = LinearLayout(this);
+        block.orientation = LinearLayout.VERTICAL;
+        block.setPadding(0, 8, 0, 16);
+
+        block.addView(heading("device code"));
+        block.addView(button(Triple(R.id.btn_device_sign_in, "sign-in-with-a-code") { signInWithACode() }));
+
+        val approve = TextView(this);
+        approve.text = "approve a device";
+        approve.textSize = 14f;
+        approve.setPadding(0, 12, 0, 4);
+        block.addView(approve);
+
+        approverField = EditText(this);
+        approverField.id = R.id.input_device_code;
+        approverField.hint = "XXXX-XXXX";
+        approverField.setSingleLine();
+        approverField.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS;
+        approverField.addTextChangedListener(object : TextWatcher
+        {
+            override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
+
+            override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
+
+            // The code is passed to the server exactly as typed: the server folds case,
+            // spaces and dashes on the way in, so nothing here reformats it.
+            override fun afterTextChanged(text: android.text.Editable?)
+            {
+                model.setApproverCode(text?.toString().orEmpty());
+            }
+        });
+        block.addView(approverField);
+
+        block.addView(button(Triple(R.id.btn_device_info, "device-info") { model.describeWaitingDevice() }));
+        block.addView(button(Triple(R.id.btn_device_approve, "device-approve") { model.approveWaitingDevice() }));
+        block.addView(button(Triple(R.id.btn_device_deny, "device-deny") { model.denyWaitingDevice() }));
+        return block;
+    }
+
+    /**
+     * The one action on this screen that waits for a person on ANOTHER device.
+     *
+     * `busy=busy` says it is running, as it does for every other action. What it needs on
+     * top of that is a ticker, so `expires-in=` counts down rather than sitting at whatever
+     * it was when the code arrived: the countdown is the one thing on this screen that
+     * changes without anybody tapping. The ticker is the only timer here and it stops when
+     * the wait does, however the wait ends.
+     */
+    private suspend fun signInWithACode()
+    {
+        countdown?.cancel();
+        countdown = scope.launch {
+            while (true)
+            {
+                delay(1_000);
+                render();
+            }
+        };
+        try
+        {
+            model.signInWithACode();
+        }
+        finally
+        {
+            countdown?.cancel();
+            countdown = null;
+        }
+    }
+
     /** The rule and the caption that say which half of the screen is below them. */
     private fun lifecycleDivider(): ViewGroup
     {
@@ -406,6 +505,20 @@ class HarnessActivity : Activity()
         Triple(R.id.btn_block_network, "block-network") { model.setNetworkBlocked(true) },
         Triple(R.id.btn_open_network, "open-network") { model.setNetworkBlocked(false) }
     );
+
+    /**
+     * Whole seconds until the shown code expires, or `-` when none is showing.
+     *
+     * Computed on every render, which the ticker causes once a second. A countdown rather
+     * than an instant because what the person holding this phone needs to know is how long
+     * they have to walk to the other one.
+     */
+    private fun expiresIn(): String
+    {
+        val expiry = model.deviceCodeExpiresAtMillis ?: return "-";
+        val remaining = expiry - System.currentTimeMillis();
+        return if (remaining > 0) "${remaining / 1_000}s" else "expired";
+    }
 
     private fun label(parent: ViewGroup): TextView
     {
@@ -547,6 +660,8 @@ class HarnessActivity : Activity()
         // and neither belongs on a screen that ends up in a screenshot.
         socialLabel.text = "social=${HarnessSocialConfiguration.readout}";
         receiptLabel.text = "receipt=${model.receipt}";
+        deviceCodeLabel.text = "device-code=${model.deviceCode}";
+        expiresLabel.text = "expires-in=${expiresIn()}";
         preconditionLabel.text = model.socialCase.precondition;
 
         // A sign-in and a case change are both refused while one attempt is in flight. A
