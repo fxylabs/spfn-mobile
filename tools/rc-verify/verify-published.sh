@@ -320,7 +320,7 @@ import PackageDescription
 
 let package = Package(
     name: "SPFNPublishedConsumer",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "$REPO_URL.git", exact: "$VERSION")
     ],

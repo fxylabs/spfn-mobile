@@ -23,8 +23,8 @@ awaiting human confirmation. **RESOLVED** — a person confirmed it, with the da
 
 | Item | Pinned value | Where it lives |
 | --- | --- | --- |
-| Swift tools version | 6.0 (Swift 6 language mode, strict concurrency) | `Package.swift` |
-| Platforms | iOS 16, macOS 13 | `Package.swift` |
+| Swift tools version | 6.1 (Swift 6 language mode, strict concurrency, package traits — D5 revision 3b) | `Package.swift` |
+| Platforms | iOS 17, macOS 14 (revised 2026-09-02; was iOS 16 / macOS 13) | `Package.swift` |
 | Xcode used to build | 26.2 (Swift 6.2.3) | recorded, not pinned in-repo |
 | Gradle | 9.5.1, distribution and wrapper jar pinned by published SHA-256 | `gradle/wrapper/` (also resolves D12) |
 | AGP | 9.2.1 | `gradle/libs.versions.toml` |

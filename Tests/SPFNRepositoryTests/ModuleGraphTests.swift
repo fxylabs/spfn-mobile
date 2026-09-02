@@ -156,8 +156,11 @@ final class ModuleGraphTests: XCTestCase
         // D5 revision 3b moved the floor from 6.0 to 6.1: the provider adapters select
         // their external dependency with package traits, which 6.0 has no notion of.
         XCTAssertTrue(manifest.contains("swift-tools-version: 6.1"), "D5 fixes swift-tools-version at 6.1")
-        XCTAssertTrue(manifest.contains(".iOS(.v16)"), "D5 fixes the iOS baseline at 16")
-        XCTAssertTrue(manifest.contains(".macOS(.v13)"), "D5 fixes the macOS baseline at 13")
+        // D5 revision, approved 2026-09-02: the platform floor moved to iOS 17 / macOS 14.
+        // 16 reached its last security update (16.7.16) in 2026-05 and no COMPATIBILITY.md
+        // row ever promised it.
+        XCTAssertTrue(manifest.contains(".iOS(.v17)"), "D5 fixes the iOS baseline at 17")
+        XCTAssertTrue(manifest.contains(".macOS(.v14)"), "D5 fixes the macOS baseline at 14")
     }
 }
 

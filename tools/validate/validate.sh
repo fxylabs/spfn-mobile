@@ -1751,8 +1751,8 @@ fi
 section '10. toolchain baseline (D5) is declared, not implied'
 # ---------------------------------------------------------------------------
 contains Package.swift 'swift-tools-version: 6.1' 'Package.swift pins swift-tools-version 6.1'
-contains Package.swift '.iOS(.v16)' 'Package.swift pins the iOS 16 baseline'
-contains Package.swift '.macOS(.v13)' 'Package.swift pins the macOS 13 baseline'
+contains Package.swift '.iOS(.v17)' 'Package.swift pins the iOS 17 baseline'
+contains Package.swift '.macOS(.v14)' 'Package.swift pins the macOS 14 baseline'
 
 contains gradle/libs.versions.toml 'agp = ' 'version catalogue pins the AGP line'
 contains gradle/libs.versions.toml 'kotlin = ' 'version catalogue pins the Kotlin line'
