@@ -5,6 +5,51 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The `ui` module, and an iOS 17 baseline
+
+- **The package baseline is iOS 17 / macOS 14** (D5 revision, approved 2026-09-02; it was
+  iOS 16 / macOS 13). iOS 16's last security update was 16.7.16 in 2026-05, and the only
+  devices that cannot go past it are the iPhone 8, 8 Plus and X. No `COMPATIBILITY.md`
+  row ever promised 16, so nothing offered is withdrawn. `Package.swift`, the iOS harness
+  project, its trait-carrier manifest and the two throwaway RC consumer manifests move
+  together — a consumer package declaring macOS 13 cannot resolve a dependency that
+  requires 14. Android's `minSdk` is unchanged at 24.
+- **One new module: `ui` — Swift `SPFNUI`, Android `spfn-ui`** — depending on core alone.
+  It holds the UI runtime vocabulary and nothing else: `Loadable`
+  (loading·ready·empty·error) for one read, `Busy` (idle·busy·error) for one write,
+  `FlowRoute`/`Flow` for a stack of routes with a presented flag, and `FlowHost`, the one
+  place a platform navigator is bound to that stack. The two error states carry core's own
+  error envelope, which is the whole reason for the edge. `Paged` and `Form` are deferred.
+- **`Flow` is free of the UI toolkit on both platforms.** Every rule it holds is a rule
+  about a list — `push`, `pop`, `replace`, `open(at:)`, `close()`, where `pop()` on the
+  last route is a documented no-op and `open` on an empty stack is refused — so the whole
+  transition table runs as an ordinary unit suite on the JVM and on Linux rather than only
+  where a UI toolkit exists. `FlowHost` is the only file in either half that imports one.
+- **`FlowHost` owns no stack.** SwiftUI's `NavigationStack(path:)` and Compose's
+  `NavDisplay` both write back on a system pop, and both are bound so the write becomes
+  `flow.pop()` instead of a second copy of the stack. `@Environment(\.dismiss)` appears
+  nowhere in `SPFNUI` and the validator refuses it: it closes a presentation without
+  telling the flow, which is how a host ends up dismissed over a flow that still believes
+  it is open. On Android the entry style is a three-line difference — `NavDisplay` disables
+  its own back handling when the scene has no previous entry, so a `Modal` flow puts a
+  `BackHandler` over exactly that gap and closes while a `Push` flow lets it fall through.
+- **Compose and Navigation 3 are the Android toolkit, and their cost is recorded.**
+  Compose 1.11.4 (1.12.0 requires compileSdk 37 and D5 pins 36), Navigation 3 1.1.7 — the
+  current stable, 1.2.0 being at beta01 — and `org.jetbrains.kotlin.plugin.compose`, which
+  is what AGP 9.2.1 asks for to turn the Compose feature on. No Compose BOM: the validator
+  resolves each dependency line to a catalogue alias and cannot read through a
+  `platform(...)` wrapper. `gradle/verification-metadata.xml` grew by 154 components, all
+  network-fetched, written by running `--write-verification-metadata sha256` over the real
+  build as well as `help` — artifacts only a task resolves are not recorded by `help`.
+- **`validate.sh` gained section 13: the ui vocabulary is one vocabulary.** It extracts
+  `Loadable`'s and `Busy`'s state names and `Flow`'s public method names from both source
+  trees and compares them per type, lowercased, scoped to the declaring type rather than
+  to the file. Both sides carry a floor and the pass message carries the count, because a
+  reader that read nothing yields an empty set and two empty sets agree. SwiftUI joined
+  section 8's Apple-only framework list, so the whole-file guard on `FlowHost.swift` is
+  enforced rather than merely present. `tools/validate/probe-ui-vocabulary-rules.sh` proves
+  each refusal bites, in 12 cases.
+
 ### The Swift package builds and tests on Linux
 
 - **`swift build` and `swift test` run on Linux** — Swift 6.2.1 on Ubuntu 24.04 builds

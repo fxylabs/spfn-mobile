@@ -38,6 +38,7 @@ and Maven coordinate lists from the graph.
 | `SPFNGenerated` | `spfn-generated` | yes | core | — |
 | `SPFNAuth` | `spfn-auth` | yes | core | swift-crypto (Linux) |
 | `SPFNClient` | `spfn-client` | yes | core, auth, generated | swift-crypto (Linux), OkHttp, coroutines (Android) |
+| `SPFNUI` | `spfn-ui` | yes | core | Compose ×3, Navigation 3 ×2, coroutines (Android) |
 | `SPFNSocialApple` | — (declared absent) | — (declared absent) | client | — |
 | `SPFNSocialGoogle` | `spfn-social-google` | — (declared absent) | client | GoogleSignIn (trait), Credential Manager ×3 |
 
@@ -114,6 +115,42 @@ gained auth and generated when the session arrived, because a session signs a
 the revision D13 left room for. The conformance suite needs the generated client from
 inside the auth module, but only at test time; every main edge is still exactly what
 `tools/module-graph.json` declares.
+
+### The `ui` module
+
+`ui` holds the UI runtime vocabulary, and it depends on core alone. What it carries is
+four types a screen needs before it holds any screen: `Loadable`
+(loading·ready·empty·error) for one read, `Busy` (idle·busy·error) for one write,
+`FlowRoute`/`Flow` for a stack of routes with a presented flag, and `FlowHost`, the one
+place a platform navigator is bound to that stack. `Loadable`'s and `Busy`'s error states
+carry core's own error envelope, which is the whole reason for the edge; nothing here
+needs a transport, a session or a generated operation, so an app that only renders state
+links none of them.
+
+`Flow` is deliberately free of the UI toolkit on both platforms — SwiftUI on one side,
+Compose on the other — because every rule it holds is a rule about a list. That is what
+lets the whole transition table run as an ordinary unit suite on a JVM and on Linux,
+rather than only where a UI toolkit and a device exist. `FlowHost` is the only file in
+either half that imports one.
+
+`FlowHost` owns no stack. SwiftUI's `NavigationStack(path:)` and Compose's `NavDisplay`
+both write back on a system pop, and both are bound so that the write turns into
+`flow.pop()` rather than into a second copy of the stack. `@Environment(\.dismiss)` is
+refused outright in `SPFNUI` and the validator's section 13 enforces it: it closes a
+presentation without telling the flow, which is exactly how a host ends up dismissed over
+a flow that still believes it is open.
+
+The two platforms are asymmetric in `externalDeps` because they are asymmetric in fact.
+SwiftUI and Observation are frameworks the OS ships, so SwiftPM resolves no package for
+them and the Swift allowlist is empty; Compose and Navigation 3 are Maven artifacts like
+any other, so every one of them is named in the graph and pinned in the version
+catalogue. Accepting that cost — Compose's transitive set is what grew
+`gradle/verification-metadata.xml` by 154 components — was part of approving the module.
+
+`Paged` and `Form` are deferred. A paged read is more than a `Loadable` with a cursor
+bolted on and a form is more than a `Busy` per field; neither has a shape this repository
+has had to satisfy yet, and a module is added with behaviour or not at all — which is the
+first of the five rules below.
 
 ## How a module is added
 

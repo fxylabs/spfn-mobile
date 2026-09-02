@@ -32,7 +32,7 @@ the same fixture vectors.
 | --- | --- |
 | Toolchain baseline (D5) | applied: Swift 6 language mode, iOS 17 / macOS 14, Gradle 9.5.1, AGP 9.2.1, Kotlin 2.4.10, JDK 21, minSdk 24 / compileSdk 36 |
 | Gradle wrapper | committed, distribution and jar pinned to checksums published by gradle.org |
-| Android modules | five modules — the Apple adapter is iOS-only — all compiling, four running unit tests |
+| Android modules | six modules — the Apple adapter is iOS-only — all compiling, five running unit tests |
 | Contract bundle | an SPFN primitives export, pinned by real SHA-256 at commit `d31aa9a1`, with the exporter's evidence vendored beside it |
 | Codegen | `tools/contract-codegen` generates both clients from the bundle, deterministically |
 | Conformance | shared fixtures under `Contracts/fixtures/`, consumed by both test suites |
