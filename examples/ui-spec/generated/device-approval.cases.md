@@ -42,6 +42,7 @@ proven on the JVM against the models and has no flow file.
 | `u8` | `reviewDevice` | `ready` | `approve` | both | `ready` | `stack=0` | R5 — the write succeeds and close empties the stack |
 | `u8c` | `reviewDevice` | `ready` | `approve` | unit | `writeRefused` | `stack=0`, `state=ready` | R4 — the flow closes while the write is in flight, so its refusal changes nothing |
 | `u8d` | `reviewDevice` | `ready` | `approve` | unit | `ready` | `stack=1`, `state=ready` | R9 — the system back pops this route while the write is in flight, so its answer changes nothing and navigates nowhere |
+| `u8e` | `reviewDevice` | `ready` | `approve` | unit | `ready` | `stack=3`, `state=ready` | R9 — a second copy of the entry route is pushed over this screen while the write is in flight, so the answer is for a screen that is no longer the one on show |
 | `u9` | `reviewDevice` | `ready` | `deny` | both | `ready` | `stack=0` | R5 — the second write closes the same way the first does |
 | `u9c` | `reviewDevice` | `ready` | `deny` | unit | `writeRefused` | `stack=0`, `state=ready` | R4 — the same late refusal, on the write that declares no response body |
 | `u10` | `reviewDevice` | `error` | `back` | both | `sourceRefused` | `stack=1`, `state=idle` | R5 — pop drops a route in any state, and the screen under it is where it was left |

@@ -151,6 +151,18 @@
       "flow": null
     },
     {
+      "id": "u8e",
+      "screen": "reviewDevice",
+      "state": "ready",
+      "action": "approve",
+      "rule": "R9 \u2014 a second copy of the entry route is pushed over this screen while the write is in flight, so the answer is for a screen that is no longer the one on show",
+      "runner": "unit",
+      "fixture": "ready",
+      "steps": ["type enterCode.userCode ABCD-1234", "tap enterCode.submit", "await state=ready", "tap reviewDevice.approve"],
+      "expect": ["stack=3", "state=ready"],
+      "flow": null
+    },
+    {
       "id": "u9",
       "screen": "reviewDevice",
       "state": "ready",

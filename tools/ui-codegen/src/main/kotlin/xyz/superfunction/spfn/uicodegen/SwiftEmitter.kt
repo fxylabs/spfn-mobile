@@ -348,18 +348,26 @@ object SwiftEmitter
      * the pop was the system's back gesture, not this model's own action — so an answer
      * arriving afterwards would write into a screen nobody is standing on and run its
      * `then` from there (docs/IMPLEMENTATION-PITFALLS.md P24).
+     *
+     * It asks for the TOP of the stack rather than for membership in it. `Flow` accepts
+     * any nonempty order — `push`, `replace` and `open(at:)` all take a route this screen
+     * already has one of — so a stack can hold a second copy of this screen's own route
+     * above it. Membership says yes to that, and the answer would then apply this screen's
+     * `then` over the screen the person is actually standing on. On show means on top.
      */
     private fun isCurrent(flow: FlowDefinition, screen: ScreenDefinition, bundle: Bundle): String = buildString {
         appendLine("    /// Whether an answer bearing `token` still belongs to a screen that is on show.");
         appendLine("    ///");
         appendLine("    /// Three questions: is this the current request, is the flow still presented, and");
-        appendLine("    /// is this screen's own route still on the stack. The last is not implied by the");
-        appendLine("    /// others — a route popped while a call was in flight leaves both of them true.");
+        appendLine("    /// is this screen's own route the one on top of the stack. The last is not implied");
+        appendLine("    /// by the others — a route popped while a call was in flight leaves both of them");
+        appendLine("    /// true — and it asks for the top rather than for membership, because a screen");
+        appendLine("    /// buried under a second copy of its own route is not on show either.");
         appendLine("    private func isCurrent(_ token: Int) -> Bool");
         appendLine("    {");
         appendLine("        token == generation");
         appendLine("            && flow.isPresented");
-        appendLine("            && flow.stack.contains(${routeValue(flow, screen, bundle)})");
+        appendLine("            && flow.stack.last == ${routeValue(flow, screen, bundle)}");
         appendLine("    }");
     }
 

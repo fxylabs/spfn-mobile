@@ -101,11 +101,13 @@ class EnterCodeModel(
      * Whether an answer bearing [token] still belongs to a screen that is on show.
      *
      * Three questions: is this the current request, is the flow still presented, and
-     * is this screen's own route still on the stack. The last is not implied by the
-     * others — a route popped while a call was in flight leaves both of them true.
+     * is this screen's own route the one on top of the stack. The last is not implied
+     * by the others — a route popped while a call was in flight leaves both of them
+     * true — and it asks for the top rather than for membership, because a screen
+     * buried under a second copy of its own route is not on show either.
      */
     private fun isCurrent(token: Int): Boolean =
         token == generation &&
             flow.isPresented.value &&
-            flow.stack.value.contains(ApproveDeviceRoute.EnterCode)
+            flow.stack.value.lastOrNull() == ApproveDeviceRoute.EnterCode
 }

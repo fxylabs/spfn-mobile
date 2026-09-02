@@ -66,7 +66,7 @@ object Fixtures
      */
     fun forCell(cell: String): Fixture? = when (cell)
     {
-        "u1", "u1c", "u2", "u5", "u6", "u7", "u7b", "u8", "u8d", "u9" -> ready()
+        "u1", "u1c", "u2", "u5", "u6", "u7", "u7b", "u8", "u8d", "u8e", "u9" -> ready()
         "u3", "u11" -> slow()
         "u8c", "u9c" -> writeRefused()
         "u4" -> refused()

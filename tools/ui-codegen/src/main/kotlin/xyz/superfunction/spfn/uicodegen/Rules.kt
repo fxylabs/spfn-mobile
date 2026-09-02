@@ -19,18 +19,25 @@
 //   R7  a failed call leaves the screen in its error state and the stack where it was;
 //   R8  the system back gesture is the flow's own pop, and on a modal flow's last route
 //       it is the flow's close;
-//   R9  a response for a screen no longer on the stack changes nothing.
+//   R9  a response for a screen no longer on show changes nothing.
 //
 // R9 is R4's other half and not a restatement of it. R4 is about the whole flow going
-// away, which a screen model sees as `isPresented`; R9 is about ONE route going away
-// under an in-flight call, which leaves the flow presented and — when the pop was the
-// system's back gesture rather than the screen's own action — leaves the generation
-// where it was too. Both guards are needed and neither implies the other.
+// away, which a screen model sees as `isPresented`; R9 is about ONE screen ceasing to be
+// the one on show under an in-flight call, which leaves the flow presented and — when the
+// route went away under the system's back gesture rather than the screen's own action —
+// leaves the generation where it was too. Both guards are needed and neither implies the
+// other.
+//
+// ON SHOW, not on the stack. A screen stops being on show two ways: its route is dropped,
+// or another route is put over it — and `Flow` accepts any nonempty order, so the route
+// put over it may be a second copy of the screen's own. A rule written as membership would
+// accept a response for a screen buried under that copy and run its `then` over the screen
+// the person is standing on, which is u8e.
 //
 // The cell ids are this repository's: u1–u14 for the base table, u7b/u10b for the system
 // back variants of the two back-button cells, u8c/u9c for the late-response variants of
-// the two closing writes, and u1c/u8d for the two late responses that arrive to a stack
-// that has moved under them.
+// the two closing writes, and u1c/u8d/u8e for the three late responses that arrive to a
+// stack that has moved under them.
 
 package xyz.superfunction.spfn.uicodegen
 
@@ -359,6 +366,16 @@ object Rules
                 "unit", Fixtures.READY,
                 reach + Step.Tap("$detail.${first.name}") + Step.SystemBack,
                 expect(after(roles.back.then, 2), "ready")
+            ),
+            Cell(
+                "u8e", detail, "ready", first.name,
+                "R9 — a second copy of the entry route is pushed over this screen while the write is " +
+                    "in flight, so the answer is for a screen that is no longer the one on show",
+                "unit", Fixtures.READY,
+                reach + Step.Tap("$detail.${first.name}"),
+                // Three deep by the time the answer lands, and nothing applied to it: the
+                // write's own `then` is refused, so the stack is where the extra push left it.
+                expect(after(null, 3), "ready")
             ),
             Cell(
                 "u9", detail, "ready", second.name,

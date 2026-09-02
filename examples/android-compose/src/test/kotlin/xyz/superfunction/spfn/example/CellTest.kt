@@ -2,8 +2,8 @@
 //
 // Cells covered here, which is every cell whose runner is `unit` or `both`:
 //
-//   u1  u1c  u2  u3  u4  u5  u6  u7  u7b  u8  u8c  u8d  u9  u9c  u10  u10b  u11  u12
-//   u13  u14
+//   u1  u1c  u2  u3  u4  u5  u6  u7  u7b  u8  u8c  u8d  u8e  u9  u9c  u10  u10b  u11
+//   u12  u13  u14
 //
 // The expectations are read out of the table (CaseTableReader), never written here. The
 // models are generated from the spec. The suite is where the two derivations meet, which
@@ -20,6 +20,11 @@
 // the gesture means. It matters most in u8d: the screen's OWN back action bumps the
 // generation on its way out, so only the gesture can leave a call in flight behind a
 // popped route.
+//
+// u8e drives `flow.push` directly for the same kind of reason. Nothing this spec declares
+// puts a second copy of the entry route over the detail screen, but `Flow` accepts it from
+// any caller, and the guard is written against what the runtime admits rather than against
+// what this one spec happens to do.
 
 package xyz.superfunction.spfn.example
 
@@ -29,6 +34,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import xyz.superfunction.spfn.example.generated.AppContainer
 import xyz.superfunction.spfn.example.generated.flows.ApproveDeviceRoute
@@ -189,6 +195,40 @@ class CellTest
         write.join();
         run.assertCell("u8d", loadable(review));
         assertEquals("the write never reached the service", 1, run.service.approveCount);
+    }
+
+    /**
+     * R9 again, with the screen buried rather than dropped.
+     *
+     * The route is still on the stack — the app pushed a second `enterCode` over it — so a
+     * guard asking whether the stack CONTAINS this screen's route says yes, and `approve`'s
+     * `then: close` would empty a stack whose top screen the person is standing on and
+     * never asked to leave. On show means on top, which is what the guard asks.
+     */
+    @Test
+    fun `u8e drops an approval buried under a second copy of its own route`() = runTest {
+        val gate = CompletableDeferred<Unit>();
+        val run = Run(Fixtures.ready());
+        val review = run.reach();
+        val before = review.state.value;
+        run.hold(gate);
+        val write = launch { review.approve() };
+        runCurrent();
+        run.flow.push(ApproveDeviceRoute.EnterCode);
+        gate.complete(Unit);
+        write.join();
+        run.assertCell("u8e", loadable(review));
+        assertEquals(
+            "the buried answer moved the stack",
+            listOf(
+                ApproveDeviceRoute.EnterCode,
+                ApproveDeviceRoute.ReviewDevice(userCode = code),
+                ApproveDeviceRoute.EnterCode
+            ),
+            run.flow.stack.value
+        );
+        assertEquals("the buried screen's own state moved", before, review.state.value);
+        assertTrue("the flow was closed under the person", run.flow.isPresented.value);
     }
 
     @Test
