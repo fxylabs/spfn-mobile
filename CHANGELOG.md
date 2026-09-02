@@ -5,6 +5,41 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Device-code sign-in, on both platforms
+
+- **The waiting device is one new entry point**, `SPFNKeyLifecycle.enrollByDeviceCode` /
+  `SpfnKeyLifecycle.enrollByDeviceCode`, beside the social `enroll()` and claiming the same
+  in-flight flag, so a device-code sign-in and a social one cannot both be registering a
+  key. It parks a key with `auth.device.start`, hands the `userCode` and its expiry to a
+  callback exactly once, and then polls `auth.device.poll` on the interval the server
+  named — no client default, no backoff. `pending` waits and asks again; a rate limit and
+  a lost response ask again after the same interval; every other refusal ends the wait.
+  The deadline is the `expiresAtMillis` the server named, judged on the
+  `core.time`-synchronised proof clock rather than the device's wall clock. Every exit
+  that is not an approval destroys the parked key, cancellation included, and the install
+  stays `unenrolled` throughout: there is no fourth lifecycle state and nothing to resume.
+- **The approver gets no wrapper.** `auth.device.info`, `approve` and `deny` are reached
+  through the generated descriptors and `execute`, as `auth.keys.revoke` already is. The
+  README shows the three calls per platform.
+- The answer is a new result type carrying the `userId` the approval bound the key to, the
+  key this SDK parked, and `passwordChangeRequired`.
+- **A codegen defect the flow was the first to reach:** an optional boolean was emitted
+  with the required reader, so a `pending` poll — which carries no `passwordChangeRequired`
+  — could not be decoded at all. Both emitters now emit an optional reader for an optional
+  boolean, `SPFNDecoding.optionalBoolean` / `SpfnDecoding.optionalBoolean` exist, and the
+  three affected generated fields (`PollDeviceAuthResponse.passwordChangeRequired`,
+  `ListKeysRequest.includeRevoked`, `RevokeAllKeysRequest.includeCurrent`) are regenerated.
+- **The reference server implements the flow**: the five operations and the upstream
+  six-state × four-operation table verbatim, with expiry judged on its own clock, the
+  approver read from the admitted proof's `clientId` and never from a body, and `deny`
+  answering 204 with an empty body through the generic no-response path rather than a
+  special case on the operation id. Twenty-five tests, one per cell plus the unproven
+  approval admission refuses.
+- The integration matrix gains cases g–k on both platforms — approval, denial over the
+  bodyless operation, a code that expires, a second approval, and an unproven approval —
+  and `Contracts/fixtures/enrollment/enrollment.json` gains the `start` body each platform
+  must send, derived from the contract rather than captured from either SDK.
+
 ### The pinned contract moves to 0.10.0, and an operation may declare no response
 
 - `Contracts/spfn-mobile-contract.json` and `Contracts/upstream-provenance.json` are byte

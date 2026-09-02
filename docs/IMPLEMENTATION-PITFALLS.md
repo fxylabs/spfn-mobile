@@ -43,6 +43,8 @@
 | 버전 범위·호환성 규칙 수정 | [P3](#p3) [P13](#p13) |
 | Android main 소스에 `java.*`/`javax.*` import 추가 | [P14](#p14) |
 | Xcode 타깃에서 SwiftPM 패키지 트레이트 켜기 | [P17](#p17) |
+| 테스트 더블에 키 id·별칭을 주입하고 두 번째 키를 만드는 흐름 | [P18](#p18) |
+| 본문 없는(204) 응답을 서버에 추가 | [P19](#p19) |
 
 ---
 
@@ -174,6 +176,22 @@ fail-open이었고, 다음 라운드에 개행 파일명을 건너뛰었다.
 
 **탐지.** 파서의 else 분기가 "알 수 없는 것을 이름으로 취급"하는가. 계약 표면의 문법
 변화(선언되지 않은 것 포함)를 만나면 생성기가 거부하는지 통과시키는지 확인한다.
+
+**탐지(2) — 타입별 분기가 `optional`을 잊는 경우.** emitter의 디코드 분기는 타입마다
+하나씩인데, 그중 하나가 `field.optional`을 읽지 않아도 **컴파일은 통과한다.** 계약에
+그 타입의 optional 필드가 아직 없으면 잠복하고, 처음 생기는 순간 "서버가 보내지 않은
+필드"가 `MISSING_FIELD`로 터진다. 확인 명령:
+
+```
+# 디코드 분기 중 optional을 보지 않는 것을 센다. 0이어야 한다.
+grep -n 'is FieldType\.' tools/contract-codegen/src/main/kotlin/xyz/superfunction/spfn/codegen/*Emitter.kt
+```
+
+분기마다 `field.optional`이 있는지 눈으로 대조하고, 없다면 계약에 그 조합이 없을
+뿐인지 확인한다. 증거: w-253gk — `BooleanType` 분기만 `optional`을 무시했고, 계약
+0.10.0이 처음으로 optional boolean(`PollDeviceAuthResponse.passwordChangeRequired`)을
+들여오자 `pending` 응답이 **어느 플랫폼에서도 디코드되지 않았다.** 잠복 필드가 둘
+더 있었다(`ListKeysRequest.includeRevoked`, `RevokeAllKeysRequest.includeCurrent`).
 
 **처방.** 계약 문법 변화는 선언된 변경으로 다뤄 파서 변경 + 양 플랫폼 재생성 +
 결정성 재확인을 함께 한다. upstream 쪽 변화는 소비 전에 대조한다.
@@ -403,6 +421,41 @@ xcodebuild -project <proj> -resolvePackageDependencies -scheme <scheme> 2>&1 \
 필요했다. 프로브 프로젝트로 실측: `traits:`만 쓴 쪽은 원격 패키지 0개에
 `SPFNGooglePresentingContext` 미해결, 매니페스트 쪽은 GoogleSignIn 9.2.0 해석 + 빌드 성공.
 실물은 `tools/harness/ios/HarnessSupport/Package.swift`.
+
+## P18. 테스트가 키 id를 고정하면 두 번째 키가 첫 번째를 덮는다 {#p18}
+
+**증상.** 스위트가 `newKeyId`/`makeKey`를 주입해 키 id를 고정한다. 그 흐름이 키를
+**두 번** 만들면(등록 후 rotate) 두 번째 생성이 같은 id → 같은 별칭으로 들어가
+첫 번째 키를 덮어쓴다. 그 다음 첫 번째 키로 서명한 proof는 새 개인키로 서명되어
+서버가 `PROOF_INVALID`로 거절한다. 증상이 SDK 결함처럼 보이는 것이 함정의 전부다.
+
+**탐지.** 주입한 id 공급자가 **상수를 반환**하는가. 그 케이스가 키를 두 번 이상
+만드는가(enroll+rotate, device-code+rotate). 저장소·엔진이 id에서 별칭을 파생하는가
+(Android: `spfn-client-key-$keyId`). 셋 다 예이면 적중.
+
+**처방.** 공급자는 큐로 만든다 — 첫 번째만 고정 id, 이후는 매번 새 값. 케이스가
+말하고 싶은 것은 "파킹한 키"이지 "모든 키"가 아니다.
+
+**나온 곳.** w-253gk 통합 케이스 g — device-code 승인 후 `rotate()`가
+`PROOF_INVALID`로 실패했다. 서버도 SDK도 옳았고, 틀린 것은 상수 `newKeyId`였다.
+
+## P19. `sendResponseHeaders(code, 0)`은 본문 없음이 아니다 {#p19}
+
+**증상.** 계약이 "204 + 빈 본문"을 요구하는 오퍼레이션을 서버에 추가하고
+`exchange.sendResponseHeaders(204, body.size.toLong())`로 답한다. `body.size`가 0이면
+`com.sun.net.httpserver`는 **chunked, 길이 미상**으로 읽는다 — 즉 본문이 있다는 뜻이고,
+클라이언트의 no-response 판독기는 이를 정확히 거부한다(`bodyOnNoResponseOperation`).
+
+**탐지.** 응답 작성 지점에 `sendResponseHeaders(status, length)`가 있고 length가
+`body.size`인가. 빈 본문이 그 경로로 갈 수 있는가. 그렇다면 적중. 계약 쪽 짝은
+**id가 아니라 디스크립터**로 판정하는지 함께 본다(`declaresResponse`).
+
+**처방.** 빈 본문은 `-1`(본문 없음)로 보내고, `content-type`도 붙이지 않는다. 단
+계약 버전 announcement 헤더는 204에도 붙인다 — 클라이언트는 상태 코드보다 먼저 그것을
+읽으므로, 빠지면 유일하게 잘못된 이유로 거절되는 응답이 된다.
+
+**나온 곳.** w-253gk — `auth.device.deny`가 이 저장소 서버가 처음으로 답하는 본문 없는
+오퍼레이션이다. 통합 케이스 h가 end-to-end로 고정한다.
 
 ## 원장
 

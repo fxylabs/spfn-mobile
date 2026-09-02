@@ -72,6 +72,47 @@ pod ipc spec tools/cocoapods-compat/generated/SPFNMobileCompatFixture.podspec
 The Gradle commands need an Android SDK; point `ANDROID_HOME` at it. Each command is
 separate evidence, and the validator never infers or reports the result of the others.
 
+## Signing a device in with a code
+
+A device with no key on file shows a short code; somebody approves it on a device that is
+already signed in. Both halves are below, and both are the whole of what an app writes.
+
+**The waiting device** — one call, which returns when somebody answers:
+
+```swift
+let signedIn = try await lifecycle.enrollByDeviceCode(deviceName: "Kitchen iPad")
+{ userCode, expiresAtMillis in show(userCode, until: expiresAtMillis) }
+```
+
+```kotlin
+val signedIn = lifecycle.enrollByDeviceCode(deviceName = "Kitchen tablet")
+{ userCode, expiresAtMillis -> show(userCode, expiresAtMillis) }
+```
+
+**The approver** — three generated operations through `execute`, with the key this device
+already has. There is no SDK wrapper, the same way there is none for `auth.keys.revoke`:
+
+```swift
+let waiting = try await client.execute(deviceInfo, request: SPFNDeviceAuthInfoRequest(userCode: typed))
+_ = try await client.execute(deviceApprove, request: SPFNApproveDeviceAuthRequest(userCode: typed))
+_ = try await client.execute(deviceDeny, request: SPFNDenyDeviceAuthRequest(userCode: typed))
+```
+
+```kotlin
+val waiting = client.execute(deviceInfo, SpfnDeviceAuthInfoRequest(typed))
+client.execute(deviceApprove, SpfnApproveDeviceAuthRequest(typed))
+client.execute(deviceDeny, SpfnDenyDeviceAuthRequest(typed))
+```
+
+What the app must show is the `userCode` exactly as it arrived — `XXXX-XXXX`, unmodified,
+since the server folds case, spaces and dashes when it is typed back in — and that it
+expires: the callback's second argument is the instant it stops working, and the call ends
+by itself at that instant with the SDK's device-code expiry error. The callback runs on
+whatever executor the caller was on; the SDK switches to none of its own, so an app that
+draws from it hops to its own main thread. The approver should be shown what `info`
+answers — the device name and the fingerprint prefix — before approving, because that is
+the whole defence against approving somebody else's device.
+
 ## Where the decisions live
 
 The approved repository and release topology is the decision artifact
