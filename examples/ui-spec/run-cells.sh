@@ -90,13 +90,20 @@
 # It is announced in the output when it is used, and the announcement is the point: a run
 # maestro did not drive is not a device result. It is announced TWICE, at section 1 and on
 # the final `RESULT:` line, because the last line of a log is the line that gets quoted
-# (P12 — a probe convenience must not be a quiet bypass).
+# (P12 — a probe convenience must not be a quiet bypass). `--probe` asserts that last line
+# whole, on a run that passes and on a run that fails.
 #
 # Requires: maestro, python3, and per platform xcrun or adb.
 
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+
+# This script's own path, taken before the `cd` below would strand a relative $0. `--probe`
+# runs it again as a subprocess, because the `RESULT:` line it has to read is printed at the
+# end of a whole run and by nothing smaller.
+SELF=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/$(basename -- "$0")
+
 cd "$ROOT"
 
 FLOWS=examples/ui-spec/generated/flows
@@ -738,6 +745,76 @@ SILENT
     fi
 }
 
+# Runs this script again for platform $1 with `--flow-runner $2`, and requires its LAST line
+# to be exactly $3.
+#
+# The run directory that sub-run named is removed afterwards: it is a fixture's leavings and
+# not a run's evidence. Removed by the name the sub-run PRINTED, and only when that name is
+# under $RECEIPT_ROOT, so this deletes a directory this probe caused and nothing else.
+assert_result_label()
+{
+    sh "$SELF" "$1" --flow-runner "$2" > "$WORK/label-$1.log" 2>&1 || true
+    LABEL_LINE=$(tail -n 1 "$WORK/label-$1.log")
+    LABEL_DIRECTORY=$(sed -n 's/^receipts: //p' "$WORK/label-$1.log")
+    case "$LABEL_DIRECTORY" in
+        "$RECEIPT_ROOT"/?*)
+            rm -rf "$LABEL_DIRECTORY"
+            # And the platform directory it was made under, if this probe is all that
+            # ever put anything there. `rmdir` rather than `rm -r`: a tree holding an
+            # earlier run's receipts is somebody's evidence and stays where it is.
+            rmdir "$(dirname "$LABEL_DIRECTORY")" 2> /dev/null || true
+            ;;
+    esac
+
+    if [ "$LABEL_LINE" = "$3" ]
+    then
+        pass "a --flow-runner run on $1 ends with: $LABEL_LINE"
+    else
+        fail "a --flow-runner run on $1 ended with '$LABEL_LINE', not '$3'"
+        sed 's/^/      /' "$WORK/label-$1.log"
+        PROBE_STATUS=1
+    fi
+}
+
+# The label on the last line, which is the line that gets quoted.
+#
+# `--flow-runner` means a run maestro did not drive, and the announcement on the `RESULT:`
+# line is what keeps that visible to a reader who quotes only that line. So it is asserted
+# WHOLE, and on both verdicts: the label rides beside PASS and beside FAIL, and a spelling
+# that survived only one of them would be half a claim.
+#
+# The two sub-runs are given different PLATFORMS. Neither touches a device — `--flow-runner`
+# is taken before any `require maestro`, before the warm-up and before the iOS container
+# lookup — and two runs of the same platform in the same second would name one run directory
+# and the second would refuse to start.
+#
+# The DEVICE path's spelling of the line is not asserted, because on a host with no device
+# it cannot be reached: without `--flow-runner`, section 1 exits at `require maestro`, or at
+# "exactly one attached emulator or device is needed and was not found", well before any
+# `RESULT:` line is printed — and reaching it would mean driving a device from `--probe`,
+# which is the one thing `--probe` exists not to need. What is left of that path here is
+# that the unlabelled spelling is the same two `printf`s with $RESULT_LABEL empty, and
+# $RESULT_LABEL is empty exactly when $FLOW_RUNNER is.
+probe_label_case()
+{
+    cat > "$WORK/label-pass.sh" <<'LABELPASS'
+#!/bin/sh
+set -eu
+printf '{"cell": "%s"}\n' "$1" > "$3/receipt-$1-1756800000000.json"
+LABELPASS
+    cat > "$WORK/label-fail.sh" <<'LABELFAIL'
+#!/bin/sh
+set -eu
+exit 1
+LABELFAIL
+    chmod +x "$WORK/label-pass.sh" "$WORK/label-fail.sh"
+
+    assert_result_label android "$WORK/label-pass.sh" \
+        'RESULT: PASS (flow-runner, not a device result)'
+    assert_result_label ios "$WORK/label-fail.sh" \
+        'RESULT: FAIL (flow-runner, not a device result)'
+}
+
 probe()
 {
     printf 'SPFN Mobile — the example cell receipt gate and per-flow pull, probed\n\n'
@@ -758,6 +835,7 @@ probe()
     probe_stale_case
     probe_pull_case
     probe_container_case
+    probe_label_case
 
     printf '\n'
     if [ "$PROBE_STATUS" -eq 0 ]
