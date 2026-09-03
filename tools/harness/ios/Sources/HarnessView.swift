@@ -31,12 +31,20 @@
 // the three is a readout and no flow may read one — `banner` says what keeps a flow's
 // selector off it.
 //
-// android/.../HarnessActivity.kt is the same screen in Views, with the same button ids
+// One thing on this screen is not written here at all. `open-approve` builds the graph
+// tools/ui-codegen emits into `GeneratedUI/` and opens its flow, which is presented over
+// everything above — the harness is the SECOND consumer of the one screen spec, and it
+// drives those screens against a live reference server rather than against a fixture. The
+// `stack=` readout is that flow's own depth, spelled the way the generated screens spell
+// it, so a flow that is open shows the number twice and both readings agree.
+//
+// android/.../HarnessScreen.kt is the same screen in Compose, with the same button ids
 // and the same readout text.
 
 import Combine
 import Foundation
 import SPFNHarnessSupport
+import SPFNUI
 import SwiftUI
 
 struct HarnessView: View
@@ -53,24 +61,39 @@ struct HarnessView: View
 
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    /// The screen, and the generated flow that covers it.
+    ///
+    /// A `ZStack` rather than the `ScrollView` alone, and the flow host is its LAST child.
+    /// A modal `FlowHost` presents from wherever it sits in the view tree, so one placed
+    /// inside the scrolling column would be a flow presented from a row of that column —
+    /// which is the arrangement examples/android-compose's README names as the one thing
+    /// a host owes a modal flow. The host draws nothing at all while the flow is closed.
     var body: some View
     {
-        ScrollView
+        ZStack
         {
-            VStack(alignment: .leading, spacing: 12)
+            ScrollView
             {
-                readouts
-                Divider()
-                deviceMode
-                deviceCodeSection
-                lifecycleDivider
-                actions
+                VStack(alignment: .leading, spacing: 12)
+                {
+                    readouts
+                    Divider()
+                    deviceMode
+                    deviceCodeSection
+                    lifecycleDivider
+                    actions
+                }
+                .padding()
             }
-            .padding()
-        }
-        .overlay(alignment: .bottom)
-        {
-            banner
+            .overlay(alignment: .bottom)
+            {
+                banner
+            }
+
+            if let container = model.approval
+            {
+                ApproveDeviceFlowHost(container: container)
+            }
         }
         .onReceive(model.$signal.compactMap { $0 })
         { signal in
@@ -155,6 +178,11 @@ struct HarnessView: View
             readout("receipt", model.receipt)
             readout("device-code", model.deviceCode)
             readout("expires-in", expiresIn)
+            // The two the generated screens add. `stack=` is spelled exactly as those
+            // screens spell it, because it is the same number read off the same flow —
+            // a flow that is open shows it twice and both readings agree by construction.
+            readout("stack", String(model.stackDepth))
+            readout("http", model.httpStatus)
         }
         .font(.system(.body, design: .monospaced))
     }
@@ -185,8 +213,18 @@ struct HarnessView: View
     /// Signing this device in with a code, and approving another device that shows one.
     ///
     /// Two halves of one flow on one screen, because a harness has one phone in front of
-    /// it at a time and either half has to be reachable. The code a person types to
-    /// approve is its own field: a single one would let this device approve itself.
+    /// it at a time and either half has to be reachable.
+    ///
+    /// The approving half is ONE button now. It used to be a code field and three
+    /// buttons wiring up `info`, `approve` and `deny` by hand — a second implementation
+    /// of screens the generator already emits, and the half a harness has no business
+    /// writing twice. `open-approve` builds the generated graph and opens its flow, and
+    /// everything a person types or taps after that belongs to `GeneratedUI/`.
+    ///
+    /// Disabled without an active key, rather than absent: the approval calls are proven
+    /// ones, so a build with nothing enrolled has nothing to sign them with — and a
+    /// button that vanished would read as a harness that lost a feature, where a disabled
+    /// one beside `state=unenrolled` reads as the truth.
     private var deviceCodeSection: some View
     {
         VStack(alignment: .leading, spacing: 10)
@@ -198,15 +236,8 @@ struct HarnessView: View
 
             Text("approve a device")
                 .font(.system(.caption, design: .monospaced))
-            TextField("XXXX-XXXX", text: $model.approverCode)
-                .font(.system(.body, design: .monospaced))
-                .textInputAutocapitalization(.characters)
-                .autocorrectionDisabled()
-                .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("input_device_code")
-            asyncButton("btn_device_info", "device-info") { await model.describeWaitingDevice() }
-            asyncButton("btn_device_approve", "device-approve") { await model.approveWaitingDevice() }
-            asyncButton("btn_device_deny", "device-deny") { await model.denyWaitingDevice() }
+            asyncButton("btn_open_approve", "open-approve") { await model.openApprove() }
+                .disabled(!model.hasActiveKey)
         }
         .onReceive(tick)
         { _ in
@@ -403,6 +434,11 @@ struct HarnessView: View
         }
         .buttonStyle(HarnessPressStyle())
         .accessibilityIdentifier(id)
+        // The platform's minimum touch target, on every button here for the reason the
+        // generated views size theirs: a control shorter than this is reached through a
+        // hit area larger than itself, and stacked controls' hit areas then overlap
+        // (docs/IMPLEMENTATION-PITFALLS.md P21).
+        .frame(minHeight: 44)
     }
 
     /// A button whose work is finished when the tap returns. The network switch is the
@@ -421,6 +457,7 @@ struct HarnessView: View
         }
         .buttonStyle(HarnessPressStyle())
         .accessibilityIdentifier(id)
+        .frame(minHeight: 44)
     }
 
     /// The look of an action button, drawn in the LABEL rather than taken from `.bordered`

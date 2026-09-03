@@ -47,8 +47,18 @@ targets:
   SPFNHarness:
     type: application
     platform: iOS
+    # Two directories, and the split is the point. `Sources` is the human's: the screen,
+    # the model, the transport and the receipt. `GeneratedUI` is tools/ui-codegen's and
+    # nothing in it is edited by hand — the harness is the SECOND consumer of the one
+    # screen spec, and it drives those screens against a live reference server rather
+    # than against a fixture.
+    #
+    # NOT `Generated/`, which is XcodeGen's own: the Info.plist and the entitlements
+    # below are written there, and the ui generator DELETES every file it did not emit
+    # from a directory it owns. One directory, one owner.
     sources:
       - path: Sources
+      - path: GeneratedUI
     # Every value the device mode reads comes from here, and none of it is committed.
     # The tracked file declares the keys empty and then optionally includes the
     # gitignored `Local.xcconfig`, so a clean checkout builds and the app reports itself
@@ -65,6 +75,10 @@ targets:
         product: SPFNGenerated
       - package: SPFNMobile
         product: SPFNClient
+      # `Flow`, `FlowHost`, `Busy` and `Loadable`: what everything under GeneratedUI is
+      # written against. The example app takes the same product for the same files.
+      - package: SPFNMobile
+        product: SPFNUI
       # Carries the two adapter modules, and the traits that make them whole. The app
       # imports `SPFNHarnessSupport` rather than the adapters directly, so what it can
       # reach is what this one product re-exports rather than whatever else happened to

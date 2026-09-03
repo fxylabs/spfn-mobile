@@ -40,6 +40,14 @@ final class HarnessTransport: SPFNTransport, @unchecked Sendable
     /// written by whatever is at the other end and a receipt leaves the phone.
     private static let commitHeaders = ["x-spfn-commit", "x-spfn-server-commit", "x-commit"]
 
+    /// Called with the status of every response, on whatever thread it arrived on.
+    ///
+    /// Set once, by the model, so the `http=` readout follows the wire rather than being
+    /// re-read whenever something else happens to redraw the screen. The generated
+    /// approval screens send through this transport and report their own refusals on
+    /// their own readouts; this is the only place the harness sees what the wire said.
+    var onResponse: (@Sendable (Int) -> Void)?
+
     private let inner: any SPFNTransport
     private let lock = NSLock()
     private var blocked = false
@@ -104,5 +112,8 @@ final class HarnessTransport: SPFNTransport, @unchecked Sendable
         lock.lock()
         lastObservation = HarnessWireObservation(statusCode: response.statusCode, serverCommit: commit)
         lock.unlock()
+        // Outside the lock: the callback hops to the main actor and this transport must
+        // not hold a lock across somebody else's work.
+        onResponse?(response.statusCode)
     }
 }
