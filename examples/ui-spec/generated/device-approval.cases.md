@@ -3,7 +3,7 @@ GENERATED FILE — DO NOT EDIT.
 
 generator:       spfn-ui-codegen 0.1.0-dev
 spec:            examples/ui-spec/device-approval.json
-specSha256:      cd02e9ed576538e540a939229a0e476a76708e84286a3ccd09f5f680bf7ab8b5
+specSha256:      ea4b08e490fa7f24720859c9b735a9d628949ad1595762d44cb1a833b0b7c164
 bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 contractVersion: 0.10.0
 
@@ -51,6 +51,15 @@ proven on the JVM against the models and has no flow file.
 | `u12` | `reviewDevice` | `error` | `retry` | both | `sourceRefusedOnce` | `stack=2`, `state=ready` | R5 — an action with no then leaves the stack alone and re-reads the source |
 | `u13` | `reviewDevice` | `loading` | `load` | both | `sourceRefused` | `stack=2`, `state=error` | R7 — the source refuses, so the screen carries the refusal and the stack stands |
 | `u14` | `reviewDevice` | `loading` | `deepEntry` | both | `deepReady` | `stack=2`, `state=ready` | R6 — a screen loads its source once however it appeared, including on a deep entry |
+| `k1` | `enterCode` | `idle` | `submit` | maestro | `ready` | `stack=2`, `state=ready` | K1 — the body gets out of the keyboard's way, so the control under the field is still on screen with the keyboard up and pressing it still submits |
+| `k2` | `enterCode` | `idle` | `hideKeyboard` | maestro | `ready` | `stack=1`, `state=idle` | K2 — a tap outside the field puts the keyboard away and changes nothing else: the screen is where it was and the field is still there |
+| `k3` | `enterCode` | `idle` | `submit` | maestro | `ready` | `stack=2`, `state=ready` | K3 — autofocus means the field already holds the focus, so text typed without tapping it first reaches the field and the write goes out with it |
+| `k4` | `enterCode` | `idle` | `return` | maestro | `ready` | `stack=2`, `state=ready` | K4 — submitOnReturn means the return key performs the screen's action, with no control pressed at all |
+| `k5` | `enterCode` | `idle` | `return` | maestro | `ready` | `stack=2`, `state=ready` | K4 and K2 together — the return key still submits after the keyboard was put away and the field taken up again, which is the state a person is in after reading the screen |
+| `k6` | `enterCode` | `error` | `submit` | maestro | `ready` | `stack=1`, `state=idle` | K6 — editing the field clears the refusal under it, so the screen is usable again without the person pressing anything |
+| `k7` | `enterCode` | `error` | `submit` | maestro | `ready` | `stack=1`, `state=error` | K7 and C7 — a refused input draws its refusal UNDER the field rather than somewhere on the screen, and the line is drawn at all |
+| `s1` | `enterCode` | `idle` | `screen.close` | maestro | `ready` | `stack=0` | S1 — the root of a flow presented over something draws the header's close, and pressing it closes the flow |
+| `s2` | `reviewDevice` | `ready` | `screen.back` | maestro | `ready` | `stack=1`, `state=idle` | S2 — a route above the root draws the header's back, and pressing it pops one route |
 
 ## Running one
 

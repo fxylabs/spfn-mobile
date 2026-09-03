@@ -2,7 +2,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-dev
 // spec:            examples/ui-spec/device-approval.json
-// specSha256:      cd02e9ed576538e540a939229a0e476a76708e84286a3ccd09f5f680bf7ab8b5
+// specSha256:      ea4b08e490fa7f24720859c9b735a9d628949ad1595762d44cb1a833b0b7c164
 // bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 // contractVersion: 0.10.0
 //
@@ -11,6 +11,7 @@
 
 import SPFNClient
 import SPFNCore
+import SPFNUI
 
 /// Turns what a call threw into the envelope a screen state carries.
 ///
@@ -53,5 +54,82 @@ public enum ScreenFailure
                 requestID: ""
             )
         }
+    }
+
+    /// The code names a device the server is not holding a request for.
+    public static let deviceNotFoundKey = "deviceNotFound"
+
+    /// Nothing was reached, or what came back was not readable.
+    public static let networkKey = "network"
+
+    /// The server refused this device's credentials.
+    public static let unauthorizedKey = "unauthorized"
+
+    /// The screen refused its own input. Nothing was sent.
+    public static let validationKey = "validation"
+
+    /// Anything this build classifies as nothing more specific.
+    public static let unexpectedKey = "unexpected"
+
+    /// Which of the five keys `envelope` is shown under.
+    ///
+    /// The two families below are the contract's own 401s and 404s, listed from the
+    /// pinned bundle at generation time.
+    public static func messageKey(_ envelope: SPFNErrorEnvelope) -> String
+    {
+        switch envelope.code
+        {
+        case validationCode:
+            return validationKey
+        case callFailedCode:
+            return networkKey
+        case "InvalidSocialTokenError", "PROOF_EXPIRED", "PROOF_INVALID", "PROOF_REPLAYED", "SESSION_REVOKED":
+            return unauthorizedKey
+        case "DeviceAuthNotFoundError":
+            return deviceNotFoundKey
+        default:
+            return unexpectedKey
+        }
+    }
+
+    /// The sentence for `envelope`, looked up in `SPFNStrings`.
+    ///
+    /// Never the server's own words: `message` is text a server chose and a screen that
+    /// drew it would publish whatever the server felt like saying (decision C7).
+    public static func message(_ envelope: SPFNErrorEnvelope) -> String
+    {
+        switch messageKey(envelope)
+        {
+        case deviceNotFoundKey:
+            return SPFNStrings.errorDeviceNotFound
+        case networkKey:
+            return SPFNStrings.errorNetwork
+        case unauthorizedKey:
+            return SPFNStrings.errorUnauthorized
+        case validationKey:
+            return SPFNStrings.errorValidation
+        default:
+            return SPFNStrings.errorUnexpected
+        }
+    }
+
+    /// Whether this failure belongs under a field rather than to the screen.
+    public static func isFieldRefusal(_ envelope: SPFNErrorEnvelope) -> Bool
+    {
+        envelope.code == validationCode
+    }
+
+    /// The sentence to draw under `field`, or nil when this failure is not that field's.
+    ///
+    /// The one read of `message` in this file, and it is safe because the value there is
+    /// this generator's own field name: `validation(_:)` above is what put it there.
+    public static func fieldMessage(_ envelope: SPFNErrorEnvelope?, field: String) -> String?
+    {
+        guard let envelope = envelope, envelope.code == validationCode, envelope.message == field
+        else
+        {
+            return nil
+        }
+        return SPFNStrings.errorValidation
     }
 }

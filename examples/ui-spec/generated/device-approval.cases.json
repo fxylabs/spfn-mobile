@@ -2,7 +2,7 @@
   "comment": "GENERATED FILE — DO NOT EDIT. spfn-ui-codegen 0.1.0-dev.",
   "expectationsFrom": "tools/ui-codegen/src/main/kotlin/xyz/superfunction/spfn/uicodegen/Rules.kt",
   "spec": "examples/ui-spec/device-approval.json",
-  "specSha256": "cd02e9ed576538e540a939229a0e476a76708e84286a3ccd09f5f680bf7ab8b5",
+  "specSha256": "ea4b08e490fa7f24720859c9b735a9d628949ad1595762d44cb1a833b0b7c164",
   "bundleSha256": "29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c",
   "contractVersion": "0.10.0",
   "cells": [
@@ -257,6 +257,114 @@
       "steps": ["await state=ready"],
       "expect": ["stack=2", "state=ready"],
       "flow": "flows/u14.yaml"
+    },
+    {
+      "id": "k1",
+      "screen": "enterCode",
+      "state": "idle",
+      "action": "submit",
+      "rule": "K1 \u2014 the body gets out of the keyboard's way, so the control under the field is still on screen with the keyboard up and pressing it still submits",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["type enterCode.userCode ABCD-1234", "see enterCode.submit", "tap enterCode.submit", "await state=ready"],
+      "expect": ["stack=2", "state=ready"],
+      "flow": "flows/k1.yaml"
+    },
+    {
+      "id": "k2",
+      "screen": "enterCode",
+      "state": "idle",
+      "action": "hideKeyboard",
+      "rule": "K2 \u2014 a tap outside the field puts the keyboard away and changes nothing else: the screen is where it was and the field is still there",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["type enterCode.userCode ABCD-1234", "hideKeyboard", "see enterCode.userCode"],
+      "expect": ["stack=1", "state=idle"],
+      "flow": "flows/k2.yaml"
+    },
+    {
+      "id": "k3",
+      "screen": "enterCode",
+      "state": "idle",
+      "action": "submit",
+      "rule": "K3 \u2014 autofocus means the field already holds the focus, so text typed without tapping it first reaches the field and the write goes out with it",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["typeFocused ABCD-1234", "tap enterCode.submit", "await state=ready"],
+      "expect": ["stack=2", "state=ready"],
+      "flow": "flows/k3.yaml"
+    },
+    {
+      "id": "k4",
+      "screen": "enterCode",
+      "state": "idle",
+      "action": "return",
+      "rule": "K4 \u2014 submitOnReturn means the return key performs the screen's action, with no control pressed at all",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["tap enterCode.userCode", "type enterCode.userCode ABCD-1234", "return", "await state=ready"],
+      "expect": ["stack=2", "state=ready"],
+      "flow": "flows/k4.yaml"
+    },
+    {
+      "id": "k5",
+      "screen": "enterCode",
+      "state": "idle",
+      "action": "return",
+      "rule": "K4 and K2 together \u2014 the return key still submits after the keyboard was put away and the field taken up again, which is the state a person is in after reading the screen",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["tap enterCode.userCode", "type enterCode.userCode ABCD-1234", "hideKeyboard", "tap enterCode.userCode", "return", "await state=ready"],
+      "expect": ["stack=2", "state=ready"],
+      "flow": "flows/k5.yaml"
+    },
+    {
+      "id": "k6",
+      "screen": "enterCode",
+      "state": "error",
+      "action": "submit",
+      "rule": "K6 \u2014 editing the field clears the refusal under it, so the screen is usable again without the person pressing anything",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["tap enterCode.submit", "await state=error", "tap enterCode.userCode", "type enterCode.userCode ABCD-1234"],
+      "expect": ["stack=1", "state=idle"],
+      "flow": "flows/k6.yaml"
+    },
+    {
+      "id": "k7",
+      "screen": "enterCode",
+      "state": "error",
+      "action": "submit",
+      "rule": "K7 and C7 \u2014 a refused input draws its refusal UNDER the field rather than somewhere on the screen, and the line is drawn at all",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["tap enterCode.submit", "await state=error", "see enterCode.userCode.error"],
+      "expect": ["stack=1", "state=error"],
+      "flow": "flows/k7.yaml"
+    },
+    {
+      "id": "s1",
+      "screen": "enterCode",
+      "state": "idle",
+      "action": "screen.close",
+      "rule": "S1 \u2014 the root of a flow presented over something draws the header's close, and pressing it closes the flow",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["see screen.close", "tap screen.close"],
+      "expect": ["stack=0"],
+      "flow": "flows/s1.yaml"
+    },
+    {
+      "id": "s2",
+      "screen": "reviewDevice",
+      "state": "ready",
+      "action": "screen.back",
+      "rule": "S2 \u2014 a route above the root draws the header's back, and pressing it pops one route",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["type enterCode.userCode ABCD-1234", "tap enterCode.submit", "await state=ready", "see screen.back", "tap screen.back"],
+      "expect": ["stack=1", "state=idle"],
+      "flow": "flows/s2.yaml"
     }
   ]
 }

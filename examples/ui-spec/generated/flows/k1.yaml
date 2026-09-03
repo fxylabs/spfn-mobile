@@ -1,4 +1,4 @@
-# SPFN Mobile — example cell u8: R5 — the write succeeds and close empties the stack
+# SPFN Mobile — example cell k1: K1 — the body gets out of the keyboard's way, so the control under the field is still on screen with the keyboard up and pressing it still submits
 #
 # GENERATED FILE — DO NOT EDIT.
 #
@@ -12,12 +12,12 @@
 # Verified by:     ./gradlew :ui-codegen:spfnUiVerify
 
 appId: ${APP_ID}
-name: u8
+name: k1
 ---
 - launchApp:
     clearState: true
     arguments:
-      SPFN_UI_FIXTURE: "u8"
+      SPFN_UI_FIXTURE: "k1"
 
 # The app is up once a screen is drawing its stack readout. That the right FIXTURE
 # is installed is proven at the end instead, by the receipt's own name: an app that
@@ -36,6 +36,9 @@ name: u8
     id: "enterCode.userCode"
 - inputText: "ABCD-1234"
 
+- assertVisible:
+    id: "enterCode.submit"
+
 - tapOn:
     id: "enterCode.submit"
 
@@ -44,14 +47,21 @@ name: u8
       text: "state=ready"
     timeout: 20000
 
-- tapOn:
-    id: "reviewDevice.approve"
+- assertVisible:
+    text: "stack=2"
 
 - assertVisible:
-    text: "stack=0"
+    text: "state=ready"
+
+# The assertions are made. What follows only leaves the flow closed, so the
+# receipt control on the app's root is reachable on both platforms.
+- tapOn:
+    id: "reviewDevice.back"
+- tapOn:
+    id: "enterCode.cancel"
 
 - tapOn:
     id: "example.receipt"
 
 - assertVisible:
-    text: "receipt=receipt-u8-.*"
+    text: "receipt=receipt-k1-.*"

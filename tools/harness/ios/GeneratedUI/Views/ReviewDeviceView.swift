@@ -3,7 +3,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-dev
 // spec:            examples/ui-spec/device-approval.json
-// specSha256:      cd02e9ed576538e540a939229a0e476a76708e84286a3ccd09f5f680bf7ab8b5
+// specSha256:      ea4b08e490fa7f24720859c9b735a9d628949ad1595762d44cb1a833b0b7c164
 // bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 // contractVersion: 0.10.0
 //
@@ -11,14 +11,16 @@
 // Verified by:     ./gradlew :ui-codegen:spfnHarnessUiVerify
 //
 // Every element here exists because a runner has to reach it or read it: one control
-// per action, one field per typed input, and the two readouts. Layout is the human's,
-// outside `Generated/`. Selectors follow the harness's rule — a control by the id
+// per action, one field per typed input, and the two readouts.
+// What a VALUE looks like is the human's, outside `Generated/` — the ready slot below is
+// deliberately empty. Selectors follow the harness's rule: a control by the id
 // `<screen>.<action>`, a readout by its text (tools/harness/ios/Sources/HarnessView.swift).
 
+import SPFNCore
 import SPFNUI
 import SwiftUI
 
-/// The `reviewDevice` screen: one control per action, and the two readouts.
+/// The `reviewDevice` screen, drawn out of SPFNUI's components.
 @MainActor
 public struct ReviewDeviceView: View
 {
@@ -31,51 +33,57 @@ public struct ReviewDeviceView: View
 
     public var body: some View
     {
-        VStack(alignment: .leading, spacing: 8)
+        Screen(title: "Review the device", scroll: true)
         {
-            Text("state=" + stateName(model.state))
-            Text("stack=" + String(model.stack.count))
-            Button("approve")
+            VStack(alignment: .leading, spacing: SPFNTokens.space4)
             {
-                Task { await model.approve() }
+                LoadableView(
+                    model.state,
+                    retryIdentifier: "reviewDevice.retry",
+                    onRetry: { Task { await model.retry() } },
+                    message: ScreenFailure.message
+                )
+                { _ in
+                    // What a value looks like is the human's, outside `Generated/`.
+                    EmptyView()
+                }
+                PrimaryButton(
+                    title: "approve",
+                    identifier: "reviewDevice.approve",
+                    busy: model.writing,
+                    onTap: { Task { await model.approve() } }
+                )
+                TextButton(
+                    title: "back",
+                    identifier: "reviewDevice.back",
+                    onTap: { model.back() }
+                )
+                DestructiveButton(
+                    title: "deny",
+                    identifier: "reviewDevice.deny",
+                    busy: model.writing,
+                    onTap: { Task { await model.deny() } }
+                )
+                readouts
             }
-            .accessibilityIdentifier("reviewDevice.approve")
-            .frame(minHeight: touchTarget)
-            Button("back")
+            .padding(SPFNTokens.space4)
+            // A screen loads its own read once, however it appeared: pushed onto the
+            // stack, or already on it because the flow was opened at a whole stack.
+            .task
             {
-                model.back()
+                await model.load()
             }
-            .accessibilityIdentifier("reviewDevice.back")
-            .frame(minHeight: touchTarget)
-            Button("deny")
-            {
-                Task { await model.deny() }
-            }
-            .accessibilityIdentifier("reviewDevice.deny")
-            .frame(minHeight: touchTarget)
-            Button("retry")
-            {
-                Task { await model.retry() }
-            }
-            .accessibilityIdentifier("reviewDevice.retry")
-            .frame(minHeight: touchTarget)
-        }
-        // A screen loads its own read once, however it appeared: pushed onto the
-        // stack, or already on it because the flow was opened at a whole stack.
-        .task
-        {
-            await model.load()
         }
     }
-}
 
-/// The platform's minimum touch target, given to every control and field.
-///
-/// A control smaller than this is reachable only through a hit area larger than itself,
-/// and neighbouring hit areas then overlap: the bounds reported for one control sit on
-/// a neighbour's, and a runner tapping the reported centre taps the neighbour
-/// (docs/IMPLEMENTATION-PITFALLS.md P21).
-private let touchTarget: CGFloat = 44
+    /// What a runner reads this screen's state and its flow's depth as.
+    @ViewBuilder
+    private var readouts: some View
+    {
+        SpfnText("state=" + stateName(model.state), role: .mono)
+        SpfnText("stack=" + String(model.stack.count), role: .mono)
+    }
+}
 
 /// The one word a runner reads this screen's state as.
 private func stateName<Value: Sendable>(_ state: Loadable<Value>) -> String

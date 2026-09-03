@@ -2,7 +2,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-dev
 // spec:            examples/ui-spec/device-approval.json
-// specSha256:      cd02e9ed576538e540a939229a0e476a76708e84286a3ccd09f5f680bf7ab8b5
+// specSha256:      ea4b08e490fa7f24720859c9b735a9d628949ad1595762d44cb1a833b0b7c164
 // bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 // contractVersion: 0.10.0
 //
@@ -11,79 +11,75 @@
 
 package xyz.superfunction.spfn.example.generated.views
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import xyz.superfunction.spfn.example.generated.screens.ReviewDeviceModel
+import xyz.superfunction.spfn.example.generated.screens.ScreenFailure
 import xyz.superfunction.spfn.ui.Loadable
+import xyz.superfunction.spfn.ui.components.DestructiveButton
+import xyz.superfunction.spfn.ui.components.LoadableView
+import xyz.superfunction.spfn.ui.components.PrimaryButton
+import xyz.superfunction.spfn.ui.components.Screen
+import xyz.superfunction.spfn.ui.components.SpfnText
+import xyz.superfunction.spfn.ui.components.TextButton
+import xyz.superfunction.spfn.ui.components.TextRole
+import xyz.superfunction.spfn.ui.tokens.SpfnTokens
 
-/** The `reviewDevice` screen: one control per action, and the two readouts. */
+/** The `reviewDevice` screen, drawn out of spfn-ui's components. */
 @Composable
 fun ReviewDeviceScreen(model: ReviewDeviceModel)
 {
     val state = model.state.collectAsState().value;
     val stack = model.stack.collectAsState().value;
+    val writing = model.writing.collectAsState().value;
     val scope = rememberCoroutineScope();
 
     // A screen loads its own read once, however it appeared: pushed onto the stack,
     // or already on it because the flow was opened at a whole stack at once.
     LaunchedEffect(model) { model.load() };
 
-    Column(modifier = Modifier.fillMaxWidth())
+    Screen(title = "Review the device", scroll = true)
     {
-        BasicText(text = "state=" + stateName(state));
-        BasicText(text = "stack=" + stack.size);
-        BasicText(
-            text = "approve",
-            modifier = Modifier
-                .testTag("reviewDevice.approve")
-                .heightIn(min = TouchTarget)
-                .clickable { scope.launch { model.approve() } }
-        );
-        BasicText(
-            text = "back",
-            modifier = Modifier
-                .testTag("reviewDevice.back")
-                .heightIn(min = TouchTarget)
-                .clickable { model.back() }
-        );
-        BasicText(
-            text = "deny",
-            modifier = Modifier
-                .testTag("reviewDevice.deny")
-                .heightIn(min = TouchTarget)
-                .clickable { scope.launch { model.deny() } }
-        );
-        BasicText(
-            text = "retry",
-            modifier = Modifier
-                .testTag("reviewDevice.retry")
-                .heightIn(min = TouchTarget)
-                .clickable { scope.launch { model.retry() } }
-        );
+        Column(modifier = Modifier.fillMaxWidth().padding(SpfnTokens.space4))
+        {
+            LoadableView(
+                state = state,
+                retryId = "reviewDevice.retry",
+                onRetry = { scope.launch { model.retry() } },
+                message = ScreenFailure::message
+            )
+            {
+                // What a value looks like is the human's, outside `generated/`.
+            }
+            PrimaryButton(
+                title = "approve",
+                id = "reviewDevice.approve",
+                busy = writing,
+                onTap = { scope.launch { model.approve() } }
+            );
+            TextButton(
+                title = "back",
+                id = "reviewDevice.back",
+                onTap = { model.back() }
+            );
+            DestructiveButton(
+                title = "deny",
+                id = "reviewDevice.deny",
+                busy = writing,
+                onTap = { scope.launch { model.deny() } }
+            );
+            SpfnText(text = "state=" + stateName(state), role = TextRole.Mono);
+            SpfnText(text = "stack=" + stack.size, role = TextRole.Mono);
+        }
     }
 }
-
-/**
- * The platform's minimum touch target, given to every control and field.
- *
- * Compose expands a control smaller than this past its layout bounds for touch, and
- * in a column of one-line controls those expansions overlap: the bounds reported for
- * one control then sit on a neighbour's, and a runner tapping the reported centre taps
- * the neighbour (docs/IMPLEMENTATION-PITFALLS.md P21). Sized here, nothing is expanded.
- */
-private val TouchTarget: Dp = 48.dp;
 
 /** The one word a runner reads this screen's state as. */
 private fun stateName(state: Loadable<*>): String = when (state)
