@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,13 +51,22 @@ import xyz.superfunction.spfn.ui.Busy
 /**
  * The harness screen.
  *
- * Readouts, then the half a person drives, then the half the flows drive. This is not a
+ * Readouts, then the half the flows drive, then the half a person drives. This is not a
  * sample app and not a design: every control exists because a flow needs to tap it or a
- * person needs to read it, and the order is what a device run bought. The device-mode
- * controls sit on top because that is what a phone is for here, and the ten lifecycle
- * buttons sit under a divider that says so — with every tag and every title they always
- * had, because a flow finds them by those strings and a rearranged screen must not be a
- * renamed one.
+ * person needs to read it.
+ *
+ * That order is a rule and not a preference. **What a runner taps is inside the first
+ * viewport.** Compose's [verticalScroll] puts only the nodes that overlap the viewport
+ * into the accessibility tree, so a control below the fold is not merely out of sight —
+ * it does not exist for uiautomator, and Maestro's `tapOn` does not scroll to look for
+ * it (docs/IMPLEMENTATION-PITFALLS.md P25). The view `ScrollView` this screen replaced
+ * published every child whether it was on screen or not, which is why keeping "the old
+ * screen's order" survived one rewrite and then failed every case at `btn_wipe`.
+ *
+ * So the eleven controls a flow taps are a grid directly under the readouts, two to a
+ * row, and the device-mode half a person drives is below them where scrolling is what a
+ * person does anyway. Every tag and every title is what it always was: a flow finds them
+ * by those strings, and a rearranged screen must not be a renamed one.
  *
  * How a flow finds them is split, and the split is forced by the platforms rather than
  * chosen. A flow's `id:` matches an accessibility identifier on iOS and a RESOURCE id on
@@ -113,21 +123,19 @@ fun HarnessScreen(screen: HarnessScreenState, actions: HarnessActions)
                 // column sat under the navigation bar, reachable only by scrolling past the
                 // content.
                 .windowInsetsPadding(WindowInsets.systemBars)
-                // The column is longer than a phone. A runner taps what the hierarchy
-                // reports, and what it reports is what was laid out — so the order is the
-                // old screen's, unchanged, and nothing below the fold moved above it.
+                // The column is longer than a phone, and what hangs off the bottom of it
+                // is out of the accessibility tree rather than merely out of sight (P25).
+                // Everything a flow touches is measured to land above the fold — see
+                // [RunnerBlock] for the arithmetic — and what is below it is the
+                // device-mode half, which a person scrolls to on purpose.
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         )
         {
             Readouts(screen);
+            RunnerBlock(screen, actions);
             DeviceMode(screen, actions);
-            DeviceCodeMode(screen, actions);
-            LifecycleDivider();
-            for (action in actions.lifecycle)
-            {
-                ActionRow(action = action, enabled = true);
-            }
+            DeviceCodeMode(actions);
         }
 
         val approval = screen.approval;
@@ -199,8 +207,148 @@ private fun ApprovalReadouts(screen: HarnessScreenState)
 }
 
 /**
- * The half of the screen a person drives and no flow does, above the half that no person
+ * Every control a flow taps, and nothing else, in the first viewport.
+ *
+ * The eleven are the ten lifecycle buttons and `open-approve`, laid out two to a row
+ * because the height is the whole point. A runner cannot tap what
+ * [androidx.compose.foundation.verticalScroll] left out of the accessibility tree, and it
+ * leaves out everything the viewport does not overlap (P25), so this block has to end
+ * above the fold on the smallest phone the harness is pointed at.
+ *
+ * The arithmetic, at this screen's own constants:
+ *
+ * - twelve readouts at 16sp, whose line box is the font's own — Roboto gives about 19dp,
+ *   so 228dp. The size is not a lever: these lines ARE the protocol and a flow reads them.
+ * - the divider block: 8dp above the rule, the 2dp rule, and a 16sp heading padded 8dp
+ *   top and bottom — 45dp.
+ * - this grid: six rows of [TouchTarget] with [GridGap] between them — 6 × 48 + 5 × 8,
+ *   or 328dp. Neither number is a lever either: 48dp is what keeps a reported centre
+ *   inside its own control ([TouchTarget], P21).
+ * - the column's own 16dp of top padding.
+ *
+ * That is 617dp to the bottom row. The emulator the flows run on — Pixel 3a API 34, 393
+ * × 786dp — leaves 714dp between the status and navigation bars, so the block ends with
+ * about 97dp to spare. A 360 × 640dp phone leaves 568dp behind a three-button bar and the
+ * last row would sit below the fold; the lever there is a third column, which fits at
+ * that width only if no title wraps (`note-revoked` is the longest, at about 100dp).
+ *
+ * Whether it actually fits is not a thing a JVM can answer, and no test here claims to:
+ * a device run does. `HarnessRunnerBlockTest` answers the other half — that the set of
+ * ids the flows tap is exactly this block's.
+ */
+@Composable
+private fun RunnerBlock(screen: HarnessScreenState, actions: HarnessActions)
+{
+    // Once per set of actions rather than once per frame: what the two blocks draw is a
+    // fact about how this file is written, and writing does not change between frames.
+    val runner = remember(actions) { checkedRunnerActions(actions) };
+
+    LifecycleDivider();
+    Column(verticalArrangement = Arrangement.spacedBy(GridGap))
+    {
+        for (row in runner.chunked(2))
+        {
+            Row(horizontalArrangement = Arrangement.spacedBy(GridGap))
+            {
+                for (action in row)
+                {
+                    // `open-approve` opens a flow whose calls are proven ones, so a build
+                    // with nothing enrolled has nothing to sign them with. Dimmed rather
+                    // than absent — see [HarnessActions.openApprove].
+                    val enabled = action !== actions.openApprove || screen.hasActiveKey;
+                    ActionRow(action = action, enabled = enabled, modifier = Modifier.weight(1f));
+                }
+                // The eleventh control is alone on the last row. The hole beside it is
+                // held open so that row's cell is the width of every other cell: a control
+                // that stretched to fill it would report a rectangle reaching under where
+                // a person expects its neighbour, which is [TouchTarget]'s problem in the
+                // other axis (P21).
+                if (row.size == 1)
+                {
+                    Spacer(modifier = Modifier.weight(1f));
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The runner's eleven, in the order they are drawn — and the one place where the two tag
+ * lists below are held against what the screen was actually handed.
+ *
+ * Checked rather than trusted, because the lists are read by a test that never draws
+ * anything. A table beside a screen asserts only that somebody wrote it
+ * (docs/IMPLEMENTATION-PITFALLS.md P10); one the screen refuses to launch without is a
+ * statement about what is drawn. So a control added to a block and forgotten in its list
+ * does not leave `HarnessRunnerBlockTest` quietly asserting about a screen that no longer
+ * exists — it stops the app on its first frame, in front of whoever added it.
+ */
+private fun checkedRunnerActions(actions: HarnessActions): List<HarnessAction>
+{
+    val runner = actions.lifecycle + actions.openApprove;
+    check(runner.map { it.tag } == RunnerBlockTags)
+    {
+        "the runner block draws ${runner.map { it.tag }}; RunnerBlockTags names $RunnerBlockTags"
+    };
+
+    val human = HarnessSocialCase.entries.map { caseTag(it) } +
+        actions.socialSignIn.tag +
+        actions.deviceSignIn.tag;
+    check(human == HumanBlockTags)
+    {
+        "the device-mode block draws $human; HumanBlockTags names $HumanBlockTags"
+    };
+    return runner;
+}
+
+/**
+ * The ids a Maestro flow may tap on this screen, because they are the ids inside the
+ * first viewport.
+ *
+ * Read by `HarnessRunnerBlockTest`, which holds it against the `id:` selectors in
+ * tools/harness/flows/ — the flow files are the definition and this list is what has to
+ * agree with them. `btn_custody_probe` is here and in no flow, which is the direction
+ * that is allowed: the block may hold a control no flow taps yet, never the reverse.
+ */
+val RunnerBlockTags: List<String> = listOf(
+    "btn_enroll",
+    "btn_rotate",
+    "btn_resume",
+    "btn_revoke",
+    "btn_proven_call",
+    "btn_note_revoked",
+    "btn_wipe",
+    "btn_custody_probe",
+    "btn_block_network",
+    "btn_open_network",
+    "btn_open_approve"
+);
+
+/**
+ * The ids below the fold, which a person scrolls to and no flow may name.
+ *
+ * A device-mode attempt is a person picking an account out of a provider sheet, so no
+ * flow drives one and none ever can. That is what makes this half safe to put where the
+ * accessibility tree does not reach until it is scrolled to.
+ */
+val HumanBlockTags: List<String> = listOf(
+    "btn_case_first_enroll",
+    "btn_case_re_login",
+    "btn_case_user_cancel",
+    "btn_case_network_failure",
+    "btn_case_server_reject",
+    "btn_social_google",
+    "btn_device_sign_in"
+);
+
+/**
+ * The half of the screen a person drives and no flow does, below the half that no person
  * drives.
+ *
+ * Below, because it is the half that may be scrolled to. An attempt here is somebody
+ * picking an account out of a provider sheet, so no flow drives one and none can — and a
+ * control no flow taps is a control that is allowed to start outside the accessibility
+ * tree (P25).
  *
  * Two things to tap and one thing to choose. The five cases used to be buttons in the same
  * column as the sign-in and the ten lifecycle actions — seventeen controls that looked
@@ -336,35 +484,23 @@ private fun SelectionMark(selected: Boolean)
 }
 
 /**
- * Signing this device in with a code, and approving another device that shows one.
+ * Signing THIS device in with a code somebody approves elsewhere.
  *
- * Two halves of one flow on one screen, because a harness has one phone in front of it at
- * a time and either half has to be reachable.
- *
- * The approving half is ONE control now. It used to be a code field and three buttons
- * wiring up `info`, `approve` and `deny` by hand — a second implementation of screens the
- * generator already emits. `open-approve` builds the generated graph and opens its flow
- * over this screen, and everything a person types or taps after that is the generator's.
- *
- * It is disabled without an active key rather than hidden: the approval calls are proven
- * ones, so a build with nothing enrolled has nothing to sign them with, and a control
- * that vanished would read as a harness that lost a feature where a dimmed one beside
- * `state=unenrolled` reads as the truth.
+ * The other half of that flow — `open-approve`, which approves a device that is showing
+ * one — used to sit here beside it, because the two are halves of one feature and a
+ * harness has one phone in front of it at a time. It is in [RunnerBlock] now, and the
+ * reason is not that it stopped being that: cells d1 to d3 tap it, so it is a runner's
+ * control and it has to be where a runner can see it (P25). What is left here is the
+ * half no flow can drive, since a code is walked to another phone by a person.
  */
 @Composable
-private fun DeviceCodeMode(screen: HarnessScreenState, actions: HarnessActions)
+private fun DeviceCodeMode(actions: HarnessActions)
 {
     Heading(text = "device code");
     ActionRow(action = actions.deviceSignIn, enabled = true);
-    BasicText(
-        text = "approve a device",
-        style = Caption,
-        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
-    );
-    ActionRow(action = actions.openApprove, enabled = screen.hasActiveKey);
 }
 
-/** The rule and the caption that say which half of the screen is below them. */
+/** The rule and the caption that say which half of the screen is below them — the flows'. */
 @Composable
 private fun LifecycleDivider()
 {
@@ -458,6 +594,16 @@ private val TouchTarget: Dp = 48.dp;
 
 /** The slot beside `sign-in-google`, held open whether or not the marker is in it. */
 private val RunningMarker: Dp = 72.dp;
+
+/**
+ * What separates two cells of the runner grid, in both axes.
+ *
+ * Every cell is already [TouchTarget] tall and takes an equal share of the width, so this
+ * is not what keeps the taps apart — [Tappable] is. It is here so that two controls
+ * touching along an edge still read as two, and it is small because the grid's height is
+ * what put the grid there (see [RunnerBlock]).
+ */
+private val GridGap: Dp = 8.dp;
 
 // The screen's three colours, chosen as a set rather than taken from a theme. The view
 // tree this replaced took the platform's theme and chose nothing, which was right for a
