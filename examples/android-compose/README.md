@@ -1,8 +1,11 @@
 # The Compose example app
 
-The device-approval flow, generated from one screen spec, running on Android. It exists so
-the generated scaffolds have somewhere to compile and so a Maestro cell has something to
-tap — it is not a design and not a sample of a product, and it is never published.
+Nine flows, generated from one screen spec, running on Android: device approval, a three-deep
+push, a modal over everything, three sheets at three heights, a stack inside a sheet, a form
+with a keyboard, and a body that does not fit. It exists so the generated scaffolds have
+somewhere to compile, so a Maestro cell has something to tap and so a person can look at the
+three presentations side by side — it is not a design and not a sample of a product, and it
+is never published.
 
     ./gradlew :ui-codegen:spfnGenerateUi        # (re)generate everything under generated/
     ./gradlew :example-compose:assembleDebug    # build it
@@ -16,15 +19,26 @@ Every case-table cell that a device runner can drive has a flow beside the table
         ../ui-spec/generated/flows/u1.yaml
 
 The flow launches the app with `SPFN_UI_FIXTURE=<cell>`, which arrives here as an intent
-extra. That argument is the only thing that installs a fake service: with no extra,
-`Fixtures.forCell` is never reached and the app builds its client against the server
-`local.properties` names — or, with no server and no enrolled key, reports itself
-unconfigured and sends nothing. There is no flag inside the app that turns a fake on.
+extra. That argument says which cell this run is, and therefore which of the nine flows
+opens, on which seeding, at which depth.
+
+**A launch with no extra opens the MENU**, on the same `ready` fake every cell runs on. That
+corrects what this page used to say: the app does not build a client against a server
+`local.properties` names and does not report itself unconfigured. There is no real-server path
+in this app at all — it has no enrolment path of its own, so a client built against a
+configured server would refuse every call for want of a key, which is a refusal that says
+nothing about the screens a menu button opens. The manifest now declares no INTERNET
+permission, so the app cannot send whichever way it was launched. Reaching a real server is
+`tools/harness`'s whole subject.
 
 `examples/ui-spec/generated/device-approval.cases.md` is the table: one row per cell, what
 it does, what it must then read out, and which fixture it runs under. A cell whose runner
 is `unit` has no flow — it is about a moment a device runner cannot hold still, such as a
-press during a call in flight — and is proven on the JVM instead.
+press during a call in flight — and is proven on the JVM instead. Its last section is the ten
+cells whose runner is `manual`: a swipe back, a sheet dragged past its threshold, a detent
+that has to snap. A device runner reports success for a gesture whether or not the platform
+read it as one (`docs/IMPLEMENTATION-PITFALLS.md` P22), so those are a person's, and the
+section below is how to reach them.
 
 Receipts land in `<external files>/receipts/receipt-<cell>-<millis>.json`, which an
 `adb pull` reaches without root. A receipt carries a cell id, a fixture name, a stack
@@ -50,6 +64,24 @@ a cell that asserted everything and still left nothing is reported as that. Rece
 the per-cell Maestro reports land in `examples/ui-spec/receipts/android/<date>/`.
 `sh examples/ui-spec/run-cells.sh --probe` proves the receipt gate bites and needs no
 device.
+
+## Seeing the showcase on a real device
+
+    export SPFN_ANDROID_SERIAL=<the serial adb devices prints>
+
+    sh examples/ui-spec/install-device.sh android
+    sh examples/ui-spec/install-device.sh android --fixture sheetHalf-detent
+
+One command from a checkout to a phone showing the menu: it assembles the debug build,
+installs it with `adb -s … install -r` and starts the activity. With `--fixture <cell>` the
+start carries `--es SPFN_UI_FIXTURE <cell>` and the app opens straight onto that cell's flow,
+which is how the `manual` rows of the case table are reached — record the answers in a copy of
+`examples/ui-spec/receipts/manual/TEMPLATE.md`.
+
+A wireless serial is `host:port` and goes in the same variable; nothing in the script parses
+the value. There is no default: an unset variable stops the run naming the variable and
+printing nothing else, which `sh examples/ui-spec/install-device.sh --probe` proves without a
+phone.
 
 ## What is generated and what is not
 
