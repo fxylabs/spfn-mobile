@@ -116,8 +116,9 @@ APP_ID=xyz.superfunction.spfn.example
 
 # Every cell of the table that a device runner drives, and every flow file that drives one.
 # The floor below is stated as a number rather than derived, so a table or a flow directory
-# that lost its entries cannot lower its own bar.
-EXPECTED_FLOOR=14
+# that lost its entries cannot lower its own bar. It was 14 until the keyboard contract and
+# the screen frame added nine device-only cells (k1–k7, s1–s2).
+EXPECTED_FLOOR=23
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT INT TERM

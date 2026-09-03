@@ -212,6 +212,21 @@ class CaseTable(target: Target)
             appendLine("      text: \"${step.readout}\"");
             appendLine("    timeout: $waitMillis");
         }
+        // Typed into whatever holds the focus. No `tapOn` before it, and that absence IS the
+        // assertion: a step that tapped the field first would pass whether `autofocus` put
+        // the focus there or not.
+        is Step.TypeFocused -> "- inputText: \"${step.value}\"\n"
+        // `pressKey` and `hideKeyboard` are Maestro commands for both platforms, unlike
+        // `back`, which is Android's alone (see `systemBack` below and P22). Both are still
+        // run on a Mac before the cells that use them are believed: a command that completes
+        // without doing anything fails the flow at the next assertion rather than at itself,
+        // which is what makes that class of defect expensive to read.
+        Step.Return -> "- pressKey: Enter\n"
+        Step.HideKeyboard -> "- hideKeyboard\n"
+        is Step.SeeId -> buildString {
+            appendLine("- assertVisible:");
+            appendLine("    id: \"${step.id}\"");
+        }
     }
 
     /**
@@ -252,6 +267,10 @@ class CaseTable(target: Target)
         is Step.Tap -> "tap ${step.id}"
         Step.SystemBack -> "systemBack"
         is Step.Await -> "await ${step.readout}"
+        is Step.TypeFocused -> "typeFocused ${step.value}"
+        Step.Return -> "return"
+        Step.HideKeyboard -> "hideKeyboard"
+        is Step.SeeId -> "see ${step.id}"
     }
 
     private fun array(values: List<String>): String =

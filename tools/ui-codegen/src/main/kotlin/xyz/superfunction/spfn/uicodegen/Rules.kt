@@ -21,6 +21,25 @@
 //       it is the flow's close;
 //   R9  a response for a screen no longer on show changes nothing.
 //
+// And the keyboard contract, which is about the COMPONENTS rather than about the models and
+// is therefore proven on a device and nowhere else:
+//
+//   K1  a screen's body gets out of the keyboard's way, so a control below the field is
+//       still reachable while the keyboard is up;
+//   K2  a tap outside the field puts the keyboard away and changes nothing else;
+//   K3  `autofocus` means the field already holds the focus when the screen appears;
+//   K4  `submitOnReturn` means the return key performs the screen's action;
+//   K5  the return key still performs it after the keyboard was put away and the field
+//       refocused;
+//   K6  editing the field clears the refusal drawn under it;
+//   K7  a refused input draws its refusal UNDER the field, in the SDK's own words.
+//
+// and the screen frame, which is the close table of 3a asserted on a device rather than on
+// the JVM:
+//
+//   S1  the root of a flow presented over something draws a close, and it closes the flow;
+//   S2  a route above the root draws a back, and it pops.
+//
 // R9 is R4's other half and not a restatement of it. R4 is about the whole flow going
 // away, which a screen model sees as `isPresented`; R9 is about ONE screen ceasing to be
 // the one on show under an in-flight call, which leaves the flow presented and — when the
@@ -37,7 +56,14 @@
 // The cell ids are this repository's: u1–u14 for the base table, u7b/u10b for the system
 // back variants of the two back-button cells, u8c/u9c for the late-response variants of
 // the two closing writes, and u1c/u8d/u8e for the three late responses that arrive to a
-// stack that has moved under them.
+// stack that has moved under them. k1–k7 and s1–s2 are the keyboard contract and the screen
+// frame, both of them device-only.
+//
+// Three of the k cells are CONDITIONAL, and that is the point of deriving them rather than
+// listing them: k3 exists only where the spec says `autofocus`, and k4 and k5 only where it
+// says `submitOnReturn`. A cell asserting that the return key submits, on a screen whose spec
+// turned that off, would be a table claiming behaviour nobody asked for — and it would fail,
+// which is worse than absent because it reads as a defect in the component.
 
 package xyz.superfunction.spfn.uicodegen
 
@@ -57,6 +83,24 @@ sealed interface Step
 
     /** Waits for a readout to reach a value before going on. */
     data class Await(val readout: String) : Step
+
+    /**
+     * Types into whatever holds the focus, without tapping anything first.
+     *
+     * The one step that asserts something by NOT doing something: it is how `autofocus` is
+     * observed at all, because a step that tapped the field first would pass whether the
+     * field took focus by itself or not.
+     */
+    data class TypeFocused(val value: String) : Step
+
+    /** Presses the keyboard's return key. */
+    data object Return : Step
+
+    /** Puts the keyboard away, the way a tap outside the field does. */
+    data object HideKeyboard : Step
+
+    /** Asserts that the control with this id is on screen. */
+    data class SeeId(val id: String) : Step
 }
 
 /**
@@ -192,7 +236,8 @@ object Rules
             );
         val inputId = "${roles.entry.name}.${input.name}";
 
-        val cells = entryCells(roles, inputId) + detailCells(roles, inputId) + deepEntryCell(roles);
+        val cells = entryCells(roles, inputId) + detailCells(roles, inputId) + deepEntryCell(roles) +
+            keyboardCells(spec, roles, input.name, inputId) + frameCells(spec, roles, inputId);
         return cells.map { it.copy(teardown = teardown(roles, depthOf(it))) };
     }
 
@@ -432,6 +477,140 @@ object Rules
                 listOf("stack=2", "state=error")
             )
         );
+    }
+
+    /**
+     * k1–k7: the keyboard contract, which only a device can hold still.
+     *
+     * Every one of them is a `maestro` cell and none is a `both`. There is no JVM half to
+     * write: a keyboard is the platform's, `autofocus` is a focus request, and "the control
+     * below the field is still reachable" is a question about layout under an inset. A cell
+     * marked `both` here would demand a JUnit case that could only assert that the model it
+     * does not touch is unchanged.
+     *
+     * k3, k4 and k5 are derived from what the SPEC says about the input rather than assumed:
+     * a return key that submits is `submitOnReturn`, and a field that holds the focus is
+     * `autofocus`. A screen that declares neither gets k1, k2, k6 and k7 and no others.
+     */
+    private fun keyboardCells(
+        spec: Spec,
+        roles: Roles,
+        inputName: String,
+        inputId: String
+    ): List<Cell>
+    {
+        val entry = roles.entry.name;
+        val submit = "$entry.${roles.submit.name}";
+        val declared = spec.screenNamed(entry).inputNamed(inputName);
+        val focus = Step.Tap(inputId);
+        val type = Step.Type(inputId, Fixtures.USER_CODE);
+        val cells = mutableListOf(
+            Cell(
+                "k1", entry, "idle", roles.submit.name,
+                "K1 — the body gets out of the keyboard's way, so the control under the field is still " +
+                    "on screen with the keyboard up and pressing it still submits",
+                "maestro", Fixtures.READY,
+                listOf(type, Step.SeeId(submit), Step.Tap(submit), Step.Await("state=ready")),
+                expect(after(roles.submit.then, 1), "ready")
+            ),
+            Cell(
+                "k2", entry, "idle", "hideKeyboard",
+                "K2 — a tap outside the field puts the keyboard away and changes nothing else: the " +
+                    "screen is where it was and the field is still there",
+                "maestro", Fixtures.READY,
+                listOf(type, Step.HideKeyboard, Step.SeeId(inputId)),
+                expect(1, "idle")
+            )
+        );
+        if (declared.autofocus)
+        {
+            cells += Cell(
+                "k3", entry, "idle", roles.submit.name,
+                "K3 — autofocus means the field already holds the focus, so text typed without tapping " +
+                    "it first reaches the field and the write goes out with it",
+                "maestro", Fixtures.READY,
+                listOf(Step.TypeFocused(Fixtures.USER_CODE), Step.Tap(submit), Step.Await("state=ready")),
+                expect(after(roles.submit.then, 1), "ready")
+            );
+        }
+        if (declared.submitOnReturn)
+        {
+            cells += Cell(
+                "k4", entry, "idle", "return",
+                "K4 — submitOnReturn means the return key performs the screen's action, with no control " +
+                    "pressed at all",
+                "maestro", Fixtures.READY,
+                listOf(focus, type, Step.Return, Step.Await("state=ready")),
+                expect(after(roles.submit.then, 1), "ready")
+            );
+            cells += Cell(
+                "k5", entry, "idle", "return",
+                "K4 and K2 together — the return key still submits after the keyboard was put away and " +
+                    "the field taken up again, which is the state a person is in after reading the screen",
+                "maestro", Fixtures.READY,
+                listOf(focus, type, Step.HideKeyboard, focus, Step.Return, Step.Await("state=ready")),
+                expect(after(roles.submit.then, 1), "ready")
+            );
+        }
+        cells += Cell(
+            "k6", entry, "error", roles.submit.name,
+            "K6 — editing the field clears the refusal under it, so the screen is usable again without " +
+                "the person pressing anything",
+            "maestro", Fixtures.READY,
+            listOf(Step.Tap(submit), Step.Await("state=error"), focus, type),
+            expect(1, "idle")
+        );
+        cells += Cell(
+            "k7", entry, "error", roles.submit.name,
+            "K7 and C7 — a refused input draws its refusal UNDER the field rather than somewhere on the " +
+                "screen, and the line is drawn at all",
+            "maestro", Fixtures.READY,
+            listOf(Step.Tap(submit), Step.Await("state=error"), Step.SeeId("$inputId.error")),
+            listOf("stack=1", "state=error")
+        );
+        return cells;
+    }
+
+    /**
+     * s1–s2: the screen frame's own controls, on a device.
+     *
+     * `Flow.leading` decides these and both platforms' unit suites already check the table it
+     * holds. What no suite checks is that the control the table names is DRAWN, reachable and
+     * wired: a chrome that resolved correctly and rendered nothing would pass every JVM cell
+     * in this repository.
+     *
+     * Derived from the flow's own entry rather than from the screen: a close on the root is
+     * what a flow presented over something offers, and a pushed flow offers none — so a spec
+     * whose flow is `push` gets s2 and not s1.
+     */
+    private fun frameCells(spec: Spec, roles: Roles, inputId: String): List<Cell>
+    {
+        val flow = spec.flows.single();
+        val reach = listOf(
+            Step.Type(inputId, Fixtures.USER_CODE),
+            Step.Tap("${roles.entry.name}.${roles.submit.name}"),
+            Step.Await("state=ready")
+        );
+        val cells = mutableListOf<Cell>();
+        if (flow.presentedOver && spec.screenNamed(flow.start).close)
+        {
+            cells += Cell(
+                "s1", roles.entry.name, "idle", "screen.close",
+                "S1 — the root of a flow presented over something draws the header's close, and pressing " +
+                    "it closes the flow",
+                "maestro", Fixtures.READY,
+                listOf(Step.SeeId("screen.close"), Step.Tap("screen.close")),
+                expect(0, "idle")
+            );
+        }
+        cells += Cell(
+            "s2", roles.detail.name, "ready", "screen.back",
+            "S2 — a route above the root draws the header's back, and pressing it pops one route",
+            "maestro", Fixtures.READY,
+            reach + Step.SeeId("screen.back") + Step.Tap("screen.back"),
+            expect(after(Navigation.Pop, 2), "idle")
+        );
+        return cells;
     }
 
     /** u14: the flow opened on a whole stack at once. */

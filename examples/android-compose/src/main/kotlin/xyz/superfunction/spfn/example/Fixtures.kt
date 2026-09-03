@@ -67,6 +67,10 @@ object Fixtures
     fun forCell(cell: String): Fixture? = when (cell)
     {
         "u1", "u1c", "u2", "u5", "u6", "u7", "u7b", "u8", "u8d", "u8e", "u9" -> ready()
+        // The keyboard contract and the screen frame, which are about components rather than
+        // about a service: every one of them runs against a server that simply answers, and
+        // what the cell is looking at is the field, the return key or the header control.
+        "k1", "k2", "k3", "k4", "k5", "k6", "k7", "s1", "s2" -> ready()
         "u3", "u11" -> slow()
         "u8c", "u9c" -> writeRefused()
         "u4" -> refused()
