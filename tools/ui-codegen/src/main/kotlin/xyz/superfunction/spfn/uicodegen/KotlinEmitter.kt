@@ -570,9 +570,15 @@ class KotlinEmitter(target: Target)
         Navigation.Pop -> "flow.pop()"
         is Navigation.Push ->
         {
+            // A screen that carries nothing is emitted as a `data object`, which is a VALUE
+            // and not a constructor: `TourTwo()` is an unresolved reference rather than an
+            // empty argument list, the way `TourTwo(userCode = …)` is a call. Every push
+            // target had a payload until the showcase flows arrived, so this line said `()`
+            // for four years' worth of one shape.
             val target = RouteParameters.of(spec.screenNamed(then.screen), bundle);
-            val arguments = target.joinToString(", ") { "${it.name} = ${it.name}" };
-            "flow.push(${route(flow)}.${UiNames.pascal(then.screen)}($arguments))"
+            val case = "${route(flow)}.${UiNames.pascal(then.screen)}";
+            if (target.isEmpty()) "flow.push($case)"
+            else "flow.push($case(" + target.joinToString(", ") { "${it.name} = ${it.name}" } + "))"
         }
     }
 
@@ -1038,21 +1044,31 @@ class KotlinEmitter(target: Target)
         appendLine("    {");
         appendLine("        Column(modifier = Modifier.fillMaxWidth().padding(SpfnTokens.space4))");
         appendLine("        {");
+        // The readouts come FIRST, and that is a rule about reach rather than about layout.
+        // A body long enough to need scrolling puts everything under it below the fold, and a
+        // runner that could not read `stack=` until it had scrolled could not tell an app
+        // that had not started from a screen it had not reached yet.
+        if (readouts)
+        {
+            appendLine("            SpfnText(text = \"state=\" + stateName(state), role = TextRole.Mono);");
+            appendLine("            SpfnText(text = \"stack=\" + stack.size, role = TextRole.Mono);");
+        }
         if (screen.isLoadable)
         {
             append(loadableSlot(screen));
         }
+        // The static body, one component per paragraph. The words are the generator's, out of
+        // `BodyText`, because a spec carrying its own prose is one nobody can read the
+        // structure out of; the spec named the key.
+        screen.body.forEach { paragraph ->
+            appendLine("            SpfnText(text = ${quoted(paragraph)});");
+        };
         typed.forEach { input -> append(field(screen, input, bundle)) };
         if (!screen.isLoadable && typed.isNotEmpty())
         {
             append(statusLine(screen));
         }
         controls.forEach { action -> append(control(screen, action, bundle)) };
-        if (readouts)
-        {
-            appendLine("            SpfnText(text = \"state=\" + stateName(state), role = TextRole.Mono);");
-            appendLine("            SpfnText(text = \"stack=\" + stack.size, role = TextRole.Mono);");
-        }
         appendLine("        }");
         appendLine("    }");
         appendLine("}");
@@ -1129,10 +1145,16 @@ class KotlinEmitter(target: Target)
             "androidx.compose.runtime.collectAsState",
             "androidx.compose.ui.Modifier",
             "$pkg.screens.${type(screen.name, "Model")}",
-            "$pkg.screens.ScreenFailure",
             "xyz.superfunction.spfn.ui.components.Screen",
             "xyz.superfunction.spfn.ui.tokens.SpfnTokens"
         );
+        // Named only where something reads it. A showcase screen calls nothing and collects
+        // nothing, so it has no failure to classify — and this module compiles with
+        // `allWarningsAsErrors`, where an unused import is a build failure rather than lint.
+        if (screen.isLoadable || typed.isNotEmpty())
+        {
+            imports += "$pkg.screens.ScreenFailure";
+        }
         if (screen.isLoadable && readouts)
         {
             imports += "xyz.superfunction.spfn.ui.Loadable";
@@ -1143,8 +1165,11 @@ class KotlinEmitter(target: Target)
         }
         if (readouts)
         {
-            imports += "xyz.superfunction.spfn.ui.components.SpfnText";
             imports += "xyz.superfunction.spfn.ui.components.TextRole";
+        }
+        if (readouts || screen.body.isNotEmpty())
+        {
+            imports += "xyz.superfunction.spfn.ui.components.SpfnText";
         }
         if (screen.actions.any { it.call != null })
         {

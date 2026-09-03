@@ -73,6 +73,14 @@ height to resolve, and a modal with one carries a number nothing reads — which
 never exceeds `full`; `half` and `full` are fractions of the space the host gave the flow, and
 `SheetGeometry` resolves all three identically on both platforms.
 
+A spec carries as many flows as it has, and `device-approval.json` beside this file carries
+nine. One of them reads and writes; the other eight exist so the three presentations, a stack
+inside a sheet, a keyboard and a body that does not fit can be looked at. Nothing in this page
+is per-flow — the generator emits a route enum, a factory and a host for each — but two things
+downstream are, and both are named where they live: `Rules.kt` covers exactly one flow that
+reads and derives a much shorter list for the rest, and a target may narrow to a subset with
+`--flows` (below).
+
 ## `screens`
 
 ```json
@@ -93,6 +101,7 @@ never exceeds `full`; `half` and `full` are fractions of the space the host gave
 | `scroll` | boolean, optional | Whether the body scrolls, and therefore gets out of the keyboard's way. Default `true`. |
 | `header.close` | boolean, optional | Whether the header draws a close. Default: `true` on the root of a `modal` or a `sheet`, `false` everywhere else. |
 | `inputs` | object, optional | What the screen says about the inputs it collects. See below. |
+| `body` | body key, optional | The static prose the screen draws. Refused on a screen with a `source`. See below. |
 | `actions` | object | One entry per control on the screen. |
 
 `title` is **not** required, deliberately. A screen with no title is a screen somebody has not
@@ -104,6 +113,31 @@ root and a close to the root of a flow presented over something, so `false` mean
 only on a root that would have had a close: a consent step, or a screen mid-way through
 something a person should finish or cancel deliberately. Written on any other screen it
 changes nothing — and in particular it never removes a back.
+
+### `body`
+
+```json
+"long": { "flow": "longScroll", "source": null, "body": "lorem.long", "actions": { … } }
+```
+
+A KEY, never the words. A spec says what a screen IS, and a paragraph of body copy is not
+that: a spec carrying its own prose is one nobody can read the structure out of, and the
+longest body here is thirty lines on its own. The words live in
+`tools/ui-codegen/.../BodyText.kt`, which is the same split `SPFNStrings` makes for the
+sentence a failed screen shows, and the emitters write one text component per paragraph.
+
+Two keys today, and the set is closed — a key the table does not carry is refused by name
+(refusal 7's family), because the failure it prevents is quiet: a screen that drew nothing
+looks like a screen somebody had not filled in yet.
+
+| Key | What it is for |
+| --- | --- |
+| `lorem.short` | two paragraphs. A screen that needs something above its control |
+| `lorem.long` | eight paragraphs. Long enough to put the control at its foot below the fold on a phone, which is what makes a scrolling cell exercise anything |
+
+`body` is **refused** on a screen with a `source` (refusal 9). That screen's body is what
+it read; a static one written under it would be a second answer to the same question, and
+the read's would be the one nobody could see.
 
 ### `inputs`
 
@@ -158,7 +192,7 @@ control the loudest thing on its screen.
 
 An action with neither `call` nor `then` is refused: it is a control that does nothing.
 
-## The eight refusals
+## The nine refusals
 
 The generator fails, and generates nothing at all, when:
 
@@ -193,6 +227,11 @@ The generator fails, and generates nothing at all, when:
    contract, so `inputs.userCod` beside a request field called `userCode` is a decoration with
    no field under it: the field keeps being collected, as plain text with no label and no
    return key. Nothing fails and the screen is not the one somebody wrote.
+9. **A `body` on a screen that reads, or one naming words that do not exist.** Both
+   directions, for the reason `sheet.detent` is refused both ways: a screen with a `source`
+   shows what it read, and static prose under it is either words nothing draws or words drawn
+   over the read the screen exists for. A key outside `BodyText`'s closed set is refused by
+   name rather than emitted as an empty screen.
 
 ## How a screen's state type is derived
 
@@ -228,10 +267,19 @@ One spec, more than one consumer. Which app a run writes into is a **target**: t
 supplies the two output roots, the Kotlin package and the application id, and the
 generator names no app of its own. Two targets ship today, one Gradle task each:
 
-| Target | Task | Swift root | Kotlin root | Table and flows | Readouts |
-| --- | --- | --- | --- | --- | --- |
-| `example` | `:ui-codegen:spfnGenerateUi` | `examples/ios-swiftui/Generated` | `examples/android-compose/src/main/kotlin/…/example/generated` | yes | yes |
-| `harness` | `:ui-codegen:spfnGenerateHarnessUi` | `tools/harness/ios/GeneratedUI` | `tools/harness/android/src/main/kotlin/…/harness/generated` | no | yes |
+| Target | Task | Swift root | Kotlin root | Flows | Table and flows | Readouts |
+| --- | --- | --- | --- | --- | --- | --- |
+| `example` | `:ui-codegen:spfnGenerateUi` | `examples/ios-swiftui/Generated` | `examples/android-compose/src/main/kotlin/…/example/generated` | all nine | yes | yes |
+| `harness` | `:ui-codegen:spfnGenerateHarnessUi` | `tools/harness/ios/GeneratedUI` | `tools/harness/android/src/main/kotlin/…/harness/generated` | `approveDevice` | no | yes |
+
+`--flows` is the fourth column and, like the last two, a **target** field rather than a spec
+key. Which of a showcase's flows a consumer has a use for is a fact about the consumer: the
+harness drives device approval against a live reference server, so the other eight would
+arrive there as routes, models and views nothing in that app opens. Narrowing takes the
+screens of the flows that stay, and the services those screens reach — a service nothing kept
+calls would be a protocol and a default implementation with no caller. The whole spec is read
+and checked first and narrowed after, so a target cannot hide a broken flow by not asking for
+it. A `--flows` value naming something that is not a flow is refused.
 
 `--runner-readouts` is the last column and it is a **target** field rather than a spec key,
 for the reason the output roots are: one spec, more than one consumer, and what a consumer is

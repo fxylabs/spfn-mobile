@@ -945,6 +945,11 @@ class SwiftEmitter(target: Target)
         appendLine("//");
         appendLine("// Every element here exists because a runner has to reach it or read it: one control");
         appendLine("// per action, one field per typed input" + if (readouts) ", and the two readouts." else ".");
+        if (readouts)
+        {
+            appendLine("// The readouts stand FIRST so a body long enough to scroll cannot put them out of");
+            appendLine("// reach: a runner reads them before it has done anything at all.");
+        }
         appendLine("// What a VALUE looks like is the human's, outside `Generated/` — the ready slot below is");
         appendLine("// deliberately empty. Selectors follow the harness's rule: a control by the id");
         appendLine("// `<screen>.<action>`, a readout by its text (tools/harness/ios/Sources/HarnessView.swift).");
@@ -971,20 +976,28 @@ class SwiftEmitter(target: Target)
         appendLine("        {");
         appendLine("            VStack(alignment: .leading, spacing: SPFNTokens.space4)");
         appendLine("            {");
+        // The readouts come FIRST, and that is a rule about reach rather than about layout.
+        // A body long enough to need scrolling puts everything under it below the fold, and a
+        // runner that could not read `stack=` until it had scrolled could not tell an app
+        // that had not started from a screen it had not reached yet.
+        if (readouts)
+        {
+            appendLine("                readouts");
+        }
         if (screen.isLoadable)
         {
             append(loadableSlot(screen));
         }
+        // The static body, one component per paragraph. The words are the generator's, out
+        // of `BodyText`, because a spec carrying its own prose is one nobody can read the
+        // structure out of; the spec named the key.
+        screen.body.forEach { paragraph -> appendLine("                SpfnText(${quoted(paragraph)})") };
         typed.forEach { input -> append(field(screen, input, bundle)) };
         if (!screen.isLoadable && typed.isNotEmpty())
         {
             appendLine("                status");
         }
         controls.forEach { action -> append(control(screen, action, bundle)) };
-        if (readouts)
-        {
-            appendLine("                readouts");
-        }
         appendLine("            }");
         appendLine("            .padding(SPFNTokens.space4)");
         if (screen.source != null)

@@ -125,7 +125,17 @@ data class ScreenDefinition(
      */
     val suppressesClose: Boolean,
     /** What the spec says about this screen's derived inputs, by input name. */
-    val inputs: List<InputDefinition>
+    val inputs: List<InputDefinition>,
+    /**
+     * The static body this screen draws, by key, or null for a screen that draws none.
+     *
+     * A KEY into `BodyText` rather than the words themselves. A spec says what a screen is,
+     * and a paragraph of body copy is not that — a spec carrying its own prose is one nobody
+     * can read the structure out of. Refused on a screen with a `source`, because that
+     * screen's body is what it read: a static one under it would be a second answer to the
+     * same question, and the read's would be the one nobody could see.
+     */
+    val bodyKey: String?
 )
 {
     /**
@@ -150,6 +160,12 @@ data class ScreenDefinition(
 
     /** Whether anything on this screen calls a service, and therefore has an answer to drop. */
     val calls: Boolean get() = source != null || actions.any { it.call != null };
+
+    /** The paragraphs this screen draws under its header. Empty when it names no body. */
+    val body: List<String> get() = bodyKey?.let { BodyText.paragraphs(it) } ?: emptyList<String>();
+
+    /** Whether this screen's body is long enough to put a control below the fold. */
+    val bodyScrolls: Boolean get() = bodyKey?.let { BodyText.scrolls(it) } ?: false;
 
     /** What the spec says about the input called [name], or nothing, which is every default. */
     fun inputNamed(name: String): InputDefinition =
@@ -201,6 +217,43 @@ data class Spec(
 
     fun screensOf(flow: FlowDefinition): List<ScreenDefinition> =
         screens.filter { it.flow == flow.name }
+
+    /**
+     * This spec with only [wanted] left of it, or this spec when [wanted] is null.
+     *
+     * The screens of the flows that stay come with them, and so do the services those
+     * screens reach: a service nothing kept calls would be emitted as a protocol and a
+     * default implementation with no caller. Everything the reader already refused stays
+     * refused — narrowing happens after the whole spec has been read, so a flow nobody
+     * asked for is still checked before it is dropped, and a target cannot hide a broken
+     * flow by not asking for it.
+     *
+     * A name that is not a flow is refused rather than ignored: a misspelled `--flows`
+     * that fell through would emit an app with no screens at all and report success.
+     */
+    fun narrowedTo(wanted: Set<String>?): Spec
+    {
+        if (wanted == null)
+        {
+            return this;
+        }
+        val unknown = wanted.filter { name -> flows.none { it.name == name } }.sorted();
+        if (unknown.isNotEmpty())
+        {
+            throw SpecException(
+                "--flows names " + unknown.joinToString(", ") + ", which this spec does not " +
+                    "declare; its flows are: " + flows.map { it.name }.sorted().joinToString(", ")
+            );
+        }
+        val keptFlows = flows.filter { it.name in wanted };
+        val keptScreens = screens.filter { it.flow in wanted };
+        val reached = keptScreens.flatMap { it.services }.toSet();
+        return copy(
+            services = services.filter { it.name in reached },
+            flows = keptFlows,
+            screens = keptScreens
+        );
+    }
 
     companion object
     {
@@ -360,7 +413,7 @@ data class Spec(
             val entry = members.getValue(screen).obj();
             checkKeys(
                 entry,
-                setOf("flow", "source", "usecase", "actions", "title", "scroll", "header", "inputs"),
+                setOf("flow", "source", "usecase", "actions", "title", "scroll", "header", "inputs", "body"),
                 "screens.$screen."
             );
             val sourceValue = entry.required("source");
@@ -390,7 +443,8 @@ data class Spec(
                 scroll = entry["scroll"]?.bool() ?: true,
                 close = readClose(entry["header"], screen, flow),
                 suppressesClose = isRoot(screen, flow) && !readClose(entry["header"], screen, flow),
-                inputs = readInputs(entry["inputs"], screen)
+                inputs = readInputs(entry["inputs"], screen),
+                bodyKey = readBody(entry["body"], screen, source)
             );
         }
 
@@ -418,6 +472,38 @@ data class Spec(
             val header = value.obj();
             checkKeys(header, setOf("close"), "screens.$screen.header.");
             return header["close"]?.bool() ?: fromFlow;
+        }
+
+        /**
+         * The paragraphs this screen draws under its header, or null.
+         *
+         * Required to be a key `BodyText` carries, and refused outright on a screen with a
+         * `source`. Both directions are refusals for the reason `sheet.detent` is: a screen
+         * that reads has a body already, and a static one written beside it is words nothing
+         * would draw — or, worse, words drawn over the read the screen exists for.
+         */
+        private fun readBody(value: JsonValue?, screen: String, source: ServiceMethod?): String?
+        {
+            if (value == null)
+            {
+                return null;
+            }
+            if (source != null)
+            {
+                throw SpecException(
+                    "screens.$screen.body is written on a screen whose source is " +
+                        "'${source.reference}'; a screen that reads shows what it read"
+                );
+            }
+            val key = value.text();
+            if (BodyText.paragraphs(key) == null)
+            {
+                throw SpecException(
+                    "screens.$screen.body is '$key', which is not a body this generator " +
+                        "carries; the bodies it carries are: " + BodyText.keys().joinToString(", ")
+                );
+            }
+            return key;
         }
 
         /**
