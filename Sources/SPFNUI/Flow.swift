@@ -113,6 +113,74 @@ public final class Flow<Route: FlowRoute>
         moveTo([])
     }
 
+    /// What a back gesture does here, and whether this flow did it.
+    ///
+    /// The one place the close table lives, so that the two hosts spend it rather than each
+    /// restate it: a stack of two or more pops, a stack of one closes for `.modal` and
+    /// `.sheet` and is refused for `.push`, and a closed flow is refused outright. `false`
+    /// means the gesture was not this flow's — the host app's back applies — which is why
+    /// the hosts ask ``handlesBack(entry:)`` BEFORE they claim the gesture.
+    ///
+    /// - Returns: whether this flow consumed the back.
+    @discardableResult
+    public func back(entry: FlowEntry) -> Bool
+    {
+        guard handlesBack(entry: entry)
+        else
+        {
+            return false
+        }
+        if stack.count > 1
+        {
+            pop()
+            return true
+        }
+        close()
+        return true
+    }
+
+    /// Whether ``back(entry:)`` would consume a back gesture, asked before the gesture is
+    /// claimed.
+    ///
+    /// A back handler has to be enabled or disabled ahead of the event on both platforms —
+    /// Android's `BackHandler` takes an `enabled` flag and a handler that consumed a back
+    /// cannot hand it on — so "would you handle this" is a separate question from "handle
+    /// this", and both answer out of the same rule.
+    public func handlesBack(entry: FlowEntry) -> Bool
+    {
+        if stack.isEmpty
+        {
+            return false
+        }
+        if stack.count > 1
+        {
+            return true
+        }
+        return entry != .push
+    }
+
+    /// The leading control the screen at the top of this flow should show.
+    ///
+    /// Depth decides first: anything standing on a route above the root goes back, whatever
+    /// it was entered as. On the root, a flow presented over something offers the way out it
+    /// was given — a close — and a pushed flow offers nothing, because its way out is the
+    /// host app's own back.
+    ///
+    /// A host app that passes its own leading slot to `Screen` overrides this; this is what
+    /// a screen shows when nobody said otherwise.
+    public func leading(entry: FlowEntry) -> ScreenLeading
+    {
+        if stack.count > 1
+        {
+            return .back
+        }
+        if stack.isEmpty || entry == .push
+        {
+            return .none
+        }
+        return .close
+    }
+
     /// The one writer, so the two published properties cannot disagree about whether this
     /// flow is open. Assigning the state a flow is already in still assigns, which is what
     /// an `@Observable` property does anyway; nothing downstream distinguishes the two.

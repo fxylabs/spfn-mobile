@@ -8,9 +8,15 @@
 // same way every other state arrives, off the flow.
 //
 // NavDisplay disables its own back handling when the current scene has no previous entry,
-// which is precisely the last-route case. That is what makes the two entry styles a
-// three-line difference rather than two hosts: `Push` leaves it disabled and the host
-// app's back applies, and `Modal` puts its own handler over exactly that gap and closes.
+// which is precisely the last-route case. That is what makes the three entry styles a
+// few lines' difference rather than three hosts: `Push` leaves it disabled and the host
+// app's back applies, and `Modal` and `Sheet` put their own handler over exactly that gap.
+//
+// Every back this file sees goes to `Flow.back`, and every dismissal — a system back, a tap
+// on a sheet's scrim, a sheet dragged away — goes to the same place. The close table is
+// stated once, in `Flow`, where a JVM test can drive all six of its rows; nothing here
+// decides what a back means, it only decides whether to claim the gesture, and it asks
+// `Flow.handlesBack` even for that.
 //
 // ---------------------------------------------------------------------------
 // The rule a Modal entry adds: it COVERS
@@ -60,6 +66,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -68,6 +75,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation3.runtime.NavEntry
 import androidx.navigation3.ui.NavDisplay
+import xyz.superfunction.spfn.ui.components.LocalScreenChrome
+import xyz.superfunction.spfn.ui.components.ScreenChrome
 
 /**
  * Renders [flow]'s top route and follows the stack as it changes.
@@ -93,19 +102,40 @@ public fun <R : FlowRoute> FlowHost(flow: Flow<R>, entry: FlowEntry, content: @C
         return;
     }
 
-    BackHandler(enabled = entry == FlowEntry.Modal && routes.size == 1) { flow.close() };
+    // Only the root is this handler's: above it NavDisplay has its own, and two enabled
+    // handlers over one gesture is one of them never running.
+    BackHandler(enabled = routes.size == 1 && flow.handlesBack(entry)) { flow.back(entry) };
 
-    NavDisplay(
-        backStack = routes,
-        modifier = when (entry)
-        {
-            FlowEntry.Modal -> cover()
-            FlowEntry.Push -> Modifier
-        },
-        onBack = { flow.pop() },
-        entryProvider = { route -> NavEntry(route) { content(it) } }
-    );
+    // Remembered on the three things it is made of, so that a static composition local is
+    // handed the same instance frame after frame: a new one every recomposition would
+    // recompose every screen in the flow for a chrome that did not change.
+    val chrome = remember(flow, entry, routes.size) {
+        ScreenChrome(
+            leading = flow.leading(entry),
+            onBack = { flow.pop() },
+            onClose = { flow.close() }
+        )
+    };
+
+    val stack: @Composable () -> Unit = {
+        CompositionLocalProvider(LocalScreenChrome provides chrome) {
+            NavDisplay(
+                backStack = routes,
+                modifier = if (entry == FlowEntry.Modal) cover() else Modifier,
+                onBack = { flow.back(entry) },
+                entryProvider = { route -> NavEntry(route) { content(it) } }
+            );
+        };
+    };
+
+    when (entry)
+    {
+        is FlowEntry.Push -> stack()
+        is FlowEntry.Modal -> stack()
+        is FlowEntry.Sheet -> Sheet(detent = entry.detent, onClose = { flow.close() }, content = stack)
+    };
 }
+
 
 /**
  * What makes a modal flow a cover: the whole parent, opaque, and touch-tight.
