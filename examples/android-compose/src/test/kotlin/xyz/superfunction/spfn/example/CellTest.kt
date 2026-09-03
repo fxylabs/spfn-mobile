@@ -5,6 +5,13 @@
 //   u1  u1c  u2  u3  u4  u5  u6  u7  u7b  u8  u8c  u8d  u8e  u9  u9c  u10  u10b  u11
 //   u12  u13  u14
 //
+// The table also carries k1–k7 and s1–s2, and none of them is here. They are `maestro` cells
+// and there is no JVM half to write: a keyboard is the platform's, `autofocus` is a focus
+// request, and "the control below the field is still reachable with the keyboard up" is a
+// question about layout under an inset. A case in this file for one of them could only assert
+// that the model it does not touch is unchanged, which is a test that passes with the
+// component deleted.
+//
 // The expectations are read out of the table (CaseTableReader), never written here. The
 // models are generated from the spec. The suite is where the two derivations meet, which
 // is the whole reason the generator keeps its rule table separate from its emitters (P10).

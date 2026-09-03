@@ -2410,28 +2410,28 @@ do
     esac
 done < "$TMP/example-cells.txt"
 
-if [ "$CELL_COUNT" -ge 18 ]
+if [ "$CELL_COUNT" -ge 30 ]
 then
     pass "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES"
 else
-    fail "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES; it did not run"
+    fail "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES, fewer than 30; it did not run"
 fi
 
-if [ "$CELL_FLOWS_READ" -ge 14 ]
+if [ "$CELL_FLOWS_READ" -ge 23 ]
 then
     pass "the flow scan read all $CELL_FLOWS_READ device-cell flows looking for a bare system back"
 else
-    fail "the flow scan read $CELL_FLOWS_READ device-cell flows; it did not run"
+    fail "the flow scan read $CELL_FLOWS_READ device-cell flows, fewer than 23; it did not run"
 fi
 
 # The floor under the test scan, stated as a number for the reason the cell count is: a
 # shrinking tree may not lower its own bar. A scan that matched nothing and a scan that
 # could not run are one failure here, which is the point of having a floor at all.
-if [ "$CELL_TESTS_READ" -ge 18 ]
+if [ "$CELL_TESTS_READ" -ge 21 ]
 then
     pass "the test scan matched a case declaration for $CELL_TESTS_READ JVM cells under $EXAMPLE_TESTS"
 else
-    fail "the test scan matched case declarations for $CELL_TESTS_READ JVM cells, fewer than 18; it did not run"
+    fail "the test scan matched case declarations for $CELL_TESTS_READ JVM cells, fewer than 21; it did not run"
 fi
 
 if [ -z "$CELL_PROBLEMS" ]
@@ -2439,6 +2439,160 @@ then
     pass 'every cell of the case table has the flow and the test its runner declares'
 else
     fail "cells of the case table are not covered by what they claim:$CELL_PROBLEMS"
+fi
+
+# ---------------------------------------------------------------------------
+section '15. the visual vocabulary is written twice and says the same thing'
+# ---------------------------------------------------------------------------
+# Section 13 does this for the STATE vocabulary — Loadable, Busy, Flow — and the argument is
+# the same one: two hand-written halves stay one vocabulary only because somebody compares
+# them. What is new is what they carry. A component set is three parallel lists, and a name
+# that exists on one platform only breaks each of them differently:
+#
+#   a. TOKENS. `SpfnTokens.accent` with no `SPFNTokens.accent` beside it is a component that
+#      compiles on Android and cannot be written for iOS. The palette's six colours are
+#      fields of a struct and the rest are statics on an enum, so both spellings are read.
+#   b. STRINGS. Every sentence a generated screen can show is one of these, and the
+#      generated `ScreenFailure` names them by key on both platforms. A key on one side only
+#      is a screen that says nothing where the other says something — and it is the failure
+#      path, which is the one nobody runs.
+#   c. COMPONENTS. A `DestructiveButton` on one platform and not the other is a spec `role`
+#      the generator can emit for one app and not the other.
+#   d. the touch minimum. It used to be re-emitted into every generated view and was read off
+#      the emitted text by the generator's own suite; the components own it now, so this is
+#      where it is checked. 44 on Apple, 48 on Android, and P21 is what both are for.
+#
+# Every extraction has a floor, for the reason section 13's do: a reader that read nothing
+# produces an empty set, two empty sets agree, and the section would report parity having
+# read no code at all (docs/IMPLEMENTATION-PITFALLS.md P7).
+SWIFT_TOKENS=Sources/SPFNUI/Tokens/SPFNTokens.swift
+KOTLIN_TOKENS=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/tokens/SpfnTokens.kt
+SWIFT_STRINGS=Sources/SPFNUI/SPFNStrings.swift
+KOTLIN_STRINGS=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/SpfnStrings.kt
+SWIFT_COMPONENTS=Sources/SPFNUI/Components
+KOTLIN_COMPONENTS=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/components
+
+# The names one Swift value table declares: `public static let x` on a type, and `public let
+# x` on the palette struct whose fields ARE six of the keys. Lowercased, because the two
+# languages spell the same key with the same letters and neither casing is the vocabulary.
+swift_value_names()
+{
+    [ -f "$1" ] || return 0
+    sed -n 's/^[[:space:]]*public \(static \)\?let \([A-Za-z0-9_]*\).*$/\2/p' "$1" \
+        | tr 'A-Z' 'a-z' | sort -u
+}
+
+# The same for Kotlin: `public val x` on an object, and the `public val x` of a data class's
+# constructor, which is that language's spelling of the palette's six fields.
+kotlin_value_names()
+{
+    [ -f "$1" ] || return 0
+    sed -n 's/^[[:space:]]*public val \([A-Za-z0-9_]*\).*$/\1/p' "$1" \
+        | tr 'A-Z' 'a-z' | sort -u
+}
+
+# One table, both halves. Reads each side, refuses an empty read on either, and names the
+# extra and the missing separately — "they differ" is not enough to act on.
+compare_value_table()
+{
+    LABEL=$1
+    swift_value_names "$2" > "$TMP/values-swift-$LABEL.txt"
+    kotlin_value_names "$3" > "$TMP/values-kotlin-$LABEL.txt"
+    VALUE_SWIFT=$(grep -c . "$TMP/values-swift-$LABEL.txt" || true)
+    VALUE_KOTLIN=$(grep -c . "$TMP/values-kotlin-$LABEL.txt" || true)
+
+    if [ "$VALUE_SWIFT" -ge "$4" ] && [ "$VALUE_KOTLIN" -ge "$4" ]
+    then
+        pass "$LABEL: read $VALUE_SWIFT names from $2 and $VALUE_KOTLIN from $3"
+    else
+        fail "$LABEL: read $VALUE_SWIFT Swift names and $VALUE_KOTLIN Kotlin names, fewer than $4 a side; the extraction did not run"
+        return 0
+    fi
+
+    ONLY_SWIFT=$(comm -23 "$TMP/values-swift-$LABEL.txt" "$TMP/values-kotlin-$LABEL.txt" | tr '\n' ' ')
+    ONLY_KOTLIN=$(comm -13 "$TMP/values-swift-$LABEL.txt" "$TMP/values-kotlin-$LABEL.txt" | tr '\n' ' ')
+    if [ -z "$(printf '%s%s' "$ONLY_SWIFT" "$ONLY_KOTLIN" | tr -d ' ')" ]
+    then
+        pass "$LABEL keys match on both platforms ($VALUE_SWIFT of them)"
+    else
+        fail "$LABEL differs between platforms — only in Swift: ${ONLY_SWIFT:-none}| only in Kotlin: ${ONLY_KOTLIN:-none}"
+    fi
+}
+
+if [ -f "$SWIFT_TOKENS" ] && [ -f "$KOTLIN_TOKENS" ]
+then
+    compare_value_table tokens "$SWIFT_TOKENS" "$KOTLIN_TOKENS" 18
+else
+    fail "the token twins are incomplete: $SWIFT_TOKENS or $KOTLIN_TOKENS is missing"
+fi
+
+if [ -f "$SWIFT_STRINGS" ] && [ -f "$KOTLIN_STRINGS" ]
+then
+    compare_value_table strings "$SWIFT_STRINGS" "$KOTLIN_STRINGS" 8
+else
+    fail "the string twins are incomplete: $SWIFT_STRINGS or $KOTLIN_STRINGS is missing"
+fi
+
+# --- c. the components are the same set on both platforms --------------------
+# A Swift component is a `public struct X: View`; a Kotlin one is a `public fun X(` whose
+# name is capitalised, which is that platform's spelling of the same thing. Anything not
+# public is not part of the set: `RoleButton` is what all four buttons are and is neither
+# platform's API.
+if [ -d "$SWIFT_COMPONENTS" ] && [ -d "$KOTLIN_COMPONENTS" ]
+then
+    grep -rhoE '^public struct [A-Za-z0-9_]+' "$SWIFT_COMPONENTS" \
+        | sed 's/^public struct //' | tr 'A-Z' 'a-z' | sort -u > "$TMP/components-swift.txt"
+    grep -rhoE '^public fun <?[A-Za-z0-9_ :]*>? ?[A-Z][A-Za-z0-9_]*\(' "$KOTLIN_COMPONENTS" \
+        | sed -e 's/^public fun //' -e 's/^<[^>]*> *//' -e 's/($//' -e 's/(//' \
+        | tr 'A-Z' 'a-z' | sort -u > "$TMP/components-kotlin.txt"
+    COMPONENTS_SWIFT=$(grep -c . "$TMP/components-swift.txt" || true)
+    COMPONENTS_KOTLIN=$(grep -c . "$TMP/components-kotlin.txt" || true)
+
+    if [ "$COMPONENTS_SWIFT" -ge 8 ] && [ "$COMPONENTS_KOTLIN" -ge 8 ]
+    then
+        pass "the component scan read $COMPONENTS_SWIFT Swift components and $COMPONENTS_KOTLIN Kotlin ones"
+    else
+        fail "the component scan read $COMPONENTS_SWIFT Swift and $COMPONENTS_KOTLIN Kotlin components, fewer than 8 a side; it did not run"
+    fi
+
+    ONLY_SWIFT=$(comm -23 "$TMP/components-swift.txt" "$TMP/components-kotlin.txt" | tr '\n' ' ')
+    ONLY_KOTLIN=$(comm -13 "$TMP/components-swift.txt" "$TMP/components-kotlin.txt" | tr '\n' ' ')
+    if [ -z "$(printf '%s%s' "$ONLY_SWIFT" "$ONLY_KOTLIN" | tr -d ' ')" ]
+    then
+        pass "the component set matches on both platforms ($(tr '\n' ' ' < "$TMP/components-swift.txt"))"
+    else
+        fail "the component set differs — only in Swift: ${ONLY_SWIFT:-none}| only in Kotlin: ${ONLY_KOTLIN:-none}"
+    fi
+else
+    fail "the component directories are incomplete: $SWIFT_COMPONENTS or $KOTLIN_COMPONENTS is missing"
+fi
+
+# --- d. every component that can be touched is held to the platform minimum --
+# The number itself is checked, not merely referenced: `Metrics` is one file per platform and
+# a value edited down there would silently un-size every control at once. 44 is Apple's and
+# 48 is Android's, and P21 is the run that paid for both — Compose reported one control's
+# bounds inside a neighbour's and cell u5 tapped the wrong node.
+if grep -q 'touchTarget: CGFloat = 44' "$SWIFT_COMPONENTS/Metrics.swift" 2>/dev/null
+then
+    pass "the Swift components hold the 44pt minimum touch target"
+else
+    fail "$SWIFT_COMPONENTS/Metrics.swift does not declare Apple's 44pt minimum touch target"
+fi
+
+if grep -q 'TOUCH_TARGET: Dp = 48.dp' "$KOTLIN_COMPONENTS/Metrics.kt" 2>/dev/null
+then
+    pass "the Kotlin components hold the 48dp minimum touch target"
+else
+    fail "$KOTLIN_COMPONENTS/Metrics.kt does not declare Android's 48dp minimum touch target"
+fi
+
+TOUCH_SWIFT=$(grep -rl 'Metrics.touchTarget' "$SWIFT_COMPONENTS" 2>/dev/null | grep -c . || true)
+TOUCH_KOTLIN=$(grep -rl 'Metrics.TOUCH_TARGET' "$KOTLIN_COMPONENTS" 2>/dev/null | grep -c . || true)
+if [ "$TOUCH_SWIFT" -ge 3 ] && [ "$TOUCH_KOTLIN" -ge 3 ]
+then
+    pass "the minimum is applied in $TOUCH_SWIFT Swift component files and $TOUCH_KOTLIN Kotlin ones"
+else
+    fail "the minimum is applied in $TOUCH_SWIFT Swift and $TOUCH_KOTLIN Kotlin component files, fewer than 3 a side; a control has stopped being sized"
 fi
 
 # ---------------------------------------------------------------------------
