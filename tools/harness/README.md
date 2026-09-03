@@ -216,6 +216,13 @@ xcrun devicectl device install app --device <device udid> \
 xcrun devicectl device process launch --device <device udid> xyz.superfunction.spfn.harness
 ```
 
+`-derivedDataPath` is the fourth argument that is not decoration, and it must be this
+project's own. Building `SPFNExample` and `SPFNHarness` into one derived data directory
+hands the harness the SwiftPM graph the example resolved, which is the graph WITHOUT the
+traits `HarnessSupport` turns on — and the failure says nothing about traits. It says
+`HarnessSocialSignIn.swift:42: incorrect argument label in call (have 'presenting:',
+expected 'driver:')` (docs/IMPLEMENTATION-PITFALLS.md P17).
+
 Three of those arguments are not decoration, and the first run of this procedure spent
 itself on them. `project.yml` pins manual signing and an ad-hoc identity because that is
 what a simulator build needs and it keeps every credential out of this repository, so a

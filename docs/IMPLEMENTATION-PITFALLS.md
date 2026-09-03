@@ -52,6 +52,7 @@
 | Compose·SwiftUI 화면의 스크롤 컨테이너 안에 러너가 탭하는 컨트롤 배치 | [P21](#p21) [P25](#p25) |
 | `FlowEntry`·시트 표시·`Screen` 헤더 수정 (`spfn-ui`/`SPFNUI`의 런타임) | [P15](#p15) [P21](#p21) [P22](#p22) [P25](#p25) |
 | SwiftUI 화면의 조상 뷰에 제스처 달기, 키보드 해제 처리 | [P27](#p27) [P15](#p15) |
+| Xcode 프로젝트를 손으로 `xcodebuild` (예제·하네스 둘 다) | [P17](#p17) |
 | Maestro 플로우 생성·수정 | [P22](#p22) [P21](#p21) [P23](#p23) |
 | 기기 러너의 증거 수집 시점 수정 (`run-cells.sh`, `run-harness.sh`) | [P23](#p23) [P7](#p7) [P12](#p12) |
 
@@ -464,6 +465,32 @@ xcodebuild -project <proj> -resolvePackageDependencies -scheme <scheme> 2>&1 \
 된다. `name:`을 빼지 말 것: path 의존성의 identity는 **디렉터리 이름**이라 worktree처럼
 브랜치 이름이 붙은 체크아웃에서 `.product(package:)`가 깨진다.
 
+**처방 2 — derived data는 Xcode 프로젝트마다 따로 준다.** 트레이트를 켜는 것은 매니페스트지만,
+**켜진 결과를 캐시하는 것은 derived data**다. 이 저장소에는 Xcode 프로젝트가 둘 있고
+(`examples/ios-swiftui/SPFNExample.xcodeproj`, `tools/harness/ios/SPFNHarness.xcodeproj`)
+트레이트를 쓰는 쪽은 하네스뿐이다. 둘을 같은 `-derivedDataPath`에 빌드하면 예제가 먼저
+해석해 둔 **트레이트 없는** SwiftPM 그래프를 하네스가 그대로 물려받는다. 실패는 또 조용하다 —
+"트레이트가 꺼졌다"가 아니라 `HarnessSocialSignIn.swift:42: incorrect argument label in call
+(have 'presenting:', expected 'driver:')` 처럼 **엉뚱한 시그니처 에러**로 나온다.
+
+두 러너는 이미 서로 다른 경로를 쓴다 — `examples/ui-spec/install-device.sh`는
+`/tmp/spfn-example-device`, `tools/harness/run-harness.sh`는 자기 실행마다 새로 만드는
+`$WORK/dd`. 손으로 `xcodebuild`를 부를 때가 위험한 자리다.
+
+```
+# 두 프로젝트, 두 경로. 하나로 합치지 말 것.
+xcodebuild -project examples/ios-swiftui/SPFNExample.xcodeproj  ... -derivedDataPath <dir>/example
+xcodebuild -project tools/harness/ios/SPFNHarness.xcodeproj     ... -derivedDataPath <dir>/harness
+```
+
+**나온 곳.** w-9jqtj iOS — 하네스가 실기기에서 Google 시트를 띄우려면 `SocialGoogle`이
+필요했다. 프로브 프로젝트로 실측: `traits:`만 쓴 쪽은 원격 패키지 0개에
+`SPFNGooglePresentingContext` 미해결, 매니페스트 쪽은 GoogleSignIn 9.2.0 해석 + 빌드 성공.
+실물은 `tools/harness/ios/HarnessSupport/Package.swift`.
+
+공유 derived data 쪽은 w-evwna ui/scaffold-3d, 2026-09-03 맥. 예제와 하네스를 한 디렉터리에
+빌드했더니 하네스만 `HarnessSocialSignIn.swift:42`에서 인자 레이블 에러로 죽었고, 경로를
+갈라 주자 두 프로젝트 다 그대로 빌드됐다.
 
 ## P18. 테스트가 키 id를 고정하면 두 번째 키가 첫 번째를 덮는다 {#p18}
 
