@@ -59,5 +59,15 @@ name: d1-approve
       text: "stack=0"
     timeout: 20000
 
+# A wait rather than a bare assertion, and the reason is a race worth naming: the
+# response is recorded on whichever thread it arrived on and the readout is written from
+# a hop onto the main one, while the flow's own `close` is a second main-thread job. The
+# two are enqueued microseconds apart and nothing orders them, so `stack=0` can be drawn
+# first. Waiting costs nothing when they land in the other order.
+- extendedWaitUntil:
+    visible:
+      text: "http=200"
+    timeout: 20000
+
 - assertVisible:
     text: "http=200"
