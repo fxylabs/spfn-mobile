@@ -2557,10 +2557,16 @@ KOTLIN_COMPONENTS=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/comp
 # The names one Swift value table declares: `public static let x` on a type, and `public let
 # x` on the palette struct whose fields ARE six of the keys. Lowercased, because the two
 # languages spell the same key with the same letters and neither casing is the vocabulary.
+#
+# `sed -E`, for the reason the JSON readers at the top of this file give: BSD sed has no
+# `\?` in a basic expression and matches the two characters literally, so this read returned
+# NOTHING on a Mac while returning every name on Linux. It failed the way the floor is built
+# to catch — "the extraction did not run" — rather than silently, which is the only reason
+# it was one line to find (docs/IMPLEMENTATION-PITFALLS.md P28).
 swift_value_names()
 {
     [ -f "$1" ] || return 0
-    sed -n 's/^[[:space:]]*public \(static \)\?let \([A-Za-z0-9_]*\).*$/\2/p' "$1" \
+    sed -E -n 's/^[[:space:]]*public (static )?let ([A-Za-z0-9_]*).*$/\2/p' "$1" \
         | tr 'A-Z' 'a-z' | sort -u
 }
 

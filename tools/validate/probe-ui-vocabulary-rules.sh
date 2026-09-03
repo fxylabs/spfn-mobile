@@ -319,7 +319,10 @@ expect_token_fail 'a component only one platform has fails, naming it' \
 # is the condition the `-f` guard above cannot produce: two sides that both exist, one of
 # which yielded nothing. Without the floor the empty set would agree with the full one and
 # the section would report parity over a table it never read (P7).
-sed 's/^\([[:space:]]*\)public \(static \)\?let /\1public \2var /' \
+# `sed -E` here for the same reason the reader it probes uses it: BSD sed reads `\?` in a
+# basic expression as two literal characters, so on a Mac this mutation changed nothing and
+# the probe reported the floor unbitten (P28).
+sed -E 's/^([[:space:]]*)public (static )?let /\1public \2var /' \
     "$TMP/swift-tokens.bak" > "$SWIFT_TOKENS"
 expect_token_fail 'a token table this reader can extract nothing from fails instead of reporting parity' \
     'the extraction did not run'
