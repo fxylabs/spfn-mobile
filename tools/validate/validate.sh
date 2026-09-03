@@ -2014,6 +2014,11 @@ swift_ui_names()
         return 0
     fi
     awk -v want="$1" -v kind="$2" '
+        # The current type is per FILE. Without this it survives into the next one, and a
+        # file whose first declaration this grammar does not recognise — an `internal enum`,
+        # say — would hand its members to whatever type the PREVIOUS file ended on (P5, the
+        # wrong-hit class).
+        FNR == 1 { current = "" }
         /^(public )?(final )?(class|struct|enum|protocol|extension) / {
             declaration = $0
             sub(/^public /, "", declaration)
@@ -2063,6 +2068,7 @@ kotlin_ui_names()
         return 0
     fi
     awk -v want="$1" -v kind="$2" '
+        FNR == 1 { current = "" }
         /^[A-Za-z]/ {
             declaration = $0
             sub(/^public /, "", declaration)
@@ -2082,6 +2088,16 @@ kotlin_ui_names()
             sub(/^[[:space:]]+public /, "", name)
             sub(/^data /, "", name)
             sub(/^[a-z]+ /, "", name)
+            sub(/[^A-Za-z0-9_].*$/, "", name)
+            if (name != "") { print tolower(name) }
+        }
+        # A Kotlin enum entry carries no modifier and no keyword — it is a capitalised name
+        # on a line of its own, ending the list or followed by a comma or a semicolon. The
+        # anchor is that the WHOLE line is that name: a member declaration, a call and a
+        # brace all carry something else on the line and none of them is read here.
+        current == want && kind == "entry" && /^[[:space:]]+[A-Z][A-Za-z0-9_]*[,;]?[[:space:]]*$/ {
+            name = $0
+            sub(/^[[:space:]]+/, "", name)
             sub(/[^A-Za-z0-9_].*$/, "", name)
             if (name != "") { print tolower(name) }
         }
@@ -2128,6 +2144,19 @@ then
     compare_ui_type Loadable case case
     compare_ui_type Busy case case
     compare_ui_type Flow func fun
+    # How a flow is entered, how tall a sheet stands, and what a screen's leading control
+    # is. All three arrived with the sheet entry, and all three are named by generated code
+    # and by host apps — a name only one platform has is a screen only one platform can be
+    # written for. `case` against `entry` is not an asymmetry in the vocabulary but in the
+    # two languages: Swift spells a closed set of names as enum cases either way, Kotlin
+    # spells one with a payload as nested declarations and one without as enum entries.
+    compare_ui_type FlowEntry case case
+    compare_ui_type SheetDetent case entry
+    compare_ui_type ScreenLeading case entry
+    # The sheet's arithmetic is written twice and has to answer the same, which the two
+    # suites check against the same hand-written vectors; this is what checks that they are
+    # still the same three questions.
+    compare_ui_type SheetGeometry func fun
 else
     fail "the ui module is incomplete: $UI_SWIFT_DIR or $UI_KOTLIN_DIR is missing"
 fi
