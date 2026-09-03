@@ -24,15 +24,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -43,12 +40,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import xyz.superfunction.spfn.harness.generated.flows.ApproveDeviceFlowHost
 import xyz.superfunction.spfn.ui.Busy
 
 /**
@@ -79,6 +75,13 @@ import xyz.superfunction.spfn.ui.Busy
  * Nothing here draws above foundation. Material would add a design this repository has
  * not chosen, and a hundred artifacts to pin, for a screen that is a column of text.
  *
+ * One thing on this screen is not written here at all. `open-approve` builds the graph
+ * tools/ui-codegen emits into `harness/generated/` and opens its flow, which is drawn as a
+ * cover over everything above — the harness is the SECOND consumer of the one screen spec,
+ * and it drives those screens against a live reference server rather than against a
+ * fixture. The `stack=` readout is that flow's own depth, spelled the way the generated
+ * screens spell it, so a flow that is open draws the number twice and both agree.
+ *
  * tools/harness/ios/Sources/HarnessView.swift is the same screen in SwiftUI, with the
  * same control ids and the same readout text.
  */
@@ -87,30 +90,50 @@ import xyz.superfunction.spfn.ui.Busy
 fun HarnessScreen(screen: HarnessScreenState, actions: HarnessActions)
 {
     ExpiryTicker(screen);
-    Column(
+    // A Box, and the flow host is its LAST child. A modal `FlowHost` draws a cover that
+    // fills its PARENT, so one placed inside the scrolling column below would cover a row
+    // of that column and nothing else — the one demand `FlowHost` makes of a host app.
+    //
+    // `testTagsAsResourceId` sits here rather than on the column, so it is on the root the
+    // generated screens are also under: the switch is resolved by walking semantics
+    // parents, and every `tapOn: id:` in the d-cells depends on the walk reaching it.
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Paper)
             .semantics { testTagsAsResourceId = true }
-            // The system bars' insets become padding. Without it the screen is
-            // edge-to-edge — which every app targeting API 35 and later now is, whether it
-            // asks or not — and on a real phone on 2026-09-01 the last button of the column
-            // sat under the navigation bar, reachable only by scrolling past the content.
-            .windowInsetsPadding(WindowInsets.systemBars)
-            // The column is longer than a phone. A runner taps what the hierarchy reports,
-            // and what it reports is what was laid out — so the order is the old screen's,
-            // unchanged, and nothing below the fold moved above it.
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
     )
     {
-        Readouts(screen);
-        DeviceMode(screen, actions);
-        DeviceCodeMode(screen, actions);
-        LifecycleDivider();
-        for (action in actions.lifecycle)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                // The system bars' insets become padding. Without it the screen is
+                // edge-to-edge — which every app targeting API 35 and later now is, whether
+                // it asks or not — and on a real phone on 2026-09-01 the last button of the
+                // column sat under the navigation bar, reachable only by scrolling past the
+                // content.
+                .windowInsetsPadding(WindowInsets.systemBars)
+                // The column is longer than a phone. A runner taps what the hierarchy
+                // reports, and what it reports is what was laid out — so the order is the
+                // old screen's, unchanged, and nothing below the fold moved above it.
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        )
         {
-            ActionRow(action = action, enabled = true);
+            Readouts(screen);
+            DeviceMode(screen, actions);
+            DeviceCodeMode(screen, actions);
+            LifecycleDivider();
+            for (action in actions.lifecycle)
+            {
+                ActionRow(action = action, enabled = true);
+            }
+        }
+
+        val approval = screen.approval;
+        if (approval != null)
+        {
+            ApproveDeviceFlowHost(approval);
         }
     }
 }
@@ -152,6 +175,27 @@ private fun Readouts(screen: HarnessScreenState)
         text = HarnessReadout.expiresIn(screen.deviceCodeExpiresAtMillis, screen.nowMillis),
         style = Body
     );
+    ApprovalReadouts(screen);
+}
+
+/**
+ * The two lines the generated approval flow adds: how deep it stands, and what the wire
+ * last answered.
+ *
+ * The depth is COLLECTED off the flow rather than copied into [HarnessScreenState]: the
+ * generated screens navigate it, so it changes with no tap on this screen to copy it, and
+ * the flow is its own single source of truth. Zero is what a closed flow reads and what a
+ * screen with no graph yet reads — those are the same number and deliberately not two
+ * different words, because `stack=0` is the assertion a d-cell makes after the flow closes
+ * and it must not depend on which of the two the app happens to be in.
+ */
+@Composable
+private fun ApprovalReadouts(screen: HarnessScreenState)
+{
+    val approval = screen.approval;
+    val depth = if (approval == null) 0 else approval.approveDeviceFlow.stack.collectAsState().value.size;
+    BasicText(text = HarnessReadout.stack(depth), style = Body);
+    BasicText(text = HarnessReadout.http(screen.httpStatus), style = Body);
 }
 
 /**
@@ -295,8 +339,17 @@ private fun SelectionMark(selected: Boolean)
  * Signing this device in with a code, and approving another device that shows one.
  *
  * Two halves of one flow on one screen, because a harness has one phone in front of it at
- * a time and either half has to be reachable. The code a person types to approve is its
- * own field: a single one would let this device approve itself.
+ * a time and either half has to be reachable.
+ *
+ * The approving half is ONE control now. It used to be a code field and three buttons
+ * wiring up `info`, `approve` and `deny` by hand — a second implementation of screens the
+ * generator already emits. `open-approve` builds the generated graph and opens its flow
+ * over this screen, and everything a person types or taps after that is the generator's.
+ *
+ * It is disabled without an active key rather than hidden: the approval calls are proven
+ * ones, so a build with nothing enrolled has nothing to sign them with, and a control
+ * that vanished would read as a harness that lost a feature where a dimmed one beside
+ * `state=unenrolled` reads as the truth.
  */
 @Composable
 private fun DeviceCodeMode(screen: HarnessScreenState, actions: HarnessActions)
@@ -308,50 +361,7 @@ private fun DeviceCodeMode(screen: HarnessScreenState, actions: HarnessActions)
         style = Caption,
         modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
     );
-    ApproverField(onChange = actions.setApproverCode);
-    for (action in actions.approver)
-    {
-        ActionRow(action = action, enabled = true);
-    }
-}
-
-/**
- * Where a person types a code read off another device's screen.
- *
- * One line and a keyboard that starts in capitals, which is what the field always asked
- * for. It asks and does not enforce: the code is passed to the server exactly as typed,
- * because the server folds case, spaces and dashes on the way in, and a field that
- * reformatted would be a second opinion about a string somebody is reading aloud.
- */
-@Composable
-private fun ApproverField(onChange: (String) -> Unit)
-{
-    var code by remember { mutableStateOf("") };
-
-    BasicTextField(
-        value = code,
-        onValueChange = { typed -> code = typed; onChange(typed) },
-        singleLine = true,
-        textStyle = Body,
-        keyboardOptions = KeyboardOptions(
-            capitalization = KeyboardCapitalization.Characters,
-            imeAction = ImeAction.Done
-        ),
-        modifier = Modifier
-            .testTag("input_device_code")
-            .fillMaxWidth()
-            .heightIn(min = TouchTarget),
-        decorationBox = { field ->
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart)
-            {
-                if (code.isEmpty())
-                {
-                    BasicText(text = "XXXX-XXXX", style = Hint);
-                }
-                field();
-            }
-        }
-    );
+    ActionRow(action = actions.openApprove, enabled = screen.hasActiveKey);
 }
 
 /** The rule and the caption that say which half of the screen is below them. */
@@ -461,4 +471,3 @@ private val Rule: Color = Color.Gray;
 private val Body: TextStyle = TextStyle(color = Ink, fontSize = 16.sp);
 private val Caption: TextStyle = TextStyle(color = Ink, fontSize = 14.sp);
 private val HeadingStyle: TextStyle = TextStyle(color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Bold);
-private val Hint: TextStyle = TextStyle(color = Rule, fontSize = 16.sp);

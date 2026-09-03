@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import xyz.superfunction.spfn.harness.generated.AppContainer
 import xyz.superfunction.spfn.ui.Busy
 
 /**
@@ -58,6 +59,18 @@ class HarnessScreenState
     /** The code this device is showing while it waits to be approved, or `none`. */
     var deviceCode: String by mutableStateOf("none");
 
+    /** The status of the last response the transport received, or `none`. */
+    var httpStatus: String by mutableStateOf("none");
+
+    /**
+     * The generated approval graph `open-approve` built, or null before it has.
+     *
+     * Held rather than copied out of. Its flow's stack changes while nothing on this
+     * screen is tapped — the generated screens navigate it — so the depth is COLLECTED
+     * where it is drawn instead of being read once by [readFrom] and going stale.
+     */
+    var approval: AppContainer? by mutableStateOf(null);
+
     /** When that code stops being usable, or null when none is showing. */
     var deviceCodeExpiresAtMillis: Long? by mutableStateOf(null);
 
@@ -92,11 +105,23 @@ class HarnessScreenState
     val socialConfigured: Boolean = HarnessSocialConfiguration.isConfigured;
 
     /**
+     * Whether a key exists to prove the approval calls with, which is what `open-approve`
+     * needs and what disables it when there is none.
+     *
+     * Derived from [state] rather than stored, so it can never disagree with the readout
+     * a person is reading it beside. `rotationPending` counts: the old key is still the
+     * active one until the rotation is resumed.
+     */
+    val hasActiveKey: Boolean
+        get() = state == "enrolled" || state == "rotationPending";
+
+    /**
      * Copies everything the model owns, and touches nothing the screen owns.
      *
      * [busy] and [attemptRunning] are absent on purpose: they are the screen's answer to a
      * tap, and a copy that reset them would put `busy=ready` on screen in the middle of an
-     * action the flows are still waiting on.
+     * action the flows are still waiting on. [approval] is absent for the opposite reason:
+     * it is set once, by the tap that builds it, and the model holds no copy to copy from.
      */
     fun readFrom(model: HarnessModel)
     {
@@ -108,6 +133,7 @@ class HarnessScreenState
         receipt = model.receipt;
         deviceCode = model.deviceCode;
         deviceCodeExpiresAtMillis = model.deviceCodeExpiresAtMillis;
+        httpStatus = model.httpStatus;
         nowMillis = System.currentTimeMillis();
     }
 }

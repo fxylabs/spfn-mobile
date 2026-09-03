@@ -74,6 +74,26 @@ object HarnessReadout
     fun deviceCode(value: String): String = "device-code=$value";
 
     /**
+     * How deep the generated approval flow stands, and zero when it is closed.
+     *
+     * Spelled exactly as the generated screens spell it, because it is the same number
+     * read off the same flow: a flow that is open draws this line twice — once here and
+     * once on the screen covering this one — and the two agree by construction rather
+     * than by anyone keeping them equal.
+     */
+    fun stack(depth: Int): String = "stack=$depth";
+
+    /**
+     * The status of the last response the transport received, or `none`.
+     *
+     * A record of the WIRE, not of an action: the generated screens send through the same
+     * transport, and the refusal one of them carries is on its own `state=` readout. Both
+     * are needed, and a run that read only the screen could not tell a refusal the server
+     * sent from one the screen invented (docs/IMPLEMENTATION-PITFALLS.md P7).
+     */
+    fun http(statusCode: String): String = "http=$statusCode";
+
+    /**
      * Whole seconds until the shown code expires, `expired` once it has, `-` when no code
      * is showing.
      *

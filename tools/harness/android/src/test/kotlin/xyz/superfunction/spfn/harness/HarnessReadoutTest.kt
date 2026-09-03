@@ -130,6 +130,31 @@ class HarnessReadoutTest
     }
 
     /**
+     * How deep the generated approval flow stands.
+     *
+     * The same word the generated screens draw, which is the whole reason it is here: a
+     * d-cell asserts `stack=0` after the flow closes and reads that line off THIS screen,
+     * while `stack=1` mid-flow is read off the covering one. Two screens, one string, and
+     * only a comparison keeps them the same string.
+     */
+    @Test
+    fun stackIsTheFlowDepthAndZeroWhenThereIsNone()
+    {
+        assertEquals("stack=0", HarnessReadout.stack(0));
+        assertEquals("stack=1", HarnessReadout.stack(1));
+        assertEquals("stack=2", HarnessReadout.stack(2));
+    }
+
+    /** The wire's own answer, or `none` before anything has been sent. */
+    @Test
+    fun httpIsTheLastResponseStatusOrNone()
+    {
+        assertEquals("http=none", HarnessReadout.http("none"));
+        assertEquals("http=200", HarnessReadout.http("200"));
+        assertEquals("http=204", HarnessReadout.http("204"));
+    }
+
+    /**
      * The two ends of the countdown, which are different sentences.
      *
      * No code showing is `-`; a code whose time ran out is `expired`, and it stays on

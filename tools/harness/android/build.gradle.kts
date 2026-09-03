@@ -238,10 +238,15 @@ dependencies {
     // provider logic of its own: it hands the adapter an Activity and a client id, and
     // answers SpfnKeyLifecycle.enroll with what comes back.
     implementation(project(":spfn-social-google"))
-    // `Busy`, and only `Busy`. The screen's `busy=` readout is the state of one write,
-    // which is the thing this module already names — a second boolean here would be a
-    // second vocabulary for it (android/spfn-ui/src/main/kotlin/.../Busy.kt).
+    // `Busy` for the screen's own readout, and `Flow`/`FlowHost` for the generated
+    // approval screens under `src/main/kotlin/.../harness/generated`: the harness is the
+    // second consumer of the one screen spec, and it drives those screens against a live
+    // reference server rather than against a fixture.
     implementation(project(":spfn-ui"))
+    // The request and response types the generated services name. Reachable through
+    // :spfn-client already, and declared anyway: this module's own sources import it, and
+    // a dependency that is used is a dependency that is stated.
+    implementation(project(":spfn-generated"))
     // HarnessActivity launches its button actions on Dispatchers.Main. The core
     // artifact contains the coroutine machinery but no Android Main dispatcher.
     implementation(libs.kotlinx.coroutines.android)

@@ -59,10 +59,10 @@ class HarnessActivity : ComponentActivity()
     {
         super.onCreate(savedInstanceState);
         model = HarnessModel(this, HarnessConfiguration.fromLaunch(intent));
-        // The model posts the callback onto the main thread and then calls this, so the
-        // code reaches the screen the moment the server answers rather than when the whole
-        // sign-in finishes — which is the point of showing a code at all.
-        model.onDeviceCodeShown = { screen.readFrom(model) };
+        // The model posts onto the main thread and then calls this, so a device code and a
+        // response status reach the screen the moment they arrive rather than when
+        // whatever produced them finishes — which is the point of showing either at all.
+        model.onReadoutChanged = { screen.readFrom(model) };
 
         val actions = actions();
         setContent { HarnessScreen(screen, actions) };
@@ -103,14 +103,29 @@ class HarnessActivity : ComponentActivity()
             }
         },
         deviceSignIn = action("btn_device_sign_in", "sign-in-with-a-code") { model.signInWithACode() },
-        setApproverCode = { code -> model.setApproverCode(code) },
-        approver = listOf(
-            action("btn_device_info", "device-info") { model.describeWaitingDevice() },
-            action("btn_device_approve", "device-approve") { model.approveWaitingDevice() },
-            action("btn_device_deny", "device-deny") { model.denyWaitingDevice() }
-        ),
+        openApprove = HarnessAction("btn_open_approve", "open-approve") { openApprove() },
         lifecycle = lifecycleActions()
     );
+
+    /**
+     * Builds the generated approval graph and hands it to the screen, which opens the flow
+     * by drawing its host.
+     *
+     * Not routed through [perform], and the reason is the same one [HarnessActions.selectCase]
+     * gives: this sends nothing. It reads the key metadata store, which is local work, and
+     * showing `busy=busy` for it would teach a flow to wait for a request nobody made.
+     *
+     * A FRESH container every tap. The graph closes over the key provider the lifecycle
+     * held at that moment, and a wipe between two taps would otherwise leave the second
+     * flow signing with a key that no longer exists. The container's flow is constructed
+     * open on its start screen, so building one IS opening it.
+     */
+    private fun openApprove()
+    {
+        screen.approval = model.openApprove();
+        screen.readFrom(model);
+        announce(model.outcome);
+    }
 
     /**
      * The ten buttons the flows tap, in the order the flows expect to find them.

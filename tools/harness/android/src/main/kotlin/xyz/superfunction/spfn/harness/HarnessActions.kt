@@ -6,7 +6,8 @@ package xyz.superfunction.spfn.harness
  *
  * The tag is the string a Maestro `id:` selector matches. With
  * `testTagsAsResourceId = true` set on the root, a Compose test tag IS the Android
- * resource id a runner sees, so these are the twenty-one names
+ * resource id a runner sees — including every tag the generated screens carry, which is
+ * why that switch sits on the root the flow host is a child of. These are the names
  * `src/main/res/values/ids.xml` used to declare — the same strings, now attached where the
  * control is written instead of in a file it had to be looked up from.
  *
@@ -39,11 +40,15 @@ class HarnessActions(
     /** Signing THIS device in with a code somebody approves elsewhere. */
     val deviceSignIn: HarnessAction,
 
-    /** The code a person typed on this device to approve another one. */
-    val setApproverCode: (String) -> Unit,
-
-    /** The approver's three operations, in the order the screen shows them. */
-    val approver: List<HarnessAction>,
+    /**
+     * Opening the generated approval flow over this screen.
+     *
+     * One action where there used to be a field and three buttons. What a person types
+     * and taps after this belongs to `harness/generated/`, which is the whole point: the
+     * approver's screens are the generator's, and a harness that wrote its own would be
+     * driving a second implementation of them.
+     */
+    val openApprove: HarnessAction,
 
     /** The ten buttons the Maestro flows tap, in the order the flows expect to find them. */
     val lifecycle: List<HarnessAction>
