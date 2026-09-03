@@ -25,6 +25,16 @@
 // The system navigation bar is hidden because this header replaces it. A `NavigationStack`
 // that drew its own bar as well would put two back controls on one screen, only one of which
 // the flow knows about.
+//
+// ---------------------------------------------------------------------------
+// Screen owns two of the seven keyboard clauses, and only two
+// ---------------------------------------------------------------------------
+//
+// The body gets out of the keyboard's way, and a tap outside a field puts the keyboard away.
+// Both are about the FRAME rather than about any field in it, which is why they are here and
+// the other five are on ``SpfnTextField``. `scrollDismissesKeyboard(.interactively)` is the
+// third affordance and the one a person reaches for without being told: dragging the content
+// they came to read.
 
 import SwiftUI
 
@@ -55,6 +65,12 @@ public struct Screen<Content: View>: View
     private let content: () -> Content
 
     @Environment(\.screenChrome) private var chrome
+    @Environment(\.colorScheme) private var scheme
+
+    private var palette: SPFNPalette
+    {
+        spfnPalette(for: scheme)
+    }
 
     public init(
         title: String,
@@ -79,8 +95,13 @@ public struct Screen<Content: View>: View
             scrollableBody
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(ScreenStyle.background)
+        .background(palette.background)
         .modifier(HiddenNavigationBar())
+        // A tap that lands on the frame rather than on a control puts the keyboard away.
+        // `simultaneousGesture` rather than `onTapGesture`: the latter would claim the tap
+        // and a button underneath it would stop responding.
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded { SPFNKeyboard.dismiss() })
     }
 
     /// The header. Both slots are laid out at the minimum touch target whether or not they
@@ -91,17 +112,15 @@ public struct Screen<Content: View>: View
         HStack(spacing: 0)
         {
             leadingControl
-                .frame(minWidth: ScreenStyle.touchTarget, alignment: .leading)
-            Text(title)
-                .font(ScreenStyle.title)
-                .foregroundStyle(ScreenStyle.foreground)
+                .frame(minWidth: Metrics.touchTarget, alignment: .leading)
+            SpfnText(title, role: .title)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, ScreenStyle.gutter)
+                .padding(.horizontal, SPFNTokens.space4)
             (trailing ?? AnyView(EmptyView()))
-                .frame(minWidth: ScreenStyle.touchTarget, alignment: .trailing)
+                .frame(minWidth: Metrics.touchTarget, alignment: .trailing)
         }
-        .padding(.horizontal, ScreenStyle.gutter)
-        .frame(minHeight: ScreenStyle.headerHeight)
+        .padding(.horizontal, SPFNTokens.space4)
+        .frame(minHeight: Metrics.headerHeight)
     }
 
     /// The body, scrolling or not.
@@ -146,9 +165,9 @@ public struct Screen<Content: View>: View
             case .none:
                 EmptyView()
             case .back:
-                control(label: "Back", identifier: "screen.back", action: chrome.onBack)
+                control(label: SPFNStrings.controlBack, identifier: "screen.back", action: chrome.onBack)
             case .close:
-                control(label: "Close", identifier: "screen.close", action: chrome.onClose)
+                control(label: SPFNStrings.controlClose, identifier: "screen.close", action: chrome.onClose)
             }
         }
     }
@@ -163,12 +182,10 @@ public struct Screen<Content: View>: View
     {
         Button(action: action)
         {
-            Text(label)
-                .font(ScreenStyle.control)
-                .frame(minWidth: ScreenStyle.touchTarget, minHeight: ScreenStyle.touchTarget)
+            SpfnText(label)
+                .frame(minWidth: Metrics.touchTarget, minHeight: Metrics.touchTarget)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(ScreenStyle.foreground)
         .accessibilityIdentifier(identifier)
     }
 }
