@@ -27,6 +27,7 @@ sh tools/harness/run-harness.sh android
 | `run-harness.sh` | builds, installs, runs every flow, and fails unless every case left a receipt |
 | `probe-receipts.sh` | proves a receipt cannot be earned by a case that did not pass |
 | `probe-target-refusal.sh` | proves a physical iPhone cannot be mistaken for a simulator |
+| `probe-cleartext-host.sh` | proves the run refuses to start against a host the app may not reach |
 
 ## The case table
 
@@ -418,6 +419,10 @@ longer says "this app may speak plain HTTP to anything"; the build writes a netw
 security configuration permitting cleartext to **exactly the host that key names** and to
 nothing else. A build configured with no server permits cleartext to nothing at all.
 
+An Android run checks that host against the address it is about to hand the app, after the
+build and before the first flow, and refuses to go on when they differ — naming both, and
+the key to correct (`probe-cleartext-host.sh` proves the refusal bites).
+
 That is one host, not a set, and it decides what every run on this platform can reach:
 
 | Run | What goes in `spfn.harness.serverBaseUrl` |
@@ -617,6 +622,13 @@ accessibility tree at all, so `tapOn` reports the same `Element not found` about
 that is up, correct, and photographs perfectly. What separates the two is a dump rather
 than a picture: `adb shell uiautomator dump /sdcard/ui.xml` before anything is scrolled,
 and then whether the id the flow named is in it (`docs/IMPLEMENTATION-PITFALLS.md` P25).
+
+**And a third cause, which is neither the app nor the flow.** A system ANR dialog —
+`Pixel Launcher isn't responding`, `System UI isn't responding` — sits above everything,
+including the harness, and the dump gives it away immediately: it holds `android:id/aerr_*`
+nodes and nothing of the app at all. Dismissing the dialog gets one run through; a cold
+boot (`emulator -avd <name> -no-snapshot-load`, or Cold Boot Now from the device manager)
+is what stops it coming back.
 
 ## On a real Android phone
 
