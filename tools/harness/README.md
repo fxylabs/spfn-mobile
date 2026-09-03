@@ -655,15 +655,21 @@ the debug APK, and removes the route afterwards.
 The debug build signs with the machine's own `~/.android/debug.keystore`, which is why
 no signing material lives in this repository and none is needed to install on a phone.
 
-**The host app owns the system-bar insets, and it owns them around the flow host too.** The
-harness screen is a `Box` whose last child is the generated flow's host, because a `Modal`
-flow is drawn as a cover filling its parent; the same fact makes the insets the host's job,
-since whatever the parent is given is what the flow's first row is given. Android 15 draws
-an app targeting API 35 edge-to-edge whether it asks or not, so a root left un-inset puts
-`state=` under the status bar and the camera cutout — on a Galaxy Z Flip4 on 2026-09-03
-`uiautomator dump` still listed that row while `maestro hierarchy` did not, and `d1`–`d3`
-failed on `"state=ready" is visible` while every tap by id still landed
+**`Screen` owns the system-bar insets, and a host that does not use `Screen` owns its
+own.** That is a correction: until the `Screen` frame existed (w-evwna 3a) the rule here was
+that the host app owned them around the flow host as well, and the harness screen still
+does exactly that for its own rows — it is a `Box` whose last child is the generated flow's
+host, because a `Modal` flow is drawn as a cover filling its parent, and everything above
+that host is the harness's own content with nothing to consume its insets for it. Android
+15 draws an app targeting API 35 edge-to-edge whether it asks or not, so a root left
+un-inset puts `state=` under the status bar and the camera cutout — on a Galaxy Z Flip4 on
+2026-09-03 `uiautomator dump` still listed that row while `maestro hierarchy` did not, and
+`d1`–`d3` failed on `"state=ready" is visible` while every tap by id still landed
 (`docs/IMPLEMENTATION-PITFALLS.md` P25). An emulator on API 34 never shows it.
+
+The two rules do not add up to two paddings. `Modifier.windowInsetsPadding` CONSUMES what
+it applies, so the header of a `Screen` drawn inside this already-padded root sees an inset
+that is already spent and adds nothing on top of it.
 
 **Wake it first.** A sleeping or locked Android target does not fail the run, it hangs it:
 `am instrument` is refused while the user's storage is locked, and Maestro waits forever
