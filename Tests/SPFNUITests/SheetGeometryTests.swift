@@ -47,6 +47,50 @@ final class SheetGeometryTests: XCTestCase
         XCTAssertEqual(SheetGeometry.height(for: .fit, container: 1000, content: -1), 320, accuracy: epsilon)
     }
 
+    // ---- fitHeight ---------------------------------------------------------
+    //
+    // The measured half of `fit`, and the one both platforms call with a header. A screen's
+    // header does not scroll, so it is not in the measurement and is added back; 56 is what
+    // `Metrics.headerHeight` is on both sides, which is why it is the number here.
+
+    func testFitHeightAddsTheHeaderToTheContentItWasGiven()
+    {
+        XCTAssertEqual(SheetGeometry.fitHeight(content: 300, header: 56, max: 920), 356, accuracy: epsilon)
+        XCTAssertEqual(SheetGeometry.fitHeight(content: 300, header: 0, max: 920), 300, accuracy: epsilon)
+    }
+
+    func testFitHeightIsClampedToTheCeilingItWasGiven()
+    {
+        XCTAssertEqual(SheetGeometry.fitHeight(content: 900, header: 56, max: 920), 920, accuracy: epsilon)
+        XCTAssertEqual(SheetGeometry.fitHeight(content: 5000, header: 56, max: 920), 920, accuracy: epsilon)
+    }
+
+    /// A caller that knows no container passes an infinity, which is iOS: SwiftUI clamps a
+    /// height detent to the sheet's own maximum, so this side names no second ceiling.
+    func testFitHeightWithNoCeilingIsTheContentAndTheHeader()
+    {
+        XCTAssertEqual(SheetGeometry.fitHeight(content: 300, header: 56, max: .infinity), 356, accuracy: epsilon)
+    }
+
+    func testFitHeightAnswersZeroWhenNothingHasBeenMeasured()
+    {
+        XCTAssertEqual(SheetGeometry.fitHeight(content: 0, header: 56, max: 920), 0, accuracy: epsilon)
+        XCTAssertEqual(SheetGeometry.fitHeight(content: -1, header: 56, max: 920), 0, accuracy: epsilon)
+    }
+
+    /// A negative header adds nothing rather than subtracting: a sheet is not made shorter
+    /// than its own content by a chrome measurement that came back wrong.
+    func testFitHeightIgnoresANegativeHeader()
+    {
+        XCTAssertEqual(SheetGeometry.fitHeight(content: 300, header: -50, max: 920), 300, accuracy: epsilon)
+    }
+
+    func testFitHeightWithNoRoomAnswersNoHeight()
+    {
+        XCTAssertEqual(SheetGeometry.fitHeight(content: 300, header: 56, max: 0), 0, accuracy: epsilon)
+        XCTAssertEqual(SheetGeometry.fitHeight(content: 300, header: 56, max: -10), 0, accuracy: epsilon)
+    }
+
     func testAContainerWithNoRoomGivesEveryDetentNoHeight()
     {
         XCTAssertEqual(SheetGeometry.height(for: .full, container: 0, content: 500), 0, accuracy: epsilon)

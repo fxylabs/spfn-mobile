@@ -58,6 +58,60 @@ class SheetGeometryTest
         assertEquals(320f, SheetGeometry.height(SheetDetent.Fit, 1000f, -1f), EPSILON);
     }
 
+    // ---- fitHeight ---------------------------------------------------------
+    //
+    // The measured half of `fit`, and the one both platforms call with a header. A screen's
+    // header does not scroll, so it is not in the measurement and is added back; 56 is what
+    // `Metrics.HEADER_HEIGHT` is on both sides, which is why it is the number here.
+
+    @Test
+    fun `fit height adds the header to the content it was given`()
+    {
+        assertEquals(356f, SheetGeometry.fitHeight(300f, 56f, 920f), EPSILON);
+        assertEquals(300f, SheetGeometry.fitHeight(300f, 0f, 920f), EPSILON);
+    }
+
+    @Test
+    fun `fit height is clamped to the ceiling it was given`()
+    {
+        assertEquals(920f, SheetGeometry.fitHeight(900f, 56f, 920f), EPSILON);
+        assertEquals(920f, SheetGeometry.fitHeight(5000f, 56f, 920f), EPSILON);
+    }
+
+    /**
+     * A caller that knows no container passes an infinity, which is iOS: SwiftUI clamps a
+     * height detent to the sheet's own maximum, so that side names no second ceiling.
+     */
+    @Test
+    fun `fit height with no ceiling is the content and the header`()
+    {
+        assertEquals(356f, SheetGeometry.fitHeight(300f, 56f, Float.POSITIVE_INFINITY), EPSILON);
+    }
+
+    @Test
+    fun `fit height answers zero when nothing has been measured`()
+    {
+        assertEquals(0f, SheetGeometry.fitHeight(0f, 56f, 920f), EPSILON);
+        assertEquals(0f, SheetGeometry.fitHeight(-1f, 56f, 920f), EPSILON);
+    }
+
+    /**
+     * A negative header adds nothing rather than subtracting: a sheet is not made shorter
+     * than its own content by a chrome measurement that came back wrong.
+     */
+    @Test
+    fun `fit height ignores a negative header`()
+    {
+        assertEquals(300f, SheetGeometry.fitHeight(300f, -50f, 920f), EPSILON);
+    }
+
+    @Test
+    fun `fit height with no room answers no height`()
+    {
+        assertEquals(0f, SheetGeometry.fitHeight(300f, 56f, 0f), EPSILON);
+        assertEquals(0f, SheetGeometry.fitHeight(300f, 56f, -10f), EPSILON);
+    }
+
     @Test
     fun `a container with no room gives every detent no height`()
     {

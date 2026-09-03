@@ -137,12 +137,36 @@ public struct Screen<Content: View>: View
             ScrollView
             {
                 content()
+                    // Fixed vertically, so what is measured below is the content's OWN
+                    // height rather than whatever the scroll view proposed to it.
+                    .fixedSize(horizontal: false, vertical: true)
+                    .background(contentMeasurement)
             }
             .scrollDismissesKeyboard(.interactively)
         }
         else
         {
             content()
+        }
+    }
+
+    /// Reports how tall this screen's content is, for a `fit` sheet above it to stand on.
+    ///
+    /// The CONTENT and never the scroll view around it. A scroll view inside a sheet is as
+    /// tall as the sheet, so a detent resolved from one feeds its own answer back in and
+    /// never settles; the stack inside it has a natural height that does not move when the
+    /// sheet does, which is why the measurement is taken here and why the view above is
+    /// fixed vertically first.
+    ///
+    /// A body that does not scroll reports nothing, and that is honest rather than lazy: it
+    /// is as tall as the space it was given, so its height says what the sheet already is.
+    /// A `fit` sheet over one stands at ``SheetGeometry/fitFallbackFraction``.
+    private var contentMeasurement: some View
+    {
+        GeometryReader
+        { proxy in
+            Color.clear
+                .preference(key: ScreenContentHeightKey.self, value: proxy.size.height)
         }
     }
 
@@ -187,6 +211,26 @@ public struct Screen<Content: View>: View
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
+    }
+}
+
+/// How tall the content of the screen on show is, travelling UP to whatever presented it.
+///
+/// A preference and not a binding, because the direction is up and neither end knows the
+/// other: a ``Screen`` knows how tall its content is and nothing about being inside a sheet,
+/// and ``FlowHost``'s sheet knows it needs a height and nothing about which of its routes
+/// drew one. Read by `SheetPresentation`, and by nothing else.
+///
+/// The reduction is the TALLEST reporter rather than the last. A navigation stack has both
+/// screens in the tree during a push, and a sheet that took the smaller of the two would
+/// shrink under a transition and settle back afterwards.
+struct ScreenContentHeightKey: PreferenceKey
+{
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat)
+    {
+        value = max(value, nextValue())
     }
 }
 

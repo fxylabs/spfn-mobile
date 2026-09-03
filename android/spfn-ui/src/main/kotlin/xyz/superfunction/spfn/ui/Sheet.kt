@@ -147,8 +147,12 @@ internal fun Sheet(detent: SheetDetent, onClose: () -> Unit, content: @Composabl
  *
  * `Fit` is the only one that does not fix a height: it lets the content measure itself and
  * caps the result, which is what makes "as tall as it needs" a measurement rather than a
- * guess. `SheetGeometry.height` states the same rule for a caller that has a measurement
- * already, and that is the version both platforms test.
+ * guess. `wrapContentHeight().heightIn(max = full)` is [SheetGeometry.fitHeight] expressed
+ * as layout — the same content, the same ceiling — and the header term is zero here because
+ * this sheet's header is inside the column being measured rather than above it. iOS cannot
+ * express it as layout, because SwiftUI resolves a detent before laying the sheet out, so it
+ * calls the arithmetic with a header and a measurement of its own; that is the version both
+ * platforms test.
  */
 private fun SheetDetent.heightModifier(container: Float, full: Float, density: Density): Modifier
 {

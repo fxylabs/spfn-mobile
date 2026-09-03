@@ -25,11 +25,14 @@ public enum SheetGeometry
 {
     /// How tall a sheet stands, in the same unit `container` and `content` are given in.
     ///
-    /// ``SheetDetent/fit`` is the only one that reads `content`, and it is clamped to
-    /// ``SheetDetent/full`` so that a screen with more content than the sheet has room for
-    /// becomes a full sheet rather than a sheet taller than the window. Content of zero or
-    /// less means nothing has been measured yet — which is the permanent state on a platform
-    /// that resolves detents itself rather than laying the sheet out — and it falls back to
+    /// ``SheetDetent/fit`` is the only one that reads `content`, and it resolves through
+    /// ``fitHeight(content:header:max:)`` clamped to ``SheetDetent/full``, so that a screen
+    /// with more content than the sheet has room for becomes a full sheet rather than a
+    /// sheet taller than the window. There is one piece of fit arithmetic and both call
+    /// sites go through it; the header term is zero here because a caller with a container
+    /// to measure against has already laid its header out inside the sheet.
+    ///
+    /// Content of zero or less means nothing has been measured yet and it falls back to
     /// ``fitFallbackFraction`` rather than to a sheet of no height.
     ///
     /// A container of zero or less has no room for a sheet at all, and every detent gives
@@ -49,8 +52,36 @@ public enum SheetGeometry
         case .half:
             return container * halfFraction
         case .fit:
-            return content <= 0 ? container * fitFallbackFraction : min(content, full)
+            return content <= 0 ? container * fitFallbackFraction : fitHeight(content: content, header: 0, max: full)
         }
+    }
+
+    /// How tall a ``SheetDetent/fit`` sheet stands once its content has been measured.
+    ///
+    /// `content` is the height of the CONTENT and never of the scroll view around it. A
+    /// scroll view inside a sheet is as tall as the sheet, so a detent resolved from one
+    /// feeds its own answer back in and never settles; the stack inside it has a natural
+    /// height that does not move when the sheet does, and that is what is measured.
+    ///
+    /// `header` is what stands ABOVE the content and is therefore not in the measurement —
+    /// a screen's header does not scroll — so its height is added back here. A negative
+    /// header adds nothing rather than subtracting.
+    ///
+    /// `max` is the tallest this sheet may stand. Android names it, because it lays the
+    /// sheet out itself and knows the container; iOS passes `.infinity`, because SwiftUI
+    /// resolves the detent and clamps a height detent to the sheet's own maximum, and a
+    /// ceiling invented here would be a second, smaller one.
+    ///
+    /// Zero means nothing has been measured yet, which is the caller's signal to stand at
+    /// ``fitFallbackFraction`` rather than at no height at all.
+    public static func fitHeight(content: Double, header: Double, max ceiling: Double) -> Double
+    {
+        guard content > 0, ceiling > 0
+        else
+        {
+            return 0
+        }
+        return min(content + (header > 0 ? header : 0), ceiling)
     }
 
     /// Whether releasing a sheet dragged `offset` down from its resting position dismisses it.
