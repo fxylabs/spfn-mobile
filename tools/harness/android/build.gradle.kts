@@ -208,6 +208,15 @@ android {
             isMinifyEnabled = false
         }
     }
+
+    testOptions {
+        unitTests.all {
+            // HarnessRunnerBlockTest reads tools/harness/flows/, which is the definition
+            // of what a runner taps and therefore of what the screen must draw above the
+            // fold. The flows are not this module's source, so it is given the root.
+            it.systemProperty("spfn.repoRoot", rootDir.absolutePath)
+        }
+    }
 }
 
 // The generated resource directory is registered through the variant API rather than by
