@@ -20,8 +20,8 @@ object Header
         "bundleSha256:    ${inputs.bundleSha256}",
         "contractVersion: ${inputs.contractVersion}",
         "",
-        "Regenerate with: ./gradlew :ui-codegen:spfnGenerateUi",
-        "Verified by:     ./gradlew :ui-codegen:spfnUiVerify"
+        "Regenerate with: ./gradlew ${inputs.generateTask}",
+        "Verified by:     ./gradlew ${inputs.verifyTask}"
     );
 
     /** The header as a `//` comment block, which is both languages' spelling. */
@@ -38,11 +38,23 @@ object Header
  *
  * The two digests are the bytes; [specPath] is here because the header prints it, which
  * makes the path an input to the output and not merely how the run was invoked. It is
- * repository-relative for that reason.
+ * repository-relative for that reason. The two task names are here for the same reason and
+ * are the one thing a header takes from the target rather than from the spec.
  */
 data class Inputs(
     val specPath: String,
     val specSha256: String,
     val bundleSha256: String,
-    val contractVersion: String
+    val contractVersion: String,
+
+    /**
+     * The two Gradle tasks the header tells its reader to run.
+     *
+     * They belong to the TARGET rather than to the spec, and they are the only thing in
+     * a header that does. A header that named the example app's task inside the harness's
+     * scaffold would send a reader to run something that rewrites another app and reports
+     * nothing changed here (`Target.generateTask`).
+     */
+    val generateTask: String,
+    val verifyTask: String
 )

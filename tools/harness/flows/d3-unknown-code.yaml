@@ -1,0 +1,46 @@
+# SPFN Mobile — cell d3: a code the server has never issued.
+#
+# The refusal path, and the one cell where the runner's own code is NOT the one typed in.
+# tools/harness/run-harness.sh parks a real request as it does for d1 and d2, hands this
+# flow `ZZZZ-ZZZZ` instead of that request's user code, and afterwards polls the parked
+# one: it must still read `pending`. A screen that reported an error while the server had
+# quietly acted on somebody's request would pass every assertion below.
+#
+# The screen assertion stops at "an error is shown". The refusal's CLASSIFICATION is the
+# server's to choose — an unknown code and a malformed one are deliberately answered alike,
+# so that a guess that landed cannot be told from one that did not — and a flow asserting a
+# particular code would be asserting a choice this repository does not own.
+#
+# `stack=1` is the other half of it: a refused lookup leaves the flow standing on the
+# screen that made it, rather than pushing a review screen for a device that is not there.
+
+appId: ${APP_ID}
+name: d3-unknown-code
+---
+- runFlow: reach-enrolled.yaml
+
+- tapOn:
+    id: "btn_open_approve"
+
+- extendedWaitUntil:
+    visible:
+      id: "enterCode.userCode"
+    timeout: 20000
+
+- tapOn:
+    id: "enterCode.userCode"
+- inputText: ${USER_CODE}
+
+- tapOn:
+    id: "enterCode.submit"
+
+- extendedWaitUntil:
+    visible:
+      text: "state=error"
+    timeout: 20000
+
+- assertVisible:
+    text: "stack=1"
+
+- assertVisible:
+    id: "enterCode.userCode"

@@ -134,6 +134,26 @@ val launchClasspath: Provider<String> =
         elements.joinToString(File.pathSeparator) { it.asFile.absolutePath }
     }
 
+/// Prints ONE `auth.device.start` request body, carrying a freshly generated P-256 key.
+///
+/// `tools/harness/run-harness.sh` plays the waiting device for cells d1-d3 and needs a
+/// body the server will accept: `deviceStart` checks that `fingerprint` is the SHA-256 of
+/// the decoded `publicKey`, and the poll that follows an approval registers those bytes as
+/// an SPKI key. A constant body cannot satisfy the second — and a constant keyId could
+/// only be registered once, where a run needs three.
+///
+/// `-q` on the runner's side is what makes this usable: the body is standard output and
+/// nothing else, so a shell captures it directly.
+tasks.register<JavaExec>("spfnReferenceDeviceStartBody") {
+    group = "build"
+    description = "Prints one auth.device.start request body with a fresh key, for the harness runner."
+    mainClass.set("xyz.superfunction.spfn.reference.SpfnReferenceDeviceStartBodyKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    // Never up to date: a body is a fresh key, and a cached one is a key the server
+    // already registered.
+    outputs.upToDateWhen { false }
+}
+
 tasks.register("spfnReferenceServerLaunchInfo") {
     group = "build"
     description = "Writes the runtime classpath tools/reference-server/run-integration.sh launches the server with."

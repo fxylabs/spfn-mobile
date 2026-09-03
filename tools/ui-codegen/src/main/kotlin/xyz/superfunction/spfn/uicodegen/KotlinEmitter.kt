@@ -1,4 +1,8 @@
-// The Kotlin half of the scaffold: the Compose example app's generated sources.
+// The Kotlin half of the scaffold: one Compose app's generated sources.
+//
+// Which app is the `Target`'s to say. The root and the package are read from it, so the
+// same spec produces the example app's scaffold and the harness's from one emitter and
+// one set of rules — and this file names neither of them.
 //
 // Structure mirrors SwiftEmitter one file at a time and one declaration at a time. That is
 // not tidiness — the Swift half is written blind on a Linux host where SwiftUI does not
@@ -17,30 +21,30 @@ import xyz.superfunction.spfn.codegen.Bundle
 import xyz.superfunction.spfn.codegen.FieldType
 import xyz.superfunction.spfn.codegen.Names
 
-object KotlinEmitter
+class KotlinEmitter(target: Target)
 {
-    const val ROOT: String = "examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/generated";
-    private const val PACKAGE: String = "xyz.superfunction.spfn.example.generated";
+    private val root: String = target.kotlinRoot;
+    private val pkg: String = target.kotlinPackage;
 
     fun emit(spec: Spec, bundle: Bundle, inputs: Inputs): Map<String, String>
     {
         val files = mutableMapOf<String, String>();
         spec.services.forEach { service ->
-            files["$ROOT/services/${type(service.name, "Service")}.kt"] = service(service, inputs);
+            files["$root/services/${type(service.name, "Service")}.kt"] = service(service, inputs);
         };
         spec.flows.forEach { flow ->
-            files["$ROOT/flows/${type(flow.name, "Flow")}.kt"] = flow(spec, flow, bundle, inputs);
+            files["$root/flows/${type(flow.name, "Flow")}.kt"] = flow(spec, flow, bundle, inputs);
         };
-        files["$ROOT/screens/ScreenFailure.kt"] = failure(inputs);
+        files["$root/screens/ScreenFailure.kt"] = failure(inputs);
         spec.screens.forEach { screen ->
-            files["$ROOT/screens/${type(screen.name, "Model")}.kt"] = model(spec, screen, bundle, inputs);
+            files["$root/screens/${type(screen.name, "Model")}.kt"] = model(spec, screen, bundle, inputs);
             if (screen.usecase)
             {
-                files["$ROOT/screens/${type(screen.name, "UseCase")}.kt"] = useCase(screen, bundle, inputs);
+                files["$root/screens/${type(screen.name, "UseCase")}.kt"] = useCase(screen, bundle, inputs);
             }
-            files["$ROOT/views/${type(screen.name, "Screen")}.kt"] = view(screen, bundle, inputs);
+            files["$root/views/${type(screen.name, "Screen")}.kt"] = view(screen, bundle, inputs);
         };
-        files["$ROOT/AppContainer.kt"] = container(spec, bundle, inputs);
+        files["$root/AppContainer.kt"] = container(spec, bundle, inputs);
         return files;
     }
 
@@ -79,7 +83,7 @@ object KotlinEmitter
     private fun service(service: ServiceDefinition, inputs: Inputs): String = buildString {
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE.services");
+        appendLine("package $pkg.services");
         appendLine();
         appendLine("import xyz.superfunction.spfn.client.SpfnClient");
         appendLine("import xyz.superfunction.spfn.generated.SpfnGeneratedCalls");
@@ -149,13 +153,13 @@ object KotlinEmitter
         val screens = spec.screensOf(flow);
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE.flows");
+        appendLine("package $pkg.flows");
         appendLine();
         appendLine("import androidx.compose.runtime.Composable");
         appendLine("import androidx.compose.runtime.remember");
-        appendLine("import xyz.superfunction.spfn.example.generated.AppContainer");
+        appendLine("import $pkg.AppContainer");
         screens.sortedBy { it.name }.forEach {
-            appendLine("import $PACKAGE.views.${type(it.name, "Screen")}");
+            appendLine("import $pkg.views.${type(it.name, "Screen")}");
         };
         appendLine("import xyz.superfunction.spfn.ui.Flow");
         appendLine("import xyz.superfunction.spfn.ui.FlowEntry");
@@ -258,18 +262,18 @@ object KotlinEmitter
     ): String = buildString {
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE.screens");
+        appendLine("package $pkg.screens");
         appendLine();
+        if (screen.calls)
+        {
+            appendLine("import kotlinx.coroutines.CancellationException");
+        }
         appendLine("import kotlinx.coroutines.flow.MutableStateFlow");
         appendLine("import kotlinx.coroutines.flow.StateFlow");
         appendLine("import kotlinx.coroutines.flow.asStateFlow");
-        if (screen.calls)
-        {
-            appendLine("import xyz.superfunction.spfn.client.SpfnClientError");
-        }
         requestImports(screen).forEach { appendLine("import xyz.superfunction.spfn.generated.$it") };
-        appendLine("import $PACKAGE.flows.${route(flow)}");
-        screen.services.forEach { appendLine("import $PACKAGE.services.${type(it, "Service")}") };
+        appendLine("import $pkg.flows.${route(flow)}");
+        screen.services.forEach { appendLine("import $pkg.services.${type(it, "Service")}") };
         appendLine("import xyz.superfunction.spfn.ui.$stateImport");
         appendLine("import xyz.superfunction.spfn.ui.Flow");
     }
@@ -471,16 +475,7 @@ object KotlinEmitter
         appendLine("        {");
         appendLine("            ${action.call.service}.${action.call.name}(${requestLiteral(action.call, screen, bundle)});");
         appendLine("        }");
-        // SpfnClientError and not Exception: CancellationException is not one of these, so
-        // a cancelled coroutine propagates instead of being recorded as a server refusal.
-        appendLine("        catch (failure: SpfnClientError)");
-        appendLine("        {");
-        appendLine("            if (isCurrent(token))");
-        appendLine("            {");
-        appendLine("                mutableState.value = Busy.Error(ScreenFailure.envelope(failure));");
-        appendLine("            }");
-        appendLine("            return;");
-        appendLine("        }");
+        append(catchClauses("Busy"));
         appendLine("        if (!isCurrent(token))");
         appendLine("        {");
         appendLine("            return;");
@@ -596,20 +591,52 @@ object KotlinEmitter
         appendLine("        {");
         appendLine("            $call;");
         appendLine("        }");
-        appendLine("        catch (failure: SpfnClientError)");
-        appendLine("        {");
-        appendLine("            if (isCurrent(token))");
-        appendLine("            {");
-        appendLine("                mutableState.value = Loadable.Error(ScreenFailure.envelope(failure));");
-        appendLine("            }");
-        appendLine("            return;");
-        appendLine("        };");
+        append(catchClauses("Loadable", terminator = ";"));
         appendLine("        if (isCurrent(token))");
         appendLine("        {");
         appendLine("            mutableState.value = Loadable.Ready(value);");
         appendLine("        }");
         appendLine("    }");
     }
+
+    /**
+     * What a call's `try` is followed by, in the two clauses every screen method needs.
+     *
+     * Cancellation first, and rethrown: a coroutine is cancelled BY an exception, so a
+     * handler that classified it would tell the screen a call failed while telling the
+     * caller's scope it was never cancelled (docs/IMPLEMENTATION-PITFALLS.md P16). Kotlin
+     * matches catch clauses in order, so this one has to be written above the wide one.
+     *
+     * Then `Exception` and not `SpfnClientError`, which is what these were until 2f. The
+     * SDK throws more than that one hierarchy — `SpfnClockSynchronizationException` is an
+     * `IllegalStateException` — and everything outside it left a generated model through
+     * `submit` and took the process with it. `ScreenFailure.envelope` classifies the whole
+     * of `Throwable` for the same reason, and by the same rule: the SDK type's own name
+     * and never any text a server chose.
+     *
+     * @param state `Busy` or `Loadable`, whichever this screen's own state is.
+     * @param before a statement the failure branch runs first, for a method holding a flag.
+     * @param terminator `;` where the `try` is an expression assigned to a value.
+     */
+    private fun catchClauses(state: String, before: String? = null, terminator: String = ""): String =
+        buildString {
+            appendLine("        catch (cancelled: CancellationException)");
+            appendLine("        {");
+            appendLine("            throw cancelled;");
+            appendLine("        }");
+            appendLine("        catch (failure: Exception)");
+            appendLine("        {");
+            if (before != null)
+            {
+                appendLine("            $before");
+            }
+            appendLine("            if (isCurrent(token))");
+            appendLine("            {");
+            appendLine("                mutableState.value = $state.Error(ScreenFailure.envelope(failure));");
+            appendLine("            }");
+            appendLine("            return;");
+            appendLine("        }$terminator");
+        }
 
     private fun sourceArguments(screen: ScreenDefinition, bundle: Bundle): String =
         RouteParameters.of(screen, bundle).joinToString(", ") { it.name }
@@ -675,15 +702,7 @@ object KotlinEmitter
         appendLine("        {");
         appendLine("            ${call.service}.${call.name}(${requestLiteral(call, screen, bundle)});");
         appendLine("        }");
-        appendLine("        catch (failure: SpfnClientError)");
-        appendLine("        {");
-        appendLine("            writing = false;");
-        appendLine("            if (isCurrent(token))");
-        appendLine("            {");
-        appendLine("                mutableState.value = Loadable.Error(ScreenFailure.envelope(failure));");
-        appendLine("            }");
-        appendLine("            return;");
-        appendLine("        }");
+        append(catchClauses("Loadable", before = "writing = false;"));
         appendLine("        writing = false;");
         appendLine("        if (!isCurrent(token))");
         appendLine("        {");
@@ -711,10 +730,10 @@ object KotlinEmitter
         val name = type(screen.name, "UseCase");
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE.screens");
+        appendLine("package $pkg.screens");
         appendLine();
         requestImports(screen).forEach { appendLine("import xyz.superfunction.spfn.generated.$it") };
-        appendLine("import $PACKAGE.services.${type(source.service, "Service")}");
+        appendLine("import $pkg.services.${type(source.service, "Service")}");
         appendLine();
         appendLine("/** What `${screen.name}` reads, named as the app's own act rather than as an operation. */");
         appendLine("interface $name");
@@ -748,7 +767,7 @@ object KotlinEmitter
     private fun failure(inputs: Inputs): String = buildString {
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE.screens");
+        appendLine("package $pkg.screens");
         appendLine();
         appendLine("import xyz.superfunction.spfn.client.SpfnClientError");
         appendLine("import xyz.superfunction.spfn.core.SpfnErrorEnvelope");
@@ -768,9 +787,14 @@ object KotlinEmitter
         appendLine();
         appendLine("    /**");
         appendLine("     * The server's own envelope where there is one, and a local one where there is");
-        appendLine("     * not. The message carries the SDK's class name and never any server text.");
+        appendLine("     * not. The message carries the name of the SDK type that failed and never any");
+        appendLine("     * server text.");
+        appendLine("     *");
+        appendLine("     * [Throwable] and not [SpfnClientError]: the SDK throws more than that one");
+        appendLine("     * hierarchy, and a screen that could not name what it caught would have nothing");
+        appendLine("     * to show for it.");
         appendLine("     */");
-        appendLine("    fun envelope(failure: SpfnClientError): SpfnErrorEnvelope = when (failure)");
+        appendLine("    fun envelope(failure: Throwable): SpfnErrorEnvelope = when (failure)");
         appendLine("    {");
         appendLine("        is SpfnClientError.Auth -> failure.failure.envelope");
         appendLine("        is SpfnClientError.Server -> failure.failure.envelope");
@@ -801,7 +825,7 @@ object KotlinEmitter
         val typed = screen.actions.flatMap { RouteParameters.inputs(screen, it, bundle) }.distinctBy { it.name };
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE.views");
+        appendLine("package $pkg.views");
         appendLine();
         viewImports(screen, typed).forEach { appendLine("import $it") };
         appendLine();
@@ -879,7 +903,7 @@ object KotlinEmitter
             "androidx.compose.runtime.collectAsState",
             "androidx.compose.ui.Modifier",
             "androidx.compose.ui.platform.testTag",
-            "$PACKAGE.screens.${type(screen.name, "Model")}",
+            "$pkg.screens.${type(screen.name, "Model")}",
             "xyz.superfunction.spfn.ui.${if (screen.isLoadable) "Loadable" else "Busy"}"
         );
         if (screen.actions.any { it.call != null })
@@ -973,24 +997,24 @@ object KotlinEmitter
     private fun container(spec: Spec, bundle: Bundle, inputs: Inputs): String = buildString {
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE");
+        appendLine("package $pkg");
         appendLine();
         appendLine("import xyz.superfunction.spfn.client.SpfnClient");
         appendLine("import xyz.superfunction.spfn.client.SpfnKeyProvider");
         appendLine("import xyz.superfunction.spfn.client.SpfnSession");
         appendLine("import xyz.superfunction.spfn.client.SpfnTransport");
-        spec.flows.forEach { appendLine("import $PACKAGE.flows.${type(it.name, "Flow")}") };
-        spec.flows.forEach { appendLine("import $PACKAGE.flows.${route(it)}") };
+        spec.flows.forEach { appendLine("import $pkg.flows.${type(it.name, "Flow")}") };
+        spec.flows.forEach { appendLine("import $pkg.flows.${route(it)}") };
         spec.screens.forEach { screen ->
-            appendLine("import $PACKAGE.screens.${type(screen.name, "Model")}");
+            appendLine("import $pkg.screens.${type(screen.name, "Model")}");
             if (screen.usecase)
             {
-                appendLine("import $PACKAGE.screens.Default${type(screen.name, "UseCase")}");
+                appendLine("import $pkg.screens.Default${type(screen.name, "UseCase")}");
             }
         };
         spec.services.forEach {
-            appendLine("import $PACKAGE.services.Default${type(it.name, "Service")}");
-            appendLine("import $PACKAGE.services.${type(it.name, "Service")}");
+            appendLine("import $pkg.services.Default${type(it.name, "Service")}");
+            appendLine("import $pkg.services.${type(it.name, "Service")}");
         };
         appendLine("import xyz.superfunction.spfn.ui.Flow");
         appendLine();

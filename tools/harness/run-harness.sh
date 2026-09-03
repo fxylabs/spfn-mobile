@@ -10,8 +10,15 @@
 # being fine the moment the question is whether a person can get through enrolment.
 #
 # So this script builds the harness app, installs it on an iOS simulator, an Android
-# emulator or an Android device, and runs the Maestro flows against it. Ten flows, one per
-# cell of the lifecycle's case table; tools/harness/README.md carries the table.
+# emulator or an Android device, and runs the Maestro flows against it. Ten flows for the
+# lifecycle's case table, and three more for the generated approval screens; both tables
+# are in tools/harness/README.md.
+#
+# For those last three this script is also the SECOND DEVICE. It parks a device request
+# with the reference server over curl, hands the flow the user code that request was
+# issued, and afterwards polls with the device code to see what the phone's decision
+# actually did on the server — so each of the three is asserted on the screen and on the
+# wire, and a cell needs both to earn its receipt.
 #
 # A physical iPhone is not on that list and cannot be: maestro ships no driver for one.
 # tools/harness/README.md carries the manual procedure that covers what a phone is for.
@@ -53,6 +60,7 @@ LAUNCH_INFO=tools/reference-server/build/reference-server-launch.txt
 IOS_BUNDLE_ID=xyz.superfunction.spfn.harness
 ANDROID_APPLICATION_ID=xyz.superfunction.spfn.harness
 ANDROID_APK=tools/harness/android/build/outputs/apk/debug/harness-android-debug.apk
+ANDROID_NETWORK_SECURITY_CONFIG=tools/harness/android/build/generated/spfn-harness-res/xml/spfn_harness_network_security_config.xml
 
 # The user the reference server's test id_token names. Not a credential: that server's
 # token grammar is `spfn-test-idtoken.<provider>.<user>.<nonce>` and it verifies nothing
@@ -85,6 +93,32 @@ c9-resume-while-rotation-pending'
 # reason: what a target implements is a fact about the target, not a preference.
 REVOCATION_CASES='c10-revoke-then-proven-call'
 REVOCATION_OPS=${SPFN_HARNESS_REVOCATION_OPS-}
+
+# The three cells that drive the GENERATED approval screens against a live server. They
+# are not lifecycle cells and they do not run in the batch above, for one reason: each one
+# needs a device request that exists on the server before the flow launches, and the user
+# code the server issues for it is different every time.
+#
+# So this runner plays the WAITING DEVICE. Before each cell it parks a key over curl —
+# `auth.device.start`, whose body carries a real P-256 key from
+# :reference-server:spfnReferenceDeviceStartBody, because the server checks the fingerprint
+# against the decoded public key and the poll that collects an approval parses those bytes
+# as a key. It runs the flow with that request's user code, and then polls with the device
+# code to see what the phone's decision actually did on the server.
+#
+# Two assertions per cell, and both are needed. The flow says what the phone showed; the
+# poll says what the server did. A screen that closed its flow without sending would pass
+# the first and fail the second, and a cell that only read the screen would be evidence
+# about a screen rather than about the SDK (docs/IMPLEMENTATION-PITFALLS.md P7).
+APPROVAL_CASES='d1-approve
+d2-deny
+d3-unknown-code'
+
+# What d3 types, which is deliberately NOT the code the runner parked. Every character is
+# in the server's own user-code alphabet, so this is a code that could have been issued
+# and was not — a malformed one would exercise the server's shape check instead of its
+# lookup, which is a different cell.
+UNKNOWN_USER_CODE=ZZZZ-ZZZZ
 
 WORK=$(mktemp -d)
 RECEIPTS="$WORK/receipts"
@@ -238,6 +272,160 @@ sys.exit(1)
 PARSE
 }
 
+# First string value of a JSON key — the FIRST occurrence, wherever on the body it sits.
+#
+# Not a `sed` one-liner, and `head -1` was never enough to make it one. A greedy `.*` before
+# the key matches as much as it can, so `sed` reports the LAST occurrence of the key ON A
+# LINE, and `head -1` only ever chose between LINES — a JSON body arrives as one.
+# `{"userCode":"first","nested":{"userCode":"last"}}` answered `last`, which is the wrong
+# one for every caller here: a poll's own `status` is not one nested inside an error object
+# (docs/IMPLEMENTATION-PITFALLS.md P5).
+#
+# `awk` walks to the first `"<key>":` by index and stops there, so first-hit is what the
+# code does and not only what the comment claims. Everything the old expression accepted is
+# still accepted — a colon with or without spaces after it, a value with anything but a
+# quote in it — and anything it cannot read is the empty string, which is what the callers
+# treat as a failure.
+json_string()
+{
+    printf '%s' "$1" | awk -v key="\"$2\":" '
+        {
+            at = index($0, key);
+            if (at == 0) next;
+            rest = substr($0, at + length(key));
+            sub(/^ +/, "", rest);
+            if (substr(rest, 1, 1) != "\"") next;
+            rest = substr(rest, 2);
+            end = index(rest, "\"");
+            if (end == 0) next;
+            print substr(rest, 1, end - 1);
+            exit;
+        }
+    '
+}
+
+# The hosts the generated network security config at $1 permits cleartext to, one per line.
+#
+# A missing file prints nothing, and the caller reads that as no host at all — which is
+# what a check that could not read its input is entitled to answer.
+cleartext_hosts()
+{
+    if [ ! -f "$1" ]
+    then
+        return 0
+    fi
+    sed -n 's|.*<domain[^>]*>\([^<]*\)</domain>.*|\1|p' "$1"
+}
+
+# The host of the URL $1: scheme stripped, port and path dropped.
+url_host()
+{
+    printf '%s' "$1" | sed -e 's|^[a-z][a-z0-9+.-]*://||' -e 's|/.*$||' -e 's|:[0-9]*$||'
+}
+
+# Whether the app built with the config at $1 may reach the URL $2 in the clear.
+#
+# Two values that come from two different places and nothing holds together. The config is
+# GENERATED at build time from the local.properties key `spfn.harness.serverBaseUrl`; $2 is
+# derived from the address the reference server actually bound. On the 2d run they had
+# drifted apart — the runner handed the app the emulator's alias for the host loopback
+# while the build permitted a LAN address — and every cell that touches the network came
+# back `err:connectivity`. The two that never call anything passed, which is the worst
+# possible shape for a wrong answer: it looks like a flow bug.
+#
+# The alias is gone since 2f and both values are now spellings of the host loopback, which
+# narrows what can drift but does not remove the drift: the key is still hand-written per
+# machine and the port is still whatever the server bound.
+#
+# A missing file answers no. That file IS the cleartext exception, so a run that cannot
+# find it has not learned the app is configured; it has learned nothing
+# (docs/IMPLEMENTATION-PITFALLS.md P7).
+cleartext_permits()
+{
+    if [ ! -f "$1" ]
+    then
+        return 1
+    fi
+    WANTED_HOST=$(url_host "$2")
+    if [ -z "$WANTED_HOST" ]
+    then
+        return 1
+    fi
+    cleartext_hosts "$1" | grep -qxF "$WANTED_HOST"
+}
+
+# Parks a device request with the target and answers `<userCode> <deviceCode>`.
+#
+# The body carries a freshly generated P-256 key, because the server checks that
+# `fingerprint` is the SHA-256 of the decoded `publicKey` and the poll that collects an
+# approval registers those bytes as a key — twice measured, once in
+# `SpfnReferenceServer.deviceStart` and once in `SpfnReferenceState.enrollKey`. A constant
+# body satisfies neither, and a constant keyId could be registered once where a run needs
+# three.
+#
+# Empty output is the failure, and the caller treats it as one: a cell whose request was
+# never parked would otherwise run against a code nobody issued and report d3's result.
+park_device_request()
+{
+    BODY=$(./gradlew --console=plain -q :reference-server:spfnReferenceDeviceStartBody 2> /dev/null)
+    if [ -z "$BODY" ]
+    then
+        return 1
+    fi
+    STARTED=$(curl -sS -X POST -H 'content-type: application/json' \
+        -d "$BODY" "$1/_auth/device/start" 2> /dev/null)
+    USER_CODE=$(json_string "$STARTED" userCode)
+    DEVICE_CODE=$(json_string "$STARTED" deviceCode)
+    if [ -z "$USER_CODE" ] || [ -z "$DEVICE_CODE" ]
+    then
+        return 1
+    fi
+    printf '%s %s\n' "$USER_CODE" "$DEVICE_CODE"
+}
+
+# Polls $1 for device code $2 until the answer is $3, and prints what it last read.
+#
+# Up to ten attempts a second apart. An approval is applied before the phone's flow closes,
+# but the poll is a separate request from a separate process, and a single poll taken the
+# instant maestro returned read `pending` on a machine that was merely busy.
+#
+# The EXPECTED answer is what the loop stops on rather than "anything but pending", and
+# that is what makes d3 cheap as well as correct: `pending` is the answer that cell wants,
+# so it settles on the first attempt instead of spending ten seconds proving a negative.
+#
+# What is printed is the last answer read, whether or not it is the expected one, so a
+# caller that fails reports the value it failed on rather than the word "timeout".
+#
+# The three answers are told apart by the status as well as the body: `pending` and
+# `approved` are 200 with a `status` field, and a denial is a 403 refusal envelope whose
+# `code` is `DeviceAuthDeniedError`. Reading only the body would make a denial and an
+# answer nothing could be read out of into the same event.
+poll_device_request()
+{
+    ATTEMPT=0
+    ANSWER=''
+    while [ "$ATTEMPT" -lt 10 ]
+    do
+        POLL_STATUS=$(curl -sS -o "$WORK/poll.json" -w '%{http_code}' \
+            -X POST -H 'content-type: application/json' \
+            -d "{\"deviceCode\":\"$2\"}" "$1/_auth/device/poll" 2> /dev/null || true)
+        POLL_BODY=$(cat "$WORK/poll.json" 2> /dev/null || true)
+        if [ "$POLL_STATUS" = 200 ]
+        then
+            ANSWER=$(json_string "$POLL_BODY" status)
+        else
+            ANSWER=$(json_string "$POLL_BODY" code)
+        fi
+        if [ "$ANSWER" = "$3" ]
+        then
+            break
+        fi
+        ATTEMPT=$((ATTEMPT + 1))
+        sleep 1
+    done
+    printf '%s\n' "${ANSWER:-unreadable}"
+}
+
 # Polls the server's readiness route. Never a fixed sleep: a fixed sleep is either too
 # short on a cold machine or wasted on a warm one, and the first kind fails invisibly.
 wait_for_health()
@@ -277,7 +465,6 @@ require maestro 'install it with: brew install mobile-dev-inc/tap/maestro'
 printf '1. the target\n'
 # ---------------------------------------------------------------------------
 TARGET=${SPFN_HARNESS_TARGET-}
-IS_PHYSICAL_DEVICE=0
 
 if [ "$PLATFORM" = ios ]
 then
@@ -353,12 +540,6 @@ else
         fi
         TARGET=$ATTACHED
     fi
-    # An emulator serial is `emulator-5554`; anything else is a real device on the far
-    # side of a cable or a network, and that distinction decides which base URL can work.
-    case "$TARGET" in
-        emulator-*) ;;
-        *) IS_PHYSICAL_DEVICE=1 ;;
-    esac
     TARGET_DESCRIPTION=$(describe_android_target "$TARGET")
     pass "$TARGET_DESCRIPTION"
 
@@ -480,12 +661,22 @@ else
     pass "reference server ready at $BASE_URL (pid $SERVER_PID)"
 fi
 
-# The address the APP uses, which is not always the address this script uses. Three cases,
-# and each one is about how that particular target reaches the host's loopback:
+# The address the APP uses, which is not always the address this script uses. Every
+# Android target — emulator and phone alike — is given the same route to the host's
+# loopback, and the app keeps the address this script already has:
 #
 #   iOS simulator     shares the host's network stack, so its 127.0.0.1 is already right
-#   Android emulator  reaches the host's loopback at 10.0.2.2, its own alias for it
-#   Android device    reaches nothing by itself; `adb reverse` gives it a route
+#   Android target    reaches nothing by itself; `adb reverse` gives it a route
+#
+# The emulator has an alias of its own for the host loopback, 10.0.2.2, and this script
+# used to rewrite the base URL to it. That alias cannot be used, because the SDK will not
+# synchronize its proof clock over plain HTTP to anything but loopback — `isTrusted` in
+# android/spfn-client/.../SpfnClock.kt admits https, `localhost`, `::1` and `127.*` and
+# nothing else. On the 2d run every cell that needs a proof came back
+# `err:clockSynchronization:untrustedBaseURL` while registration and resume passed, which
+# reads as a flow bug and is not one. The SDK's rule is the right one; the alias was the
+# wrong route, and `adb reverse` — which an emulator supports exactly as a phone does —
+# is the one that keeps the address loopback at both ends.
 #
 # An external target is none of these — the caller named an address that is already
 # reachable — so nothing is rewritten and no route is opened.
@@ -493,40 +684,34 @@ APP_BASE_URL=$BASE_URL
 
 if [ -z "$TARGET_URL" ] && [ "$PLATFORM" = android ]
 then
-    if [ "$IS_PHYSICAL_DEVICE" -eq 0 ]
+    # `adb reverse tcp:N tcp:N` makes the TARGET's own 127.0.0.1:N arrive at the host's
+    # 127.0.0.1:N over the debugging connection. So the app keeps the base URL this script
+    # already has, and the loopback-bound reference server needs no second interface and no
+    # exposure to the network.
+    REVERSED_PORT=$(printf '%s' "$BASE_URL" | sed -n 's|.*:\([0-9][0-9]*\)$|\1|p')
+    if [ -z "$REVERSED_PORT" ]
     then
-        APP_BASE_URL=$(printf '%s' "$BASE_URL" | sed 's|//127\.0\.0\.1:|//10.0.2.2:|; s|//localhost:|//10.0.2.2:|')
-        pass "the app will use $APP_BASE_URL (the emulator's alias for the host loopback)"
-    else
-        # `adb reverse tcp:N tcp:N` makes the DEVICE's own 127.0.0.1:N arrive at the
-        # host's 127.0.0.1:N over the debugging connection. So the app keeps the base URL
-        # this script already has, and the loopback-bound reference server needs no
-        # second interface and no exposure to the network.
-        REVERSED_PORT=$(printf '%s' "$BASE_URL" | sed -n 's|.*:\([0-9][0-9]*\)$|\1|p')
-        if [ -z "$REVERSED_PORT" ]
-        then
-            fail "no port could be read from $BASE_URL, so no route to it can be opened"
-            exit 1
-        fi
-        if ! adb -s "$TARGET" reverse "tcp:$REVERSED_PORT" "tcp:$REVERSED_PORT" > /dev/null 2>&1
-        then
-            REVERSED_PORT=''
-            fail "the device refused a reverse route for port $REVERSED_PORT"
-            fail 'without it the device reaches nothing on this machine'
-            fail 'name a server it can reach instead: SPFN_HARNESS_TARGET_URL=http://<host>:<port>'
-            exit 1
-        fi
-        pass "the device reaches $BASE_URL through an adb reverse route on port $REVERSED_PORT"
+        fail "no port could be read from $BASE_URL, so no route to it can be opened"
+        exit 1
     fi
+    if ! adb -s "$TARGET" reverse "tcp:$REVERSED_PORT" "tcp:$REVERSED_PORT" > /dev/null 2>&1
+    then
+        REVERSED_PORT=''
+        fail "the target refused a reverse route for port $REVERSED_PORT"
+        fail 'without it the target reaches nothing on this machine'
+        fail 'name a server it can reach instead: SPFN_HARNESS_TARGET_URL=http://<host>:<port>'
+        exit 1
+    fi
+    pass "the target reaches $APP_BASE_URL through an adb reverse route on port $REVERSED_PORT"
 fi
 
 # Which cases this run is required to complete, decided here where both the target and
 # the caller's declaration are known. Announced either way: a case that silently left the
 # list is the failure this whole script is built to refuse.
-CASES=$LIFECYCLE_CASES
+BATCH_CASES=$LIFECYCLE_CASES
 if [ "$REVOCATION_OPS" = "1" ]
 then
-    CASES="$CASES
+    BATCH_CASES="$BATCH_CASES
 $REVOCATION_CASES"
     pass 'the caller declared the target implements revocation; c10 is expected'
 else
@@ -535,6 +720,16 @@ else
     printf '  --    with CONTRACT_UNSUPPORTED. Export SPFN_HARNESS_REVOCATION_OPS=1 against a\n'
     printf '  --    target that really implements it.\n'
 fi
+
+# Every case this run must complete, batched and per-cell alike. Section 5 checks a
+# receipt for each of these, so a cell that quietly left the list is the exact failure
+# this script is built to refuse.
+#
+# The approval cells are in the list and NOT in the batch: each needs a device request
+# parked on the server before its own launch, and the user code that request is issued is
+# different every time.
+CASES="$BATCH_CASES
+$APPROVAL_CASES"
 
 # ---------------------------------------------------------------------------
 printf '\n3. building and installing the harness\n'
@@ -571,10 +766,31 @@ else
     adb -s "$TARGET" install -r "$ANDROID_APK" > /dev/null
     pass "installed $ANDROID_APPLICATION_ID on $TARGET"
     APP_ID=$ANDROID_APPLICATION_ID
+
+    # The one host this build lets the app reach in the clear, held against the one this
+    # run is about to hand it. Here because the config is written by the build and read by
+    # the first flow, so this is the only point where both values exist and nothing has
+    # been spent yet: a mismatch costs a whole run to diagnose from the other end.
+    PERMITTED_HOSTS=$(cleartext_hosts "$ANDROID_NETWORK_SECURITY_CONFIG" | tr '\n' ' ' | sed 's/ *$//')
+    if ! cleartext_permits "$ANDROID_NETWORK_SECURITY_CONFIG" "$APP_BASE_URL"
+    then
+        if [ ! -f "$ANDROID_NETWORK_SECURITY_CONFIG" ]
+        then
+            fail "the build wrote no cleartext exception at $ANDROID_NETWORK_SECURITY_CONFIG"
+        else
+            fail "this build permits cleartext to ${PERMITTED_HOSTS:-no host at all}"
+            fail "and the app will be pointed at $(url_host "$APP_BASE_URL")"
+        fi
+        fail 'every call to any other host is refused before it leaves the app, and arrives'
+        fail 'at a receipt as err:connectivity on each cell that touches the network'
+        fail 'the permitted host is the local.properties key spfn.harness.serverBaseUrl'
+        exit 1
+    fi
+    pass "the build permits cleartext to $PERMITTED_HOSTS, which is where the app is pointed"
 fi
 
 # ---------------------------------------------------------------------------
-printf '\n4. the flows\n'
+printf '\n4a. the lifecycle flows\n'
 # ---------------------------------------------------------------------------
 # ONE maestro invocation for every case, not one per case.
 #
@@ -589,7 +805,7 @@ printf '\n4. the flows\n'
 # receipt. Section 5 then checks the receipts exactly as before.
 REPORT="$WORK/report.xml"
 FLOW_FILES=''
-for CASE in $CASES
+for CASE in $BATCH_CASES
 do
     FLOW_FILES="$FLOW_FILES $FLOWS/$CASE.yaml"
 done
@@ -611,7 +827,7 @@ then
     fail 'maestro wrote no report, so no case can be said to have run'
     sed 's/^/      /' "$WORK/maestro.log" | tail -40
 else
-    for CASE in $CASES
+    for CASE in $BATCH_CASES
     do
         # A case earns a receipt only when the report names it AND records no failure for
         # it. `case_status` exits non-zero for both "not in the report" and "failed",
@@ -632,6 +848,84 @@ then
     printf '  --    maestro output:\n'
     sed 's/^/      /' "$WORK/maestro.log" | tail -40
 fi
+
+# ---------------------------------------------------------------------------
+printf '\n4b. the approval cells, with this runner as the waiting device\n'
+# ---------------------------------------------------------------------------
+# One maestro invocation per cell here, and the batch's reason for not doing that does not
+# apply: these three cells cannot share a launch. Each needs a device request parked on the
+# server first, and the user code that request is issued is different every time, so the
+# code has to reach maestro as a variable of that invocation.
+#
+# The receipt is earned exactly as the batch's is — through `case_status` on this cell's
+# own JUnit report — and then a second time by the SERVER. Both must hold: a flow that
+# passed every on-screen assertion while the server still held the request `pending` has
+# proved something about a screen and nothing about the SDK, and a receipt for it would be
+# the most expensive kind of green there is.
+for CASE in $APPROVAL_CASES
+do
+    # What each cell types, and what the server must report afterwards. d3 types a code
+    # nobody was issued, so the request this runner parked has to be untouched by it —
+    # which is a stronger claim than "the screen showed an error", and the only one that
+    # rules out a phone acting on somebody else's request.
+    case "$CASE" in
+        d1-approve) TYPED='' ; EXPECTED_POLL=approved ;;
+        d2-deny) TYPED='' ; EXPECTED_POLL=DeviceAuthDeniedError ;;
+        d3-unknown-code) TYPED=$UNKNOWN_USER_CODE ; EXPECTED_POLL=pending ;;
+        *)
+            FLOW_STATUS=1
+            fail "$CASE has no declared user code or poll expectation"
+            continue
+            ;;
+    esac
+
+    PARKED=$(park_device_request "$BASE_URL" || true)
+    if [ -z "$PARKED" ]
+    then
+        FLOW_STATUS=1
+        fail "$CASE — no device request could be parked, so the cell was not run"
+        continue
+    fi
+    PARKED_USER_CODE=${PARKED% *}
+    PARKED_DEVICE_CODE=${PARKED#* }
+    if [ -z "$TYPED" ]
+    then
+        TYPED=$PARKED_USER_CODE
+    fi
+
+    CASE_REPORT="$WORK/report-$CASE.xml"
+    maestro --device "$TARGET" test "$FLOWS/$CASE.yaml" \
+        --format junit \
+        --output "$CASE_REPORT" \
+        -e APP_ID="$APP_ID" \
+        -e BASE_URL="$APP_BASE_URL" \
+        -e PROVIDER="$PROVIDER" \
+        -e TEST_USER="$TEST_USER" \
+        -e ID_TOKEN="${SPFN_HARNESS_ID_TOKEN-}" \
+        -e USER_CODE="$TYPED" \
+        > "$WORK/maestro-$CASE.log" 2>&1 || true
+
+    if [ ! -f "$CASE_REPORT" ] || ! case_status "$CASE_REPORT" "$CASE"
+    then
+        FLOW_STATUS=1
+        fail "$CASE — the flow did not pass"
+        sed 's/^/      /' "$WORK/maestro-$CASE.log" | tail -20
+        continue
+    fi
+
+    ANSWERED=$(poll_device_request "$BASE_URL" "$PARKED_DEVICE_CODE" "$EXPECTED_POLL")
+    if [ "$ANSWERED" != "$EXPECTED_POLL" ]
+    then
+        # No receipt. The flow passed and the server disagrees with it, which is the one
+        # disagreement these three cells exist to find.
+        FLOW_STATUS=1
+        fail "$CASE — the flow passed but the server answered '$ANSWERED', expected '$EXPECTED_POLL'"
+        continue
+    fi
+
+    printf '%s\n%s\n' "$PLATFORM" "$TARGET_DESCRIPTION" > "$RECEIPTS/$PLATFORM-$CASE"
+    pass "$CASE (server answered $ANSWERED)"
+done
 
 # ---------------------------------------------------------------------------
 printf '\n5. every case really ran\n'

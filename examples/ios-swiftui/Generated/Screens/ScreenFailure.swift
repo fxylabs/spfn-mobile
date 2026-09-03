@@ -33,7 +33,11 @@ public enum ScreenFailure
     }
 
     /// The server's own envelope where there is one, and a local one where there is
-    /// not. The message carries the SDK's own case name and never any server text.
+    /// not. The message carries the name of the SDK type that failed and never any
+    /// server text.
+    ///
+    /// `Error` and not `SPFNClientError`: the SDK throws more than that one type, and
+    /// a screen that could not name what it caught would have nothing to show for it.
     public static func envelope(_ error: Error) -> SPFNErrorEnvelope
     {
         switch error

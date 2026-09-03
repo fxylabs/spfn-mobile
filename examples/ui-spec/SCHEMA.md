@@ -155,19 +155,39 @@ An operation with no response type at all cannot be a `source`: there is nothing
 screen to show. It is refused under rule 5's family — a source must name a method whose
 operation declares a response.
 
-## What the generator writes
+## What the generator writes, and for whom
 
-Everything below is generated. Nothing under a `Generated/` or `generated/` directory is
-edited by hand; the verify task deletes what is stale and fails on what has drifted.
+One spec, more than one consumer. Which app a run writes into is a **target**: the caller
+supplies the two output roots, the Kotlin package and the application id, and the
+generator names no app of its own. Two targets ship today, one Gradle task each:
 
-    examples/ios-swiftui/Generated/Services/…            the service protocol and its default impl
-    examples/ios-swiftui/Generated/Flows/…               the route enum, the flow, the flow host
-    examples/ios-swiftui/Generated/Screens/…             one model per screen, plus any use case
-    examples/ios-swiftui/Generated/Views/…               one view skeleton per screen
-    examples/android-compose/src/main/kotlin/…/generated/…  the same seven files in Kotlin
-    examples/ui-spec/generated/device-approval.cases.json   the case table
-    examples/ui-spec/generated/device-approval.cases.md     the same table for a reader
-    examples/ui-spec/generated/flows/<cell>.yaml            one Maestro flow per runnable cell
+| Target | Task | Swift root | Kotlin root | Table and flows |
+| --- | --- | --- | --- | --- |
+| `example` | `:ui-codegen:spfnGenerateUi` | `examples/ios-swiftui/Generated` | `examples/android-compose/src/main/kotlin/…/example/generated` | yes |
+| `harness` | `:ui-codegen:spfnGenerateHarnessUi` | `tools/harness/ios/GeneratedUI` | `tools/harness/android/src/main/kotlin/…/harness/generated` | no |
+
+The case table and the Maestro flows are the **spec's** artefacts and not an app's: they
+name cells, fixtures and expectations, and one app installs the fixtures those cells run
+against. So exactly one target declares a table root. The harness drives the same screens
+against a real reference server through flows of its own
+(`tools/harness/flows/d1-approve.yaml` and its two siblings), and a second copy of the
+table there would claim coverage nothing provides.
+
+Everything below is generated. Nothing under a `Generated/`, `GeneratedUI/` or
+`generated/` directory is edited by hand; the verify task deletes what is stale and fails
+on what has drifted.
+
+    <swift root>/Services/…            the service protocol and its default impl
+    <swift root>/Flows/…               the route enum, the flow, the flow host
+    <swift root>/Screens/…             one model per screen, plus any use case
+    <swift root>/Views/…               one view skeleton per screen
+    <kotlin root>/…                    the same nine files in Kotlin
+
+and, for the target that declares a table root:
+
+    <table root>/device-approval.cases.json   the case table
+    <table root>/device-approval.cases.md     the same table for a reader
+    <table root>/flows/<cell>.yaml            one Maestro flow per runnable cell
 
 Selector rules, which both platforms and both runners share:
 

@@ -1,0 +1,58 @@
+# SPFN Mobile — cell d2: denying a waiting device, end to end.
+#
+# d1's flow with the other decision. It is a separate cell rather than a branch because
+# the two answers differ on the wire as well as on the screen: `approve` answers 200 with
+# a body and `deny` answers 204 with none, and the `http=` readout is what says the SDK
+# read the difference rather than guessed it.
+#
+# The runner's own assertion is the other half: after this flow the server must report the
+# request `denied`, and a phone that closed its flow without sending anything would leave
+# it `pending`. See d1-approve.yaml for why both ends are asserted.
+
+appId: ${APP_ID}
+name: d2-deny
+---
+- runFlow: reach-enrolled.yaml
+
+- tapOn:
+    id: "btn_open_approve"
+
+- extendedWaitUntil:
+    visible:
+      id: "enterCode.userCode"
+    timeout: 20000
+
+- tapOn:
+    id: "enterCode.userCode"
+- inputText: ${USER_CODE}
+
+- tapOn:
+    id: "enterCode.submit"
+
+- extendedWaitUntil:
+    visible:
+      text: "state=ready"
+    timeout: 20000
+
+- tapOn:
+    id: "reviewDevice.deny"
+
+- extendedWaitUntil:
+    visible:
+      text: "stack=0"
+    timeout: 20000
+
+# 204, not 200: the operation declares no response body and the SDK is required to read a
+# bodyless answer as success rather than as a decoding failure.
+# A wait rather than a bare assertion, and the reason is a race worth naming: the
+# response is recorded on whichever thread it arrived on and the readout is written from
+# a hop onto the main one, while the flow's own `close` is a second main-thread job. The
+# two are enqueued microseconds apart and nothing orders them, so `stack=0` can be drawn
+# first. Waiting costs nothing when they land in the other order.
+- extendedWaitUntil:
+    visible:
+      text: "http=204"
+    timeout: 20000
+
+- assertVisible:
+    text: "http=204"

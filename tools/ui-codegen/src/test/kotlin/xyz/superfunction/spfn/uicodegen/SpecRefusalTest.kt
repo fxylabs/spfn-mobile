@@ -29,6 +29,29 @@ class SpecRefusalTest
     private val specPath = "examples/ui-spec/device-approval.json"
     private val specText: String = File(repoRoot, specPath).readText(Charsets.UTF_8)
 
+    /**
+     * The consumer every case here generates for.
+     *
+     * Deliberately NOT either shipped target. The generator takes the roots, the package
+     * and the application id as arguments, and a suite that passed the real example
+     * target's values would be checking the generator against the one arrangement its
+     * Gradle task already checks — a target this suite invented is what proves the fields
+     * are read rather than remembered. Nothing is written: `generate` returns a map.
+     */
+    private val target = Target(
+        name = "suite",
+        swiftRoot = "Suite/Generated",
+        kotlinRoot = "suite/kotlin/probe/generated",
+        kotlinPackage = "probe.generated",
+        appId = "probe.app",
+        tableRoot = "suite/cases",
+        generateTask = ":ui-codegen:spfnGenerateSuiteUi",
+        verifyTask = ":ui-codegen:spfnSuiteUiVerify"
+    )
+
+    private fun generate(repoRoot: File, specPath: String): Map<String, String> =
+        generate(repoRoot, specPath, target)
+
     /** Writes a mutated spec under the module's build directory and answers its repo path. */
     private fun withSpec(name: String, text: String): String
     {
@@ -176,7 +199,7 @@ class SpecRefusalTest
 
         assertEmits(
             generated,
-            "${KotlinEmitter.ROOT}/screens/AuditDeviceModel.kt",
+            "${target.kotlinRoot}/screens/AuditDeviceModel.kt",
             "class AuditDeviceModel(\n" +
                 "    private val deviceAudit: DeviceAuditService,\n" +
                 "    private val flow: Flow<ApproveDeviceRoute>,\n" +
@@ -185,7 +208,7 @@ class SpecRefusalTest
         );
         assertEmits(
             generated,
-            "${SwiftEmitter.ROOT}/Screens/AuditDeviceModel.swift",
+            "${target.swiftRoot}/Screens/AuditDeviceModel.swift",
             "    public init(\n" +
                 "        deviceAudit: any DeviceAuditService,\n" +
                 "        flow: Flow<ApproveDeviceRoute>,\n" +
@@ -194,10 +217,10 @@ class SpecRefusalTest
         );
 
         // And a screen that names no service at all is given none, on either platform.
-        assertEmits(generated, "${KotlinEmitter.ROOT}/screens/LeafletModel.kt", "class LeafletModel(\n    private val flow: Flow<ApproveDeviceRoute>\n)");
-        assertEmits(generated, "${SwiftEmitter.ROOT}/Screens/LeafletModel.swift", "    public init(\n        flow: Flow<ApproveDeviceRoute>\n    )");
-        assertEmits(generated, "${KotlinEmitter.ROOT}/AppContainer.kt", "LeafletModel(approveDeviceFlow);");
-        assertEmits(generated, "${SwiftEmitter.ROOT}/AppContainer.swift", "LeafletModel(flow: approveDeviceFlow)");
+        assertEmits(generated, "${target.kotlinRoot}/screens/LeafletModel.kt", "class LeafletModel(\n    private val flow: Flow<ApproveDeviceRoute>\n)");
+        assertEmits(generated, "${target.swiftRoot}/Screens/LeafletModel.swift", "    public init(\n        flow: Flow<ApproveDeviceRoute>\n    )");
+        assertEmits(generated, "${target.kotlinRoot}/AppContainer.kt", "LeafletModel(approveDeviceFlow);");
+        assertEmits(generated, "${target.swiftRoot}/AppContainer.swift", "LeafletModel(flow: approveDeviceFlow)");
     }
 
     /**
@@ -212,7 +235,7 @@ class SpecRefusalTest
 
         assertEmits(
             generated,
-            "${KotlinEmitter.ROOT}/screens/ReviewDeviceModel.kt",
+            "${target.kotlinRoot}/screens/ReviewDeviceModel.kt",
             "class ReviewDeviceModel(\n" +
                 "    private val useCase: ReviewDeviceUseCase,\n" +
                 "    private val deviceApproval: DeviceApprovalService,\n" +
@@ -223,29 +246,29 @@ class SpecRefusalTest
         );
         assertEmits(
             generated,
-            "${KotlinEmitter.ROOT}/screens/ReviewDeviceModel.kt",
+            "${target.kotlinRoot}/screens/ReviewDeviceModel.kt",
             "deviceAudit.deny(SpfnDenyDeviceAuthRequest(userCode = userCode));"
         );
         assertEmits(
             generated,
-            "${SwiftEmitter.ROOT}/Screens/ReviewDeviceModel.swift",
+            "${target.swiftRoot}/Screens/ReviewDeviceModel.swift",
             "    private let deviceApproval: any DeviceApprovalService\n" +
                 "    private let deviceAudit: any DeviceAuditService\n"
         );
         assertEmits(
             generated,
-            "${SwiftEmitter.ROOT}/Screens/ReviewDeviceModel.swift",
+            "${target.swiftRoot}/Screens/ReviewDeviceModel.swift",
             "try await deviceAudit.deny(SPFNDenyDeviceAuthRequest(userCode: userCode))"
         );
 
         assertEmits(
             generated,
-            "${KotlinEmitter.ROOT}/AppContainer.kt",
+            "${target.kotlinRoot}/AppContainer.kt",
             "ReviewDeviceModel(DefaultReviewDeviceUseCase(deviceApproval), deviceApproval, deviceAudit, approveDeviceFlow, userCode);"
         );
         assertEmits(
             generated,
-            "${SwiftEmitter.ROOT}/AppContainer.swift",
+            "${target.swiftRoot}/AppContainer.swift",
             "ReviewDeviceModel(useCase: DefaultReviewDeviceUseCase(service: deviceApproval), deviceApproval: deviceApproval, " +
                 "deviceAudit: deviceAudit, flow: approveDeviceFlow, userCode: userCode)"
         );
@@ -383,9 +406,9 @@ class SpecRefusalTest
 
     private fun copyInto(root: File, relative: String)
     {
-        val target = File(root, relative);
-        target.parentFile?.mkdirs();
-        File(repoRoot, relative).copyTo(target, overwrite = true);
+        val destination = File(root, relative);
+        destination.parentFile?.mkdirs();
+        File(repoRoot, relative).copyTo(destination, overwrite = true);
     }
 
     /** Every file under [root], by path relative to it, sorted. */
@@ -454,7 +477,7 @@ class SpecRefusalTest
     @Test
     fun `changing one then changes at least one cell`()
     {
-        val table = "examples/ui-spec/generated/device-approval.cases.json";
+        val table = "${target.tableRoot}/device-approval.cases.json";
         val before = generate(repoRoot, specPath).getValue(table);
         val mutated = withSpec(
             "discriminate.json",
@@ -465,5 +488,54 @@ class SpecRefusalTest
         );
         val after = generate(repoRoot, mutated).getValue(table);
         assertNotEquals("the case table did not move when the spec did", before, after);
+    }
+
+    /**
+     * Every Kotlin screen method has to catch wider than the client's own hierarchy.
+     *
+     * `catch (failure: SpfnClientError)` is what these were until 2f, and it looks right:
+     * it is the taxonomy a server's answers arrive as, and it lets cancellation past. It
+     * lets everything else past too. `SpfnClockSynchronizationException` is an
+     * `IllegalStateException` raised before a request leaves, and on the 2026-09-03
+     * emulator run it went through `EnterCodeModel.submit` and took the process with it —
+     * three cells, no assertion anywhere near them, because the case table's fixtures
+     * throw `SpfnClientError` and nothing else could reach that branch (P26).
+     *
+     * Read off the emitted text because that is the only place this host can see it: the
+     * example app compiles these files, but a compiler is satisfied by the narrow catch
+     * and the crash needs a device. A count is asserted for each clause so a rename that
+     * emptied the read would pass the loop having read nothing (P7) — four calls across
+     * the two screens, one on `enterCode` and three on `reviewDevice`.
+     */
+    @Test
+    fun `every generated Kotlin call catches wider than SpfnClientError`()
+    {
+        val models = generate(repoRoot, specPath)
+            .filterKeys { it.startsWith("${target.kotlinRoot}/screens/") && it.endsWith("Model.kt") };
+        assertEquals("the generator wrote no Kotlin screen models to read", 2, models.size);
+
+        var wide = 0;
+        var cancellation = 0;
+        models.forEach { (path, content) ->
+            assertTrue(
+                "$path still catches only the client's own hierarchy",
+                !content.contains("catch (failure: SpfnClientError)")
+            );
+            wide += content.split("catch (failure: Exception)").size - 1;
+            cancellation += content.split("catch (cancelled: CancellationException)").size - 1;
+        };
+        assertEquals("a call is not caught wide enough to survive what the SDK throws", 4, wide);
+        assertEquals("a call classifies the cancellation it must rethrow", 4, cancellation);
+
+        // Order decides which clause wins, and Kotlin takes the first that matches.
+        assertEmits(
+            generated = models,
+            path = "${target.kotlinRoot}/screens/EnterCodeModel.kt",
+            expected = "        catch (cancelled: CancellationException)\n" +
+                "        {\n" +
+                "            throw cancelled;\n" +
+                "        }\n" +
+                "        catch (failure: Exception)\n"
+        );
     }
 }

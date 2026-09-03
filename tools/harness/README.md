@@ -22,10 +22,12 @@ sh tools/harness/run-harness.sh android
 | `ios/Harness.xcconfig` | the device mode's keys, declared empty, plus an optional include of the gitignored `Local.xcconfig` |
 | `ios/HarnessSupport/` | a SwiftPM package that enables the two adapter traits, and holds the harness rules that have tests |
 | `android/` | the same app in Kotlin, as the one application module in this repository |
-| `flows/` | the Maestro flows, one per cell of the case table below |
+| `ios/GeneratedUI/`, `android/…/harness/generated/` | the approval screens, written by `tools/ui-codegen`. Nothing in either is edited by hand |
+| `flows/` | the Maestro flows, one per cell of the two case tables below |
 | `run-harness.sh` | builds, installs, runs every flow, and fails unless every case left a receipt |
 | `probe-receipts.sh` | proves a receipt cannot be earned by a case that did not pass |
 | `probe-target-refusal.sh` | proves a physical iPhone cannot be mistaken for a simulator |
+| `probe-cleartext-host.sh` | proves the run refuses to start against a host the app may not reach |
 
 ## The case table
 
@@ -56,6 +58,62 @@ SPFN_HARNESS_REVOCATION_OPS=1 sh tools/harness/run-harness.sh ios
 Out of scope is announced, never skipped quietly. A case that silently left the expected
 list would turn the receipts — the only thing standing between this repository and a run
 that reports coverage it did not have — into decoration.
+
+## The second consuming app
+
+This harness is not only a screen of buttons any more. `tools/ui-codegen` emits the
+device-approval screens from `examples/ui-spec/device-approval.json` into two apps: the
+example apps under `examples/`, and this one. Same spec, same generator, two targets —
+`:ui-codegen:spfnGenerateHarnessUi` writes this half and `:ui-codegen:spfnHarnessUiVerify`
+fails when it has drifted.
+
+Why a second consumer, when the example apps already compile those screens: the example
+apps drive them against FIXTURES. Eighteen cells prove the screens' rules — what a second
+press during a call in flight does, what an answer arriving after its flow closed does —
+and not one of them proves that the request the screen sends is one a server accepts, or
+that the answer it gets back is one the SDK can read. A fixture cannot answer that. This
+app can, because it is already the app with a real transport, a real key and a real
+reference server behind it.
+
+What that costs the harness is a text field and three buttons it used to have. The
+approver's `info`, `approve` and `deny` were wired up by hand here — a second
+implementation of screens the generator emits — and they are gone. One button opens the
+generated flow, and everything after it belongs to `GeneratedUI/` and
+`android/…/harness/generated/`.
+
+### The approval cells
+
+| cell | what the phone does | what the screen must say | what the SERVER must say |
+| --- | --- | --- | --- |
+| `d1-approve` | types the code and approves the waiting device | flow closed, `stack=0`, `http=200` | the request is `approved` |
+| `d2-deny` | types the code and denies it | flow closed, `stack=0`, `http=204` | the request is `denied` |
+| `d3-unknown-code` | types `ZZZZ-ZZZZ`, which was never issued | still on `enterCode`, `stack=1`, `state=error` | the parked request is still `pending` |
+
+**Two assertions per cell, and both are needed.** `run-harness.sh` plays the waiting
+device: before each cell it parks a device request with the reference server over `curl`
+— `auth.device.start`, whose body carries a freshly generated P-256 key, because the
+server checks that `fingerprint` is the SHA-256 of the decoded `publicKey` and the poll
+that collects an approval parses those bytes as a key. It runs the flow with that
+request's user code, and afterwards polls with the device code, up to ten times a second
+apart.
+
+A cell earns its receipt only when the flow passed AND the server agrees. A phone that
+closed its flow without sending anything would pass every on-screen assertion and leave
+the server holding the request `pending`, which is precisely the disagreement these three
+cells exist to find. `d3` is the sharpest of the three: it types a code nobody was issued,
+and the request this runner parked must be untouched afterwards — a stronger claim than
+"the screen showed an error", and the only one that rules out a phone acting on somebody
+else's request.
+
+`d3`'s screen assertion stops at "an error is shown". The refusal's classification is the
+server's to choose — an unknown code and a spent one are answered alike on purpose, so a
+guess that landed cannot be told from one that did not — and a flow asserting a particular
+code would be asserting a choice this repository does not own.
+
+The three cells run one maestro invocation each, where the ten lifecycle cells share one.
+That is not a preference: each needs a device request that exists before its launch, and
+the user code the server issues for it is different every time, so it has to reach maestro
+as a variable of that invocation.
 
 ## What runs where
 
@@ -88,25 +146,36 @@ may or may not have applied the request. So the flows reach that state by droppi
 network mid-rotation, through a harness button over the injected transport. Nothing in the
 SDK changed to allow it — the transport is injected, which is what the boundary is for.
 
-**The emulator's `127.0.0.1` is the emulator.** The reference server binds to the host's
-loopback address, and how a target reaches that address is different for each kind:
+**The app's `127.0.0.1` has to really be the host's.** The reference server binds to the
+host's loopback address, and every target reaches that address as loopback:
 
 | Target | How it reaches the reference server |
 | --- | --- |
 | iOS simulator | shares the host's network stack; `127.0.0.1` already works |
-| Android emulator | `10.0.2.2`, its own alias for the host loopback — the runner rewrites the URL |
-| Android device | `adb reverse`, opened by the runner and removed when the run ends |
+| Android emulator | `adb reverse`, opened by the runner and removed when the run ends |
+| Android device | the same `adb reverse`; nothing about the two differs here |
 
-`adb reverse` is why an Android phone needs no extra setup: the device's own `127.0.0.1`
-arrives at the host's over the debugging connection, so the server stays on loopback and
-is never exposed to the network.
+`adb reverse` is why neither Android target needs extra setup: the target's own
+`127.0.0.1` arrives at the host's over the debugging connection, so the server stays on
+loopback and is never exposed to the network.
+
+**Why not the emulator's own alias.** An emulator reaches the host loopback at `10.0.2.2`
+too, and the runner used to rewrite the base URL to it. The SDK will not have that: it
+synchronizes its proof clock over plain HTTP to loopback only — `isTrusted` in
+`android/spfn-client/src/main/kotlin/xyz/superfunction/spfn/client/SpfnClock.kt` admits
+`https`, `localhost`, `::1` and `127.*`, and answers anything else with
+`SpfnClockSynchronizationException.UntrustedBaseUrl`. On the 2d run that split the cells
+in two: registration and resume passed, and every cell needing a proof came back
+`err:clockSynchronization:untrustedBaseURL`. The SDK's rule is the right one — a clock a
+plaintext third party can set is a clock an attacker can set — so the runner gives the
+emulator the same loopback route it gives a phone.
 
 **On Android, that address also has to be the one the build permits.** The app speaks
 plain HTTP to exactly one host — the one `spfn.harness.serverBaseUrl` names — and to
-nothing else, so an emulator run puts `10.0.2.2` in that key and a device run behind
-`adb reverse` puts `127.0.0.1`. The alternative was to keep permanent exceptions for all
-three loopback spellings, which would make the exception a standing grant to addresses no
-run had named. See the device sign-in section below for the key.
+nothing else, so a Maestro run on either Android target puts `127.0.0.1` in that key. The
+alternative was to keep permanent exceptions for all three loopback spellings, which would
+make the exception a standing grant to addresses no run had named. See the device sign-in
+section below for the key.
 
 A physical iPhone is missing from that table because it never gets that far — the next
 section is why.
@@ -229,15 +298,56 @@ the phone — those are the two platform sections that follow this one.
 
 ### The screen
 
-Top to bottom, the same on both:
+**What a runner taps is in the first viewport.** That is the rule the order follows, on
+both platforms, and it is not a preference. Compose's `verticalScroll` and SwiftUI's
+`ScrollView` both publish only the nodes overlapping the viewport to the accessibility
+tree, so a control below the fold does not exist for the runner and Maestro's `tapOn` will
+not scroll to find it (`docs/IMPLEMENTATION-PITFALLS.md` P25). So the readouts and every
+control a flow taps come first, and what is left below is the half a person scrolls to on
+purpose.
+
+The two screens are the same screen. They draw the same parts in the same order, with the
+same ids and the same readout text, and each one measured its own runner block against its
+own phone — the Android grid ends about 97dp above the fold on a Pixel 3a API 34, the iOS
+grid about 85pt above it on an iPhone 17 Pro. The arithmetic is in `RunnerBlock`'s KDoc
+and `runnerBlock`'s doc comment respectively.
+
+Top to bottom:
 
 | Part | What it is |
 | --- | --- |
-| the readouts | `state=`, `outcome=`, `busy=`, `network=`, `custody=`, `case=`, the configuration line, `receipt=`. A flow matches these by their text, never by an id |
-| `case (pick one)` | the five cases as one boxed single-choice selector |
-| the precondition line | what the selected case asks you to do at the sheet |
-| `sign-in-apple`, `sign-in-google` | the only two things in this mode that do anything. Android has the Google one only |
-| `sdk lifecycle (flows)` | a divider, and under it the ten buttons the Maestro flows tap — `enroll`, `rotate`, `resume`, `revoke`, `proven-call`, `note-revoked`, `wipe`, `custody-probe`, `block-network`, `open-network` |
+| the readouts | `state=`, `outcome=`, `busy=`, `network=`, `custody=`, `case=`, the configuration line, `receipt=`, `device-code=`, `expires-in=`, `stack=`, `http=`. A flow matches these by their text, never by an id |
+| `sdk lifecycle (flows)` | a divider, and under it the eleven controls the Maestro flows tap, two to a row: `enroll`, `rotate`, `resume`, `revoke`, `proven-call`, `note-revoked`, `wipe`, `custody-probe`, `block-network`, `open-network`, and `open-approve`, which opens the generated approval screens over everything above and is disabled without an active key — the approval calls are proven ones |
+| `device verification` | `case (pick one)`, the five cases as one boxed single-choice selector; the precondition line, which is what the selected case asks you to do at the sheet; and `sign-in-apple` / `sign-in-google`, the only two things in this mode that do anything. Android has the Google one only |
+| `device code` | `sign-in-with-a-code`, which signs THIS device in |
+
+The two blocks are named in the Android screen as `RunnerBlockTags` and `HumanBlockTags`,
+and `HarnessRunnerBlockTest` reads every `id:` selector out of `flows/` and asserts they
+are the first list and never the second. The block's HEIGHT is not something a JVM can
+answer — a device run is what proves the grid ends above the fold.
+
+The iOS screen has no such test, and cannot have one here: `ios/Sources/` belongs to no
+SwiftPM package — it is listed by `ios/project.yml` and compiled by Xcode on a Mac and
+nowhere else — so nothing on a Linux CI machine can read it. A run of
+`sh tools/harness/run-harness.sh ios` is the whole of that half's evidence, which is why
+this order was wrong there for a day after Android's was fixed: the README said SwiftUI
+kept its offscreen children in the hierarchy, nothing measured the claim, and all twelve
+cells then failed at `btn_wipe` on an iPhone 17 Pro. Both screens now put `open-approve`
+in the runner grid rather than beside `sign-in-with-a-code`, where the two halves of one
+feature would otherwise belong.
+
+The last two readouts belong to the generated flow. `stack=` is its own depth, spelled
+exactly as the generated screens spell it — a flow that is open draws the number twice,
+and the two agree because they are one flow read twice rather than two counters. `http=`
+is the status of the last response the transport received, which is what tells a 200 from
+a 204 when a screen shows the same thing either way.
+
+The Android half is Jetpack Compose and the iOS half is SwiftUI, and neither draws above
+its platform's foundation layer. A control is found by the id it carries — on Android a
+Compose test tag, published as the resource id a runner selects on by
+`testTagsAsResourceId` on the root — and a readout is found by its text. That is the same
+split the generated example screens use, so this repository now has one rule for it rather
+than one per app.
 
 **One tap is one attempt.** Every device-mode attempt wipes before it asks the provider for
 anything, so there is nothing to remember and no order to get wrong. The first device run
@@ -311,23 +421,26 @@ wanted; a build that finds no keys at all **succeeds**, and the app installs wit
 outcomes are different on purpose: an absent configuration is a normal checkout, and a
 typo in a configured one must not look like the same thing.
 
-The disabled button is the one titled `sign-in-google`. Its resource id is
-`btn_social_google`, which is what it has always been — a selector matches the id, and
-renaming one to agree with a title would break every selector that names it in exchange for
-nothing.
+The disabled button is the one titled `sign-in-google`. Its id is `btn_social_google`,
+which is what it has always been — a selector matches the id, and renaming one to agree with
+a title would break every selector that names it in exchange for nothing.
 
 `spfn.harness.serverBaseUrl` also drives the cleartext exception. `AndroidManifest.xml` no
 longer says "this app may speak plain HTTP to anything"; the build writes a network
 security configuration permitting cleartext to **exactly the host that key names** and to
 nothing else. A build configured with no server permits cleartext to nothing at all.
 
+An Android run checks that host against the address it is about to hand the app, after the
+build and before the first flow, and refuses to go on when they differ — naming both, and
+the key to correct (`probe-cleartext-host.sh` proves the refusal bites).
+
 That is one host, not a set, and it decides what every run on this platform can reach:
 
 | Run | What goes in `spfn.harness.serverBaseUrl` |
 | --- | --- |
 | device sign-in against a LAN server | that machine's address |
-| Maestro flows on an emulator | `10.0.2.2`, the emulator's alias for the host loopback |
-| Maestro flows on a device behind `adb reverse` | `127.0.0.1` |
+| Maestro flows on an emulator | `127.0.0.1`, reached through `adb reverse` |
+| Maestro flows on a phone | `127.0.0.1`, the same route and the same key |
 
 A request to a host the build does not name is refused by the platform, before it leaves.
 
@@ -341,11 +454,11 @@ Then, on the phone: pick the case in the selector, tap `sign-in-google`, and com
 dismiss the sheet. That is the whole attempt — see **The device sign-in mode** above for
 the screen and the five cases, which are the same here as on iOS.
 
-The selector is a `RadioGroup`, which is this platform's own way of saying "exactly one of
-these": it holds the invariant itself instead of leaving the screen to remember it. Each row
-keeps the resource id it always had — `btn_case_first_enroll` through
-`btn_case_server_reject`, declared in `res/values/ids.xml` — so anything that could already
-find a case still finds it.
+The selector holds "exactly one of these" in one field: a single case, so there is no
+arrangement of taps that selects two or none. Each row keeps the id it always had —
+`btn_case_first_enroll` through `btn_case_server_reject`, now a Compose test tag rather than
+an entry in `res/values/ids.xml` — so anything that could already find a case still finds
+it.
 
 ### Collecting the receipts
 
@@ -513,6 +626,20 @@ the app is behind the alert, showing every button. `xcrun simctl io <udid> scree
 answers the question in one command, and `xcrun simctl erase <udid>` clears the account
 along with everything else. A run that begins with nine identical element-not-found
 failures is worth one screenshot before it is worth any debugging.
+
+**On Android the same nine failures have a second cause, and the screenshot does not tell
+them apart.** A control the Compose column draws below the fold is not in the
+accessibility tree at all, so `tapOn` reports the same `Element not found` about a screen
+that is up, correct, and photographs perfectly. What separates the two is a dump rather
+than a picture: `adb shell uiautomator dump /sdcard/ui.xml` before anything is scrolled,
+and then whether the id the flow named is in it (`docs/IMPLEMENTATION-PITFALLS.md` P25).
+
+**And a third cause, which is neither the app nor the flow.** A system ANR dialog —
+`Pixel Launcher isn't responding`, `System UI isn't responding` — sits above everything,
+including the harness, and the dump gives it away immediately: it holds `android:id/aerr_*`
+nodes and nothing of the app at all. Dismissing the dialog gets one run through; a cold
+boot (`emulator -avd <name> -no-snapshot-load`, or Cold Boot Now from the device manager)
+is what stops it coming back.
 
 ## On a real Android phone
 

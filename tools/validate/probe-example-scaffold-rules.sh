@@ -11,6 +11,11 @@
 #   a. a call descriptor named outside a generated services directory fails, naming the file;
 #   b. one named INSIDE a generated services directory still passes, so the exemption is a
 #      path rule and not a blanket one;
+#   l. the same reference in a HARNESS source that is not exempt fails — the second
+#      consuming app is held to the same boundary as the first;
+#   m. one more of them in `HarnessModel.swift`, which IS exempt by name, still passes;
+#   n. an exemption list naming a file that is not in the tree fails, so the escape hatch
+#      carries the floor every reader here carries.
 #   c. a descriptor scan that reads no source fails instead of reporting none;
 #   d. `@Environment(\.dismiss)` in a generated example view fails;
 #   e. a dismiss scan that reads no source fails instead of reporting none;
@@ -62,12 +67,19 @@ CASES=examples/ui-spec/generated/device-approval.cases.json
 FLOW=examples/ui-spec/generated/flows/u1.yaml
 CELLTEST=examples/android-compose/src/test/kotlin/xyz/superfunction/spfn/example/CellTest.kt
 
+# The second consuming app: one hand-written source that may NOT name a descriptor, and
+# the one that may.
+HARNESS_SCREEN=tools/harness/android/src/main/kotlin/xyz/superfunction/spfn/harness/HarnessScreen.kt
+HARNESS_MODEL=tools/harness/ios/Sources/HarnessModel.swift
+
 cp "$ACTIVITY" "$TMP/activity.bak"
 cp "$SERVICE" "$TMP/service.bak"
 cp "$VIEW" "$TMP/view.bak"
 cp "$CASES" "$TMP/cases.bak"
 cp "$FLOW" "$TMP/flow.bak"
 cp "$CELLTEST" "$TMP/celltest.bak"
+cp "$HARNESS_SCREEN" "$TMP/harness-screen.bak"
+cp "$HARNESS_MODEL" "$TMP/harness-model.bak"
 
 restore_files()
 {
@@ -77,6 +89,8 @@ restore_files()
     cp "$TMP/cases.bak" "$CASES"
     cp "$TMP/flow.bak" "$FLOW"
     cp "$TMP/celltest.bak" "$CELLTEST"
+    cp "$TMP/harness-screen.bak" "$HARNESS_SCREEN"
+    cp "$TMP/harness-model.bak" "$HARNESS_MODEL"
 }
 
 restore()
@@ -103,7 +117,7 @@ trap 'on_signal 143' TERM
 # below is scoped to it: this repository's validator has failing checks in other sections
 # for reasons that have nothing to do with the example apps, and a probe that keyed on the
 # validator's exit status would report those as its own evidence.
-EXAMPLE_SECTION='/^14\. the example apps/,$p'
+EXAMPLE_SECTION='/^14\. the apps that consume/,$p'
 
 expect_example_fail()
 {
@@ -174,15 +188,46 @@ expect_unrunnable 'a descriptor scan that reads no source fails instead of repor
     'it did not run' \
     '/example-sources.txt/ s#-name .\*\.swift. -o -name .\*\.kt.#-name "*.no-such-suffix"#'
 
+# --- l, m, n. the second consuming app, and its two named exemptions ----------
+# tools/harness is the harness, and since it drives the generated approval screens it is
+# a consumer of the scaffold exactly as examples/ is. The rule therefore reaches it, and
+# the two `HarnessModel` files are the whole of the exception: they call three operations
+# the SDK wraps in nothing.
+sed 's#^private val Ink: Color = Color.Black;$#private val leak = SpfnGeneratedCalls.authDeviceInfo;\nprivate val Ink: Color = Color.Black;#' \
+    "$TMP/harness-screen.bak" > "$HARNESS_SCREEN"
+expect_example_fail 'a call descriptor named in a harness source that is not exempt fails' \
+    'HarnessScreen.kt'
+
+# The same reference, in the one hand-written file that is allowed it. If this failed, the
+# exemption would not be doing its job — and the harness could not reach revocation,
+# `keys.list` or the device-code login at all.
+sed 's#^import SPFNUI$#import SPFNUI\nprivate let extra = SPFNGeneratedCalls.authDeviceInfo#' \
+    "$TMP/harness-model.bak" > "$HARNESS_MODEL"
+expect_example_clean 'a call descriptor in the hand-written file exempted by name is still allowed'
+
+# The exemption is a list of names, and a name that is in the list and not in the tree is
+# an exception to nothing. Probed on a copy of the validator rather than by deleting the
+# file, because deleting `HarnessModel.swift` is not a state this tree can be left in.
+expect_unrunnable 'an exemption naming a file that is not in the tree fails' \
+    'the exemption list is stale' \
+    's#^tools/harness/ios/Sources/HarnessModel.swift$#tools/harness/ios/Sources/NoSuchModel.swift#'
+
 # --- d, e. the dismiss refusal, under a generated directory ------------------
 sed 's#^    @State private var userCode: String = ""$#    @State private var userCode: String = ""\n    @Environment(\\.dismiss) private var dismiss#' \
     "$TMP/view.bak" > "$VIEW"
 expect_example_fail 'the SwiftUI dismiss environment value in a generated example view fails' \
-    'a generated example source reaches the dismiss environment value'
+    'a generated source reaches the dismiss environment value'
 
 expect_unrunnable 'a generated dismiss scan that reads no source fails instead of reporting none' \
     'it did not run' \
     "/example-dismiss-files.txt/ s#-name '\\*\\.swift'#-name '*.no-such-suffix'#"
+
+# The dismiss scan reads BOTH apps' generated Swift, so the harness's root has to be one
+# of the two it is pointed at. Taking that root away is what says so: the count floor
+# fires rather than the scan quietly reading half of what it claims to.
+expect_unrunnable 'a dismiss scan pointed at only one of the two generated roots fails' \
+    'it did not run' \
+    "s#^SCAFFOLD_SWIFT=.*#SCAFFOLD_SWIFT='examples/ios-swiftui/Generated'#"
 
 # --- f, g. cell coverage ------------------------------------------------------
 rm -f "$FLOW"

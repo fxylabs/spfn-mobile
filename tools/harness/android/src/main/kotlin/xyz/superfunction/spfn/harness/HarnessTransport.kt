@@ -21,7 +21,9 @@ import xyz.superfunction.spfn.client.SpfnTransportResponse
  *
  * **Watching it.** A device receipt records the status the wire answered with, which no
  * layer above this one has any business knowing. See [HarnessObservation] for why the
- * recording belongs to an attempt rather than to this object.
+ * recording belongs to an attempt rather than to this object. [onResponse] is the other
+ * half of the same fact and it belongs to no attempt: it is what the `http=` readout
+ * shows, so a response no tap on this screen produced still reaches a reader.
  *
  * Nothing in the SDK changed to make either possible. The transport is injected, which is
  * what the boundary exists for.
@@ -29,6 +31,20 @@ import xyz.superfunction.spfn.client.SpfnTransportResponse
 class HarnessTransport(private val inner: SpfnTransport = SpfnOkHttpTransport()) : SpfnTransport
 {
     private val blocked = AtomicBoolean(false);
+
+    /**
+     * Called with the status of every response, on whichever thread it arrived on.
+     *
+     * Set once, by the model, so the `http=` readout follows the wire rather than being
+     * re-read whenever something else happens to redraw the screen. The generated
+     * approval screens send through this transport and report their own refusals on their
+     * own readouts; this is the only place the harness sees what the wire said.
+     *
+     * `@Volatile` for the reason [observation] is: written on the main thread at
+     * construction and read on whichever thread a request ran on.
+     */
+    @Volatile
+    var onResponse: ((Int) -> Unit)? = null;
 
     /**
      * The attempt currently being watched, or null when nothing asked to be.
@@ -66,6 +82,7 @@ class HarnessTransport(private val inner: SpfnTransport = SpfnOkHttpTransport())
         }
         val response = inner.execute(request);
         observation?.record(response);
+        onResponse?.invoke(response.statusCode);
         return response;
     }
 }

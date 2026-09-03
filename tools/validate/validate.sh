@@ -2164,9 +2164,9 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-section '14. the example apps hold the generated boundary'
+section '14. the apps that consume the scaffold hold the generated boundary'
 # ---------------------------------------------------------------------------
-# Three rules, and each of them is a rule the example apps could break silently.
+# Three rules, and each of them is a rule a consuming app could break silently.
 #
 #   a. the generated services are the ONLY place a call descriptor is named. That is the
 #      layering the whole scaffold exists to demonstrate — services, then screen models,
@@ -2180,6 +2180,12 @@ section '14. the example apps hold the generated boundary'
 #      and a `both` cell's flow may not carry a bare `- back`, because that command is
 #      Android's and does nothing at all on iOS (P22).
 #
+# TWO apps per platform are held to a and b, not one. tools/harness is the second consumer
+# of the same screen spec — it drives the generated approval screens against a live
+# reference server — so the boundary it could break silently is the same boundary, and a
+# rule scoped to examples/ would have stopped applying the moment a second consumer
+# appeared.
+#
 # Every one of them has a floor. A scan that read no file produces no hits, and no hits is
 # what a clean tree also produces — so each check states how much it read and fails when
 # that number says it did not run (docs/IMPLEMENTATION-PITFALLS.md P7).
@@ -2187,37 +2193,82 @@ EXAMPLE_CASES=examples/ui-spec/generated/device-approval.cases.json
 EXAMPLE_FLOWS=examples/ui-spec/generated/flows
 EXAMPLE_TESTS=examples/android-compose/src/test
 
+# Where a scaffold is consumed, both platforms and both apps.
+SCAFFOLD_APPS='examples tools/harness'
+
+# Every directory the ui generator owns Swift under. Named rather than globbed: the
+# harness's own `Generated/` is XcodeGen's and holds a plist, and a pattern loose enough
+# to catch `GeneratedUI` would catch that too.
+SCAFFOLD_SWIFT='examples/ios-swiftui/Generated tools/harness/ios/GeneratedUI'
+
+# The hand-written files allowed to name a call descriptor, by NAME.
+#
+# The harness reaches three operations the SDK wraps in nothing — `auth.keys.revoke`,
+# `auth.keys.list` and the device-code login — through the generated descriptors and
+# `execute`, exactly as any app would have to. That is the one legitimate reason to name a
+# descriptor outside a generated service, and it is granted to two files rather than to a
+# directory: a directory-wide exemption would silently cover every file added beside them,
+# which is a rule that fails open (docs/IMPLEMENTATION-PITFALLS.md P7).
+# One path per line, and the blank first line is deliberate: every entry then sits on a
+# line of its own, which is what makes the list readable and what lets a probe take one
+# entry away without touching the quoting around it.
+DESCRIPTOR_EXEMPT_FILES='
+tools/harness/ios/Sources/HarnessModel.swift
+tools/harness/android/src/main/kotlin/xyz/superfunction/spfn/harness/HarnessModel.kt
+'
+
 # --- a. only a generated service may name a call descriptor ------------------
 # The two spellings are one rule: SPFNGeneratedCalls on one platform, SpfnGeneratedCalls
 # on the other. Comment lines are dropped first, because a file has to be able to say what
 # it is forbidden from doing — the generated services' own headers say exactly that.
 DESCRIPTOR_SCANNED=0
 DESCRIPTOR_EXEMPT=0
+DESCRIPTOR_NAMED=0
 DESCRIPTOR_HITS=''
-find examples -type f \( -name '*.swift' -o -name '*.kt' \) | sort > "$TMP/example-sources.txt"
+# shellcheck disable=SC2086
+find $SCAFFOLD_APPS -type f \( -name '*.swift' -o -name '*.kt' \) | sort > "$TMP/example-sources.txt"
 while IFS= read -r source
 do
     DESCRIPTOR_SCANNED=$((DESCRIPTOR_SCANNED + 1))
+    # The three spellings of "a generated services directory": two Swift roots, because
+    # the harness's is `GeneratedUI/` — `Generated/` there is XcodeGen's — and one Kotlin.
     case "$source" in
-        */Generated/Services/*|*/generated/services/*)
+        */Generated/Services/*|*/GeneratedUI/Services/*|*/generated/services/*)
             DESCRIPTOR_EXEMPT=$((DESCRIPTOR_EXEMPT + 1))
             continue
             ;;
     esac
+    # The named exemptions, matched whole-line and literally so that a path which merely
+    # ends with one of these names is not one of them.
+    if printf '%s\n' "$DESCRIPTOR_EXEMPT_FILES" | grep -qxF "$source"
+    then
+        DESCRIPTOR_NAMED=$((DESCRIPTOR_NAMED + 1))
+        continue
+    fi
     DESCRIPTOR_HITS="$DESCRIPTOR_HITS$(grep -nE '(SPFN|Spfn)GeneratedCalls\.' "$source" \
         | grep -vE '^[0-9]+:[[:space:]]*(//|\*)' | sed "s#^#$source:#" | tr '\n' ' ')"
 done < "$TMP/example-sources.txt"
 
-if [ "$DESCRIPTOR_SCANNED" -ge 20 ] && [ "$DESCRIPTOR_EXEMPT" -ge 2 ]
+if [ "$DESCRIPTOR_SCANNED" -ge 60 ] && [ "$DESCRIPTOR_EXEMPT" -ge 4 ]
 then
-    pass "the descriptor scan read $DESCRIPTOR_SCANNED example sources, $DESCRIPTOR_EXEMPT of them generated services"
+    pass "the descriptor scan read $DESCRIPTOR_SCANNED app sources, $DESCRIPTOR_EXEMPT of them generated services"
 else
-    fail "the descriptor scan read $DESCRIPTOR_SCANNED example sources and found $DESCRIPTOR_EXEMPT generated services; it did not run"
+    fail "the descriptor scan read $DESCRIPTOR_SCANNED app sources and found $DESCRIPTOR_EXEMPT generated services; it did not run"
+fi
+
+# The named exemptions have to BE there. Two files are exempt, and an exemption list whose
+# entries name nothing is a rule that has quietly stopped being an exception to anything —
+# the same floor every reader here carries, applied to the escape hatch.
+if [ "$DESCRIPTOR_NAMED" -eq 2 ]
+then
+    pass "the descriptor scan found both hand-written files it exempts by name"
+else
+    fail "the descriptor scan matched $DESCRIPTOR_NAMED of the 2 files it exempts by name; the exemption list is stale"
 fi
 
 if [ -z "$(printf '%s' "$DESCRIPTOR_HITS" | tr -d ' ')" ]
 then
-    pass 'no example source outside a generated services directory names a call descriptor'
+    pass 'no app source outside a generated services directory names a call descriptor'
 else
     fail "a call descriptor is named outside the generated services: $DESCRIPTOR_HITS"
 fi
@@ -2228,7 +2279,8 @@ fi
 # are also where nobody would notice, because nobody edits them.
 EXAMPLE_DISMISS_SCANNED=0
 EXAMPLE_DISMISS_HITS=''
-find examples -path '*/Generated/*' -name '*.swift' | sort > "$TMP/example-dismiss-files.txt"
+# shellcheck disable=SC2086
+find $SCAFFOLD_SWIFT -name '*.swift' | sort > "$TMP/example-dismiss-files.txt"
 while IFS= read -r source
 do
     EXAMPLE_DISMISS_SCANNED=$((EXAMPLE_DISMISS_SCANNED + 1))
@@ -2236,18 +2288,18 @@ do
         | grep -vE '^[0-9]+:[[:space:]]*(//|\*)' | sed "s#^#$source:#" | tr '\n' ' ')"
 done < "$TMP/example-dismiss-files.txt"
 
-if [ "$EXAMPLE_DISMISS_SCANNED" -ge 5 ]
+if [ "$EXAMPLE_DISMISS_SCANNED" -ge 10 ]
 then
-    pass "the generated dismiss scan read all $EXAMPLE_DISMISS_SCANNED generated Swift sources under examples/"
+    pass "the generated dismiss scan read all $EXAMPLE_DISMISS_SCANNED generated Swift sources in both apps"
 else
     fail "the generated dismiss scan read only $EXAMPLE_DISMISS_SCANNED sources; it did not run"
 fi
 
 if [ -z "$(printf '%s' "$EXAMPLE_DISMISS_HITS" | tr -d ' ')" ]
 then
-    pass 'no generated example source reaches the SwiftUI dismiss environment value'
+    pass 'no generated source reaches the SwiftUI dismiss environment value'
 else
-    fail "a generated example source reaches the dismiss environment value: $EXAMPLE_DISMISS_HITS"
+    fail "a generated source reaches the dismiss environment value: $EXAMPLE_DISMISS_HITS"
 fi
 
 # --- c. every cell is covered by the runner it declares ----------------------

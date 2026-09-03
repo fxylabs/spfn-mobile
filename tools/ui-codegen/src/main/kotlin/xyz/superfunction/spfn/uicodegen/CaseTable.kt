@@ -1,16 +1,21 @@
 // The case table and the Maestro flows, written from the rules.
 //
 // Three artefacts out of one list of cells: the machine-readable table both runners read,
-// the same table for a person, and one flow file per cell a runner can drive. The
+// the same table for a person, and one flow file per cell a runner can drive. They are
+// emitted for the ONE target that declares a table root — the app whose fixtures the
+// cells name — and constructing this for a target without one is a refusal rather than
+// an empty directory (see `Target.tableRoot`). The
 // expectations in all three come from Rules.kt — the rule table — and never from the
 // emitted models, so the unit suite that drives the models against this table is comparing
 // two derivations rather than one derivation with itself (P10).
 
 package xyz.superfunction.spfn.uicodegen
 
-object CaseTable
+class CaseTable(target: Target)
 {
-    const val DIRECTORY: String = "examples/ui-spec/generated";
+    private val directory: String = requireNotNull(target.tableRoot) { "the target emits no case table" };
+
+    private val appId: String = target.appId;
 
     /**
      * How long a flow waits for a readout to arrive, in milliseconds.
@@ -26,19 +31,19 @@ object CaseTable
      * `examples/ui-spec/run-cells.sh` covers the same ground from the other side by
      * launching the app once before the cells run.
      */
-    private const val FIRST_WAIT_MILLIS: Int = 45000;
+    private val firstWaitMillis: Int = 45000;
 
-    private const val WAIT_MILLIS: Int = 20000;
+    private val waitMillis: Int = 20000;
 
     /** Every file this emitter owns, by repository-relative path. */
     fun emit(spec: Spec, cells: List<Cell>, inputs: Inputs): Map<String, String>
     {
         val files = mutableMapOf(
-            "$DIRECTORY/device-approval.cases.json" to json(cells, inputs),
-            "$DIRECTORY/device-approval.cases.md" to markdown(spec, cells, inputs)
+            "$directory/device-approval.cases.json" to json(cells, inputs),
+            "$directory/device-approval.cases.md" to markdown(spec, cells, inputs)
         );
         cells.filter { it.runsOnMaestro }.forEach { cell ->
-            files["$DIRECTORY/flows/${cell.id}.yaml"] = flow(cell, inputs);
+            files["$directory/flows/${cell.id}.yaml"] = flow(cell, inputs);
         };
         return files;
     }
@@ -116,8 +121,8 @@ object CaseTable
         appendLine("## Running one");
         appendLine();
         appendLine("```");
-        appendLine("maestro test -e APP_ID=xyz.superfunction.spfn.example \\");
-        appendLine("    examples/ui-spec/generated/flows/u1.yaml");
+        appendLine("maestro test -e APP_ID=$appId \\");
+        appendLine("    $directory/flows/${cells.first { it.runsOnMaestro }.id}.yaml");
         appendLine("```");
         appendLine();
         appendLine("The launch carries `SPFN_UI_FIXTURE=<cell>`, which is the only thing that installs a");
@@ -160,11 +165,11 @@ object CaseTable
         appendLine("# This first wait is the long one. The FIRST launch after an install or a wipe draws");
         appendLine("# later than every launch after it, and a cold start that outran this wait is a");
         appendLine("# stall reported as a cell failure — cell u14 did exactly that on a wiped emulator");
-        appendLine("# on 2026-09-02 and passed twice warm. Every later wait stays at ${WAIT_MILLIS}.");
+        appendLine("# on 2026-09-02 and passed twice warm. Every later wait stays at ${waitMillis}.");
         appendLine("- extendedWaitUntil:");
         appendLine("    visible:");
         appendLine("      text: \"stack=.*\"");
-        appendLine("    timeout: $FIRST_WAIT_MILLIS");
+        appendLine("    timeout: $firstWaitMillis");
         cell.steps.forEach { step ->
             appendLine();
             append(render(step));
@@ -205,7 +210,7 @@ object CaseTable
             appendLine("- extendedWaitUntil:");
             appendLine("    visible:");
             appendLine("      text: \"${step.readout}\"");
-            appendLine("    timeout: $WAIT_MILLIS");
+            appendLine("    timeout: $waitMillis");
         }
     }
 

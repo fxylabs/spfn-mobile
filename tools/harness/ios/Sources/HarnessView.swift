@@ -1,12 +1,22 @@
 // SPFN Mobile — the harness screen.
 //
-// Readouts, then the half a person drives, then the half the flows drive. This is not a
+// Readouts, then the half the flows drive, then the half a person drives. This is not a
 // sample app and not a design: every element exists because a flow needs to tap it or a
 // person needs to read it.
 //
-// The order is the second thing a device run bought. The device-mode controls sit on top
-// because that is what a phone is for here, and the ten lifecycle buttons sit under a
-// divider that says so — with every identifier and every title they always had, because a
+// That order is a rule and not a preference. **What a runner taps is inside the first
+// viewport.** A `ScrollView` publishes only the children that overlap the viewport to the
+// XCUITest accessibility hierarchy, so a button below the fold is not merely out of sight
+// — it does not exist for a runner, and Maestro's `tapOn` does not scroll to look for it
+// (docs/IMPLEMENTATION-PITFALLS.md P25).
+//
+// This screen paid for that sentence twice. The device-mode controls used to sit on top,
+// because a phone is what a device run is for, and on an iPhone 17 Pro simulator
+// (iOS 26.3) all twelve cells then failed at the same line — `Element not found: Id
+// matching regex: btn_wipe` — on a screen that was on and correct. So the eleven controls
+// a flow taps are a grid directly under the readouts, two to a row, and the device-mode
+// half is below them where scrolling is what a person does anyway. Nothing is renamed:
+// every identifier, every title and every readout string is what it always was, because a
 // flow finds them by those strings.
 //
 // How a flow finds them is split, and the split is forced by the platforms rather than
@@ -31,12 +41,20 @@
 // the three is a readout and no flow may read one — `banner` says what keeps a flow's
 // selector off it.
 //
-// android/.../HarnessActivity.kt is the same screen in Views, with the same button ids
+// One thing on this screen is not written here at all. `open-approve` builds the graph
+// tools/ui-codegen emits into `GeneratedUI/` and opens its flow, which is presented over
+// everything above — the harness is the SECOND consumer of the one screen spec, and it
+// drives those screens against a live reference server rather than against a fixture. The
+// `stack=` readout is that flow's own depth, spelled the way the generated screens spell
+// it, so a flow that is open shows the number twice and both readings agree.
+//
+// android/.../HarnessScreen.kt is the same screen in Compose, with the same button ids
 // and the same readout text.
 
 import Combine
 import Foundation
 import SPFNHarnessSupport
+import SPFNUI
 import SwiftUI
 
 struct HarnessView: View
@@ -53,24 +71,44 @@ struct HarnessView: View
 
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    /// The screen, and the generated flow that covers it.
+    ///
+    /// A `ZStack` rather than the `ScrollView` alone, and the flow host is its LAST child.
+    /// A modal `FlowHost` presents from wherever it sits in the view tree, so one placed
+    /// inside the scrolling column would be a flow presented from a row of that column —
+    /// which is the arrangement examples/android-compose's README names as the one thing
+    /// a host owes a modal flow. The host draws nothing at all while the flow is closed.
+    ///
+    /// The column is longer than a phone, and what hangs off the bottom of it is out of
+    /// the accessibility hierarchy rather than merely out of sight (P25). Everything a
+    /// flow touches is measured to land above the fold — see `runnerBlock` for the
+    /// arithmetic — and what is below it is the device-mode half, which a person scrolls
+    /// to on purpose.
     var body: some View
     {
-        ScrollView
+        ZStack
         {
-            VStack(alignment: .leading, spacing: 12)
+            ScrollView
             {
-                readouts
-                Divider()
-                deviceMode
-                deviceCodeSection
-                lifecycleDivider
-                actions
+                VStack(alignment: .leading, spacing: 12)
+                {
+                    readouts
+                    runnerBlock
+                    Divider()
+                    deviceMode
+                    deviceCodeSection
+                }
+                .padding()
             }
-            .padding()
-        }
-        .overlay(alignment: .bottom)
-        {
-            banner
+            .overlay(alignment: .bottom)
+            {
+                banner
+            }
+
+            if let container = model.approval
+            {
+                ApproveDeviceFlowHost(container: container)
+            }
         }
         .onReceive(model.$signal.compactMap { $0 })
         { signal in
@@ -155,6 +193,11 @@ struct HarnessView: View
             readout("receipt", model.receipt)
             readout("device-code", model.deviceCode)
             readout("expires-in", expiresIn)
+            // The two the generated screens add. `stack=` is spelled exactly as those
+            // screens spell it, because it is the same number read off the same flow —
+            // a flow that is open shows it twice and both readings agree by construction.
+            readout("stack", String(model.stackDepth))
+            readout("http", model.httpStatus)
         }
         .font(.system(.body, design: .monospaced))
     }
@@ -182,11 +225,17 @@ struct HarnessView: View
         return remaining > 0 ? "\(remaining / 1000)s" : "expired"
     }
 
-    /// Signing this device in with a code, and approving another device that shows one.
+    /// Signing THIS device in with a code that another device is showing.
     ///
-    /// Two halves of one flow on one screen, because a harness has one phone in front of
-    /// it at a time and either half has to be reachable. The code a person types to
-    /// approve is its own field: a single one would let this device approve itself.
+    /// The other half of that feature — approving a device that shows a code — used to sit
+    /// beside this one, because two halves of one flow belong together when nothing forces
+    /// them apart. Something forces them apart: `open-approve` is what d1 to d3 tap, and a
+    /// control a flow taps has to be in the first viewport (P25). It is in `runnerBlock`
+    /// now. What it opens is unchanged — it builds the generated graph and opens its flow,
+    /// and everything a person types or taps after that belongs to `GeneratedUI/`.
+    ///
+    /// This half stays here because no flow drives it and none can: a code comes off
+    /// another phone, and a person is what carries it between the two.
     private var deviceCodeSection: some View
     {
         VStack(alignment: .leading, spacing: 10)
@@ -195,18 +244,6 @@ struct HarnessView: View
             Text("device code")
                 .font(.system(.headline, design: .monospaced))
             asyncButton("btn_device_sign_in", "sign-in-with-a-code") { await model.signInWithACode() }
-
-            Text("approve a device")
-                .font(.system(.caption, design: .monospaced))
-            TextField("XXXX-XXXX", text: $model.approverCode)
-                .font(.system(.body, design: .monospaced))
-                .textInputAutocapitalization(.characters)
-                .autocorrectionDisabled()
-                .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("input_device_code")
-            asyncButton("btn_device_info", "device-info") { await model.describeWaitingDevice() }
-            asyncButton("btn_device_approve", "device-approve") { await model.approveWaitingDevice() }
-            asyncButton("btn_device_deny", "device-deny") { await model.denyWaitingDevice() }
         }
         .onReceive(tick)
         { _ in
@@ -217,8 +254,13 @@ struct HarnessView: View
         }
     }
 
-    /// The half of the screen a person drives and no flow does. It sits above the
-    /// lifecycle buttons because it is what a device run is for.
+    /// The half of the screen a person drives and no flow does, below the half that no
+    /// person drives.
+    ///
+    /// Below, because it is the half that may be scrolled to. An attempt here is somebody
+    /// picking an account out of a provider sheet, so no flow drives one and none can —
+    /// and a control no flow taps is a control that is allowed to start outside the
+    /// accessibility hierarchy (P25).
     ///
     /// A case is picked first and a provider is tapped second, in that order, because the
     /// app cannot tell a first enrolment from a re-login by itself — see
@@ -350,6 +392,80 @@ struct HarnessView: View
         .disabled(!ready || model.busy)
     }
 
+    /// Every control a flow taps, and nothing else, in the first viewport.
+    ///
+    /// The eleven are the ten lifecycle buttons and `open-approve`, laid out two to a row
+    /// because the height is the whole point. A runner cannot tap what the `ScrollView`
+    /// left out of the accessibility hierarchy, and it leaves out everything the viewport
+    /// does not overlap (P25), so this block has to end above the fold on the smallest
+    /// iPhone the harness is pointed at.
+    ///
+    /// The arithmetic, at this screen's own constants:
+    ///
+    /// - the column's own 16pt of top padding, from `.padding()`.
+    /// - twelve readouts in `.body` monospaced — 17pt type, whose SF Mono line box is
+    ///   about 20pt — spaced 8pt apart: 12 × 20 + 11 × 8, or 328pt. The size is not a
+    ///   lever: these lines ARE the protocol and a flow reads them.
+    /// - 12pt, the outer column's spacing, before the divider.
+    /// - the divider block: the 1pt rule, 8pt, and a `.headline` heading of about 22pt,
+    ///   then 8pt down to the grid — 39pt.
+    /// - this grid: six rows of the 44pt minimum touch target with `gridGap` between
+    ///   them — 6 × 44 + 5 × 8, or 304pt. Neither number is a lever either: 44pt is what
+    ///   keeps a reported centre inside its own control (P21).
+    ///
+    /// That is 699pt to the bottom of the last row, and a screenshot of the run that
+    /// settled this measured 693. The simulator the flows run on — iPhone 17 Pro,
+    /// 402 × 874pt — leaves about 778pt between the status bar and the home indicator, so
+    /// the block ends with roughly 85pt to spare. An iPhone SE, 375 × 667pt, leaves 647pt
+    /// and the last row would sit below the fold; the lever there is a third column, which
+    /// at that width truncates `note-revoked` (about 122pt of monospaced 17pt type before
+    /// its own padding) and so costs a title a flow matches on.
+    ///
+    /// Whether it actually fits is not a thing a Mac can answer without a simulator, and
+    /// no test here claims to: a device run does. There is no `HarnessRunnerBlockTest` on
+    /// this side and there cannot be one here — `tools/harness/ios/Sources` belongs to no
+    /// SwiftPM package, so nothing but Xcode ever reads this file.
+    private var runnerBlock: some View
+    {
+        VStack(alignment: .leading, spacing: 8)
+        {
+            lifecycleDivider
+            runnerRow(
+                asyncButton("btn_enroll", "enroll") { await model.enroll() },
+                asyncButton("btn_rotate", "rotate") { await model.rotate() }
+            )
+            runnerRow(
+                asyncButton("btn_resume", "resume") { await model.resumeRotation() },
+                asyncButton("btn_revoke", "revoke") { await model.revokeActiveKey() }
+            )
+            runnerRow(
+                asyncButton("btn_proven_call", "proven-call") { await model.provenCall() },
+                asyncButton("btn_note_revoked", "note-revoked") { await model.noteSessionRevoked() }
+            )
+            runnerRow(
+                asyncButton("btn_wipe", "wipe") { await model.wipe() },
+                asyncButton("btn_custody_probe", "custody-probe") { await model.probeCustody() }
+            )
+            runnerRow(
+                syncButton("btn_block_network", "block-network") { model.toggleNetworkBlocked(true) },
+                syncButton("btn_open_network", "open-network") { model.toggleNetworkBlocked(false) }
+            )
+            // `open-approve` opens a flow whose calls are proven ones, so a build with
+            // nothing enrolled has nothing to sign them with. Disabled rather than absent:
+            // a button that vanished would read as a harness that lost a feature, where a
+            // disabled one beside `state=unenrolled` reads as the truth.
+            //
+            // It is the eleventh and it is alone on the last row. The hole beside it is
+            // held open so that row's cell is the width of every other cell: a control
+            // that stretched to fill it would report a rectangle reaching under where a
+            // person expects its neighbour, which is P21's problem in the other axis.
+            runnerRow(
+                asyncButton("btn_open_approve", "open-approve") { await model.openApprove() }
+                    .disabled(!model.hasActiveKey)
+            )
+        }
+    }
+
     /// What separates the two halves of this screen, and says which half is below it.
     ///
     /// The buttons under it are the ones the Maestro flows tap. Every identifier and every
@@ -365,21 +481,25 @@ struct HarnessView: View
         }
     }
 
-    private var actions: some View
+    /// One row of the runner grid: two cells of equal width, whatever is in them.
+    ///
+    /// Both children take `maxWidth: .infinity`, so an `HStack` divides the row between
+    /// them evenly — the same thing Android's `Modifier.weight(1f)` does, and for the same
+    /// reason: a cell narrower than its neighbour is a touch target that moves when a
+    /// title changes length.
+    private func runnerRow(_ left: some View, _ right: some View) -> some View
     {
-        VStack(alignment: .leading, spacing: 8)
+        HStack(spacing: gridGap)
         {
-            asyncButton("btn_enroll", "enroll") { await model.enroll() }
-            asyncButton("btn_rotate", "rotate") { await model.rotate() }
-            asyncButton("btn_resume", "resume") { await model.resumeRotation() }
-            asyncButton("btn_revoke", "revoke") { await model.revokeActiveKey() }
-            asyncButton("btn_proven_call", "proven-call") { await model.provenCall() }
-            asyncButton("btn_note_revoked", "note-revoked") { await model.noteSessionRevoked() }
-            asyncButton("btn_wipe", "wipe") { await model.wipe() }
-            asyncButton("btn_custody_probe", "custody-probe") { await model.probeCustody() }
-            syncButton("btn_block_network", "block-network") { model.toggleNetworkBlocked(true) }
-            syncButton("btn_open_network", "open-network") { model.toggleNetworkBlocked(false) }
+            left.frame(maxWidth: .infinity)
+            right.frame(maxWidth: .infinity)
         }
+    }
+
+    /// A row with one control in it, and the empty half held open beside it.
+    private func runnerRow(_ only: some View) -> some View
+    {
+        runnerRow(only, Color.clear.frame(height: 0))
     }
 
     /// A button whose work outlives the tap.
@@ -403,6 +523,11 @@ struct HarnessView: View
         }
         .buttonStyle(HarnessPressStyle())
         .accessibilityIdentifier(id)
+        // The platform's minimum touch target, on every button here for the reason the
+        // generated views size theirs: a control shorter than this is reached through a
+        // hit area larger than itself, and stacked controls' hit areas then overlap
+        // (docs/IMPLEMENTATION-PITFALLS.md P21).
+        .frame(minHeight: 44)
     }
 
     /// A button whose work is finished when the tap returns. The network switch is the
@@ -421,6 +546,7 @@ struct HarnessView: View
         }
         .buttonStyle(HarnessPressStyle())
         .accessibilityIdentifier(id)
+        .frame(minHeight: 44)
     }
 
     /// The look of an action button, drawn in the LABEL rather than taken from `.bordered`
@@ -439,11 +565,23 @@ struct HarnessView: View
             .foregroundColor(filled ? .white : .accentColor)
             .padding(.vertical, 10)
             .padding(.horizontal, 14)
+            // The fill takes the whole cell it is in, so two cells of one grid row are the
+            // same width whatever their titles are. Leading, not centred: the title is a
+            // string a flow matches on, and a column of them is read down the left edge.
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(filled ? Color.accentColor : Color.accentColor.opacity(0.14))
             .cornerRadius(8)
             .opacity(dimmed ? 0.4 : 1)
     }
 }
+
+/// What separates two cells of the runner grid, in both axes.
+///
+/// Every cell is already 44pt tall and takes an equal share of the width, so this is not
+/// what keeps the taps apart — the minimum touch target is. It is here so that two
+/// controls touching along an edge still read as two, and it is small because the grid's
+/// height is what put the grid there (see `runnerBlock`).
+private let gridGap: CGFloat = 8
 
 /// What a button does under a finger, on every button on this screen.
 ///

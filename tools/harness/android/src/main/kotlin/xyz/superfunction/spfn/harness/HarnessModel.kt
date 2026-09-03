@@ -14,12 +14,10 @@ import xyz.superfunction.spfn.client.SpfnKeystoreCustodyKey
 import xyz.superfunction.spfn.client.SpfnKeystoreKeyProvider
 import xyz.superfunction.spfn.client.SpfnSession
 import xyz.superfunction.spfn.client.SpfnSharedPreferencesKeyMetadataStore
-import xyz.superfunction.spfn.generated.SpfnApproveDeviceAuthRequest
-import xyz.superfunction.spfn.generated.SpfnDenyDeviceAuthRequest
-import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoRequest
 import xyz.superfunction.spfn.generated.SpfnGeneratedCalls
 import xyz.superfunction.spfn.generated.SpfnListKeysRequest
 import xyz.superfunction.spfn.generated.SpfnRevokeKeyRequest
+import xyz.superfunction.spfn.harness.generated.AppContainer
 
 /**
  * The harness's whole behaviour.
@@ -94,15 +92,18 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
         private set;
 
     /**
-     * The code a person typed on THIS device to approve another one. Its own field rather
-     * than the one above: one is shown by this device and the other is read off a
-     * different screen, and a single field would let a device approve itself.
+     * The status of the last response the transport received, or `none`.
+     *
+     * Written from the transport's own callback rather than read on demand, so a response
+     * that no tap produced still reaches the screen. It is a record of the WIRE and not
+     * of an action: the generated approval screens send through this same transport and
+     * report their own refusals on their own `state=` readout, never here.
      */
-    var approverCode: String = ""
+    var httpStatus: String = "none"
         private set;
 
-    /** Set by the screen: what to run on the main thread once a code is on the model. */
-    var onDeviceCodeShown: () -> Unit = {};
+    /** Set by the screen: what to run on the main thread once a readout has changed. */
+    var onReadoutChanged: () -> Unit = {};
 
     private val transport = HarnessTransport();
 
@@ -124,6 +125,29 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
         engine = engine,
         baseUrl = configuration.baseUrl
     );
+
+    init
+    {
+        // The transport answers on whichever thread the request ran on, and everything
+        // that reaches the screen is written on the main one — the same post the device
+        // code's own callback makes, for the same reason.
+        transport.onResponse = { status ->
+            mainThread.post {
+                httpStatus = status.toString();
+                onReadoutChanged();
+            };
+        };
+    }
+
+    /**
+     * Whether a key exists to prove the approval calls with.
+     *
+     * Both states with an active key count, `rotationPending` included: the old key is
+     * still the active one until the rotation is resumed, and that is exactly the key
+     * `activeProvider()` answers with.
+     */
+    val hasActiveKey: Boolean
+        get() = state == "enrolled" || state == "rotationPending";
 
     // ---- observation -------------------------------------------------------
 
@@ -200,11 +224,6 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
 
     // ---- the device-code flow ----------------------------------------------
 
-    fun setApproverCode(value: String)
-    {
-        approverCode = value;
-    }
-
     /**
      * Signs this device in with a code somebody approves elsewhere.
      *
@@ -224,7 +243,7 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
                     // is about to read out.
                     deviceCode = userCode;
                     deviceCodeExpiresAtMillis = expiresAtMillis;
-                    onDeviceCodeShown();
+                    onReadoutChanged();
                 };
             };
             "signed-in:${settled.keyId}";
@@ -235,33 +254,49 @@ class HarnessModel(context: Context, private val configuration: HarnessConfigura
             mainThread.post {
                 deviceCode = "none";
                 deviceCodeExpiresAtMillis = null;
-                onDeviceCodeShown();
+                onReadoutChanged();
             };
         }
     };
 
     /**
-     * The approver's three calls, reached through the generated descriptors and `execute`
-     * — the SDK wraps none of them, exactly as it wraps no revocation.
+     * Builds the generated approval graph and reports it the way every other control
+     * reports its result.
+     *
+     * The container's flow is constructed open on its start screen, so building one IS
+     * opening it — what the screen does with the answer is draw the flow host. Not a
+     * `suspend` function and not routed through [run]: it sends nothing, and a
+     * `busy=busy` for a read of the local key store would teach a flow to wait for a
+     * request nobody made.
      */
-    suspend fun describeWaitingDevice() = run {
-        val described = client(activeProviderOrThrow())
-            .execute(SpfnGeneratedCalls.authDeviceInfo, SpfnDeviceAuthInfoRequest(approverCode));
-        "info:${described.deviceName ?: "unnamed"}:${described.fingerprintPrefix}";
-    };
+    fun openApprove(): AppContainer?
+    {
+        val container = approvalContainer();
+        outcome = if (container == null) "err:noActiveKey" else "ok:approve-open";
+        return container;
+    }
 
-    suspend fun approveWaitingDevice() = run {
-        val approved = client(activeProviderOrThrow())
-            .execute(SpfnGeneratedCalls.authDeviceApprove, SpfnApproveDeviceAuthRequest(approverCode));
-        "approved:${approved.fingerprintPrefix}";
-    };
-
-    suspend fun denyWaitingDevice() = run {
-        // The answer is 204 with no body, so there is nothing to report but that it
-        // applied — which is what the unit value the SDK returns means.
-        client(activeProviderOrThrow()).execute(SpfnGeneratedCalls.authDeviceDeny, SpfnDenyDeviceAuthRequest(approverCode));
-        "denied";
-    };
+    /**
+     * The generated graph over the harness's own wire, or null when there is no key.
+     *
+     * The approver's three operations used to be three methods here, each one assembling
+     * a request and calling a generated descriptor by hand. They are the generated
+     * screens' work now, and this is the whole of what an app supplies: the transport
+     * this harness already sends through — network switch included, so a blocked
+     * transport blocks those screens too — the key the lifecycle is currently signing
+     * with, and the base URL this build was launched with. The SAME base URL the rest of
+     * the model uses, so the flow can never reach an address the screen does not name,
+     * and the cleartext exception this build was given still covers it.
+     */
+    fun approvalContainer(): AppContainer?
+    {
+        val provider = lifecycle.activeProvider() ?: return null;
+        return AppContainer.live(
+            transport = transport,
+            keyProvider = provider,
+            baseUrl = configuration.baseUrl
+        );
+    }
 
     /**
      * Which custody this device actually gives a client key.

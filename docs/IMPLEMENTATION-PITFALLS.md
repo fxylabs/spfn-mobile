@@ -36,7 +36,7 @@
 | 계약 번들 교체·재핀, `upstream.lock.json` 수정 | [P1](#p1) [P2](#p2) [P3](#p3) [P6](#p6) |
 | `tools/validate/` 수정, 새 검사 추가 | [P4](#p4) [P5](#p5) [P6](#p6) [P7](#p7) |
 | `tools/contract-codegen/` 수정, 계약 타입 문법 변화 | [P8](#p8) [P2](#p2) |
-| `tools/ui-codegen/` 수정, 화면 스펙(`examples/ui-spec/*.json`) 작성·수정 | [P2](#p2) [P8](#p8) [P10](#p10) [P21](#p21) [P24](#p24) |
+| `tools/ui-codegen/` 수정, 화면 스펙(`examples/ui-spec/*.json`) 작성·수정, 생성물 소비처(`examples/**/Generated`·`generated`, `tools/harness/**/GeneratedUI`·`generated`) 추가 | [P2](#p2) [P8](#p8) [P10](#p10) [P21](#p21) [P24](#p24) [P26](#p26) |
 | 화면 모델·비동기 호출의 완료 처리, 네비게이션 스택 변경 | [P24](#p24) [P16](#p16) [P15](#p15) |
 | Swift·Kotlin 대칭 로직 추가·수정 | [P9](#p9) [P10](#p10) [P15](#p15) |
 | 플랫폼 콜백 API를 async/suspend로 감싸기, 제공자 어댑터 | [P16](#p16) [P15](#p15) |
@@ -49,6 +49,7 @@
 | 본문 없는(204) 응답을 서버에 추가 | [P19](#p19) |
 | 플랫폼 `#if canImport(...)` 가드 추가, 한 플랫폼에서 모듈 비우기 | [P20](#p20) [P7](#p7) |
 | 러너가 id로 탭하는 컨트롤 추가·수정 (Compose·SwiftUI 뷰) | [P21](#p21) |
+| Compose·SwiftUI 화면의 스크롤 컨테이너 안에 러너가 탭하는 컨트롤 배치 | [P21](#p21) [P25](#p25) |
 | Maestro 플로우 생성·수정 | [P22](#p22) [P21](#p21) [P23](#p23) |
 | 기기 러너의 증거 수집 시점 수정 (`run-cells.sh`, `run-harness.sh`) | [P23](#p23) [P7](#p7) [P12](#p12) |
 
@@ -88,7 +89,7 @@
 | 손으로 고정 | `examples/ui-spec/device-approval.json` (`contract.manifestSha256`) | 화면 스펙을 쓴 사람이 적는다. 번들을 재핀하면 lock과 **함께** 고쳐야 하는 자리 | `:ui-codegen:spfnGenerateUi`가 번들 sha256을 재계산해 lock과 스펙 **둘 다**에 대조하고, 어느 쪽이 어긋나도 생성을 거부한다 |
 | fixture 파생물 | `Contracts/fixtures/MANIFEST.json` (`bundleSha256`) | `derive-expected-values.py` 재실행. **손으로 고치지 않는다** | 파일 안 `derivedBy` 필드가 스스로 밝힌다 |
 | codegen 산출물 | 생성 파일 10개 헤더 (Swift 5 + Kotlin 5) | codegen 재생성. **손으로 고치지 않는다** | `:contract-codegen:spfnCodegenVerify` |
-| codegen 산출물 | `examples/` 아래 34개 — 두 앱의 `Generated`·`generated` 소스, case 표 둘, Maestro flow 14개 | `:ui-codegen:spfnGenerateUi` 재실행. **손으로 고치지 않는다** | `:ui-codegen:spfnUiVerify` (`check`에 물려 있다) |
+| codegen 산출물 | 화면 스캐폴드 52개 — `examples/` 아래 34개(두 앱의 `Generated`·`generated` 소스 18, case 표 둘, Maestro flow 14개)와 `tools/harness/` 아래 18개(`ios/GeneratedUI` 9, `android/**/harness/generated` 9; 하네스 대상은 표도 flow도 내지 않는다) | 대상별로 `:ui-codegen:spfnGenerateUi`·`:ui-codegen:spfnGenerateHarnessUi` 재실행. **손으로 고치지 않는다** | `:ui-codegen:spfnUiVerify`·`:ui-codegen:spfnHarnessUiVerify` (둘 다 `check`에 물려 있다) |
 | upstream 제공 | `Contracts/upstream-provenance.json` (`bundleSha256`) | 새 번들과 함께 도착한다. 갱신 대상이 아니라 **대조 대상** | validator 5절이 lock과 필드 단위로 맞춰 본다 |
 
 **처방.** 번들 교체는 lock 직접 편집 → **화면 스펙의 `contract.manifestSha256`도 같은
@@ -800,6 +801,165 @@ grep -c "flow.stack.value.contains" \
 않는다 — `push`는 진입 라우트를 맨 위에 덧붙일 수 있고 `replace`와 `open(at:)`은 어떤 순서든
 받는다. 그래서 규칙을 위치가 아니라 **맨 위**로 다시 쓰고, u8e를 표에 넣었다.
 
+## P25. 스크롤 컨테이너는 화면 밖 컨트롤을 접근성 트리에서 뺀다 (양쪽 플랫폼) {#p25}
+
+**패턴.** 스크롤하는 컨테이너는 **뷰포트와 겹치는 노드만** 접근성 트리에 올린다.
+Compose의 `Modifier.verticalScroll`도, SwiftUI의 `ScrollView`도 그렇다. 러너가 보는
+것이 그 트리이므로 — Android는 uiautomator, iOS는 XCUITest — 첫 화면 밖에 있는 버튼은
+흐릿하게 보이는 것이 아니라 **없다.** Maestro의 `tapOn`은 스스로 스크롤하지 않으므로
+`Element not found`로 끝난다.
+
+옛 Android View 계층은 반대로 동작했다. `ScrollView` + `LinearLayout`은 자식 전부를
+화면 밖까지 접근성 트리에 올렸다. 그래서 "화면 순서는 옛 화면 그대로 둔다"가 Compose
+재작성에서 가장 보수적인 선택처럼 보이고, **바로 그것이 결함을 고정한다.** 뷰 트리에서
+참이던 문장("러너가 탭할 것은 화면 어디에 있어도 된다")이 조용히 거짓이 된 자리다.
+그 문장은 SwiftUI에서는 **처음부터** 거짓이었다 — 아래 "일반화"를 보라.
+
+**왜 위험한가.** 화면은 옳고 모델도 옳다. 단위 테스트는 통과하고, 빌드도 lint도
+통과하고, 사람이 시뮬레이터·에뮬레이터를 보면 버튼이 **거기 있다** — 스크롤하면. 실패는
+러너에서만, 그것도 셀 전부에서 똑같이 난다. 그러면 "공통 전제(prelude)가 깨졌다"로
+읽히고, 화면 배치가 아니라 앱 기동·상태 초기화를 의심하며 시간을 쓴다.
+
+**탐지.** 스크롤하기 **전에** 덤프해서 id가 있는지 본다. 첫 뷰포트의 id 수와, 끝까지
+내린 뒤의 id 수를 비교하는 것이 이 항목의 신호다 — 두 수가 다르면 그 차이가 러너에게
+없는 컨트롤이다.
+
+Android:
+
+```
+adb -s emulator-5554 shell uiautomator dump /sdcard/top.xml
+adb -s emulator-5554 shell cat /sdcard/top.xml | grep -o 'resource-id="[^"]*"' | sort -u | wc -l
+# 화면을 끝까지 내린 뒤 다시
+adb -s emulator-5554 shell input swipe 500 1500 500 300
+adb -s emulator-5554 shell uiautomator dump /sdcard/bottom.xml
+adb -s emulator-5554 shell cat /sdcard/bottom.xml | grep -o 'resource-id="[^"]*"' | sort -u | wc -l
+```
+
+iOS도 같은 판정을 같은 방식으로 한다. 덤프 명령만 다르다.
+
+```
+maestro hierarchy > top.json
+grep -o '"resource-id" : "[^"]*"' top.json | sort -u | wc -l
+# 화면을 끝까지 내린 뒤 다시 (swipe 스텝 하나짜리 flow를 돌려도 된다)
+maestro hierarchy > bottom.json
+grep -o '"resource-id" : "[^"]*"' bottom.json | sort -u | wc -l
+```
+
+플로우가 탭하는 id 집합이 첫 덤프에 **전부** 있는지가 판정이다. 하나라도 없으면 그
+셀은 실패하며, 그 id를 그리는 코드가 스크롤 컨테이너의 어디에 있는지가 원인이다.
+
+**처방.** 러너가 탭하는 컨트롤을 **첫 뷰포트 안에** 둔다.
+
+- 순서를 뒤집는다: readout → 러너 블록 → 사람 전용 블록. 사람은 스크롤하지만 러너는
+  못 한다.
+- 러너 블록은 **그리드로 압축한다.** 세로 한 줄에 하나씩이면 11개가 11행이고, 2열이면
+  6행이다. 셀마다 균등한 너비(Compose는 `weight(1f)`, SwiftUI는 `maxWidth: .infinity`)와
+  최소 터치 타깃(48dp / 44pt)을 준다 — 압축이 [P21](#p21)을 깨서는 안 된다.
+- 높이를 **계산해서 주석에 남긴다.** 폰트 크기를 줄여 자리를 버는 것은 레버가 아니다:
+  readout은 플로우가 텍스트로 읽는 프로토콜이고, 48dp·44pt는 [P21](#p21)이 요구하는
+  값이다. 남은 레버는 열 수와 간격뿐이다.
+- 러너가 탭하지 않는 것(제공자 시트를 사람이 눌러야 하는 소셜 로그인 같은 것)만 아래에
+  둔다. "어떤 플로우도 이것을 몰 수 없다"가 아래에 둘 자격이다.
+- **양쪽 화면에 같이 적용한다.** 한쪽만 고치면 다른 쪽은 다음 기기 라운드까지 결함을
+  들고 간다 — 아래 "일반화"가 그 값을 치른 자리다.
+
+블록의 높이 자체는 단위 테스트가 못 잰다. **기계로 지킬 수 있는 것은 멤버십이다** —
+플로우 파일에서 `id:` 셀렉터를 읽어 화면이 선언한 러너 블록 태그 집합과 대조한다
+(`HarnessRunnerBlockTest`). 표를 화면 코드에서 되읽지 않는다: 플로우 파일이 정본이다
+([P10](#p10)). iOS 화면은 이 검사를 받지 못한다 — `tools/harness/ios/Sources`는 어느
+SwiftPM 패키지에도 속하지 않고 Mac의 Xcode만 컴파일하므로, 거기서는 기기 런이 유일한
+증거다.
+
+```
+./gradlew :harness-android:testDebugUnitTest
+```
+
+**일반화 — 플랫폼이 갈리지 않는다. 갈린다고 적었다가 두 번 냈다.** SwiftUI의
+`ScrollView`도 Compose의 `verticalScroll`과 똑같이 화면 밖 자식을 접근성 계층에서
+뺀다. 2026-09-03 iPhone 17 Pro(iOS 26.3) 시뮬레이터에서 실측했고, `run-harness.sh ios`가
+12개 셀 **전부** Android와 같은 지점에서 — `Element not found: Id matching regex:
+btn_wipe` — 같은 이유로 실패했다. 그 전날 이 항목에는 "iOS는 화면 밖 자식도 올리므로
+iOS는 재배치가 필요 없다"고 적혀 있었고, 그 문장 하나가 iOS 화면을 처방에서 빼놓아
+같은 결함을 하루 더 살렸다.
+
+**추론으로 쓴 플랫폼 차이는 실측 전까지 항목이 아니다.** 한 플랫폼에서 재현한 결함을
+등록할 때 다른 플랫폼을 "여기는 해당 없음"으로 적는 순간, 그 문장은 검증된 적 없는
+면제부가 된다 — [P15](#p15)("같은 규칙이라도 두 언어의 강제력이 다르다")와
+[P22](#p22)("한 플랫폼 전용 명령은 다른 플랫폼에서 조용히 성공한다")는 **실측된** 차이고,
+이 자리는 실측되지 않은 차이가 어떻게 되는지다. 둘 중 하나만 쓴다: 양쪽에서 재본 뒤
+"갈린다", 아니면 아직 안 재봤으니 **양쪽 다 처방을 받는다.**
+
+**나온 곳.**
+
+| 라운드 | 대상 | 실패 | 고친 곳 |
+| --- | --- | --- | --- |
+| ui/scaffold-2a | Pixel 3a API 34 에뮬레이터, 2026-09-03 | `run-harness.sh android`의 c1~c9 **전부**가 `Element not found: Id matching regex: btn_wipe`. 첫 뷰포트의 접근성 트리에 id가 7개뿐이었고(`btn_case_*` 5개, `btn_social_google`, `btn_device_sign_in`) 전부 **사람이 쓰는** 컨트롤이었다. 끝까지 내린 뒤의 덤프에 나머지 14개가 있었다 | ui/scaffold-2c에서 Android 순서를 readout → 러너 2열 그리드 → 사람 블록으로 |
+| ui/scaffold-2b | iPhone 17 Pro / iOS 26.3 시뮬레이터, 2026-09-03 | `run-harness.sh ios`의 c1~c9·d1~d3 **12개 전부**가 같은 줄에서 같은 메시지로. 화면 내용이 약 1500pt, 뷰포트가 874pt였다. 끝까지 내리면 버튼은 보이지만 readout이 전부 사라져 **어느 스크롤 위치도 플로우를 만족시키지 못한다** | ui/scaffold-2d에서 iOS 순서를 같은 순서로 |
+
+두 라운드 모두 화면은 켜져 있었고 옳았다. 플로우 13개와 `run-harness.sh`의 플로우
+목록은 어느 라운드에서도 손대지 않았다 — 고친 것은 화면뿐이다.
+
+## P26. 생성 코드의 catch는 SDK 예외 계층 전체를 알아야 한다 {#p26}
+
+**증상.** 화면이 호출 하나에 **죽는다.** 에러 상태가 아니라 프로세스가 사라진다. 앱은
+켜져 있고 모델도 옳고 단위 스위트는 전부 초록이며, 죽는 자리는 생성된 화면 모델의
+`catch` 절 바로 그 자리다. 그 절이 클라이언트 자신의 계층(`SpfnClientError`)만 이름하고,
+SDK는 그 밖으로도 던지기 때문이다 — `SpfnClockSynchronizationException`은
+`IllegalStateException`이고, 요청이 나가기 **전에** 던져지므로 서버가 무엇을 답하든
+상관이 없다.
+
+좁은 catch는 신중해 보이는 쪽이라 더 위험하다. 넓게 잡으면 취소까지 삼킨다는
+([P16](#p16)) 옳은 이유가 붙어 있고, 그 이유는 취소 절을 **먼저** 두면 그대로 지켜진다.
+
+**표가 이것을 못 잡는다는 것이 이 항목의 요점이다.** 케이스 표의 픽스처는 서버의 답을
+읽어 들이는 타입, 즉 `SpfnClientError`만 던진다 — 그것이 픽스처의 옳은 설계다. 그러면
+문제의 분기는 **어떤 셀도 들어갈 수 없는 분기**가 되고, 셀을 더 만들어도 달라지지
+않는다. 표의 크기가 아니라 표의 어휘가 한계다.
+
+**탐지.** 생성된 모델의 catch 절을 텍스트로 읽는다. 컴파일러는 좁은 catch에 만족하고,
+크래시는 기기에서만 난다.
+
+```
+# 클라이언트 계층만 이름하는 절은 하나도 없어야 한다 — 두 파일 모두 0.
+grep -c 'catch (failure: SpfnClientError)' \
+    examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/generated/screens/*Model.kt
+
+# 그리고 호출마다 취소 절이 넓은 절보다 앞에 있어야 한다 — 두 수가 같아야 한다.
+grep -c 'catch (cancelled: CancellationException)' \
+    examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/generated/screens/*Model.kt
+grep -c 'catch (failure: Exception)' \
+    examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/generated/screens/*Model.kt
+```
+
+같은 판정을 에미터에 대고 하는 것이
+`tools/ui-codegen/src/test/kotlin/.../SpecRefusalTest.kt`의 `every generated Kotlin call
+catches wider than SpfnClientError`다. 픽스처가 던질 수 있는 것으로 하는 판정은
+`examples/android-compose/src/test/.../UnexpectedFailureTest.kt`다.
+
+**처방.** 세 가지를 한 자리에서 정한다.
+
+- **취소를 먼저, 그리고 다시 던진다.** Kotlin은 절을 쓴 순서로 맞추므로
+  `catch (cancelled: CancellationException) { throw cancelled }`가 넓은 절 위에 온다.
+  분류하면 화면에는 실패라고 말하면서 호출자 스코프에는 취소된 적 없다고 말하게 된다
+  ([P16](#p16)).
+- **나머지는 전부 분류한다.** 넓은 절은 `Exception`이고, 분류기는 `Throwable`을 받는다.
+  분류 문자열은 **SDK 타입 자신의 이름**이고 서버가 고른 텍스트는 담지 않는다 — 넓히는
+  것은 잡는 범위지 화면에 찍히는 내용이 아니다.
+- **두 언어에 같은 규칙을 적되 같은 문법을 강요하지 않는다** ([P15](#p15)). Swift는
+  에러 타입이 하나고 bare `catch`가 전부를 잡으므로 절을 더할 것이 없다. 대신 Swift는
+  `CancellationError`를 되던질 수 없다 — 그 메서드들은 throw하지 않는다 — 그러니 그
+  차이는 고치는 것이 아니라 **에미터에 적어 둔다.**
+
+**픽스처를 쓰는 쪽에는 셀이 아닌 답을 둔다.** 예제 앱의 `Answer`에 `CRASH`(SDK가 던지는
+비클라이언트 예외)와 `CANCEL`을 더했고, 둘 다 `Fixtures.forCell`에 없다 — 셀이 아니고
+표는 움직이지 않는다. 표가 못 덮는 것을 표에 억지로 넣는 대신, 표 옆에 둔다.
+
+**나온 곳.** ui/scaffold-2f, Pixel 3a API 34 에뮬레이터 2026-09-03. 기기 모드 d1~d3 세
+셀이 전부 크래시했고 logcat은 `EnterCodeModel.submit(EnterCodeModel.kt:82)` →
+`SpfnClient.execute` → `SpfnProcessServerClock.nowMillis`를 가리켰다. 같은 경로로 서버
+미기동(`SpfnClientError`가 아닌 전송 예외)과 깨진 응답도 죽었다. 18셀 표는 이 경우를
+가질 수 없었다 — 픽스처가 던지지 않는 예외는 표가 못 잡는다.
+
 ## 원장
 
 change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서 나온 finding 수**를 적는다.
@@ -814,6 +974,21 @@ change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서
 | PR #13 (w-9phsb, 관측성) | 1 | 1 | 0 |
 | w-6m8dz (네이티브 소셜) | 0 — 케이스 표로 닫음 | 1 (probe가 스스로 잡음) | 0 |
 | PR #24 잔여 fresh 리뷰 | 1 | 6 (5 확정, 1 기각) | 0 |
+| ui/scaffold-2c (하네스 화면 배치, Android) | 1 (기기) | 1 | 0 |
+| ui/scaffold-2d (하네스 화면 배치, iOS) | 1 (기기) | 1 | **1** |
+| ui/scaffold-2f (생성 코드의 catch 범위, 러너의 에뮬레이터 주소) | 1 (기기) | 2 | 0 |
+
+**ui/scaffold-2f 읽는 법.** finding 둘 다 novel이고 뒤 칸은 0이다. 한 건은 러너가
+에뮬레이터에 준 주소를 SDK가 신뢰하지 않은 것 — 등록부 항목이 아니라 러너와 SDK 규칙의
+어긋남이고, 고친 것은 러너다. 다른 한 건이 [P26](#p26)이 됐다. 그 건은 **표가 구조적으로
+못 잡는 모양**이라는 것이 등록할 값어치의 전부다: 셀을 더 만들어도 픽스처의 어휘가
+같으면 같은 자리에서 같은 것을 놓친다.
+
+**ui/scaffold-2d 읽는 법.** 뒤 칸이 0이 아닌 첫 줄이다. [P25](#p25)는 이미 등록된
+항목이었고, iOS 실패는 그 항목이 **"iOS는 해당 없음"이라고 적고 있어서** 났다. 항목이
+없어서 놓친 것이 아니라 **항목이 틀린 문장을 들고 있어서** 놓쳤다는 뜻이고, 이 문서가
+막지 못하는 유일한 실패 모양이다. 처방은 P25 안에 있다 — 재보지 않은 플랫폼 차이는
+적지 않는다.
 
 **PR #24 읽는 법.** 케이스 표가 닫은 표면에는 리뷰를 두지 않고, 표로 못 닫는 잔여
 3가지(플랫폼 암호·인증 API 의미론, 언어 간 분류 갈림, 외부 통합)만 리뷰에 넘겼다.

@@ -17,6 +17,7 @@ import SPFNClient
 import SPFNCore
 import SPFNGenerated
 import SPFNHarnessSupport
+import SPFNUI
 
 @MainActor
 final class HarnessModel: ObservableObject
@@ -61,10 +62,26 @@ final class HarnessModel: ObservableObject
     /// code is showing.
     @Published private(set) var deviceCodeExpiresAtMillis: Int64?
 
-    /// The code a person typed on THIS device to approve another one. Its own field
-    /// rather than the one above: one is shown by this device and the other is read off a
-    /// different screen, and a single field would let a device approve itself.
-    @Published var approverCode = ""
+    /// The generated app's graph, once `open-approve` has built one.
+    ///
+    /// Nil until the button is tapped, which is what keeps the flow host drawing nothing
+    /// and the `stack=` readout at zero on a screen nobody has opened the flow on. A tap
+    /// builds a FRESH one every time: the container closes over the key provider the
+    /// lifecycle held at that moment, and a wipe between two attempts would otherwise
+    /// leave the second one signing with a key that no longer exists.
+    ///
+    /// The type is the generated `AppContainer` and nothing wraps it. Everything the
+    /// approval screens do — the code field, the two writes, the navigation — is the
+    /// generator's, and this app supplies the transport, the key and the address.
+    @Published private(set) var approval: AppContainer?
+
+    /// The status of the last response the transport received, or `none`.
+    ///
+    /// Written from `HarnessTransport`'s own callback rather than read on demand, so a
+    /// response that no flow acted on still reaches the screen. It is a record of the
+    /// WIRE and not of an action: the approval screens send through the generated
+    /// service, which reports its refusals on its own `state=` readout and never here.
+    @Published private(set) var httpStatus = "none"
 
     /// The provider whose button must be showing a spinner, or nil.
     ///
@@ -100,6 +117,34 @@ final class HarnessModel: ObservableObject
             store: store,
             baseURL: configuration.baseURL
         )
+        // The transport answers on whatever thread the response arrived on, and this
+        // model is a `@MainActor` type — so the hop is written here, exactly as it is
+        // written for the device code's own callback below.
+        transport.onResponse =
+        { [weak self] status in
+            Task { @MainActor in self?.httpStatus = String(status) }
+        }
+    }
+
+    /// How deep the approval flow's stack is, which is zero when there is no flow.
+    ///
+    /// Read through the generated `Flow`, never mirrored into a stored property here: the
+    /// flow is the single source of truth for its own routes, and a copy would be a
+    /// second opinion about which screen is on show. `Flow` is `@Observable`, so a view
+    /// that reads this in its body is redrawn when the stack moves.
+    var stackDepth: Int
+    {
+        approval?.approveDeviceFlow.stack.count ?? 0
+    }
+
+    /// Whether a key exists to prove the approval calls with.
+    ///
+    /// Both states with an active key count, `rotationPending` included: the old key is
+    /// still the active one until the rotation is resumed, and that is exactly the key
+    /// `activeProvider()` answers with.
+    var hasActiveKey: Bool
+    {
+        state == "enrolled" || state == "rotationPending"
     }
 
     // MARK: - Observation
@@ -521,54 +566,47 @@ final class HarnessModel: ObservableObject
         deviceCodeExpiresAtMillis = expiresAtMillis
     }
 
-    /// The approver's three calls, reached through the generated descriptors and
-    /// `execute` — the SDK wraps none of them, exactly as it wraps no revocation.
-    func describeWaitingDevice() async
+    /// Opens the generated approval flow on a graph built for this install's own key.
+    ///
+    /// The approver's three operations used to be three buttons and a text field here,
+    /// each one assembling a request and calling a generated descriptor by hand. They are
+    /// the generated screens' work now, and this is the whole of what an app supplies:
+    /// a transport, a key and an address. What that removed is not decoration — it was a
+    /// second implementation of a flow the generator already emits, which is exactly the
+    /// thing this harness exists to drive rather than to duplicate.
+    func openApprove() async
     {
         await run
         {
-            let described = try await self.approverClient().execute(
-                SPFNGeneratedCalls.authDeviceInfo,
-                request: SPFNDeviceAuthInfoRequest(userCode: self.approverCode)
-            )
-            return "info:\(described.deviceName ?? "unnamed"):\(described.fingerprintPrefix)"
+            guard let container = try await self.approvalContainer()
+            else
+            {
+                throw HarnessError.noActiveKey
+            }
+            self.approval = container
+            return "approve-open"
         }
     }
 
-    func approveWaitingDevice() async
-    {
-        await run
-        {
-            let approved = try await self.approverClient().execute(
-                SPFNGeneratedCalls.authDeviceApprove,
-                request: SPFNApproveDeviceAuthRequest(userCode: self.approverCode)
-            )
-            return "approved:\(approved.fingerprintPrefix)"
-        }
-    }
-
-    func denyWaitingDevice() async
-    {
-        await run
-        {
-            // The answer is 204 with no body, so there is nothing to report but that it
-            // applied — which is what the unit value the SDK returns means.
-            _ = try await self.approverClient().execute(
-                SPFNGeneratedCalls.authDeviceDeny,
-                request: SPFNDenyDeviceAuthRequest(userCode: self.approverCode)
-            )
-            return "denied"
-        }
-    }
-
-    private func approverClient() async throws -> SPFNClient
+    /// The generated graph over the harness's own wire, or nil when there is no key.
+    ///
+    /// The three things the generator cannot know, and nothing else: the transport this
+    /// harness already sends through — network switch included, so a blocked transport
+    /// blocks these screens too — the key the lifecycle is currently signing with, and
+    /// the base URL this build was launched with. The same base URL the model itself
+    /// uses, so the flow can never reach an address the rest of the screen does not.
+    func approvalContainer() async throws -> AppContainer?
     {
         guard let provider = try await lifecycle.activeProvider()
         else
         {
-            throw HarnessError.noActiveKey
+            return nil
         }
-        return client(signingWith: provider)
+        return AppContainer.live(
+            transport: transport,
+            keyProvider: provider,
+            baseURL: configuration.baseURL
+        )
     }
 
     /// The label this device gives itself to the approver. Display only, and a constant:
