@@ -45,6 +45,9 @@ val exampleTarget = listOf(
     "--kotlin-package=xyz.superfunction.spfn.example.generated",
     "--app-id=xyz.superfunction.spfn.example",
     "--table-root=examples/ui-spec/generated",
+    // The example app exists to be driven by a runner, so its screens carry the two
+    // readouts every cell asserts on (decision C6).
+    "--runner-readouts=true",
     "--generate-task=:ui-codegen:spfnGenerateUi",
     "--verify-task=:ui-codegen:spfnUiVerify"
 )
@@ -58,6 +61,10 @@ val harnessTarget = listOf(
     "--kotlin-root=tools/harness/android/src/main/kotlin/xyz/superfunction/spfn/harness/generated",
     "--kotlin-package=xyz.superfunction.spfn.harness.generated",
     "--app-id=xyz.superfunction.spfn.harness",
+    // The harness drives these screens against a live server through d1–d3, which wait on
+    // `state=ready` and `stack=0`. Without the readouts those three flows have nothing to
+    // wait for.
+    "--runner-readouts=true",
     "--generate-task=:ui-codegen:spfnGenerateHarnessUi",
     "--verify-task=:ui-codegen:spfnHarnessUiVerify"
 )

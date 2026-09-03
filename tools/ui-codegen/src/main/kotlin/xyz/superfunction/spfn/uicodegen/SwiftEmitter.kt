@@ -24,6 +24,8 @@ class SwiftEmitter(target: Target)
 {
     private val root: String = target.swiftRoot;
 
+    private val readouts: Boolean = target.runnerReadouts;
+
     /** One name and one type, which is all a stored property and an init parameter share. */
     private data class Parameter(val name: String, val type: String)
 
@@ -36,7 +38,7 @@ class SwiftEmitter(target: Target)
         spec.flows.forEach { flow ->
             files["$root/Flows/${type(flow.name, "Flow")}.swift"] = flow(spec, flow, bundle, inputs);
         };
-        files["$root/Screens/ScreenFailure.swift"] = failure(inputs);
+        files["$root/Screens/ScreenFailure.swift"] = failure(bundle, inputs);
         spec.screens.forEach { screen ->
             files["$root/Screens/${type(screen.name, "Model")}.swift"] = model(spec, screen, bundle, inputs);
             if (screen.usecase)
@@ -190,9 +192,22 @@ class SwiftEmitter(target: Target)
             appendLine("}");
         }
 
+    /**
+     * The `FlowEntry` value, which is a name for two of the three and a call for the third.
+     *
+     * A sheet stands at a height and the other two do not, which is why `FlowEntry` carries a
+     * payload on one case. The spec says the same thing the same way: a `sheet` entry carries
+     * `sheet.detent` and nothing else may.
+     */
+    private fun entryValue(flow: FlowDefinition): String = when (flow.entry)
+    {
+        "sheet" -> ".sheet(detent: .${requireNotNull(flow.detent)})"
+        else -> ".${flow.entry}"
+    }
+
     private fun flowFactory(flow: FlowDefinition): String = buildString {
         appendLine("/// How this flow is presented, and therefore what a back on its last route means.");
-        appendLine("public let ${flow.name}Entry: FlowEntry = .${flow.entry}");
+        appendLine("public let ${flow.name}Entry: FlowEntry = ${entryValue(flow)}");
         appendLine();
         appendLine("/// A factory, so the flow opens on the screen the spec named as its start.");
         appendLine("@MainActor");
@@ -303,11 +318,19 @@ class SwiftEmitter(target: Target)
         screen.actions.forEach { action -> append(busyAction(spec, screen, action, bundle)) };
         if (screen.calls)
         {
+            if (collects(screen, bundle))
+            {
+                append(clearError());
+            }
             appendLine();
             append(isCurrent(flow, screen, bundle));
         }
         appendLine("}");
     }
+
+    /** Whether any action on this screen takes a typed input, and therefore draws a field. */
+    private fun collects(screen: ScreenDefinition, bundle: Bundle): Boolean =
+        screen.actions.any { RouteParameters.inputs(screen, it, bundle).isNotEmpty() }
 
     /**
      * An action that only navigates, on either kind of model.
@@ -368,9 +391,44 @@ class SwiftEmitter(target: Target)
         appendLine("    /// buried under a second copy of its own route is not on show either.");
         appendLine("    private func isCurrent(_ token: Int) -> Bool");
         appendLine("    {");
-        appendLine("        token == generation");
-        appendLine("            && flow.isPresented");
-        appendLine("            && flow.stack.last == ${routeValue(flow, screen, bundle)}");
+        appendLine("        token == generation && isOnShow");
+        appendLine("    }");
+        appendLine();
+        appendLine("    /// Whether this screen's own route is the one the person is standing on.");
+        appendLine("    ///");
+        appendLine("    /// Split out of `isCurrent` because a second caller needs it without a token: the");
+        appendLine("    /// view calls `clearError()` when the text changes, and that is not an answer to a");
+        appendLine("    /// request — it has no generation to compare — while it is still something that must");
+        appendLine("    /// not write into a screen nobody is looking at.");
+        appendLine("    private var isOnShow: Bool");
+        appendLine("    {");
+        appendLine("        flow.isPresented && flow.stack.last == ${routeValue(flow, screen, bundle)}");
+        appendLine("    }");
+    }
+
+    /**
+     * Dropping a refusal because the person started fixing it.
+     *
+     * The VIEW decides when — `SpfnTextField`'s `onChange` — and the model decides whether.
+     * Written the other way round, with the model clearing its own error inside a text
+     * setter, it would clear the error of a screen that has since been popped: the same R9
+     * family the answer guard is for, arriving through the keyboard instead of through the
+     * network (docs/IMPLEMENTATION-PITFALLS.md P24).
+     */
+    private fun clearError(): String = buildString {
+        appendLine();
+        appendLine("    /// Drops this screen's refusal, so editing the input clears the line under it.");
+        appendLine("    ///");
+        appendLine("    /// A no-op on a screen that is not the one on show, and a no-op when there is no");
+        appendLine("    /// refusal to drop: it never interrupts a write.");
+        appendLine("    public func clearError()");
+        appendLine("    {");
+        appendLine("        guard isOnShow, case .error = state");
+        appendLine("        else");
+        appendLine("        {");
+        appendLine("            return");
+        appendLine("        }");
+        appendLine("        state = .idle");
         appendLine("    }");
     }
 
@@ -512,7 +570,11 @@ class SwiftEmitter(target: Target)
         append(generationField());
         appendLine();
         appendLine("    /// Whether one of this screen's writes is in flight.");
-        appendLine("    private var writing: Bool = false");
+        appendLine("    ///");
+        appendLine("    /// Readable, because the control that started it draws itself busy from this and a");
+        appendLine("    /// control that spun off a flag of its own could disagree with the model about");
+        appendLine("    /// whether the press it is refusing was taken.");
+        appendLine("    public private(set) var writing: Bool = false");
         appendLine();
         append(modelInit(parameters));
         appendLine();
@@ -702,11 +764,12 @@ class SwiftEmitter(target: Target)
 
     // ---- the failure mapping ----------------------------------------------
 
-    private fun failure(inputs: Inputs): String = buildString {
+    private fun failure(bundle: Bundle, inputs: Inputs): String = buildString {
         appendLine(header(inputs));
         appendLine();
         appendLine("import SPFNClient");
         appendLine("import SPFNCore");
+        appendLine("import SPFNUI");
         appendLine();
         appendLine("/// Turns what a call threw into the envelope a screen state carries.");
         appendLine("///");
@@ -750,25 +813,147 @@ class SwiftEmitter(target: Target)
         appendLine("            )");
         appendLine("        }");
         appendLine("    }");
+        append(classification(bundle));
         appendLine("}");
+    }
+
+    /**
+     * The five keys a failure can be SHOWN under, and how a code becomes one.
+     *
+     * Derived from the pinned bundle, not written here: the codes are grouped by the HTTP
+     * status the contract gives them, so a contract that adds a 401 adds it to the
+     * unauthorized family without anybody remembering to. What is a judgement — that a 401
+     * family is worth its own sentence and a 409 family is not — is the grouping below and is
+     * stated once.
+     *
+     * The words themselves are `SPFNStrings`'s. Nothing here reaches `envelope.message`
+     * except `fieldMessage`, whose message field is this generator's own field name and never
+     * a server's text (decision C7).
+     */
+    private fun classification(bundle: Bundle): String = buildString {
+        appendLine();
+        appendLine("    /// The code names a device the server is not holding a request for.");
+        appendLine("    public static let deviceNotFoundKey = \"deviceNotFound\"");
+        appendLine();
+        appendLine("    /// Nothing was reached, or what came back was not readable.");
+        appendLine("    public static let networkKey = \"network\"");
+        appendLine();
+        appendLine("    /// The server refused this device's credentials.");
+        appendLine("    public static let unauthorizedKey = \"unauthorized\"");
+        appendLine();
+        appendLine("    /// The screen refused its own input. Nothing was sent.");
+        appendLine("    public static let validationKey = \"validation\"");
+        appendLine();
+        appendLine("    /// Anything this build classifies as nothing more specific.");
+        appendLine("    public static let unexpectedKey = \"unexpected\"");
+        appendLine();
+        appendLine("    /// Which of the five keys `envelope` is shown under.");
+        appendLine("    ///");
+        appendLine("    /// The two families below are the contract's own 401s and 404s, listed from the");
+        appendLine("    /// pinned bundle at generation time.");
+        appendLine("    public static func messageKey(_ envelope: SPFNErrorEnvelope) -> String");
+        appendLine("    {");
+        appendLine("        switch envelope.code");
+        appendLine("        {");
+        appendLine("        case validationCode:");
+        appendLine("            return validationKey");
+        appendLine("        case callFailedCode:");
+        appendLine("            return networkKey");
+        appendCases(this, bundle, 401, "unauthorizedKey");
+        appendCases(this, bundle, 404, "deviceNotFoundKey");
+        appendLine("        default:");
+        appendLine("            return unexpectedKey");
+        appendLine("        }");
+        appendLine("    }");
+        appendLine();
+        appendLine("    /// The sentence for `envelope`, looked up in `SPFNStrings`.");
+        appendLine("    ///");
+        appendLine("    /// Never the server's own words: `message` is text a server chose and a screen that");
+        appendLine("    /// drew it would publish whatever the server felt like saying (decision C7).");
+        appendLine("    public static func message(_ envelope: SPFNErrorEnvelope) -> String");
+        appendLine("    {");
+        appendLine("        switch messageKey(envelope)");
+        appendLine("        {");
+        appendLine("        case deviceNotFoundKey:");
+        appendLine("            return SPFNStrings.errorDeviceNotFound");
+        appendLine("        case networkKey:");
+        appendLine("            return SPFNStrings.errorNetwork");
+        appendLine("        case unauthorizedKey:");
+        appendLine("            return SPFNStrings.errorUnauthorized");
+        appendLine("        case validationKey:");
+        appendLine("            return SPFNStrings.errorValidation");
+        appendLine("        default:");
+        appendLine("            return SPFNStrings.errorUnexpected");
+        appendLine("        }");
+        appendLine("    }");
+        appendLine();
+        appendLine("    /// Whether this failure belongs under a field rather than to the screen.");
+        appendLine("    public static func isFieldRefusal(_ envelope: SPFNErrorEnvelope) -> Bool");
+        appendLine("    {");
+        appendLine("        envelope.code == validationCode");
+        appendLine("    }");
+        appendLine();
+        appendLine("    /// The sentence to draw under `field`, or nil when this failure is not that field's.");
+        appendLine("    ///");
+        appendLine("    /// The one read of `message` in this file, and it is safe because the value there is");
+        appendLine("    /// this generator's own field name: `validation(_:)` above is what put it there.");
+        appendLine("    public static func fieldMessage(_ envelope: SPFNErrorEnvelope?, field: String) -> String?");
+        appendLine("    {");
+        appendLine("        guard let envelope = envelope, envelope.code == validationCode, envelope.message == field");
+        appendLine("        else");
+        appendLine("        {");
+        appendLine("            return nil");
+        appendLine("        }");
+        appendLine("        return SPFNStrings.errorValidation");
+        appendLine("    }");
+    }
+
+    /** One `case` line per contract error carrying [status], or nothing when there are none. */
+    private fun appendCases(out: StringBuilder, bundle: Bundle, status: Long, key: String)
+    {
+        val codes = bundle.errors.filter { it.httpStatus == status }.map { it.code }.sorted();
+        if (codes.isEmpty())
+        {
+            return;
+        }
+        out.appendLine("        case " + codes.joinToString(", ") { "\"$it\"" } + ":");
+        out.appendLine("            return $key");
     }
 
     // ---- the views ---------------------------------------------------------
 
+    /**
+     * One screen's view: a `Screen` frame, and SPFNUI components inside it.
+     *
+     * Nothing here draws a control of its own any more. A field is a `SpfnTextField`, a
+     * control is the button its `role` names, a refusal is a `StatusText` and a read's four
+     * states are a `LoadableView` — so the touch minimum, the keyboard contract and the
+     * palette are the SDK's, written once and checked once, rather than re-emitted into
+     * every generated view where a fix would have to be made in the generator and shipped.
+     *
+     * Selectors are unchanged and deliberately so: a control is still found by the id
+     * `<screen>.<action>` and a readout by its text. `tools/harness/flows/d1-approve.yaml`
+     * and its two siblings drive these screens against a live server by exactly those
+     * strings, and a component swap that moved them would be a device regression nothing on
+     * this host could see.
+     */
     private fun view(screen: ScreenDefinition, bundle: Bundle, inputs: Inputs): String = buildString {
         val typed = screen.actions.flatMap { RouteParameters.inputs(screen, it, bundle) }.distinctBy { it.name };
+        val controls = screen.actions.filter { it != screen.reread };
         appendLine("#if canImport(SwiftUI)");
         appendLine(header(inputs));
         appendLine("//");
         appendLine("// Every element here exists because a runner has to reach it or read it: one control");
-        appendLine("// per action, one field per typed input, and the two readouts. Layout is the human's,");
-        appendLine("// outside `Generated/`. Selectors follow the harness's rule — a control by the id");
+        appendLine("// per action, one field per typed input" + if (readouts) ", and the two readouts." else ".");
+        appendLine("// What a VALUE looks like is the human's, outside `Generated/` — the ready slot below is");
+        appendLine("// deliberately empty. Selectors follow the harness's rule: a control by the id");
         appendLine("// `<screen>.<action>`, a readout by its text (tools/harness/ios/Sources/HarnessView.swift).");
         appendLine();
+        appendLine("import SPFNCore");
         appendLine("import SPFNUI");
         appendLine("import SwiftUI");
         appendLine();
-        appendLine("/// The `${screen.name}` screen: one control per action, and the two readouts.");
+        appendLine("/// The `${screen.name}` screen, drawn out of SPFNUI's components.");
         appendLine("@MainActor");
         appendLine("public struct ${type(screen.name, "View")}: View");
         appendLine("{");
@@ -782,79 +967,215 @@ class SwiftEmitter(target: Target)
         appendLine();
         appendLine("    public var body: some View");
         appendLine("    {");
-        appendLine("        VStack(alignment: .leading, spacing: 8)");
+        appendLine("        Screen(title: ${quoted(screen.title)}${leadingArgument(screen)}, scroll: ${screen.scroll})");
         appendLine("        {");
-        appendLine("            Text(\"state=\" + stateName(model.state))");
-        appendLine("            Text(\"stack=\" + String(model.stack.count))");
-        typed.forEach { input -> append(field(screen, input)) };
-        screen.actions.forEach { action -> append(control(screen, action, bundle)) };
-        appendLine("        }");
+        appendLine("            VStack(alignment: .leading, spacing: SPFNTokens.space4)");
+        appendLine("            {");
+        if (screen.isLoadable)
+        {
+            append(loadableSlot(screen));
+        }
+        typed.forEach { input -> append(field(screen, input, bundle)) };
+        if (!screen.isLoadable && typed.isNotEmpty())
+        {
+            appendLine("                status");
+        }
+        controls.forEach { action -> append(control(screen, action, bundle)) };
+        if (readouts)
+        {
+            appendLine("                readouts");
+        }
+        appendLine("            }");
+        appendLine("            .padding(SPFNTokens.space4)");
         if (screen.source != null)
         {
-            appendLine("        // A screen loads its own read once, however it appeared: pushed onto the");
-            appendLine("        // stack, or already on it because the flow was opened at a whole stack.");
-            appendLine("        .task");
-            appendLine("        {");
-            appendLine("            await model.load()");
-            appendLine("        }");
+            appendLine("            // A screen loads its own read once, however it appeared: pushed onto the");
+            appendLine("            // stack, or already on it because the flow was opened at a whole stack.");
+            appendLine("            .task");
+            appendLine("            {");
+            appendLine("                await model.load()");
+            appendLine("            }");
         }
+        appendLine("        }");
         appendLine("    }");
-        appendLine("}");
-        appendLine();
-        if (screen.actions.isNotEmpty() || typed.isNotEmpty())
+        if (!screen.isLoadable && typed.isNotEmpty())
         {
-            append(touchTarget());
             appendLine();
+            append(failureAccessors(screen));
         }
-        append(stateName(screen));
+        if (readouts)
+        {
+            appendLine();
+            append(readoutSlot());
+        }
+        appendLine("}");
+        if (readouts)
+        {
+            appendLine();
+            append(stateName(screen));
+        }
         appendLine("#endif");
     }
 
     /**
-     * The minimum touch target every control and field is given.
+     * The header's leading slot, emitted only where the spec suppresses the flow's own.
      *
-     * The counterpart of KotlinEmitter's, and stated for the same reason: a control smaller
-     * than the platform minimum is reachable only through an expanded hit area, and expanded
-     * hit areas of neighbouring controls overlap. Compose reported one control's bounds on
-     * top of another's and cell u5 tapped the wrong node
-     * (docs/IMPLEMENTATION-PITFALLS.md P21); SwiftUI's own controls happen to clear 44pt
-     * already, so writing it here changes nothing on this platform except that the rule is
-     * now written down on both.
+     * `Flow.leading` gives a back to every route above the root and a close to the root of a
+     * flow presented over something, so almost every screen wants the default. An empty slot
+     * passed everywhere would erase every back control in the app; it is passed exactly where
+     * a root that would have had a close said `header.close: false`.
      */
-    private fun touchTarget(): String = buildString {
-        appendLine("/// The platform's minimum touch target, given to every control and field.");
-        appendLine("///");
-        appendLine("/// A control smaller than this is reachable only through a hit area larger than itself,");
-        appendLine("/// and neighbouring hit areas then overlap: the bounds reported for one control sit on");
-        appendLine("/// a neighbour's, and a runner tapping the reported centre taps the neighbour");
-        appendLine("/// (docs/IMPLEMENTATION-PITFALLS.md P21).");
-        appendLine("private let touchTarget: CGFloat = 44");
+    private fun leadingArgument(screen: ScreenDefinition): String =
+        if (screen.suppressesClose) ", leading: AnyView(EmptyView())" else ""
+
+    /**
+     * The read's four states, and the retry control inside the error one.
+     *
+     * The re-read action is drawn HERE and nowhere else. Emitted as a control of its own as
+     * well, it would put two nodes under `<screen>.<retry>` and a runner asked for that id
+     * would refuse to pick between them.
+     */
+    private fun loadableSlot(screen: ScreenDefinition): String = buildString {
+        val retry = screen.reread;
+        appendLine("                LoadableView(");
+        appendLine("                    model.state,");
+        if (retry != null)
+        {
+            appendLine("                    retryIdentifier: \"${screen.name}.${retry.name}\",");
+            appendLine("                    onRetry: { Task { await model.${retry.name}() } },");
+        }
+        appendLine("                    message: ScreenFailure.message");
+        appendLine("                )");
+        appendLine("                { _ in");
+        appendLine("                    // What a value looks like is the human's, outside `Generated/`.");
+        appendLine("                    EmptyView()");
+        appendLine("                }");
     }
 
-    private fun field(screen: ScreenDefinition, input: RouteParameters.Parameter): String = buildString {
-        appendLine("            TextField(\"${input.name}\", text: \$${input.name})");
-        appendLine("                .accessibilityIdentifier(\"${screen.name}.${input.name}\")");
-        appendLine("                .frame(minHeight: touchTarget)");
+    /** The screen's own refusal, where it is not one a field carries. */
+    private fun failureAccessors(screen: ScreenDefinition): String = buildString {
+        appendLine("    /// The envelope this screen is carrying, or nil.");
+        appendLine("    private var failure: SPFNErrorEnvelope?");
+        appendLine("    {");
+        appendLine("        if case .error(let envelope) = model.state");
+        appendLine("        {");
+        appendLine("            return envelope");
+        appendLine("        }");
+        appendLine("        return nil");
+        appendLine("    }");
+        appendLine();
+        appendLine("    /// A refusal that is the SCREEN's rather than one field's.");
+        appendLine("    ///");
+        appendLine("    /// A field's own refusal is drawn under the field by `SpfnTextField`, so drawing it");
+        appendLine("    /// here as well would say the same thing twice in two places.");
+        appendLine("    @ViewBuilder");
+        appendLine("    private var status: some View");
+        appendLine("    {");
+        appendLine("        if let failure = failure, !ScreenFailure.isFieldRefusal(failure)");
+        appendLine("        {");
+        appendLine("            StatusText(");
+        appendLine("                kind: .error,");
+        appendLine("                text: ScreenFailure.message(failure),");
+        appendLine("                identifier: \"${screen.name}.status\"");
+        appendLine("            )");
+        appendLine("        }");
+        appendLine("    }");
     }
 
+    /**
+     * The two readouts, drawn only for a target that asked for them.
+     *
+     * They are test equipment: the one thing both runners can read and neither can guess, and
+     * two lines of diagnostics on a screen a person is meant to use. `--runner-readouts`
+     * decides, per consumer, and both consumers that ship today set it (decision C6).
+     */
+    private fun readoutSlot(): String = buildString {
+        appendLine("    /// What a runner reads this screen's state and its flow's depth as.");
+        appendLine("    @ViewBuilder");
+        appendLine("    private var readouts: some View");
+        appendLine("    {");
+        appendLine("        SpfnText(\"state=\" + stateName(model.state), role: .mono)");
+        appendLine("        SpfnText(\"stack=\" + String(model.stack.count), role: .mono)");
+        appendLine("    }");
+    }
+
+    /**
+     * One typed input, decorated by whatever `screens.<s>.inputs.<i>` said.
+     *
+     * `onSubmit` and the submitting action are the same call written twice, which is the
+     * whole of `submitOnReturn`: the return key does what the button does, so a person who
+     * finishes typing does not have to reach for the control.
+     */
+    private fun field(screen: ScreenDefinition, input: RouteParameters.Parameter, bundle: Bundle): String =
+        buildString {
+            val declared = screen.inputNamed(input.name);
+            val submitting = screen.actions.firstOrNull { action ->
+                RouteParameters.inputs(screen, action, bundle).any { it.name == input.name }
+            };
+            appendLine("                SpfnTextField(");
+            appendLine("                    label: ${quoted(declared.label)},");
+            appendLine("                    kind: .${declared.kind},");
+            appendLine("                    identifier: \"${screen.name}.${input.name}\",");
+            appendLine("                    text: \$${input.name},");
+            appendLine("                    error: ScreenFailure.fieldMessage(failure, field: \"${input.name}\"),");
+            appendLine("                    submitOnReturn: ${declared.submitOnReturn && submitting != null},");
+            appendLine("                    autofocus: ${declared.autofocus},");
+            if (declared.submitOnReturn && submitting != null)
+            {
+                appendLine("                    onSubmit: { ${invocation(screen, submitting, bundle)} },");
+            }
+            appendLine("                    onChange: { _ in model.clearError() }");
+            appendLine("                )");
+        }
+
+    /**
+     * One control, as the button its role names.
+     *
+     * `busy` is what the model already knows and the screen used to hide: a write in flight
+     * disables the control that started it and spins on it, which is the same rule R2 states
+     * for the model, drawn.
+     */
     private fun control(screen: ScreenDefinition, action: ActionDefinition, bundle: Bundle): String = buildString {
         val id = "${screen.name}.${action.name}";
+        appendLine("                ${button(action.role)}(");
+        appendLine("                    title: \"${action.name}\",");
+        appendLine("                    identifier: \"$id\",");
+        if (action.call != null)
+        {
+            appendLine("                    busy: ${busyExpression(screen)},");
+        }
+        appendLine("                    onTap: { ${invocation(screen, action, bundle)} }");
+        appendLine("                )");
+    }
+
+    /** Whether a write of this screen's is in flight, in the shape the model publishes it. */
+    private fun busyExpression(screen: ScreenDefinition): String =
+        if (screen.isLoadable) "model.writing" else "model.state == .busy"
+
+    /** The component a spec role names. */
+    private fun button(role: String): String = when (role)
+    {
+        "primary" -> "PrimaryButton"
+        "destructive" -> "DestructiveButton"
+        "text" -> "TextButton"
+        else -> "SecondaryButton"
+    }
+
+    /** Calling one action from a control or a return key, suspending or not. */
+    private fun invocation(screen: ScreenDefinition, action: ActionDefinition, bundle: Bundle): String
+    {
         val arguments = RouteParameters.inputs(screen, action, bundle)
             .joinToString(", ") { "${it.name}: ${it.name}" };
-        appendLine("            Button(\"${action.name}\")");
-        appendLine("            {");
         if (action.call == null)
         {
-            appendLine("                model.${action.name}()");
+            return "model.${action.name}()";
         }
-        else
-        {
-            appendLine("                Task { await model.${action.name}($arguments) }");
-        }
-        appendLine("            }");
-        appendLine("            .accessibilityIdentifier(\"$id\")");
-        appendLine("            .frame(minHeight: touchTarget)");
+        return "Task { await model.${action.name}($arguments) }";
     }
+
+    /** One Swift string literal, for a title an author wrote. */
+    private fun quoted(value: String): String =
+        "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
     private fun stateName(screen: ScreenDefinition): String = buildString {
         val stateType = if (screen.isLoadable) "Loadable<Value>" else "Busy";

@@ -45,6 +45,7 @@ class SpecRefusalTest
         kotlinPackage = "probe.generated",
         appId = "probe.app",
         tableRoot = "suite/cases",
+        runnerReadouts = true,
         generateTask = ":ui-codegen:spfnGenerateSuiteUi",
         verifyTask = ":ui-codegen:spfnSuiteUiVerify"
     )
@@ -165,6 +166,169 @@ class SpecRefusalTest
                 "\"then\": { \"push\": \"reviewDevice\", \"animated\": true }"
             ),
             "screens.enterCode.actions.submit.then.animated is not a key this generator reads"
+        );
+    }
+
+    /**
+     * The values the 3b keys admit, and every neighbouring word they do not.
+     *
+     * Each of the four is a closed set that reaches a component name or an enum case, so a
+     * value outside it would not fail here — it would reach a Swift emitter that writes
+     * `.gо` or a Kotlin one that writes `FieldKind.Otp`, and the first evidence would be a
+     * compile error in a generated file nobody wrote (refusal 6's family, one layer down).
+     */
+    @Test
+    fun `a value outside a closed set is refused, by its path`()
+    {
+        assertRefused(
+            "entry-word.json",
+            replaceOnce("\"entry\": \"modal\"", "\"entry\": \"drawer\""),
+            "flows.approveDevice.entry is 'drawer'"
+        );
+
+        assertRefused(
+            "role-word.json",
+            replaceOnce("\"role\": \"destructive\"", "\"role\": \"danger\""),
+            "screens.reviewDevice.actions.deny.role is 'danger'"
+        );
+
+        assertRefused(
+            "kind-word.json",
+            replaceOnce("\"kind\": \"code\"", "\"kind\": \"otp\""),
+            "screens.enterCode.inputs.userCode.kind is 'otp'"
+        );
+
+        assertRefused(
+            "detent-word.json",
+            replaceOnce(
+                "\"entry\": \"modal\", \"start\": \"enterCode\"",
+                "\"entry\": \"sheet\", \"sheet\": { \"detent\": \"tall\" }, \"start\": \"enterCode\""
+            ),
+            "flows.approveDevice.sheet.detent is 'tall'"
+        );
+    }
+
+    /**
+     * A detent is required for a sheet and refused for anything else.
+     *
+     * Both directions, because they are different mistakes. A sheet with no detent has no
+     * height to resolve; a modal with one carries a number nothing reads, which is exactly
+     * the state `FlowEntry` stopped being an enum to avoid — said one layer up, in the spec.
+     */
+    @Test
+    fun `a detent is required for a sheet and refused for anything else`()
+    {
+        assertRefused(
+            "sheet-no-detent.json",
+            replaceOnce("\"entry\": \"modal\"", "\"entry\": \"sheet\""),
+            "flows.approveDevice.entry is 'sheet' but flows.approveDevice.sheet is absent"
+        );
+
+        assertRefused(
+            "modal-with-detent.json",
+            replaceOnce(
+                "\"entry\": \"modal\", \"start\": \"enterCode\"",
+                "\"entry\": \"modal\", \"sheet\": { \"detent\": \"half\" }, \"start\": \"enterCode\""
+            ),
+            "flows.approveDevice.sheet is written on a flow entered as 'modal'"
+        );
+    }
+
+    /**
+     * Refusal 8: an `inputs` entry has to decorate an input the screen really collects.
+     *
+     * The inputs are DERIVED from the contract, so a request field renamed upstream orphans
+     * whatever the spec said about it and the field goes on being collected as plain text
+     * with no label and no return key. Nothing fails and the screen is not the one somebody
+     * wrote, which is P8 one layer up — the same shape refusal 6 exists for.
+     */
+    @Test
+    fun `an inputs entry naming nothing the screen collects is refused`()
+    {
+        assertRefused(
+            "orphan-input.json",
+            replaceOnce("\"userCode\": { \"kind\": \"code\"", "\"userCod\": { \"kind\": \"code\""),
+            "screens.enterCode.inputs.userCod decorates an input this screen does not collect"
+        );
+    }
+
+    /**
+     * A sheet reaches both platforms as a `FlowEntry` carrying its height.
+     *
+     * The one spec key that becomes a CALL rather than a name on each platform, so a detent
+     * silently dropped would compile on both — `FlowEntry.Sheet` needs an argument, but
+     * `.modal` is what an emitter that forgot would write, and that is a sheet flow presented
+     * as a full-screen modal with nothing to say it went wrong.
+     */
+    @Test
+    fun `a sheet flow carries its detent into both halves`()
+    {
+        val sheet = withSpec(
+            "sheet-flow.json",
+            replaceOnce(
+                "\"entry\": \"modal\", \"start\": \"enterCode\"",
+                "\"entry\": \"sheet\", \"sheet\": { \"detent\": \"half\" }, \"start\": \"enterCode\""
+            )
+        );
+        val generated = generate(repoRoot, sheet);
+
+        assertEmits(
+            generated = generated,
+            path = "${target.kotlinRoot}/flows/ApproveDeviceFlow.kt",
+            expected = "val ApproveDeviceEntry: FlowEntry = FlowEntry.Sheet(SheetDetent.Half);"
+        );
+        assertEmits(
+            generated = generated,
+            path = "${target.swiftRoot}/Flows/ApproveDeviceFlow.swift",
+            expected = "public let approveDeviceEntry: FlowEntry = .sheet(detent: .half)"
+        );
+    }
+
+    /**
+     * `header.close` suppresses a close and never a back.
+     *
+     * Both halves matter and the second is the one that was wrong first. A screen that is not
+     * its flow's root has `close: false` — it has a back, not a close — so an emitter that
+     * read that field as "pass an empty leading slot" erased the back control on every pushed
+     * route in the app while the spec said nothing at all. Nothing failed: the header drew, it
+     * simply had no way out on it, which is a screen a person is stuck on.
+     */
+    @Test
+    fun `header close suppresses the flow's close only on the root that would have had one`()
+    {
+        val standard = generate(repoRoot, specPath);
+        assertEmits(
+            generated = standard,
+            path = "${target.kotlinRoot}/views/ReviewDeviceScreen.kt",
+            expected = "Screen(title = \"Review the device\", scroll = true)"
+        );
+        assertEmits(
+            generated = standard,
+            path = "${target.swiftRoot}/Views/EnterCodeView.swift",
+            expected = "Screen(title: \"Approve a device\", scroll: true)"
+        );
+
+        val suppressed = generate(
+            repoRoot,
+            withSpec(
+                "no-close.json",
+                replaceOnce("\"title\": \"Approve a device\",", "\"title\": \"Approve a device\", \"header\": { \"close\": false },")
+            )
+        );
+        assertEmits(
+            generated = suppressed,
+            path = "${target.kotlinRoot}/views/EnterCodeScreen.kt",
+            expected = "Screen(title = \"Approve a device\", leading = {}, scroll = true)"
+        );
+        assertEmits(
+            generated = suppressed,
+            path = "${target.swiftRoot}/Views/EnterCodeView.swift",
+            expected = "Screen(title: \"Approve a device\", leading: AnyView(EmptyView()), scroll: true)"
+        );
+        assertEmits(
+            generated = suppressed,
+            path = "${target.kotlinRoot}/views/ReviewDeviceScreen.kt",
+            expected = "Screen(title = \"Review the device\", scroll = true)"
         );
     }
 
@@ -429,42 +593,69 @@ class SpecRefusalTest
      * the shape both emitters write and the shape a careless edit breaks.
      */
     @Test
-    fun `every emitted control and field carries a minimum touch target`()
+    fun `every emitted control and field names the id a runner finds it by`()
     {
         val generated = generate(repoRoot, specPath);
-        assertSized(generated, ".kt", ".testTag(", ".heightIn(min = TouchTarget)");
-        assertSized(generated, ".swift", ".accessibilityIdentifier(", ".frame(minHeight: touchTarget)");
+        assertIdentified(generated, ".kt", "id = \"");
+        assertIdentified(generated, ".swift", "identifier: \"");
     }
 
     /**
-     * Requires [sizing] on the line after every [selector] in the generated view files.
+     * Every element a runner reaches passes its id as an ARGUMENT to an SPFNUI component.
      *
-     * Indentation is stripped before both reads, because the two emitters indent a field
-     * and a control differently and the rule is about neither.
+     * This used to read the line AFTER the selector and require a sizing modifier on it,
+     * because the views drew their own controls and the 48dp minimum was re-emitted into
+     * every one of them (docs/IMPLEMENTATION-PITFALLS.md P21: Compose reported
+     * `enterCode.cancel` at a rectangle whose centre lay inside `enterCode.userCode`, and
+     * cell u5 tapped the wrong node). The views no longer draw controls — `PrimaryButton`
+     * and `SpfnTextField` do — so the minimum is written once in the SDK and section 15 of
+     * tools/validate/validate.sh is what holds the components to it on both platforms.
      *
-     * Floored rather than merely satisfied: a read that found no selector would pass the
-     * loop while proving nothing (P7), so what was read is counted. Seven elements carry a
-     * selector today — three on `enterCode`, four on `reviewDevice`.
+     * What is left for this reader is the half that is still the GENERATOR's: an id on every
+     * element, spelled `<screen>.<action>`, because a component whose id argument was left
+     * off would compile and leave a cell with nothing to tap. Floored rather than merely
+     * satisfied: a read that found no id would pass the loop while proving nothing (P7).
+     * Seven elements carry one today — three on `enterCode`, four on `reviewDevice`, where
+     * `retry`'s is `LoadableView`'s retry slot rather than a control of its own.
      */
-    private fun assertSized(generated: Map<String, String>, suffix: String, selector: String, sizing: String)
+    private fun assertIdentified(generated: Map<String, String>, suffix: String, selector: String)
     {
+        val prefixes = listOf("enterCode.", "reviewDevice.");
         var found = 0;
         generated.filterKeys { (it.contains("/Views/") || it.contains("/views/")) && it.endsWith(suffix) }
-            .forEach { (path, content) ->
-                val lines = content.lines().map { it.trim() };
-                lines.forEachIndexed { index, line ->
-                    if (line.startsWith(selector))
+            .forEach { (_, content) ->
+                content.lines().map { it.trim() }.forEach { line ->
+                    if (line.startsWith(selector) && prefixes.any { line.contains(it) })
                     {
                         found++;
-                        assertEquals(
-                            "$path:${index + 1} names a control but the next line does not size it",
-                            sizing,
-                            lines.getOrNull(index + 1)
-                        );
                     }
                 };
             };
         assertEquals("the generated $suffix views did not name the elements this reads", 7, found);
+    }
+
+    /**
+     * C6: the readouts belong to the consumers a runner drives, and to no other.
+     *
+     * The same spec through a target with the flag off has to lose both lines and keep every
+     * control, because that is what a third consumer — a real app — takes. A flag that
+     * emitted the same file either way would be a decision recorded and not made.
+     */
+    @Test
+    fun `a target that asks for no readouts gets none`()
+    {
+        val quiet = target.copy(name = "quiet", runnerReadouts = false, tableRoot = null);
+        val loud = generate(repoRoot, specPath, target).getValue("${target.kotlinRoot}/views/EnterCodeScreen.kt");
+        val silent = generate(repoRoot, specPath, quiet).getValue("${quiet.kotlinRoot}/views/EnterCodeScreen.kt");
+
+        assertTrue("the readout target emitted no state readout", loud.contains("\"state=\" + stateName(state)"));
+        assertTrue("the quiet target emitted a state readout", !silent.contains("state="));
+        assertTrue("the quiet target emitted a stack readout", !silent.contains("stack="));
+        assertTrue("the quiet target dropped a control", silent.contains("id = \"enterCode.submit\""));
+
+        val swift = generate(repoRoot, specPath, quiet).getValue("${quiet.swiftRoot}/Views/EnterCodeView.swift");
+        assertTrue("the quiet Swift target emitted a readout", !swift.contains("state="));
+        assertTrue("the quiet Swift target dropped a control", swift.contains("identifier: \"enterCode.submit\""));
     }
 
     /**
@@ -482,8 +673,8 @@ class SpecRefusalTest
         val mutated = withSpec(
             "discriminate.json",
             replaceOnce(
-                "\"approve\": { \"call\": \"deviceApproval.approve\", \"then\": \"close\" }",
-                "\"approve\": { \"call\": \"deviceApproval.approve\", \"then\": \"pop\" }"
+                "\"approve\": { \"call\": \"deviceApproval.approve\", \"then\": \"close\", \"role\": \"primary\" }",
+                "\"approve\": { \"call\": \"deviceApproval.approve\", \"then\": \"pop\", \"role\": \"primary\" }"
             )
         );
         val after = generate(repoRoot, mutated).getValue(table);

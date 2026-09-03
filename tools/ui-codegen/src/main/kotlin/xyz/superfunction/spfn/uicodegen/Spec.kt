@@ -59,7 +59,37 @@ data class ActionDefinition(
     val name: String,
     /** The write this action performs, or null for an action that only navigates. */
     val call: ServiceMethod?,
-    val then: Navigation?
+    val then: Navigation?,
+    /**
+     * How the control is drawn: `primary`, `secondary`, `destructive` or `text`.
+     *
+     * Defaulted rather than required, and `secondary` rather than `primary`, because a
+     * default that shouted would make every unconsidered control the loudest thing on its
+     * screen. It reaches the emitters as the component name and nothing else — the role
+     * decides a fill and a font, never what the action does.
+     */
+    val role: String
+)
+
+/**
+ * What the spec says about one of a screen's typed inputs.
+ *
+ * The input itself is DERIVED — `RouteParameters.inputs` reads it off the contract, because
+ * what a screen has to collect is a fact about the request its action sends. This is the
+ * decoration on top of it: what keyboard to raise, what to call it, and whether the return
+ * key and the first appearance do anything. An entry here that names no derived input is
+ * refused, so a renamed request field cannot leave a stale decoration behind (refusal 8).
+ */
+data class InputDefinition(
+    val name: String,
+    /** `code`, `text`, `email` or `number`. Decides the keyboard, never the request. */
+    val kind: String,
+    /** What the field is called on screen. */
+    val label: String,
+    /** Whether the return key performs the screen's action, and therefore says `go`. */
+    val submitOnReturn: Boolean,
+    /** Whether the field takes focus when the screen appears. */
+    val autofocus: Boolean
 )
 
 data class ScreenDefinition(
@@ -68,7 +98,34 @@ data class ScreenDefinition(
     /** The read that fills this screen, or null for a screen that reads nothing. */
     val source: ServiceMethod?,
     val usecase: Boolean,
-    val actions: List<ActionDefinition>
+    val actions: List<ActionDefinition>,
+    /** The header's title. The screen's own name when the spec does not say. */
+    val title: String,
+    /** Whether the body scrolls, and therefore gets out of the keyboard's way. */
+    val scroll: Boolean,
+    /**
+     * Whether the header draws a close control.
+     *
+     * Defaulted from the FLOW rather than fixed: the root of a modal or a sheet is presented
+     * over something and has a way out of its own, and a pushed flow's root does not. A spec
+     * that says `false` where the default is `true` is a screen that suppresses the way out
+     * — a consent step, a screen mid-way through a purchase — and it is the one direction
+     * worth being able to say.
+     */
+    val close: Boolean,
+    /**
+     * Whether this screen's header suppresses a close the FLOW would otherwise have drawn.
+     *
+     * Not the same question as [close] and the emitters need this one. `Flow.leading` draws a
+     * back on every route above the root, and the root of a pushed flow draws nothing — so
+     * `close = false` is the ordinary answer for most screens and means "the flow decides".
+     * Only a root that would have had a close and asked not to has anything to pass, and a
+     * view that passed an empty leading slot everywhere would erase every back control in the
+     * app (which is exactly what the first cut of this emitter did).
+     */
+    val suppressesClose: Boolean,
+    /** What the spec says about this screen's derived inputs, by input name. */
+    val inputs: List<InputDefinition>
 )
 {
     /**
@@ -93,9 +150,43 @@ data class ScreenDefinition(
 
     /** Whether anything on this screen calls a service, and therefore has an answer to drop. */
     val calls: Boolean get() = source != null || actions.any { it.call != null };
+
+    /** What the spec says about the input called [name], or nothing, which is every default. */
+    fun inputNamed(name: String): InputDefinition =
+        inputs.firstOrNull { it.name == name }
+            ?: InputDefinition(name = name, kind = "text", label = name, submitOnReturn = false, autofocus = false);
+
+    /**
+     * The action that re-reads this screen's own source and moves nothing, or null.
+     *
+     * One place, because three of them ask: both model emitters write it as `await load()`
+     * rather than as a write, and both view emitters give it to `LoadableView`'s retry slot
+     * rather than drawing a control of its own. A screen that drew both would put two nodes
+     * under one id, and a runner asked for that id would refuse to pick.
+     */
+    val reread: ActionDefinition? get() = source?.let { read ->
+        actions.firstOrNull { it.call?.reference == read.reference && it.then == null }
+    };
 }
 
-data class FlowDefinition(val name: String, val entry: String, val start: String)
+data class FlowDefinition(
+    val name: String,
+    /** `push`, `modal` or `sheet`. */
+    val entry: String,
+    /**
+     * How tall the sheet stands: `fit`, `half` or `full`. Null for a flow that is not one.
+     *
+     * Required when `entry` is `sheet` and refused otherwise, because a detent on a modal is
+     * a value nothing reads — the shape `FlowEntry` took when it stopped being an enum, said
+     * once more one layer up.
+     */
+    val detent: String?,
+    val start: String
+)
+{
+    /** Whether this flow is presented over something and therefore has a way out of its own. */
+    val presentedOver: Boolean get() = entry != "push";
+}
 
 data class Spec(
     val specVersion: Long,
@@ -134,9 +225,10 @@ data class Spec(
             val services = readServices(root.required("services").obj(), bundle);
             val methods = services.flatMap { it.methods }.associateBy { it.reference };
             val flows = readFlows(root.required("flows").obj());
-            val screens = readScreens(root.required("screens").obj(), methods);
+            val screens = readScreens(root.required("screens").obj(), methods, flows);
 
             checkReferences(flows, screens);
+            checkInputs(screens, bundle);
 
             return Spec(
                 specVersion = version,
@@ -209,21 +301,68 @@ data class Spec(
         private fun readFlows(members: Map<String, JsonValue>): List<FlowDefinition> =
             members.keys.sorted().map { flow ->
                 val entry = members.getValue(flow).obj();
-                checkKeys(entry, setOf("entry", "start"), "flows.$flow.");
+                checkKeys(entry, setOf("entry", "sheet", "start"), "flows.$flow.");
                 val style = entry.required("entry").text();
-                if (style != "modal" && style != "push")
+                if (style !in ENTRIES)
                 {
-                    throw SpecException("flows.$flow.entry is '$style'; it must be 'modal' or 'push'");
+                    throw SpecException(
+                        "flows.$flow.entry is '$style'; it must be one of ${ENTRIES.joinToString(", ")}"
+                    );
                 }
-                FlowDefinition(name = flow, entry = style, start = entry.required("start").text());
+                FlowDefinition(
+                    name = flow,
+                    entry = style,
+                    detent = readDetent(entry["sheet"], style, flow),
+                    start = entry.required("start").text()
+                );
             }
+
+        /**
+         * The height a sheet stands at, required for a sheet and refused for anything else.
+         *
+         * Both directions are refusals. A sheet with no detent has no height to resolve, and
+         * a modal with one carries a number nothing reads — which is exactly the state
+         * `FlowEntry` stopped being an enum to avoid, said one layer up in the spec.
+         */
+        private fun readDetent(value: JsonValue?, entry: String, flow: String): String?
+        {
+            if (entry != "sheet")
+            {
+                if (value != null)
+                {
+                    throw SpecException(
+                        "flows.$flow.sheet is written on a flow entered as '$entry'; a detent is a " +
+                            "height only a sheet stands at"
+                    );
+                }
+                return null;
+            }
+            val sheet = (value ?: throw SpecException(
+                "flows.$flow.entry is 'sheet' but flows.$flow.sheet is absent; a sheet stands at a " +
+                    "detent and there is no default height"
+            )).obj();
+            checkKeys(sheet, setOf("detent"), "flows.$flow.sheet.");
+            val detent = sheet.required("detent").text();
+            if (detent !in DETENTS)
+            {
+                throw SpecException(
+                    "flows.$flow.sheet.detent is '$detent'; it must be one of ${DETENTS.joinToString(", ")}"
+                );
+            }
+            return detent;
+        }
 
         private fun readScreens(
             members: Map<String, JsonValue>,
-            methods: Map<String, ServiceMethod>
+            methods: Map<String, ServiceMethod>,
+            flows: List<FlowDefinition>
         ): List<ScreenDefinition> = members.keys.sorted().map { screen ->
             val entry = members.getValue(screen).obj();
-            checkKeys(entry, setOf("flow", "source", "usecase", "actions"), "screens.$screen.");
+            checkKeys(
+                entry,
+                setOf("flow", "source", "usecase", "actions", "title", "scroll", "header", "inputs"),
+                "screens.$screen."
+            );
             val sourceValue = entry.required("source");
             val source = if (sourceValue is JsonValue.Null) null
             else resolve(sourceValue.text(), methods, "screens.$screen.source");
@@ -236,13 +375,89 @@ data class Spec(
                 );
             }
 
+            val flowName = entry.required("flow").text();
+            val flow = flows.firstOrNull { it.name == flowName };
             ScreenDefinition(
                 name = screen,
-                flow = entry.required("flow").text(),
+                flow = flowName,
                 source = source,
                 usecase = entry["usecase"]?.bool() ?: false,
-                actions = readActions(entry.required("actions").obj(), methods, screen)
+                actions = readActions(entry.required("actions").obj(), methods, screen),
+                // Not promoted to required. A screen with no title is a screen somebody has
+                // not named yet, and a header reading `enterCode` says exactly that — where a
+                // refusal would stop a spec being writable in the order people write one.
+                title = entry["title"]?.text() ?: screen,
+                scroll = entry["scroll"]?.bool() ?: true,
+                close = readClose(entry["header"], screen, flow),
+                suppressesClose = isRoot(screen, flow) && !readClose(entry["header"], screen, flow),
+                inputs = readInputs(entry["inputs"], screen)
             );
+        }
+
+        /**
+         * Whether this screen's header draws a close, defaulted from the flow it belongs to.
+         *
+         * The default is the runtime's own rule stated at generation time: `Flow.leading`
+         * gives the root of a modal or a sheet a close and gives a pushed flow's root
+         * nothing, because a pushed flow's way out is the host app's back. A screen that is
+         * not its flow's root never has one — it has a back — so the key only means anything
+         * on a root, and it is read the same way everywhere rather than refused where it is
+         * moot.
+         */
+        /** Whether this screen is the root of a flow that was presented over something. */
+        private fun isRoot(screen: String, flow: FlowDefinition?): Boolean =
+            flow != null && flow.start == screen && flow.presentedOver
+
+        private fun readClose(value: JsonValue?, screen: String, flow: FlowDefinition?): Boolean
+        {
+            val fromFlow = isRoot(screen, flow);
+            if (value == null)
+            {
+                return fromFlow;
+            }
+            val header = value.obj();
+            checkKeys(header, setOf("close"), "screens.$screen.header.");
+            return header["close"]?.bool() ?: fromFlow;
+        }
+
+        /**
+         * What the spec says about this screen's inputs, defaulted key by key.
+         *
+         * Every one of the four is optional, and every default is the quiet answer: ordinary
+         * text, the field's own name as its label, a return key that only dismisses, and no
+         * focus stolen on appearance. A screen collects what its request needs whether or not
+         * this object exists at all.
+         */
+        private fun readInputs(value: JsonValue?, screen: String): List<InputDefinition>
+        {
+            if (value == null)
+            {
+                return emptyList();
+            }
+            val members = value.obj();
+            return members.keys.sorted().map { input ->
+                val entry = members.getValue(input).obj();
+                checkKeys(
+                    entry,
+                    setOf("kind", "label", "submitOnReturn", "autofocus"),
+                    "screens.$screen.inputs.$input."
+                );
+                val kind = entry["kind"]?.text() ?: "text";
+                if (kind !in FIELD_KINDS)
+                {
+                    throw SpecException(
+                        "screens.$screen.inputs.$input.kind is '$kind'; it must be one of " +
+                            FIELD_KINDS.joinToString(", ")
+                    );
+                }
+                InputDefinition(
+                    name = input,
+                    kind = kind,
+                    label = entry["label"]?.text() ?: input,
+                    submitOnReturn = entry["submitOnReturn"]?.bool() ?: false,
+                    autofocus = entry["autofocus"]?.bool() ?: false
+                );
+            };
         }
 
         private fun readActions(
@@ -251,7 +466,15 @@ data class Spec(
             screen: String
         ): List<ActionDefinition> = members.keys.sorted().map { action ->
             val entry = members.getValue(action).obj();
-            checkKeys(entry, setOf("call", "then"), "screens.$screen.actions.$action.");
+            checkKeys(entry, setOf("call", "then", "role"), "screens.$screen.actions.$action.");
+            val role = entry["role"]?.text() ?: "secondary";
+            if (role !in CONTROL_ROLES)
+            {
+                throw SpecException(
+                    "screens.$screen.actions.$action.role is '$role'; it must be one of " +
+                        CONTROL_ROLES.joinToString(", ")
+                );
+            }
             val call = entry["call"]?.let { resolve(it.text(), methods, "screens.$screen.actions.$action.call") };
             val then = entry["then"]?.let { readNavigation(it, "screens.$screen.actions.$action.then") };
             if (call == null && then == null)
@@ -261,7 +484,7 @@ data class Spec(
                         "that does nothing"
                 );
             }
-            ActionDefinition(name = action, call = call, then = then);
+            ActionDefinition(name = action, call = call, then = then, role = role);
         }
 
         private fun readNavigation(value: JsonValue, where: String): Navigation
@@ -338,6 +561,43 @@ data class Spec(
                 }
             };
         }
+
+        /**
+         * Refusal 8: an `inputs` entry has to decorate an input this screen really collects.
+         *
+         * The inputs themselves are derived from the contract, so a request field renamed
+         * upstream silently orphans whatever the spec said about it — the field keeps being
+         * collected, and it keeps being collected as plain text with no label and no return
+         * key, which is the P8 family: nothing failed and the screen is not the one somebody
+         * wrote.
+         */
+        private fun checkInputs(screens: List<ScreenDefinition>, bundle: Bundle)
+        {
+            screens.forEach { screen ->
+                val derived = screen.actions
+                    .flatMap { RouteParameters.inputs(screen, it, bundle) }
+                    .map { it.name }
+                    .toSet();
+                screen.inputs.forEach { input ->
+                    if (input.name !in derived)
+                    {
+                        throw SpecException(
+                            "screens.${screen.name}.inputs.${input.name} decorates an input this screen " +
+                                "does not collect; the inputs its actions need are: " +
+                                (derived.sorted().joinToString(", ").ifEmpty { "none" })
+                        );
+                    }
+                };
+            };
+        }
+
+        private val ENTRIES: List<String> = listOf("modal", "push", "sheet");
+
+        private val DETENTS: List<String> = listOf("fit", "half", "full");
+
+        private val FIELD_KINDS: List<String> = listOf("code", "text", "email", "number");
+
+        private val CONTROL_ROLES: List<String> = listOf("primary", "secondary", "destructive", "text");
 
         private fun JsonValue.numberOrRefusal(): Long = when (this)
         {

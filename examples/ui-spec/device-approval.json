@@ -12,18 +12,23 @@
   "screens": {
     "enterCode": {
       "flow": "approveDevice", "source": null,
+      "title": "Approve a device",
+      "inputs": {
+        "userCode": { "kind": "code", "label": "Code from the device", "submitOnReturn": true, "autofocus": true }
+      },
       "actions": {
-        "submit": { "call": "deviceApproval.lookup", "then": { "push": "reviewDevice" } },
-        "cancel": { "then": "close" }
+        "submit": { "call": "deviceApproval.lookup", "then": { "push": "reviewDevice" }, "role": "primary" },
+        "cancel": { "then": "close", "role": "text" }
       }
     },
     "reviewDevice": {
       "flow": "approveDevice", "source": "deviceApproval.lookup", "usecase": true,
+      "title": "Review the device",
       "actions": {
-        "approve": { "call": "deviceApproval.approve", "then": "close" },
-        "deny":    { "call": "deviceApproval.deny",    "then": "close" },
+        "approve": { "call": "deviceApproval.approve", "then": "close", "role": "primary" },
+        "deny":    { "call": "deviceApproval.deny",    "then": "close", "role": "destructive" },
         "retry":   { "call": "deviceApproval.lookup" },
-        "back":    { "then": "pop" }
+        "back":    { "then": "pop", "role": "text" }
       }
     }
   }

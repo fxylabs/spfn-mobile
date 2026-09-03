@@ -44,6 +44,21 @@ data class Target(
     val tableRoot: String?,
 
     /**
+     * Whether the generated views draw the `state=` and `stack=` readouts.
+     *
+     * A readout is TEST equipment. It is the one thing both runners can read and neither can
+     * guess, and it is also two lines of monospaced diagnostics on a screen a person is meant
+     * to use — so it belongs to the consumers that are driven by a runner and to no other
+     * (decision C6). Both targets that ship today set it; the third consumer, whenever it
+     * arrives, is a real app and leaves it off.
+     *
+     * It is a target field rather than a spec key for the same reason the output roots are:
+     * one spec, more than one consumer, and what a consumer is FOR is not something the
+     * screens say about themselves.
+     */
+    val runnerReadouts: Boolean,
+
+    /**
      * The Gradle task that rewrites this target's files, for every header to print.
      *
      * A header that named the wrong task would be an instruction to regenerate somebody
@@ -90,6 +105,7 @@ data class Target(
                 kotlinPackage = required(fields, "--kotlin-package"),
                 appId = required(fields, "--app-id"),
                 tableRoot = fields["--table-root"],
+                runnerReadouts = readouts(fields),
                 generateTask = required(fields, "--generate-task"),
                 verifyTask = required(fields, "--verify-task")
             );
@@ -102,9 +118,24 @@ data class Target(
             "--kotlin-package",
             "--app-id",
             "--table-root",
+            "--runner-readouts",
             "--generate-task",
             "--verify-task"
         )
+
+        /**
+         * `--runner-readouts=true`, or false when the argument is absent.
+         *
+         * Refused rather than coerced when it is neither word: `--runner-readouts=yes` that
+         * fell through to false would silently emit a scaffold whose cells cannot be run,
+         * and the first evidence of it would be fourteen Maestro flows timing out.
+         */
+        private fun readouts(fields: Map<String, String>): Boolean = when (val value = fields["--runner-readouts"])
+        {
+            null, "false" -> false
+            "true" -> true
+            else -> throw IllegalArgumentException("--runner-readouts is '$value'; it must be true or false")
+        }
 
         private fun required(fields: Map<String, String>, key: String): String
         {
