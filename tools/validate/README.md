@@ -24,6 +24,7 @@ check passed.
 | 10 | the D5 toolchain baseline is declared explicitly rather than inherited |
 | 11 | ownership, license, resolved decisions and every compatibility support row are represented honestly |
 | 12 | the repository declares its own status, in docs and in both built libraries |
+| 13 | the `ui` module's `Loadable`, `Busy` and `Flow` names are the same on both platforms, and `SPFNUI` never reaches the SwiftUI dismiss environment value |
 
 ## What it does not check
 
@@ -90,6 +91,40 @@ check 11.
 sh tools/validate/probe-d11-guardrail.sh                  # prove the guardrail
 sh tools/validate/probe-d11-guardrail.sh --print-digest   # after an approved edit
 ```
+
+## Check 13 compares two source trees rather than one
+
+`Loadable`, `Busy` and `Flow` are written twice, once per platform, and nothing but a
+comparison keeps the two copies one vocabulary. An app built against `Loadable.empty` on
+one platform and a `Loadable` that has no empty on the other is not portable — and both
+halves would compile, both suites would pass, and the divergence would surface as a
+missing branch in somebody's product.
+
+So the names are extracted from `Sources/SPFNUI/*.swift` and
+`android/spfn-ui/src/main/kotlin/**/*.kt` and compared per type, lowercased: Swift's
+`case loading` and Kotlin's `data object Loading` are one name, and neither spelling is
+the vocabulary. Extraction is scoped to the declaring TYPE rather than to the file —
+`Flow.swift` also declares `SPFNUIError`, whose `emptyStack` is not one of Flow's names.
+
+The check is a reader, which is the shape that goes quiet rather than red: a reader that
+read nothing yields an empty set, two empty sets agree, and the section would report
+parity having read no code at all. Both sides of every comparison therefore have a floor,
+the pass message carries the count, and an empty file list is refused rather than handed
+to `awk` — which would read standard input instead.
+
+`@Environment(\.dismiss)` is refused outright in `SPFNUI`. It closes whatever presented
+the current view without telling the `Flow`, which leaves the host dismissed over a flow
+that still believes it is open — the double-source-of-truth the module is built to avoid,
+arriving through the one door that looks like ordinary SwiftUI.
+
+```sh
+sh tools/validate/probe-ui-vocabulary-rules.sh   # prove each refusal bites
+```
+
+The probe renames a case on each side, removes a `Flow` method from each side, writes the
+Swift cases on one line and then renames one inside that line, takes each extraction's
+input away, plants a `dismiss`, and drops the `canImport(SwiftUI)` guard. Twelve cases,
+each scoped to section 13's own output.
 
 ## Check 2 replaced a Step 1 prohibition
 

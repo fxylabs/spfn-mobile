@@ -1,0 +1,88 @@
+# SPFN Mobile — the SwiftUI example app's project, as data.
+#
+#   xcodegen generate --spec examples/ios-swiftui/project.yml
+#
+# This file is the source; SPFNExample.xcodeproj is the generated artifact and is
+# gitignored (.gitignore already ignores *.xcodeproj/). The repository keeps one
+# hand-edited project file nowhere.
+#
+# The app is not a sample of a product and is never published. It exists so the generated
+# screen scaffolds have somewhere to compile and so a Maestro cell has something to tap —
+# the same reason tools/harness/ios exists, for a different question.
+#
+# No support package, and that is the whole difference from the harness's project.
+# The harness needs one because a SwiftPM TRAIT cannot be turned on from Xcode
+# (docs/IMPLEMENTATION-PITFALLS.md P17): XcodeGen writes `traits = (...)` into the local
+# package reference and Xcode ignores it, so the harness declares its traits in a manifest
+# SwiftPM does read. This app needs no trait at all — it links no provider adapter — so it
+# takes the four products straight from the package and adds nothing.
+#
+# No signing identity is configured here on purpose: the validator forbids credential and
+# provisioning files in the tree. A simulator build passes CODE_SIGNING_ALLOWED=NO and a
+# device build passes DEVELOPMENT_TEAM, both from the runner's command line.
+
+name: SPFNExample
+
+options:
+  bundleIdPrefix: xyz.superfunction.spfn
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+packages:
+  SPFNMobile:
+    path: ../..
+
+targets:
+  SPFNExample:
+    type: application
+    platform: iOS
+    # Two directories, and the split is the point. `Sources` is the human's: the app
+    # entry, the fixtures, the fake service and the receipt. `Generated` is
+    # tools/ui-codegen's and nothing in it is edited by hand — it sits outside the
+    # package's own `Sources/`, so `swift build` never compiles it and this target is its
+    # only consumer.
+    sources:
+      - path: Sources
+      - path: Generated
+    dependencies:
+      - package: SPFNMobile
+        product: SPFNCore
+      - package: SPFNMobile
+        product: SPFNGenerated
+      - package: SPFNMobile
+        product: SPFNClient
+      - package: SPFNMobile
+        product: SPFNUI
+    # NOT under `Generated/`. That directory belongs to tools/ui-codegen, whose write mode
+    # DELETES every file it did not emit and whose verify mode fails on one it finds — so
+    # an Info.plist written there is removed by the next `spfnGenerateUi` and fails
+    # `spfnUiVerify` in between. One directory, one owner: `Generated/` is the ui
+    # generator's, `Sources/` is the human's, and this file is XcodeGen's and sits beside
+    # both. tools/harness/ios keeps its plist under a `Generated/` of its own because
+    # nothing else writes there; here something does.
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: SPFN Example
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # A receipt is only evidence if someone can read it off the phone, so the
+        # Documents directory is exposed to Finder and to the Files app. Nothing but
+        # receipts is written there, and a receipt here carries a cell id, a fixture
+        # name, a stack depth and two versions — this app never enrols and holds no key.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+    settings:
+      base:
+        # Ad-hoc, naming no identity, so nothing here is a credential. A device build
+        # overrides both from the runner's command line with a real team.
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.superfunction.spfn.example
+        MARKETING_VERSION: "0.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.1"
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO

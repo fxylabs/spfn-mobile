@@ -38,6 +38,7 @@ and Maven coordinate lists from the graph.
 | `SPFNGenerated` | `spfn-generated` | yes | core | — |
 | `SPFNAuth` | `spfn-auth` | yes | core | swift-crypto (Linux) |
 | `SPFNClient` | `spfn-client` | yes | core, auth, generated | swift-crypto (Linux), OkHttp, coroutines (Android) |
+| `SPFNUI` | `spfn-ui` | yes | core | Compose ×3, Navigation 3 ×2, coroutines (Android) |
 | `SPFNSocialApple` | — (declared absent) | — (declared absent) | client | — |
 | `SPFNSocialGoogle` | `spfn-social-google` | — (declared absent) | client | GoogleSignIn (trait), Credential Manager ×3 |
 
@@ -114,6 +115,108 @@ gained auth and generated when the session arrived, because a session signs a
 the revision D13 left room for. The conformance suite needs the generated client from
 inside the auth module, but only at test time; every main edge is still exactly what
 `tools/module-graph.json` declares.
+
+### The `ui` module
+
+`ui` holds the UI runtime vocabulary, and it depends on core alone. What it carries is
+four types a screen needs before it holds any screen: `Loadable`
+(loading·ready·empty·error) for one read, `Busy` (idle·busy·error) for one write,
+`FlowRoute`/`Flow` for a stack of routes with a presented flag, and `FlowHost`, the one
+place a platform navigator is bound to that stack. `Loadable`'s and `Busy`'s error states
+carry core's own error envelope, which is the whole reason for the edge; nothing here
+needs a transport, a session or a generated operation, so an app that only renders state
+links none of them.
+
+`Flow` is deliberately free of the UI toolkit on both platforms — SwiftUI on one side,
+Compose on the other — because every rule it holds is a rule about a list. That is what
+lets the whole transition table run as an ordinary unit suite on a JVM and on Linux,
+rather than only where a UI toolkit and a device exist. `FlowHost` is the only file in
+either half that imports one.
+
+`FlowHost` owns no stack. SwiftUI's `NavigationStack(path:)` and Compose's `NavDisplay`
+both write back on a system pop, and both are bound so that the write turns into
+`flow.pop()` rather than into a second copy of the stack. `@Environment(\.dismiss)` is
+refused outright in `SPFNUI` and the validator's section 13 enforces it: it closes a
+presentation without telling the flow, which is exactly how a host ends up dismissed over
+a flow that still believes it is open.
+
+A `Modal` entry COVERS. That is the one rule the host adds to the flow's own: a modal
+flow was presented over something, so both halves draw it as an opaque cover — a
+`fullScreenCover` on iOS, and on Android a surface that fills everything the host gave the
+composable and takes the touches inside it. Android is deliberately not a `Dialog`: a
+dialog's content is a second semantics owner, and `testTagsAsResourceId` — the switch that
+turns a Compose test tag into the resource id a device runner selects on — is resolved by
+walking semantics parents, so a flow inside one would lose every selector it has. The cost
+of staying in one window is that the host's content remains in the accessibility tree
+behind the cover, where iOS's presentation removes it. A `Push` flow covers nothing: it
+was pushed into the host's own navigation and is part of it.
+
+The two platforms are asymmetric in `externalDeps` because they are asymmetric in fact.
+SwiftUI and Observation are frameworks the OS ships, so SwiftPM resolves no package for
+them and the Swift allowlist is empty; Compose and Navigation 3 are Maven artifacts like
+any other, so every one of them is named in the graph and pinned in the version
+catalogue. Accepting that cost — Compose's transitive set is what grew
+`gradle/verification-metadata.xml` by 154 components — was part of approving the module.
+
+`Paged` and `Form` are deferred. A paged read is more than a `Loadable` with a cursor
+bolted on and a form is more than a `Busy` per field; neither has a shape this repository
+has had to satisfy yet, and a module is added with behaviour or not at all — which is the
+first of the five rules below.
+
+## The example scaffold, and the generator that writes it
+
+`ui` gives a screen its vocabulary; it does not say how an app is put together out of it.
+`examples/` answers that with one worked flow — device approval — built the way a consumer
+app should build one, and `tools/ui-codegen` writes the repetitive part of it from a spec
+so the two platforms cannot drift into different shapes of the same screen.
+
+**Three layers, and the top one is the only one that knows an operation exists.**
+
+| Layer | Where | Knows about |
+| --- | --- | --- |
+| Services | `…/Generated/Services/`, `…/generated/services/` | one `SPFNCall` descriptor per method, and `client.execute` |
+| Screen models | `…/Screens/`, `…/screens/` | a service protocol and a `Flow`; no client, no descriptor, no toolkit |
+| Views | `…/Views/`, `…/views/` | a screen model, and nothing below it |
+
+The rule with teeth is the first one. `SPFNGeneratedCalls` / `SpfnGeneratedCalls` may be
+named in a generated service file and nowhere else under `examples/`, and section 14 of
+`validate.sh` fails on any other file that names one. It is a rule an app breaks by
+reaching for one convenient descriptor inside a view — nothing stops that at compile time,
+the result still works, and the layering is gone. A screen model takes its service and its
+flow through its initializer (D9), so the same model runs against a real client on a device
+and against a fake on a JVM with no substitution machinery in between.
+
+**The spec is the source, and it is small on purpose.** `examples/ui-spec/device-approval.json`
+has exactly three top-level tables — `services`, `flows`, `screens` — and
+`examples/ui-spec/SCHEMA.md` is what a consumer writes against. Five things are refused
+rather than warned about: a `contract.manifestSha256` that is not the pinned bundle's, an
+operation the contract does not declare, a `then` target outside its own flow, a `start`
+that is not a screen of that flow, and a `call` naming a service method that does not
+exist. Each of the five is a mistake whose natural symptom is a compile error inside a
+generated file that nobody wrote, which is the worst place to read one.
+
+A screen's state type is derived, not declared: `source: null` gives `Busy`, an object
+response gives `Loadable` without `empty`, and a list response gives `Loadable` with
+`empty`. The pinned bundle does not distinguish a list response from an object one, so
+today every response is treated as an object and `SCHEMA.md` says so as a stated limit
+rather than leaving the reader to infer it from output.
+
+**The case table is derived from the rules, and the models from the spec.** They are two
+derivations from different sources — `Rules.kt` on one side, the spec on the other — and
+the example app's unit suite is where they meet, driving each model against the table's own
+expectations. A table generated from the models it checks would prove only that the code
+equals itself (P10). Eighteen cells cover the four refusals a model owns: an empty input is
+refused before anything is sent, a second submit while busy is ignored, approve or deny
+before the read is `ready` is ignored, and a response arriving after `close()` changes
+nothing. Each cell declares its runner — `unit`, `maestro` or `both` — and section 14 fails
+on a cell that does not have what it claims, so the table cannot advertise coverage nobody
+wrote.
+
+**Verification needs no server.** A launch fixture (`SPFN_UI_FIXTURE=<cell>`, an intent
+extra on Android and a launch argument on iOS) installs a fake service seeded for one cell;
+absent the flag the app builds its real client and no fake exists. Buttons carry the id
+`<screen>.<action>` and every readout is the text `<name>=<value>`, so one Maestro flow per
+cell drives both platforms.
 
 ## How a module is added
 
@@ -335,6 +438,14 @@ compiles the canonical serializer, the proof input and the generated contract li
 straight out of the Android modules' source directories rather than reimplementing them.
 An Android library cannot be a dependency of a JVM module, and a second copy of
 SPFN-CANON-JSON-1 would turn the round trip into two copies agreeing with each other.
+
+`:ui-codegen` and `:example-compose` join them, and are excluded the same way for two
+different reasons. The generator is a build tool like `:contract-codegen`, sharing its
+bundle readers rather than copying them. The Compose example is an Android *application*
+— it is built and its screen models are tested, but it is not a library anyone links, so
+the publication, lint and API checks that apply to `android/*` do not reach it. The
+validator counts SDK modules under `android/` only, which is what keeps an app under
+`examples/` from being read as an eleventh module.
 
 One tool sits outside that boundary on purpose:
 `Contracts/fixtures/derive-expected-values.py` derives the expected conformance values

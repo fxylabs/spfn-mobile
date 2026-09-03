@@ -36,6 +36,8 @@
 | 계약 번들 교체·재핀, `upstream.lock.json` 수정 | [P1](#p1) [P2](#p2) [P3](#p3) [P6](#p6) |
 | `tools/validate/` 수정, 새 검사 추가 | [P4](#p4) [P5](#p5) [P6](#p6) [P7](#p7) |
 | `tools/contract-codegen/` 수정, 계약 타입 문법 변화 | [P8](#p8) [P2](#p2) |
+| `tools/ui-codegen/` 수정, 화면 스펙(`examples/ui-spec/*.json`) 작성·수정 | [P2](#p2) [P8](#p8) [P10](#p10) [P21](#p21) [P24](#p24) |
+| 화면 모델·비동기 호출의 완료 처리, 네비게이션 스택 변경 | [P24](#p24) [P16](#p16) [P15](#p15) |
 | Swift·Kotlin 대칭 로직 추가·수정 | [P9](#p9) [P10](#p10) [P15](#p15) |
 | 플랫폼 콜백 API를 async/suspend로 감싸기, 제공자 어댑터 | [P16](#p16) [P15](#p15) |
 | 공유 conformance 표·fixture 수정 | [P10](#p10) [P2](#p2) |
@@ -46,6 +48,9 @@
 | 테스트 더블에 키 id·별칭을 주입하고 두 번째 키를 만드는 흐름 | [P18](#p18) |
 | 본문 없는(204) 응답을 서버에 추가 | [P19](#p19) |
 | 플랫폼 `#if canImport(...)` 가드 추가, 한 플랫폼에서 모듈 비우기 | [P20](#p20) [P7](#p7) |
+| 러너가 id로 탭하는 컨트롤 추가·수정 (Compose·SwiftUI 뷰) | [P21](#p21) |
+| Maestro 플로우 생성·수정 | [P22](#p22) [P21](#p21) [P23](#p23) |
+| 기기 러너의 증거 수집 시점 수정 (`run-cells.sh`, `run-harness.sh`) | [P23](#p23) [P7](#p7) [P12](#p12) |
 
 ---
 
@@ -66,31 +71,37 @@
 광고했다. 번들 필드라 못 고쳐 `admittedRange`를 도입했다.
 범용: [declared-constraint-vs-enforced-rule](https://git.superfunction.xyz/spfn-core-projects/coding-context/src/branch/main/reliability/declared-constraint-vs-enforced-rule.md)
 
-## P2. digest는 13개 파일에 있고 역할이 넷으로 갈린다 {#p2}
+## P2. digest는 48개 파일에 있고 역할이 넷으로 갈린다 {#p2}
 
 **증상.** 번들을 교체했는데 어딘가가 옛 digest를 들고 있어 빌드나 검증이 깨진다.
 또는 더 나쁘게, 한 곳만 갱신되어 검사끼리 서로 다른 파일을 가리킨다.
 
-**탐지.** `git grep -l <digest>`로 세는 것이 유일하게 정확하다. 오늘 기준 역할을 지닌
-파일은 13개이고, 명령 자체는 14개를 낸다 — `CHANGELOG.md`가 산문 안에서 digest를
-축약해 언급하기 때문이다. 그것은 역할이 아니라 기록이다. 개수를 외우지 말고 **역할**을
-기억한다 — 넷은 서로 다르게 갱신되고, **손으로 고치는 것은 하나뿐이다.**
+**탐지.** `git grep -l <digest>`로 세는 것이 유일하게 정확하다. 오늘 기준 명령은 48개를
+내고, 48개 모두가 역할을 지닌다. `CHANGELOG.md`도 산문 안에서 digest를 언급하지만
+`29c26160…`처럼 축약하므로 이 명령에는 걸리지 않는다 — 그것은 역할이 아니라 기록이다.
+개수를 외우지 말고 **역할**을 기억한다 — 넷은 서로 다르게 갱신되고, **손으로 고치는
+자리는 둘뿐이며 나머지 46개는 손대는 순간 자기 생성기와 어긋난다.**
 
 | 역할 | 파일 | 어떻게 갱신되나 | 확인 |
 | --- | --- | --- | --- |
-| 손으로 고정 | `Contracts/upstream.lock.json` (`contract.manifestSha256`) | 유일하게 직접 편집하는 자리 | 번들 파일의 실제 sha256과 같은지 재계산해 대조. validator 5절이 강제한다 |
+| 손으로 고정 | `Contracts/upstream.lock.json` (`contract.manifestSha256`) | 직접 편집하는 두 자리 중 하나이자, 다른 하나가 대조하는 기준 | 번들 파일의 실제 sha256과 같은지 재계산해 대조. validator 5절이 강제한다 |
+| 손으로 고정 | `examples/ui-spec/device-approval.json` (`contract.manifestSha256`) | 화면 스펙을 쓴 사람이 적는다. 번들을 재핀하면 lock과 **함께** 고쳐야 하는 자리 | `:ui-codegen:spfnGenerateUi`가 번들 sha256을 재계산해 lock과 스펙 **둘 다**에 대조하고, 어느 쪽이 어긋나도 생성을 거부한다 |
 | fixture 파생물 | `Contracts/fixtures/MANIFEST.json` (`bundleSha256`) | `derive-expected-values.py` 재실행. **손으로 고치지 않는다** | 파일 안 `derivedBy` 필드가 스스로 밝힌다 |
 | codegen 산출물 | 생성 파일 10개 헤더 (Swift 5 + Kotlin 5) | codegen 재생성. **손으로 고치지 않는다** | `:contract-codegen:spfnCodegenVerify` |
+| codegen 산출물 | `examples/` 아래 34개 — 두 앱의 `Generated`·`generated` 소스, case 표 둘, Maestro flow 14개 | `:ui-codegen:spfnGenerateUi` 재실행. **손으로 고치지 않는다** | `:ui-codegen:spfnUiVerify` (`check`에 물려 있다) |
 | upstream 제공 | `Contracts/upstream-provenance.json` (`bundleSha256`) | 새 번들과 함께 도착한다. 갱신 대상이 아니라 **대조 대상** | validator 5절이 lock과 필드 단위로 맞춰 본다 |
 
-**처방.** 번들 교체는 lock 직접 편집 → `derive-expected-values.py` 재실행 →
-codegen 재생성 → 결정성 확인이 한 묶음이다. 나머지 셋 중 둘(MANIFEST, 생성 파일 10개)은
-이 저장소의 **파생물**이라 손으로 편집하면 자기 생성기와 어긋난다. 네 번째는 파생물이
+**처방.** 번들 교체는 lock 직접 편집 → **화면 스펙의 `contract.manifestSha256`도 같은
+값으로 편집** → `derive-expected-values.py` 재실행 → codegen 재생성 → `ui-codegen` 재생성
+→ 결정성 확인이 한 묶음이다. 스펙을 빼먹으면 `spfnGenerateUi`가 거부하므로 조용히
+틀리지는 않지만, 거부 메시지를 "생성기가 깨졌다"로 읽으면 시간을 쓴다. 나머지 셋 중
+둘(MANIFEST, 생성 파일 44개)은 이 저장소의 **파생물**이라 손으로 편집하면 자기 생성기와
+어긋난다. 네 번째는 파생물이
 아니라 **upstream이 발행한 증거**다 — 우리 도구 중 무엇도 그것을 쓰지 않는다. 그것을
 "우리가 갱신할 것"으로 착각하면 evidence를 lock에 맞춰 편집하게 되는데, 그것은
 provenance 게이트가 정확히 잡으려는 행위다([P1](#p1)).
 
-**검증.** `git grep -l <digest> | wc -l`이 14이고, 그중 `upstream-provenance.json`이
+**검증.** `git grep -l <digest> | wc -l`이 48이고, 그중 `upstream-provenance.json`이
 포함돼 있으며 그 값이 lock과 같은지 본다. 개수가 늘었다면 새 소비처가 생긴 것이니
 **그 파일이 스스로 파생물임을 밝히는지**(`derivedBy` 류 필드, 생성기 헤더) 먼저 보고
 역할을 판정해 이 표에 추가한다.
@@ -101,6 +112,13 @@ provenance 게이트가 정확히 잡으려는 행위다([P1](#p1)).
 `CHANGELOG.md`의 산문 언급 하나는 그대로다. 이 항목이 세 번째로 틀렸던 자리도 여기다:
 "11"은 `CHANGELOG.md`를 빼고 센 수였는데 검증 문장은 명령의 출력과 비교하라고 적혀
 있었다. 이제 둘을 나눠 적는다.
+
+**갱신.** w-w823n이 `tools/ui-codegen`을 추가하면서 소비처가 13개에서 48개로 늘었다.
+늘어난 35개 중 34개는 파생물이라 헤더가 스스로 그렇게 밝히지만, 나머지 하나
+(`examples/ui-spec/device-approval.json`)는 **사람이 적는 두 번째 자리**다. 이 항목이
+"손으로 고치는 것은 하나뿐"이라고 단정해 온 문장이 그래서 더는 참이 아니다 — 소비처가
+늘 때 파생물인지만 묻고 **사람이 적는 자리인지**를 묻지 않으면 이런 항목은 조용히
+틀린 채 남는다.
 
 **나온 곳.** cs-6jcny — dev bundle → upstream export 전환. 항목 자체는 두 번 틀렸다.
 cs-mzv14 r1이 "세 곳"을 잡았고(`upstream-provenance.json` 누락), r2가 그 수정을 다시
@@ -202,8 +220,25 @@ grep -n 'is FieldType\.' tools/contract-codegen/src/main/kotlin/xyz/superfunctio
 들여오자 `pending` 응답이 **어느 플랫폼에서도 디코드되지 않았다.** 잠복 필드가 둘
 더 있었다(`ListKeysRequest.includeRevoked`, `RevokeAllKeysRequest.includeCurrent`).
 
+**탐지(3) — 선택적 키의 오타는 "없는 키"와 구별되지 않는다.** 스펙·설정을 읽는 코드가
+**필수** 키만 검사하면, 오타 난 **선택적** 키는 부재와 같은 값으로 읽힌다. `useCase: true`는
+`entry["usecase"] ?: false`를 그냥 지나쳐 기본값 `false`가 되고, 요청된 계층이 조용히 빠진
+앱이 **컴파일까지 된다.** 필수 키의 오타는 이미 "키 없음"으로 붉게 터지므로 이 함정은
+선택적 키에만 있다. 확인 명령:
+
+```
+# 객체를 읽는 자리마다 "모르는 키" 거부가 있는가.
+grep -c checkKeys tools/ui-codegen/src/main/kotlin/xyz/superfunction/spfn/uicodegen/Spec.kt
+```
+
+오늘 기준 8이다(헬퍼 하나 + 호출 일곱: 최상위, `contract`, 서비스 메서드, 플로우, 화면,
+액션, `then`). 일반형은 **"읽는 쪽이 그 객체가 가진 키 전부를 세어 보는가"**이다. 세지
+않으면 그 파일의 오타는 전부 기본값으로 읽힌다. 증거: ui/scaffold-1e 리뷰(2026-09-03) —
+`usecase`를 `useCase`로 고쳐 쓴 스펙이 use-case 계층 없는 화면을 말없이 냈다.
+
 **처방.** 계약 문법 변화는 선언된 변경으로 다뤄 파서 변경 + 양 플랫폼 재생성 +
-결정성 재확인을 함께 한다. upstream 쪽 변화는 소비 전에 대조한다.
+결정성 재확인을 함께 한다. upstream 쪽 변화는 소비 전에 대조한다. 스펙 리더는 필수 키
+검사와 **모르는 키 거부**를 같이 둔다 — 둘은 서로 다른 오타를 잡는다.
 
 **나온 곳.** primitives export 검증(b8e3d2f) — 재핀 전에 blocking으로 보고해 해소.
 
@@ -501,6 +536,269 @@ grep -rn 'import ' Sources/<Target> Tests/<Target>Tests | grep -v '^.*://' | sor
 UIKit만으로 감쌌다면 macOS `swift test`에서 `SPFNSocialGoogleTests` 6행이 조용히
 사라진 채 Linux 게이트만 초록이었을 것이다. `|| canImport(AppKit)`으로 바꿔 macOS
 290행을 지켰다.
+
+## P21. 최소 터치 타깃보다 작은 컨트롤은 이웃의 좌표를 보고한다 {#p21}
+
+**증상.** Compose에서 한 줄짜리 `BasicText`에 `clickable`만 붙이면 컨트롤이 차지하는
+자리는 한 줄(16dp)인데 터치가 먹히는 영역만 최소 터치 타깃(48dp)으로 넓혀진다. 세로로
+붙어 있는 컨트롤들의 넓혀진 영역은 서로 겹치고, 그때 접근성에 **보고되는** bounds는
+이웃에게 잘려 컨트롤 자신의 자리를 벗어난다. 러너(Maestro, `adb shell input tap`)는
+보고된 bounds의 중심을 누르므로 **다른 노드를 누른다.** 클릭 람다는 아예 호출되지 않고
+예외도 로그도 없다. 모델과 `Flow`는 옳으므로 JVM 단위 테스트는 통과하고, SwiftUI의
+`Button`은 기본으로 44pt를 넘기므로 iOS 셀도 통과한다 — 한 플랫폼의 한 셀만 붉다.
+
+**탐지.** 계층 덤프에서 **컨트롤의 bounds 높이가 최소 터치 타깃과 같은지, 이웃의
+bounds와 겹치지 않는지** 본다. 밀도 2.75인 에뮬레이터에서 48dp는 132px이다. 45px로
+나오면 확장 대상이고, 132px보다 짧게 나오면 이미 이웃에게 잘린 것이다.
+
+```
+adb -s emulator-5554 shell uiautomator dump /sdcard/ui.xml \
+  && adb -s emulator-5554 shell cat /sdcard/ui.xml \
+  | tr '<' '\n<' | grep -o 'resource-id="[^"]*"[^>]*bounds="[^"]*"'
+```
+
+그다음 보고된 중심을 직접 눌러 확인한다. 컨트롤이 반응하지 않고 **이웃이** 반응하면
+(텍스트 필드라면 키보드가 뜬다) 확정이다.
+
+```
+adb -s emulator-5554 shell input tap <보고된 중심 x> <보고된 중심 y>
+adb -s emulator-5554 shell dumpsys input_method | grep -o 'mInputShown=[a-z]*'
+```
+
+**처방.** 상호작용 요소마다 **자기 레이아웃에** 최소 터치 타깃을 준다 — Compose는
+`Modifier.heightIn(min = 48.dp)`, SwiftUI는 `.frame(minHeight: 44)`. 확장할 것이
+없어지면 보고되는 bounds가 곧 실제 bounds이고 어느 둘도 겹치지 않는다. 부모에
+`spacing`만 주는 것으로는 부족하다: 8dp 간격은 16dp 컨트롤의 48dp 확장을 여전히
+겹치게 둔다. 방출기가 찍는 코드라면 규칙은 방출기에 두고 두 플랫폼 모두에 적는다.
+
+**나온 곳.** ui/scaffold-1c — 셀 u5(`enterCode.cancel`)만 실패했다. 계층 덤프에서
+`enterCode.cancel`이 보고한 사각형은 `[0,492][122,537]`(높이 45px)이고 바로 위
+`enterCode.userCode`는 `[0,447][270,579]`(높이 132px)여서 앞의 것이 뒤의 것 안에 완전히
+들어가 있었다. 같은 빌드에 대고 y만 바꿔 눌러 보면 y=500·514는 키보드를 열고
+(`mInputShown=true`) `stack=1`로 남았고, y=540·557·570은 `stack=0`을 냈다 — 취소 컨트롤이
+실제로 받는 자리는 보고된 사각형보다 아래였다. `enterCode.submit`은 열의 마지막이라
+아래에서 잘릴 이웃이 없어 보고된 중심이 자기 안에 있었고, 그래서 같은 화면의 다른
+컨트롤은 멀쩡했다. 모든 컨트롤에 48dp를 준 뒤 덤프는 `userCode [0,577][270,709]`,
+`cancel [0,709][122,841]`, `submit [0,841][124,973]`로 서로 겹치지 않았고 u5·u7·u8·u1이
+모두 통과했다.
+
+## P22. 한 플랫폼 전용 Maestro 명령은 다른 플랫폼에서 조용히 성공한다 {#p22}
+
+**증상.** `- back`은 **Android 전용** 명령이다. iOS에서는 실패하지 않는다 — 아무 일도
+하지 않고 성공으로 끝난다. 그래서 플로우는 그 명령이 아니라 **다음 단언**에서 깨지고,
+로그는 "back 통과, assertVisible 실패"로 남는다. 읽는 사람은 화면 상태나 셀렉터를 의심하며
+시간을 쓰고, 정작 아무것도 하지 않은 단계는 초록으로 지나간다. 명령이 없는 것이 아니라
+**있고 무해하게 성공하는 것**이 이 함정의 전부다.
+
+**탐지.** 한 줄이면 된다. `when: platform:` 블록 밖의 top-level `- back`은 하나도 없어야
+한다 — 조건부 블록 안에서는 들여쓰기가 되므로 `^`가 그 둘을 가른다.
+
+```
+grep -n "^- back" examples/ui-spec/generated/flows/*.yaml tools/harness/flows/*.yaml
+```
+
+생성된 플로우만 보고 끝내지 않는다. **하네스 자신의 플로우가 두 번째로 볼 곳**이다:
+`tools/harness/flows`는 손으로 쓴 플로우이고 같은 명령을 같은 이유로 부를 수 있다.
+(2026-09-02 기준 그쪽은 깨끗하다 — `- back`을 하나도 쓰지 않는다.)
+`tools/validate/validate.sh` 14절이 `both` 셀의 플로우에 대해 이 규칙을 강제하고,
+`tools/validate/probe-example-scaffold-rules.sh`가 그 거부가 실제로 무는지 증명한다.
+
+**처방.** 플랫폼마다 그 플랫폼의 제스처를 준다. 시스템 back은 Android에서는 `back`이고
+iOS에서는 화면 왼쪽 가장자리에서 시작하는 interactive-pop 스와이프다.
+
+```yaml
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - back
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - swipe:
+          start: "1%, 50%"
+          end: "90%, 50%"
+          duration: 600
+```
+
+플로우를 **생성기가 찍는다면 규칙은 생성기에 둔다**. 두 플랫폼이 공유하는 플로우 파일
+하나에 조건부 쌍을 넣는 것이지, 플랫폼별 플로우 파일을 두 벌 만드는 것이 아니다 —
+케이스 표는 두 플랫폼이 같은 셀을 같은 파일로 돈다는 주장이고, 파일이 갈라지면 그
+주장이 사라진다.
+
+**나온 곳.** w-w823n의 Mac 실기 라운드, 2026-09-02. iPhone 17 Pro 시뮬레이터(iOS 26.3)
+14셀 중 12셀 통과, 실패한 둘은 u7b·u10b — 시스템 back을 쓰는 두 셀 전부였다. `- back`
+직후의 계층 덤프는 여전히 `stack=2` / `state=ready`였다: 스택은 움직이지 않았고 명령은
+성공했다. `tools/ui-codegen`의 `CaseTable.kt`에는 "iOS에서 Maestro가 이것을 가장자리
+스와이프로 실현한다"는 주석이 있었으나 **측정된 적 없는 가정이었고 거짓이다.** 위의 쌍은
+같은 시뮬레이터에서 end-to-end로 확인했다 — `stack=1`, `state=idle`, 리시트 기록까지.
+같은 라운드의 Android(Pixel 3a API 34) 쪽 12/14는 이 항목이 아니라 [P21](#p21)이었다.
+
+## P23. `clearState`는 앞 셀이 남긴 증거를 지운다 {#p23}
+
+**증상.** 플로우 스위트는 통과했는데 **리시트가 하나도 없다.** 14셀 중 9셀이 초록이고
+게이트는 `0 of 14 cells left a receipt`로 붉다. 리시트를 앱이 자기 저장소에 쓰고
+러너가 **끝에 한 번** 가져오는 구조에서, 모든 플로우가 `launchApp: clearState: true`로
+시작할 때 나온다. clearState는 화면 상태가 아니라 **앱 저장소 전체를 지운다** — iOS는
+데이터 컨테이너, Android는 `pm clear`이고 이쪽은 `/sdcard/Android/data/<pkg>/files`까지
+같이 간다. 그래서 셀 N+1의 첫 줄이 셀 N의 리시트를 지우고, 마지막 한 번의 pull은
+**마지막 wipe 이후에 남은 것만** 집는다. 마지막 플로우가 자기 마지막 단계 전에 깨졌다면
+그것조차 0이다. 앱이 쓰는 리시트와 끝에 한 번 하는 pull은 **같이 성립할 수 없다.**
+
+**iOS는 한 걸음 더 간다.** 시뮬레이터에서 clearState가 하는 일은 데이터 컨테이너를 비우는
+것이 아니라 **다시 만드는 것**이다 — 컨테이너 uuid가 launch마다 바뀐다. 그래서 러너가
+컨테이너 경로를 루프 앞에서 한 번 읽어 두면 그 경로는 첫 플로우의 launch 이후로 **존재하지
+않는 디렉터리**를 가리키고, 셀마다 pull하도록 고친 러너조차 매번 빈 곳에서 복사한다. 이때의
+증상은 위와 한 글자도 다르지 않다: 플로우는 전부 통과하고 리시트는 하나도 없다. 즉 이
+함정은 **두 겹**이고, 바깥쪽(pull 시점)만 고치면 안쪽(경로 조회 시점)이 그대로 남는다.
+
+증거가 사라지는 것이지 검사가 무는 것이 아니므로, 읽는 사람은 리시트 경로·파일 공유
+설정·앱의 쓰기 코드를 의심하며 시간을 쓴다. 정작 지운 것은 **플로우 자신의 첫 줄**이다.
+
+**탐지.** 두 줄이면 갈린다. 플로우가 셀마다 wipe하는가, 러너가 pull을 루프 밖에서
+하는가 — 둘 다 참이면 적중이다.
+
+```
+grep -l "clearState: true" examples/ui-spec/generated/flows/*.yaml | wc -l
+grep -n "maestro .* test" examples/ui-spec/run-cells.sh
+```
+
+오늘 기준 첫 명령은 14(= 기기 러너를 도는 셀 전부)를 내고, 둘째는 2줄 — 워밍업 하나와
+**셀당 하나**를 낸다. 둘째가 플로우 파일 **목록**을 한 번에 넘기는 한 줄로 보이는데
+첫째가 0이 아니면, 그 러너는 이 함정 안에 있다. 일반형으로는 **"기기 위의 증거를
+수집하는 시점이 그 증거를 지우는 시점보다 뒤인가"**를 묻는다.
+
+안쪽 겹(iOS 컨테이너 재생성)은 시뮬레이터 하나와 플로우 하나로 직접 잰다. `clearState:
+true` launch **한 번**을 사이에 두고 컨테이너를 두 번 조회한다.
+
+```
+xcrun simctl get_app_container <udid> xyz.superfunction.spfn.example data
+maestro test examples/ui-spec/generated/flows/u1.yaml
+xcrun simctl get_app_container <udid> xyz.superfunction.spfn.example data
+```
+
+두 출력의 uuid가 **다르면** 컨테이너는 비워진 것이 아니라 다시 만들어진 것이고, 루프 앞에서
+읽어 둔 경로는 전부 stale이다. 러너 쪽 대응 질문은 `grep -n get_app_container
+examples/ui-spec/run-cells.sh`이다 — 조회가 pull 함수 **안**에 있어야 하고, 루프 앞의
+조회는 경로를 남기지 않는 "설치돼 있기는 한가" 거절이어야 한다. Android에는 이 겹이 없다:
+`/sdcard/Android/data/<pkg>/files`는 플랫폼이 고정한 경로라 조회할 것이 없고, 그래서 이쪽을
+iOS와 대칭으로 만들 이유도 없다.
+
+**탐지(2) — 그 증거가 *이번* 실행의 것인지 게이트가 아는가.** 수집 시점을 고쳐도
+**목적지**가 실행 사이에 공유되면 게이트는 다시 열린다. 러너가 `<platform>/<날짜>/`처럼
+날짜로만 이름 붙인 디렉터리에 쓰고 게이트가 그 디렉터리에 대한 glob으로 판정하면, 오전
+실행이 남긴 리시트가 오후 실행을 통과시킨다 — 이번 실행의 maestro 호출이 통째로 건너뛰어져
+0을 반환해도 `RESULT: PASS`가 난다. 증거가 지워지는 [P23](#p23)의 바깥면이 아니라 **증거가
+남아 있어서** 생기는 안쪽면이다. 두 줄로 확인한다:
+
+```
+grep -n 'RUN_DIRECTORY=' examples/ui-spec/run-cells.sh
+grep -n 'pulled_receipt()' examples/ui-spec/run-cells.sh
+```
+
+첫째는 실행마다 다른 이름(초까지)을 만들어야 하고, 둘째는 게이트가 **이번 실행이 가져온
+것의 목록**과 파일 존재를 둘 다 묻어야 한다. 하나만으로는 모자란다: 새 디렉터리만 두면 같은
+초에 시작한 두 실행이 섞이고, 목록만 두면 사람이 두 실행을 비교할 자리가 없어진다. 일반형은
+**"게이트가 판정에 쓰는 파일을 이번 실행이 놓았다고 무엇이 말해 주는가"**이다.
+
+**처방.** 둘 중 하나다. (1) **플로우마다 pull한다** — 한 플로우에 `maestro test` 한 번,
+그 셀의 리시트를 다음 플로우의 launch가 지우기 전에 host로 옮긴다. 드라이버 재설치를
+셀 수만큼 무는 대신 증거를 산다. (2) **host 쪽에서 파생한다** — 리시트를 앱에 쓰게 하지
+말고 JUnit 리포트에서 케이스별로 만든다. `tools/harness/run-harness.sh` 4절이 이쪽이고,
+그래서 하네스는 플로우 하나를 한 maestro에 몰아 넣고도 이 함정에 걸리지 않는다.
+(1)은 셀별 리시트가 fixture가 실제로 전달됐음까지 증명해야 할 때, (2)는 속도가 먼저일
+때 고른다. **섞으면 안 된다** — 앱이 쓰는 리시트에 (2)의 수집 시점을 붙인 것이 이 항목
+자체다.
+
+(1)을 고르면 iOS에서는 **경로도 pull마다 다시 조회한다.** 루프 앞의 조회는 "앱이 이 기기에
+있기는 한가"라는 거절로만 남기고 그 답(경로)은 버린다 — 다음 launch가 그 컨테이너를 이미
+갈아치웠기 때문이다. 그리고 그 조회가 빈 값을 내면 **조용히 건너뛰지 않고 그 자리에서 붉게**
+실패한다. 컨테이너가 없다는 것은 "앱이 기기에 없다"는 신호이지 "이 셀이 리시트를 안 썼다"가
+아니고, 둘은 고치는 곳이 다르다. 조회가 어깨를 으쓱하면 게이트는 첫째 사실에 대해 둘째
+진단을 내놓는다([P6](#p6), [P7](#p7)).
+
+어느 쪽이든 목적지는 **실행마다 새로 만들고 비운 채로 시작하며**, 게이트는 그 디렉터리가
+아니라 이번 실행이 거기에 넣은 것의 목록을 읽는다. 앞 실행의 디렉터리는 지우지 않는다 —
+사람이 두 실행을 비교하는 자리이고, 이번 실행의 증거가 아닐 뿐이다.
+
+어느 쪽이든 **수집이 곧 판정이 되게 두지 않는다.** 수집은 조용히 실패해도 되지만
+(`cp ... || true`), 세고 하한을 두고 붉게 실패하는 것은 게이트 몫이다([P7](#p7)).
+`sh examples/ui-spec/run-cells.sh --probe`가 두 수집 순서를 같은 fixture에 돌려
+per-flow pull은 13/14, 끝에 한 번은 0/14를 내는 것으로 이 차이를 증명한다 — fixture가
+wipe를 모형화하지 않게 만들면 그 케이스가 붉어진다. 안쪽 겹도 같은 probe가 잡는다:
+fixture의 "기기"가 launch마다 컨테이너를 **새 이름으로 다시 만들고 앞의 것을 지우며**,
+셀마다 조회하는 pull은 13/14, 루프 앞에서 한 번 조회한 경로는 0/14를 낸다. 조회를 다시
+캐시하도록 러너를 바꾸면 첫 케이스가 13에서 1로 떨어져 붉어진다.
+
+**나온 곳.** w-w823n의 Mac 라운드, 2026-09-03. iPhone 17 Pro 시뮬레이터에서
+`run-cells.sh ios --device <udid>`가 14 플로우를 한 maestro로 돌려 9통과 5실패를 냈고,
+그 뒤 게이트가 9개 초록 셀에 대해서도 `0 of 14 cells left a receipt`를 냈다.
+`xcrun simctl get_app_container <udid> xyz.superfunction.spfn.example data`로 본 컨테이너에
+`Documents/`는 있고 `Documents/receipts`는 없었다 — 컨테이너는 살아 있고 그 안이 비어
+있었다는 뜻이므로, 앱이 못 쓴 것이 아니라 **쓴 것이 지워진** 것이다.
+
+**두 번째 측정.** 같은 w-w823n의 Mac, 2026-09-03. 셀마다 pull하도록 고친 러너가 같은
+시뮬레이터에서 **14 flows run, 14 passed, 0 receipts pulled**를 냈다 — 열네 셀 전부가
+"flow passed and left NO receipt"였다. 손으로 `maestro test u1.yaml`을 돌린 뒤 컨테이너를
+다시 조회하니 id가 달랐다: run 전 `FDE707DA…`, run 중 `961ED257…`, run 후 `3D0787B5…`이고
+`Documents/receipts/receipt-u1-1788366409229.json`은 **마지막 것** 안에 있었다. 앱은 README가
+말하는 곳에 쓰고 있었고 틀린 것은 러너가 루프 앞에서 한 번 읽어 둔 경로였다. 첫 측정에서
+"`Documents/`는 있고 `Documents/receipts`는 없다"고 본 컨테이너도 같은 이유로 **그때 막
+만들어진 새 컨테이너**였다 — 살아남은 컨테이너가 비어 있었던 것이 아니다.
+
+([P22](#p22)와 헷갈리지 않는다: 저쪽은 명령이 아무 일도 하지 않고 성공하는 것이고,
+이쪽은 명령이 제대로 일하고 그 일이 앞 셀의 증거를 지우는 것이다.)
+
+## P24. 응답이 돌아오기 전에 그 화면이 스택에서 빠진다 {#p24}
+
+**증상.** 호출을 낸 화면을 back으로 빠져나온 뒤, 몇 초 있다가 **앱이 혼자 움직인다.**
+스택이 닫히거나(`then: close`), 아무도 부르지 않은 화면이 밀려 올라오거나(`then: push`),
+지금 보고 있는 화면 위에 앞 화면의 에러가 찍힌다. 화면 모델이 응답을 받아들일지를
+**요청 토큰 + "플로우가 아직 떠 있는가"** 둘로만 판단할 때 나온다. 라우트 하나만 pop되면
+플로우는 여전히 떠 있고, 그 pop이 **시스템 back 제스처**였다면 모델의 토큰도 그대로다 —
+두 검사가 나란히 통과하고, 응답은 아무도 서 있지 않은 화면의 `then`을 실행한다.
+
+**탐지.** 모델의 `isCurrent`류 가드가 몇 가지를 묻는지 센다. 셋이어야 한다: 이 요청이 현재
+요청인가, 플로우가 떠 있는가, **이 화면 자신의 라우트가 지금 스택의 맨 위인가.** 셋째가
+없으면 적중이고, 셋째가 `contains`로 쓰여 있어도 적중이다 — 스택에 **있는 것**과 지금
+**보이는 것**은 다르다. `Flow`의 `push`/`replace`/`open(at:)`은 순서를 가리지 않으므로 자기
+라우트가 자기 위에 한 번 더 쌓일 수 있고, `contains`는 그 밑에 깔린 화면의 응답까지
+받아들여 지금 보이는 화면 위에서 그 화면의 `then`을 실행한다.
+
+```
+# 생성된 모델의 가드가 스택의 맨 위를 보는가. 화면마다 한 줄씩 1이 나와야 한다.
+grep -c "flow.stack.value.lastOrNull() ==" \
+    examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/generated/screens/*Model.kt
+
+# 그리고 멤버십으로 쓴 가드는 하나도 없어야 한다 — 화면마다 0.
+grep -c "flow.stack.value.contains" \
+    examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/generated/screens/*Model.kt
+```
+
+**테스트 쪽 탐지가 더 중요하다.** 화면 자신의 back 액션으로만 pop하는 케이스는 이 결함을
+보지 못한다 — 그 액션은 나가면서 토큰을 올리므로 첫째 검사가 대신 잡아 주고, 셋째가 없어도
+초록이다. 재현되는 것은 **시스템 back 제스처**(러너의 `back`/스와이프, 그리고 그것이 부르는
+`Flow.pop()`)뿐이다. "in-flight 중 pop" 케이스가 모델의 액션을 부르고 있으면, 그 케이스는
+이 함정에 대해 아무것도 말하지 않는다.
+
+**처방.** 가드에 라우트 검사를 더하되 **맨 위인가**를 묻는다: 페이로드가 있는 라우트든 없는
+라우트든 `stack.last == 자기 라우트 값`(Kotlin은 `stack.value.lastOrNull() ==`) 하나로 같은
+질문이 된다. `contains`는 이 자리에서 틀린 질문이다. 셋 다 필요하고 어느 하나도 나머지를
+함의하지 않으므로, 표에는 **셋을 갈라 세우는 셀**을 둔다 — 라우트가 빠진 뒤의 응답(u8d),
+자기 라우트가 자기 위에 한 번 더 쌓인 뒤의 응답(u8e), 플로우가 닫혔다 다시 열린 뒤의
+응답(u1c), 그리고 플로우가 닫힌 채인 응답(u8c/u9c). 가드를 되돌려 재어 본다: `contains`로
+되돌리면 u8e만 붉어지고, 라우트 검사를 아예 지우면 u8d와 u8e가 붉어진다.
+
+**나온 곳.** ui/scaffold-1e에 대한 Codex 리뷰, 2026-09-03. 생성된 두 모델의 `isCurrent`가
+`token == generation && flow.isPresented`뿐이었고, 두 칸짜리 스택에서 위 라우트를 pop한 뒤
+도착한 `approve` 응답이 `flow.close()`를 실행해 사용자가 서 있던 화면까지 닫았다. 표에는
+플로우 전체가 닫히는 셀(u8c/u9c)만 있어 JVM 스위트도 기기 셀도 전부 초록이었다.
+
+**두 번째 라운드.** ui/scaffold-1f에 대한 같은 리뷰어의 재리뷰. 첫 처방이 `contains`였고,
+"진입 라우트는 스택의 첫 칸일 수밖에 없다"는 논거는 `Flow`가 허용하는 전이 전부에는 서지
+않는다 — `push`는 진입 라우트를 맨 위에 덧붙일 수 있고 `replace`와 `open(at:)`은 어떤 순서든
+받는다. 그래서 규칙을 위치가 아니라 **맨 위**로 다시 쓰고, u8e를 표에 넣었다.
 
 ## 원장
 

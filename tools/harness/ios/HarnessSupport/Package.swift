@@ -26,8 +26,8 @@ import PackageDescription
 let package = Package(
     name: "SPFNHarnessSupport",
     platforms: [
-        .iOS(.v16),
-        .macOS(.v13),
+        .iOS(.v17),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "SPFNHarnessSupport", targets: ["SPFNHarnessSupport"]),

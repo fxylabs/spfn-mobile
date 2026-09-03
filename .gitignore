@@ -11,6 +11,10 @@ Package.resolved
 # tools/harness/ios/project.yml, the same way the CocoaPods fixture is written from the
 # module graph. The spec is the source; these are its output.
 tools/harness/ios/Generated/
+# The example app's Info.plist, written by XcodeGen from examples/ios-swiftui/project.yml.
+# It sits beside `Generated/` rather than inside it because that directory is
+# tools/ui-codegen's and the generator deletes what it did not emit there.
+examples/ios-swiftui/Info.plist
 # The harness's device configuration: a LAN address and a Google OAuth client id, both
 # of which belong to whoever is holding the phone. tools/harness/ios/Harness.xcconfig is
 # the tracked half and optionally includes this one.
@@ -22,6 +26,14 @@ DerivedData/
 .gradle/
 build/
 local.properties
+
+# One example cell run's evidence: the receipts pulled off the device and the Maestro
+# report, written by examples/ui-spec/run-cells.sh into <platform>/<date>/. A run belongs
+# to whoever held the device that day; what this repository keeps is the case table and the
+# flows, which say what a run must prove. The tracked `.keep` is what lets the runner
+# create the directory without deciding whether it may.
+examples/ui-spec/receipts/*
+!examples/ui-spec/receipts/.keep
 
 # CocoaPods (fixture only; nothing here is a real integration)
 Pods/

@@ -11,7 +11,13 @@
 //     by default for every target here, and package traits exist. 6.0 was the original
 //     baseline; the provider adapters need traits, so the floor moved by decision
 //     (D5 revision 3b) rather than by convenience.
-//   - platforms iOS 16 / macOS 13.
+//   - platforms iOS 17 / macOS 14.
+//
+// The platform floor moved on 2026-09-02 (D5 revision, approved that day). iOS 16's last
+// security update was 16.7.16 in 2026-05, and the only devices that cannot go past it are
+// the iPhone 8, 8 Plus and X; COMPATIBILITY.md never promised 16, so nothing is withdrawn
+// by raising it. 17 is also what the `ui` module's Swift half is written against —
+// `@Observable` is an iOS 17 macro — so the floor and the code now agree.
 //
 // That baseline says what this package COMPILES against. It is not a support
 // commitment: COMPATIBILITY.md rows stay UNRESOLVED until real-device evidence exists.
@@ -54,14 +60,15 @@ let googleSignIn = Target.Dependency.product(
 let package = Package(
     name: "SPFNMobile",
     platforms: [
-        .iOS(.v16),
-        .macOS(.v13),
+        .iOS(.v17),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "SPFNCore", targets: ["SPFNCore"]),
         .library(name: "SPFNGenerated", targets: ["SPFNGenerated"]),
         .library(name: "SPFNAuth", targets: ["SPFNAuth"]),
         .library(name: "SPFNClient", targets: ["SPFNClient"]),
+        .library(name: "SPFNUI", targets: ["SPFNUI"]),
         .library(name: "SPFNSocialApple", targets: ["SPFNSocialApple"]),
         .library(name: "SPFNSocialGoogle", targets: ["SPFNSocialGoogle"]),
     ],
@@ -79,6 +86,13 @@ let package = Package(
         .target(name: "SPFNGenerated", dependencies: ["SPFNCore"]),
         .target(name: "SPFNAuth", dependencies: ["SPFNCore", .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]),
         .target(name: "SPFNClient", dependencies: ["SPFNCore", "SPFNAuth", "SPFNGenerated", .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]),
+
+        // The UI runtime vocabulary. It reaches SwiftUI and Observation, which the OS
+        // ships rather than a package, so it declares no external product and carries no
+        // `linux: false`: everything but `FlowHost.swift` is ordinary Swift, and that one
+        // file is guarded whole so the module reduces to its non-UI types off Apple's
+        // platforms.
+        .target(name: "SPFNUI", dependencies: ["SPFNCore"]),
 
         // The two provider adapters are Apple-only, which tools/module-graph.json
         // states as `"linux": false` on their rows. SwiftPM cannot condition a target
@@ -98,6 +112,7 @@ let package = Package(
             name: "SPFNClientTests",
             dependencies: ["SPFNClient", "SPFNCore", "SPFNAuth", "SPFNGenerated", .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]
         ),
+        .testTarget(name: "SPFNUITests", dependencies: ["SPFNUI", "SPFNCore"]),
         .testTarget(name: "SPFNSocialAppleTests", dependencies: ["SPFNSocialApple", "SPFNClient"]),
         .testTarget(name: "SPFNSocialGoogleTests", dependencies: ["SPFNSocialGoogle", "SPFNClient"]),
         .testTarget(

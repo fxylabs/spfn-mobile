@@ -20,7 +20,7 @@ name: SPFNHarness
 options:
   bundleIdPrefix: xyz.superfunction.spfn
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "17.0"
   createIntermediateGroups: true
 
 # The harness needs the `SocialGoogle` trait on: Google's own SDK is resolved and linked

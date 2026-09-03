@@ -5,6 +5,167 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### What two real devices changed about the example cells
+
+- **Maestro's `back` is Android's command and does nothing on iOS.** The generated flows
+  for cells u7b and u10b failed on an iPhone 17 Pro simulator (iOS 26.3) on 2026-09-02 —
+  not at the step, which reported success, but at the assertion after it, with the
+  hierarchy still reading `stack=2`. `tools/ui-codegen` now emits a platform-conditional
+  pair for a system back: `back` under `when: platform: Android`, the interactive-pop edge
+  swipe under `when: platform: iOS`, which is the gesture `FlowHost`'s path binding
+  reconciles. Registered as `docs/IMPLEMENTATION-PITFALLS.md` P22, and `validate.sh`
+  section 14 now fails on a top-level `- back` in any `both` cell's flow. The harness's own
+  hand-written flows were checked for the same shape and use no `back` at all.
+- **A cold start is not a cell failure.** Cell u14 timed out once on a freshly wiped
+  Pixel 3a emulator and passed twice on the same build warm. Every generated flow's FIRST
+  wait is now 45 s while every later wait stays at 20 s, and `run-cells.sh` launches the
+  app once with no fixture and waits for its root readout before any cell runs, so the
+  cold start is paid outside the table.
+- **A per-flow `clearState` wipes the receipt the flow before it wrote.** On an
+  iPhone 17 Pro simulator on 2026-09-03, `run-cells.sh ios` drove all fourteen flows under
+  one maestro, nine passed, and the gate then reported `0 of 14 cells left a receipt`:
+  `Documents/` was there and `Documents/receipts` was not. Every generated flow opens with
+  `launchApp: clearState: true`, which empties the app's whole store — the data container
+  on iOS, `pm clear` plus `/sdcard/Android/data/<pkg>/files` on Android — so each cell's
+  first step deleted the previous cell's evidence and a single pull at the end collected
+  what survived the last wipe. An in-app receipt and one end-of-run pull cannot both be
+  right; `run-cells.sh` now runs one `maestro test` per flow and pulls that cell's receipt
+  before the next launch. `tools/harness/run-harness.sh` is untouched: it derives its
+  per-case verdict host-side from the JUnit report and never had the problem. Registered as
+  `docs/IMPLEMENTATION-PITFALLS.md` P23.
+- **`examples/ui-spec/run-cells.sh <ios|android>` runs the example cells**, in
+  `tools/harness/run-harness.sh`'s shape and with its rule: it builds and installs nothing
+  — the two commands per platform are in its header — runs each flow on its own against
+  the named device (`--device`), pulls that cell's receipt off it before the next flow's
+  launch, and fails unless every cell whose runner is `both` left one. Each cell's line
+  carries its flow's exit status beside that verdict, because a flow that failed and a flow
+  that passed and left nothing are two faults with two fixes. Receipts and the per-cell
+  Maestro reports land in `examples/ui-spec/receipts/<platform>/<date>/`, gitignored but
+  for a `.keep`. `--probe` proves the gate bites with no device at all — a full fixture
+  directory passes, one receipt removed fails, and a table with no cells refuses to run
+  rather than reporting full coverage — and proves the per-flow pull matters, by running
+  one fixture that wipes before every flow through both collection orders: pulling per
+  flow keeps 13 of 14, pulling once at the end keeps none. `--flow-runner <cmd>` is the
+  seam it drives, and a run that used it says so in its own output.
+- **A `Modal` flow covers its host on Android as well.** `spfn-ui`'s `FlowHost` draws a
+  modal flow as an opaque, touch-tight cover filling everything the host gave it, where
+  before it rendered inline under the host's own content while the same flow covered the
+  host on iOS. It is deliberately not a `Dialog`: a dialog's content is a second semantics
+  owner, and `testTagsAsResourceId` is resolved by walking semantics PARENTS, so every
+  control in the flow would lose the resource id a Maestro `id:` selector matches. The
+  cost of the choice is stated in the file: the host's content stays in the accessibility
+  tree behind the cover, where iOS's `fullScreenCover` removes it. `spfn-ui` gained
+  `androidx.compose.foundation` for `fillMaxSize` and `background`, declared in
+  `tools/module-graph.json` like every other artifact it links.
+- **`Generated/` has one owner again.** XcodeGen wrote the iOS example's `Info.plist` into
+  `examples/ios-swiftui/Generated/`, which is `tools/ui-codegen`'s directory — whose write
+  mode deletes what it did not emit and whose verify mode fails on what it finds. The
+  plist moved beside that directory rather than into it.
+
+### One spec, two app scaffolds: `ui-codegen` and the example apps
+
+- **`tools/ui-codegen` generates the screen scaffold from one JSON spec.** Registered as
+  `:ui-codegen`, not an SDK module and never published, sharing `:contract-codegen`'s
+  bundle readers rather than copying them, zero external dependencies.
+  `./gradlew :ui-codegen:spfnGenerateUi` writes; `:ui-codegen:spfnUiVerify` fails if any
+  output is stale and is wired into `check`. From `examples/ui-spec/device-approval.json`
+  it writes the SwiftUI and Compose halves of the device-approval flow — a service per
+  service table, a route/flow/host per flow, a screen model and view skeleton per screen,
+  an optional use case — plus the case table and one Maestro flow per cell. The two
+  emitters are structurally mirrored, so a fix made on a Mac maps 1:1 to the Kotlin side.
+- **Five things the spec refuses rather than warns about**: a `contract.manifestSha256`
+  that is not the pinned bundle's, an operation the contract does not declare, a `then`
+  target outside its own flow, a `start` that is not a screen of that flow, and a `call`
+  naming a service method that does not exist. Each one's natural symptom would otherwise
+  be a compile error inside a generated file nobody wrote. `examples/ui-spec/SCHEMA.md` is
+  what a consumer app writes a spec against.
+- **The generator is a fifth reader of the contract digest, and the spec is the second
+  place it is written by hand.** `spfnGenerateUi` recomputes the bundle's sha256 and
+  compares it with both `Contracts/upstream.lock.json` and the spec, refusing on either
+  mismatch — two different mistakes, a bundle edited without re-pinning and a spec written
+  against a bundle that is no longer pinned. `docs/IMPLEMENTATION-PITFALLS.md` P2 gained
+  both roles; a full-digest `git grep -l` now names 48 files rather than 13, and 45 of
+  them are derived by a generator in this repository.
+- **The case table comes from the rules and the models come from the spec.** Two
+  derivations from different sources — `Rules.kt` and the spec — meeting in the example
+  app's unit suite, which drives each model against the table's own expectations. A table
+  derived from the models it checks would prove only that the code equals itself (P10).
+  Eighteen cells (u1–u14, plus u7b/u10b for system back and u8c/u9c for a response that
+  arrives after `close()`), each declaring `unit`, `maestro` or `both`.
+- **Four refusals live in the screen models**, and they are what the table checks: an empty
+  required input is refused before anything is sent, a submit while busy is ignored,
+  approve or deny before the read is `ready` is ignored, and a response arriving after
+  `close()` changes no state — the last one guarded by a per-request token rather than by
+  hoping the task was cancelled in time.
+- **`examples/android-compose` is a running Compose application** — `:example-compose`,
+  namespace `xyz.superfunction.spfn.example`, no signing config and no secrets in the
+  tree, depending on `:spfn-ui`, `:spfn-client`, `:spfn-generated` and `:spfn-core`.
+  `assembleDebug` builds it and `testDebugUnitTest` runs 18 cell tests plus 3 that check
+  the fixture table against the case table, on the JVM with no Robolectric.
+  `gradle/verification-metadata.xml` gained the artifacts `activity-compose` drags in.
+  `examples/ios-swiftui` is the mirrored shell — an xcodegen `project.yml` at deployment
+  target 17.0 and four hand-written sources — written blind and compiled on a Mac later.
+- **Verification runs with no server.** `SPFN_UI_FIXTURE=<cell>` — an intent extra on
+  Android, a launch argument on iOS — installs a fake service seeded for that one cell;
+  with the flag absent no fake is constructed at all and the app builds its real client
+  from the same `local.properties` keys the harness uses, fail-closed and never printed.
+  Buttons carry the id `<screen>.<action>` and readouts are the text `<name>=<value>`, so
+  one Maestro flow drives both platforms. The example flows and their receipts are kept
+  separate from the harness's rather than shared with them.
+- **`validate.sh` gained section 14: the example apps hold the generated boundary.** A
+  call descriptor may be named in a generated service file and nowhere else under
+  `examples/`; `dismiss` is refused under a generated directory for the reason section 13
+  refuses it inside `SPFNUI`; and every cell of the case table must have the flow and the
+  test its runner declares, where `both` means both rather than either. All three carry a
+  floor and report what they read, because a scan that read nothing looks exactly like a
+  clean tree (P7). `tools/validate/probe-example-scaffold-rules.sh` proves each refusal
+  bites, in 11 cases.
+
+### The `ui` module, and an iOS 17 baseline
+
+- **The package baseline is iOS 17 / macOS 14** (D5 revision, approved 2026-09-02; it was
+  iOS 16 / macOS 13). iOS 16's last security update was 16.7.16 in 2026-05, and the only
+  devices that cannot go past it are the iPhone 8, 8 Plus and X. No `COMPATIBILITY.md`
+  row ever promised 16, so nothing offered is withdrawn. `Package.swift`, the iOS harness
+  project, its trait-carrier manifest and the two throwaway RC consumer manifests move
+  together — a consumer package declaring macOS 13 cannot resolve a dependency that
+  requires 14. Android's `minSdk` is unchanged at 24.
+- **One new module: `ui` — Swift `SPFNUI`, Android `spfn-ui`** — depending on core alone.
+  It holds the UI runtime vocabulary and nothing else: `Loadable`
+  (loading·ready·empty·error) for one read, `Busy` (idle·busy·error) for one write,
+  `FlowRoute`/`Flow` for a stack of routes with a presented flag, and `FlowHost`, the one
+  place a platform navigator is bound to that stack. The two error states carry core's own
+  error envelope, which is the whole reason for the edge. `Paged` and `Form` are deferred.
+- **`Flow` is free of the UI toolkit on both platforms.** Every rule it holds is a rule
+  about a list — `push`, `pop`, `replace`, `open(at:)`, `close()`, where `pop()` on the
+  last route is a documented no-op and `open` on an empty stack is refused — so the whole
+  transition table runs as an ordinary unit suite on the JVM and on Linux rather than only
+  where a UI toolkit exists. `FlowHost` is the only file in either half that imports one.
+- **`FlowHost` owns no stack.** SwiftUI's `NavigationStack(path:)` and Compose's
+  `NavDisplay` both write back on a system pop, and both are bound so the write becomes
+  `flow.pop()` instead of a second copy of the stack. `@Environment(\.dismiss)` appears
+  nowhere in `SPFNUI` and the validator refuses it: it closes a presentation without
+  telling the flow, which is how a host ends up dismissed over a flow that still believes
+  it is open. On Android the entry style is a three-line difference — `NavDisplay` disables
+  its own back handling when the scene has no previous entry, so a `Modal` flow puts a
+  `BackHandler` over exactly that gap and closes while a `Push` flow lets it fall through.
+- **Compose and Navigation 3 are the Android toolkit, and their cost is recorded.**
+  Compose 1.11.4 (1.12.0 requires compileSdk 37 and D5 pins 36), Navigation 3 1.1.7 — the
+  current stable, 1.2.0 being at beta01 — and `org.jetbrains.kotlin.plugin.compose`, which
+  is what AGP 9.2.1 asks for to turn the Compose feature on. No Compose BOM: the validator
+  resolves each dependency line to a catalogue alias and cannot read through a
+  `platform(...)` wrapper. `gradle/verification-metadata.xml` grew by 154 components, all
+  network-fetched, written by running `--write-verification-metadata sha256` over the real
+  build as well as `help` — artifacts only a task resolves are not recorded by `help`.
+- **`validate.sh` gained section 13: the ui vocabulary is one vocabulary.** It extracts
+  `Loadable`'s and `Busy`'s state names and `Flow`'s public method names from both source
+  trees and compares them per type, lowercased, scoped to the declaring type rather than
+  to the file. Both sides carry a floor and the pass message carries the count, because a
+  reader that read nothing yields an empty set and two empty sets agree. SwiftUI joined
+  section 8's Apple-only framework list, so the whole-file guard on `FlowHost.swift` is
+  enforced rather than merely present. `tools/validate/probe-ui-vocabulary-rules.sh` proves
+  each refusal bites, in 12 cases.
+
 ### The Swift package builds and tests on Linux
 
 - **`swift build` and `swift test` run on Linux** — Swift 6.2.1 on Ubuntu 24.04 builds

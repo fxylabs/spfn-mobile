@@ -23,6 +23,8 @@
 #   /Sources/SPFNSocialApple/      <ios-owner> <security-owner>
 #   /Sources/SPFNSocialGoogle/     <ios-owner> <security-owner>
 #   /android/spfn-social-google/   <android-owner> <security-owner>
+#   /Sources/SPFNUI/               <ios-owner>
+#   /android/spfn-ui/              <android-owner>
 #   /.github/workflows/            <release-owner> <security-owner>
 #   /VERSION                       <release-owner> <security-owner>
 #   /RELEASE.md                    <release-owner> <security-owner>

@@ -1,0 +1,57 @@
+# SPFN Mobile — example cell u9: R5 — the second write closes the same way the first does
+#
+# GENERATED FILE — DO NOT EDIT.
+#
+# generator:       spfn-ui-codegen 0.1.0-dev
+# spec:            examples/ui-spec/device-approval.json
+# specSha256:      cd02e9ed576538e540a939229a0e476a76708e84286a3ccd09f5f680bf7ab8b5
+# bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
+# contractVersion: 0.10.0
+#
+# Regenerate with: ./gradlew :ui-codegen:spfnGenerateUi
+# Verified by:     ./gradlew :ui-codegen:spfnUiVerify
+
+appId: ${APP_ID}
+name: u9
+---
+- launchApp:
+    clearState: true
+    arguments:
+      SPFN_UI_FIXTURE: "u9"
+
+# The app is up once a screen is drawing its stack readout. That the right FIXTURE
+# is installed is proven at the end instead, by the receipt's own name: an app that
+# never got the launch argument writes no receipt for this cell at all.
+#
+# This first wait is the long one. The FIRST launch after an install or a wipe draws
+# later than every launch after it, and a cold start that outran this wait is a
+# stall reported as a cell failure — cell u14 did exactly that on a wiped emulator
+# on 2026-09-02 and passed twice warm. Every later wait stays at 20000.
+- extendedWaitUntil:
+    visible:
+      text: "stack=.*"
+    timeout: 45000
+
+- tapOn:
+    id: "enterCode.userCode"
+- inputText: "ABCD-1234"
+
+- tapOn:
+    id: "enterCode.submit"
+
+- extendedWaitUntil:
+    visible:
+      text: "state=ready"
+    timeout: 20000
+
+- tapOn:
+    id: "reviewDevice.deny"
+
+- assertVisible:
+    text: "stack=0"
+
+- tapOn:
+    id: "example.receipt"
+
+- assertVisible:
+    text: "receipt=receipt-u9-.*"

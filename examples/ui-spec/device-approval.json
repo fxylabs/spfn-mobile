@@ -1,0 +1,30 @@
+{
+  "specVersion": 1,
+  "contract": { "manifestSha256": "29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c" },
+  "services": {
+    "deviceApproval": {
+      "lookup":  { "operation": "authDeviceInfo" },
+      "approve": { "operation": "authDeviceApprove" },
+      "deny":    { "operation": "authDeviceDeny" }
+    }
+  },
+  "flows": { "approveDevice": { "entry": "modal", "start": "enterCode" } },
+  "screens": {
+    "enterCode": {
+      "flow": "approveDevice", "source": null,
+      "actions": {
+        "submit": { "call": "deviceApproval.lookup", "then": { "push": "reviewDevice" } },
+        "cancel": { "then": "close" }
+      }
+    },
+    "reviewDevice": {
+      "flow": "approveDevice", "source": "deviceApproval.lookup", "usecase": true,
+      "actions": {
+        "approve": { "call": "deviceApproval.approve", "then": "close" },
+        "deny":    { "call": "deviceApproval.deny",    "then": "close" },
+        "retry":   { "call": "deviceApproval.lookup" },
+        "back":    { "then": "pop" }
+      }
+    }
+  }
+}

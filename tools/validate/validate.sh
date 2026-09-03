@@ -230,11 +230,19 @@ for path in \
     tools/module-graph.json tools/conformance/semver-range-vectors.json \
     tools/contract-codegen/README.md \
     tools/contract-codegen/build.gradle.kts \
+    tools/ui-codegen/README.md \
+    tools/ui-codegen/build.gradle.kts \
+    examples/ui-spec/device-approval.json examples/ui-spec/SCHEMA.md \
+    examples/ui-spec/generated/device-approval.cases.json \
+    examples/ui-spec/generated/device-approval.cases.md \
+    examples/android-compose/README.md examples/ios-swiftui/README.md \
     tools/validate/validate.sh tools/validate/d11-forbidden.ere \
     tools/validate/d11-policy.lock.json tools/validate/probe-d11-guardrail.sh \
     tools/validate/probe-publishing-gate.sh \
     tools/validate/probe-publication-rules.sh \
     tools/validate/probe-social-adapter-rules.sh \
+    tools/validate/probe-ui-vocabulary-rules.sh \
+    tools/validate/probe-example-scaffold-rules.sh \
     tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
     tools/rc-verify/probe-trap-exit.sh tools/rc-verify/local-signed-run.sh \
     tools/device-receipts/receipt-gate.sh tools/device-receipts/probe-receipt-gate.sh \
@@ -256,7 +264,8 @@ done
 
 for path in \
     Sources Tests android Contracts/fixtures tools examples/ios-swiftui \
-    examples/android-compose docs/architecture docs/migration docs/security \
+    examples/android-compose examples/ui-spec examples/ui-spec/generated/flows \
+    examples/ios-swiftui/Generated docs/architecture docs/migration docs/security \
     tools/device-receipts tools/device-receipts/runs \
     Tests/SPFNConformanceTests "$SWIFT_GENERATED" "$KOTLIN_GENERATED"
 do
@@ -1563,7 +1572,10 @@ do
     mv "$TMP/linux-swift-kept.txt" "$TMP/linux-swift-files.txt"
 done < "$TMP/linux-absent.txt"
 
-APPLE_ONLY_FRAMEWORKS='AuthenticationServices|UIKit|AppKit|LocalAuthentication|Security'
+# SwiftUI joined this list with the `ui` module. It is Apple-only and `SPFNUI` builds on
+# Linux, so the one file that imports it — FlowHost.swift — is guarded whole, and this is
+# what makes that a rule rather than a habit.
+APPLE_ONLY_FRAMEWORKS='AuthenticationServices|UIKit|AppKit|LocalAuthentication|Security|SwiftUI'
 APPLE_IMPORT_SCANNED=0
 APPLE_IMPORT_HITS=''
 while IFS= read -r source
@@ -1751,8 +1763,8 @@ fi
 section '10. toolchain baseline (D5) is declared, not implied'
 # ---------------------------------------------------------------------------
 contains Package.swift 'swift-tools-version: 6.1' 'Package.swift pins swift-tools-version 6.1'
-contains Package.swift '.iOS(.v16)' 'Package.swift pins the iOS 16 baseline'
-contains Package.swift '.macOS(.v13)' 'Package.swift pins the macOS 13 baseline'
+contains Package.swift '.iOS(.v17)' 'Package.swift pins the iOS 17 baseline'
+contains Package.swift '.macOS(.v14)' 'Package.swift pins the macOS 14 baseline'
 
 contains gradle/libs.versions.toml 'agp = ' 'version catalogue pins the AGP line'
 contains gradle/libs.versions.toml 'kotlin = ' 'version catalogue pins the Kotlin line'
@@ -1950,6 +1962,403 @@ contains RELEASE.md 'UNRESOLVED' 'RELEASE.md still claims no device support'
 contains Sources/SPFNCore/SPFNScaffold.swift 'isScaffold: Bool = true' 'the built library declares itself a scaffold'
 contains android/spfn-core/src/main/kotlin/xyz/superfunction/spfn/core/SpfnCore.kt 'IS_SCAFFOLD: Boolean = true' \
     'the Android library declares itself a scaffold'
+
+# ---------------------------------------------------------------------------
+section '13. the ui vocabulary is one vocabulary on both platforms'
+# ---------------------------------------------------------------------------
+# `Loadable`, `Busy` and `Flow` are written twice, once per platform, and the only thing
+# that keeps the two copies the same vocabulary is that somebody compares them. A screen
+# built against `Loadable.empty` on one platform and a `Loadable` that has no empty on the
+# other is not a portable app; the two would compile, both suites would pass, and the
+# divergence would surface as a missing branch in somebody's product.
+#
+# So the names are read out of both trees and compared per type. Extraction is
+# TYPE-SCOPED, not file-scoped: `Flow.swift` also declares `SPFNUIError`, whose
+# `emptyStack` is not one of Flow's names, and a file-scoped read would hand it over
+# (docs/IMPLEMENTATION-PITFALLS.md P5, the wrong-hit class). The current type is the last
+# declaration that began at column zero, which is the shape every top-level declaration in
+# both halves of this module has.
+#
+# Names are compared lowercased, because the two languages spell the same case
+# differently by convention and neither spelling is the vocabulary: Swift's `case loading`
+# and Kotlin's `data object Loading` are one name.
+#
+# Every extraction has a floor. A reader that read nothing produces an empty set, and two
+# empty sets agree — which would report parity having read no code at all (P7). Both sides
+# of every comparison must be non-empty, and the pass message carries the count.
+UI_SWIFT_DIR=Sources/SPFNUI
+UI_KOTLIN_DIR=android/spfn-ui/src/main/kotlin
+
+# The names one Swift type declares, one per line, lowercased.
+#
+# `kind` selects what counts as a name: `case` for an enum's cases, `func` for a type's
+# public methods. A case list may be written on one line (`case loading, ready(Value)`) or
+# one case per line, and both are read — a payload is erased before the comma split, so a
+# payload that carries a comma of its own cannot be mistaken for a second case.
+#
+# A method is read whatever MODIFIERS stand between `public` and `func` — `public static
+# func`, `public mutating func`, `public nonisolated func`. A grammar that recognised one
+# spelling would not report the others as extra names, it would not see them at all: both
+# floors stay satisfied, both sides stay equal, and the section reports parity over a
+# method only one platform has (P7). Visibility is still the anchor, so `internal func`
+# and `private func` are read by neither half, which is what makes this a comparison of
+# the two PUBLIC vocabularies.
+swift_ui_names()
+{
+    find "$UI_SWIFT_DIR" -name '*.swift' | sort > "$TMP/ui-swift-files.txt"
+    # An empty list is returned as an empty result rather than passed to awk, which would
+    # read standard input instead and hang. The caller's floor is what turns that into a
+    # failure; nothing here may quietly succeed at reading nothing.
+    if [ ! -s "$TMP/ui-swift-files.txt" ]
+    then
+        return 0
+    fi
+    awk -v want="$1" -v kind="$2" '
+        /^(public )?(final )?(class|struct|enum|protocol|extension) / {
+            declaration = $0
+            sub(/^public /, "", declaration)
+            sub(/^final /, "", declaration)
+            sub(/^[a-z]+ /, "", declaration)
+            sub(/[^A-Za-z0-9_].*$/, "", declaration)
+            current = declaration
+            next
+        }
+        current == want && kind == "case" && /^[[:space:]]+case / {
+            names = $0
+            sub(/^[[:space:]]+case /, "", names)
+            gsub(/\([^)]*\)/, "", names)
+            count = split(names, parts, ",")
+            for (part = 1; part <= count; part++)
+            {
+                name = parts[part]
+                # Trimmed BEFORE the tail is cut, not after: a comma-separated list leaves
+                # a leading space on every part but the first, and cutting from the first
+                # non-word character would erase those parts entirely — which reads as a
+                # one-case enum rather than as an extraction that went wrong.
+                sub(/^[ \t]+/, "", name)
+                sub(/[^A-Za-z0-9_].*$/, "", name)
+                if (name != "") { print tolower(name) }
+            }
+        }
+        current == want && kind == "func" && /^[[:space:]]+public ([a-z]+ )*func / {
+            name = $0
+            sub(/^[[:space:]]+public ([a-z]+ )*func /, "", name)
+            sub(/[^A-Za-z0-9_].*$/, "", name)
+            if (name != "") { print tolower(name) }
+        }
+    ' $(cat "$TMP/ui-swift-files.txt") | sort -u
+}
+
+# The same, for the Kotlin half. A sealed interface's states are its nested `object` and
+# `data class` declarations, which is that language's spelling of an enum case with a
+# payload; a class's names are its public functions — `public suspend fun`,
+# `public inline fun` and every other modifier sequence included, for the reason the Swift
+# half states. `internal` is not a visibility this reads: it is not public, and a method
+# the other platform cannot call is not part of the shared vocabulary.
+kotlin_ui_names()
+{
+    find "$UI_KOTLIN_DIR" -name '*.kt' | sort > "$TMP/ui-kotlin-files.txt"
+    if [ ! -s "$TMP/ui-kotlin-files.txt" ]
+    then
+        return 0
+    fi
+    awk -v want="$1" -v kind="$2" '
+        /^[A-Za-z]/ {
+            declaration = $0
+            sub(/^public /, "", declaration)
+            sub(/^sealed /, "", declaration)
+            sub(/^data /, "", declaration)
+            sub(/^enum /, "", declaration)
+            if (declaration ~ /^(interface|class|object) /)
+            {
+                sub(/^[a-z]+ /, "", declaration)
+                sub(/[^A-Za-z0-9_].*$/, "", declaration)
+                current = declaration
+            }
+            next
+        }
+        current == want && kind == "case" && /^[[:space:]]+public (data )?(object|class) / {
+            name = $0
+            sub(/^[[:space:]]+public /, "", name)
+            sub(/^data /, "", name)
+            sub(/^[a-z]+ /, "", name)
+            sub(/[^A-Za-z0-9_].*$/, "", name)
+            if (name != "") { print tolower(name) }
+        }
+        current == want && kind == "fun" && /^[[:space:]]+public ([a-z]+ )*fun / {
+            name = $0
+            sub(/^[[:space:]]+public ([a-z]+ )*fun /, "", name)
+            sub(/[^A-Za-z0-9_].*$/, "", name)
+            if (name != "") { print tolower(name) }
+        }
+    ' $(cat "$TMP/ui-kotlin-files.txt") | sort -u
+}
+
+# One type, both halves. Reads each side, refuses an empty read on either, and names the
+# extra and the missing separately — "they differ" is not enough to act on.
+compare_ui_type()
+{
+    TYPE=$1
+    swift_ui_names "$TYPE" "$2" > "$TMP/ui-swift-$TYPE.txt"
+    kotlin_ui_names "$TYPE" "$3" > "$TMP/ui-kotlin-$TYPE.txt"
+    SWIFT_COUNT=$(grep -c . "$TMP/ui-swift-$TYPE.txt" || true)
+    KOTLIN_COUNT=$(grep -c . "$TMP/ui-kotlin-$TYPE.txt" || true)
+
+    if [ "$SWIFT_COUNT" -ge 2 ] && [ "$KOTLIN_COUNT" -ge 2 ]
+    then
+        pass "$TYPE: read $SWIFT_COUNT names from $UI_SWIFT_DIR and $KOTLIN_COUNT from $UI_KOTLIN_DIR"
+    else
+        fail "$TYPE: read $SWIFT_COUNT Swift names and $KOTLIN_COUNT Kotlin names; the extraction did not run"
+        return 0
+    fi
+
+    ONLY_SWIFT=$(comm -23 "$TMP/ui-swift-$TYPE.txt" "$TMP/ui-kotlin-$TYPE.txt" | tr '\n' ' ')
+    ONLY_KOTLIN=$(comm -13 "$TMP/ui-swift-$TYPE.txt" "$TMP/ui-kotlin-$TYPE.txt" | tr '\n' ' ')
+    if [ -z "$(printf '%s%s' "$ONLY_SWIFT" "$ONLY_KOTLIN" | tr -d ' ')" ]
+    then
+        pass "$TYPE names match on both platforms ($(tr '\n' ' ' < "$TMP/ui-swift-$TYPE.txt"))"
+    else
+        fail "$TYPE differs between platforms — only in Swift: ${ONLY_SWIFT:-none}| only in Kotlin: ${ONLY_KOTLIN:-none}"
+    fi
+}
+
+if [ -d "$UI_SWIFT_DIR" ] && [ -d "$UI_KOTLIN_DIR" ]
+then
+    pass 'both halves of the ui module are present'
+    compare_ui_type Loadable case case
+    compare_ui_type Busy case case
+    compare_ui_type Flow func fun
+else
+    fail "the ui module is incomplete: $UI_SWIFT_DIR or $UI_KOTLIN_DIR is missing"
+fi
+
+# `dismiss` is refused outright. SwiftUI's `@Environment(\.dismiss)` closes whatever
+# presented the current view without telling the Flow, which leaves the host dismissed
+# over a flow that still believes it is open — the double-source-of-truth this module is
+# built to avoid, arriving through the one door that looks like ordinary SwiftUI. Closing
+# a flow is `Flow.close()`, which the host's own binding calls.
+UI_DISMISS_SCANNED=0
+UI_DISMISS_HITS=''
+find "$UI_SWIFT_DIR" -name '*.swift' | sort > "$TMP/ui-dismiss-files.txt" 2>/dev/null || true
+while IFS= read -r source
+do
+    UI_DISMISS_SCANNED=$((UI_DISMISS_SCANNED + 1))
+    # Comment lines are dropped first, exactly as `lacks_active` does it everywhere else
+    # in this script: a prohibition has to be statable in the file that implements it, and
+    # FlowHost.swift says in its header why `dismiss` is refused.
+    UI_DISMISS_HITS="$UI_DISMISS_HITS$(grep -n 'dismiss)' "$source" | grep -vE '^[0-9]+:[[:space:]]*(//|\*)' | sed "s#^#$source:#" | tr '\n' ' ')"
+done < "$TMP/ui-dismiss-files.txt"
+
+if [ "$UI_DISMISS_SCANNED" -ge 4 ]
+then
+    pass "the dismiss scan read all $UI_DISMISS_SCANNED sources of $UI_SWIFT_DIR"
+else
+    fail "the dismiss scan read only $UI_DISMISS_SCANNED sources; it did not run"
+fi
+
+if [ -z "$(printf '%s' "$UI_DISMISS_HITS" | tr -d ' ')" ]
+then
+    pass 'no source of SPFNUI reaches the SwiftUI dismiss environment value'
+else
+    fail "SPFNUI reaches the dismiss environment value: $UI_DISMISS_HITS"
+fi
+
+# ---------------------------------------------------------------------------
+section '14. the example apps hold the generated boundary'
+# ---------------------------------------------------------------------------
+# Three rules, and each of them is a rule the example apps could break silently.
+#
+#   a. the generated services are the ONLY place a call descriptor is named. That is the
+#      layering the whole scaffold exists to demonstrate — services, then screen models,
+#      then views — and it is exactly the rule an app breaks by reaching for one
+#      convenient descriptor in a view.
+#   b. `dismiss` is refused under a generated directory for the reason section 13 refuses
+#      it inside SPFNUI: it closes a presentation without telling the flow, which leaves a
+#      host dismissed over a flow that still believes it is open.
+#   c. every cell of the case table is covered by something. A table is a claim about what
+#      was checked, and a cell with neither a flow nor a test is a claim nobody honoured —
+#      and a `both` cell's flow may not carry a bare `- back`, because that command is
+#      Android's and does nothing at all on iOS (P22).
+#
+# Every one of them has a floor. A scan that read no file produces no hits, and no hits is
+# what a clean tree also produces — so each check states how much it read and fails when
+# that number says it did not run (docs/IMPLEMENTATION-PITFALLS.md P7).
+EXAMPLE_CASES=examples/ui-spec/generated/device-approval.cases.json
+EXAMPLE_FLOWS=examples/ui-spec/generated/flows
+EXAMPLE_TESTS=examples/android-compose/src/test
+
+# --- a. only a generated service may name a call descriptor ------------------
+# The two spellings are one rule: SPFNGeneratedCalls on one platform, SpfnGeneratedCalls
+# on the other. Comment lines are dropped first, because a file has to be able to say what
+# it is forbidden from doing — the generated services' own headers say exactly that.
+DESCRIPTOR_SCANNED=0
+DESCRIPTOR_EXEMPT=0
+DESCRIPTOR_HITS=''
+find examples -type f \( -name '*.swift' -o -name '*.kt' \) | sort > "$TMP/example-sources.txt"
+while IFS= read -r source
+do
+    DESCRIPTOR_SCANNED=$((DESCRIPTOR_SCANNED + 1))
+    case "$source" in
+        */Generated/Services/*|*/generated/services/*)
+            DESCRIPTOR_EXEMPT=$((DESCRIPTOR_EXEMPT + 1))
+            continue
+            ;;
+    esac
+    DESCRIPTOR_HITS="$DESCRIPTOR_HITS$(grep -nE '(SPFN|Spfn)GeneratedCalls\.' "$source" \
+        | grep -vE '^[0-9]+:[[:space:]]*(//|\*)' | sed "s#^#$source:#" | tr '\n' ' ')"
+done < "$TMP/example-sources.txt"
+
+if [ "$DESCRIPTOR_SCANNED" -ge 20 ] && [ "$DESCRIPTOR_EXEMPT" -ge 2 ]
+then
+    pass "the descriptor scan read $DESCRIPTOR_SCANNED example sources, $DESCRIPTOR_EXEMPT of them generated services"
+else
+    fail "the descriptor scan read $DESCRIPTOR_SCANNED example sources and found $DESCRIPTOR_EXEMPT generated services; it did not run"
+fi
+
+if [ -z "$(printf '%s' "$DESCRIPTOR_HITS" | tr -d ' ')" ]
+then
+    pass 'no example source outside a generated services directory names a call descriptor'
+else
+    fail "a call descriptor is named outside the generated services: $DESCRIPTOR_HITS"
+fi
+
+# --- b. dismiss is refused under a generated directory too -------------------
+# Section 13 makes the same refusal for Sources/SPFNUI. This is its other half: the views
+# the generator writes are where an app would most plausibly reach for `dismiss`, and they
+# are also where nobody would notice, because nobody edits them.
+EXAMPLE_DISMISS_SCANNED=0
+EXAMPLE_DISMISS_HITS=''
+find examples -path '*/Generated/*' -name '*.swift' | sort > "$TMP/example-dismiss-files.txt"
+while IFS= read -r source
+do
+    EXAMPLE_DISMISS_SCANNED=$((EXAMPLE_DISMISS_SCANNED + 1))
+    EXAMPLE_DISMISS_HITS="$EXAMPLE_DISMISS_HITS$(grep -n 'dismiss)' "$source" \
+        | grep -vE '^[0-9]+:[[:space:]]*(//|\*)' | sed "s#^#$source:#" | tr '\n' ' ')"
+done < "$TMP/example-dismiss-files.txt"
+
+if [ "$EXAMPLE_DISMISS_SCANNED" -ge 5 ]
+then
+    pass "the generated dismiss scan read all $EXAMPLE_DISMISS_SCANNED generated Swift sources under examples/"
+else
+    fail "the generated dismiss scan read only $EXAMPLE_DISMISS_SCANNED sources; it did not run"
+fi
+
+if [ -z "$(printf '%s' "$EXAMPLE_DISMISS_HITS" | tr -d ' ')" ]
+then
+    pass 'no generated example source reaches the SwiftUI dismiss environment value'
+else
+    fail "a generated example source reaches the dismiss environment value: $EXAMPLE_DISMISS_HITS"
+fi
+
+# --- c. every cell is covered by the runner it declares ----------------------
+# `both` means both, not either: a cell that claims a device runner and a JVM one has to
+# have each. The pairs are read one cell at a time from the table's own canonical format,
+# which puts one field per line inside one object per cell.
+if [ -f "$EXAMPLE_CASES" ]
+then
+    awk '
+        /"id": "/ { id = $0; sub(/.*"id": "/, "", id); sub(/".*/, "", id) }
+        /"runner": "/ {
+            runner = $0
+            sub(/.*"runner": "/, "", runner)
+            sub(/".*/, "", runner)
+            # A runner with no id before it is a line this reader did not understand, and
+            # emitting it would turn an unreadable table into a table of nameless cells.
+            # Dropping it is what lets the count floor below be the thing that fires.
+            if (id != "") { print id " " runner }
+            id = ""
+        }
+    ' "$EXAMPLE_CASES" > "$TMP/example-cells.txt"
+else
+    : > "$TMP/example-cells.txt"
+fi
+CELL_COUNT=$(grep -c . "$TMP/example-cells.txt" || true)
+CELL_PROBLEMS=''
+CELL_FLOWS_READ=0
+CELL_TESTS_READ=0
+
+# A backtick as a value rather than as a character in the pattern below. Inside the double
+# quotes that pattern needs, one would open a command substitution; the pattern needs it
+# literally, because a JUnit case here is named `u5 closes the flow …` between two of them.
+TICK='`'
+
+while IFS=' ' read -r cell runner
+do
+    [ -n "$cell" ] || continue
+    case "$runner" in
+        maestro|both)
+            if [ -f "$EXAMPLE_FLOWS/$cell.yaml" ]
+            then
+                CELL_FLOWS_READ=$((CELL_FLOWS_READ + 1))
+                # A TOP-LEVEL `- back` only. Maestro's `back` is Android's own command and
+                # on iOS it completes without doing anything, so a flow that used it there
+                # failed at the next assertion rather than at the step — cells u7b and u10b
+                # did exactly that on an iPhone 17 Pro simulator on 2026-09-02 (P22). The
+                # anchor is what makes this a rule about the flow rather than a ban on the
+                # word: inside `runFlow: when: platform: Android` the command is indented,
+                # which is the one place it means what it says.
+                if grep -q '^- back' "$EXAMPLE_FLOWS/$cell.yaml"
+                then
+                    CELL_PROBLEMS="$CELL_PROBLEMS $cell:bare-back"
+                fi
+            else
+                CELL_PROBLEMS="$CELL_PROBLEMS $cell:no-flow"
+            fi
+            ;;
+    esac
+    case "$runner" in
+        unit|both)
+            # A cell id NAMED under the test tree is not a test for that cell. `grep -rlw`
+            # counted one: CellTest.kt's header lists every cell the suite covers, so every
+            # id in that list satisfied the check whether a case existed or not — a comment
+            # proving the thing it describes (P7). What counts is a line that DECLARES a
+            # case for the cell, in the two spellings this repository has: a backticked
+            # JUnit name beginning with the id, and an assertion naming the cell.
+            if grep -rqE "fun $TICK$cell [^$TICK]*$TICK|assertCell\(\"$cell\"" \
+                "$EXAMPLE_TESTS" 2>/dev/null
+            then
+                CELL_TESTS_READ=$((CELL_TESTS_READ + 1))
+            else
+                CELL_PROBLEMS="$CELL_PROBLEMS $cell:no-test"
+            fi
+            ;;
+    esac
+    case "$runner" in
+        unit|maestro|both) ;;
+        *) CELL_PROBLEMS="$CELL_PROBLEMS $cell:unreadable-runner" ;;
+    esac
+done < "$TMP/example-cells.txt"
+
+if [ "$CELL_COUNT" -ge 18 ]
+then
+    pass "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES"
+else
+    fail "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES; it did not run"
+fi
+
+if [ "$CELL_FLOWS_READ" -ge 14 ]
+then
+    pass "the flow scan read all $CELL_FLOWS_READ device-cell flows looking for a bare system back"
+else
+    fail "the flow scan read $CELL_FLOWS_READ device-cell flows; it did not run"
+fi
+
+# The floor under the test scan, stated as a number for the reason the cell count is: a
+# shrinking tree may not lower its own bar. A scan that matched nothing and a scan that
+# could not run are one failure here, which is the point of having a floor at all.
+if [ "$CELL_TESTS_READ" -ge 18 ]
+then
+    pass "the test scan matched a case declaration for $CELL_TESTS_READ JVM cells under $EXAMPLE_TESTS"
+else
+    fail "the test scan matched case declarations for $CELL_TESTS_READ JVM cells, fewer than 18; it did not run"
+fi
+
+if [ -z "$CELL_PROBLEMS" ]
+then
+    pass 'every cell of the case table has the flow and the test its runner declares'
+else
+    fail "cells of the case table are not covered by what they claim:$CELL_PROBLEMS"
+fi
 
 # ---------------------------------------------------------------------------
 printf '\n'
