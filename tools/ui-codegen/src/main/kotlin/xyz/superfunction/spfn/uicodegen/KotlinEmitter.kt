@@ -1,4 +1,8 @@
-// The Kotlin half of the scaffold: the Compose example app's generated sources.
+// The Kotlin half of the scaffold: one Compose app's generated sources.
+//
+// Which app is the `Target`'s to say. The root and the package are read from it, so the
+// same spec produces the example app's scaffold and the harness's from one emitter and
+// one set of rules — and this file names neither of them.
 //
 // Structure mirrors SwiftEmitter one file at a time and one declaration at a time. That is
 // not tidiness — the Swift half is written blind on a Linux host where SwiftUI does not
@@ -17,30 +21,30 @@ import xyz.superfunction.spfn.codegen.Bundle
 import xyz.superfunction.spfn.codegen.FieldType
 import xyz.superfunction.spfn.codegen.Names
 
-object KotlinEmitter
+class KotlinEmitter(target: Target)
 {
-    const val ROOT: String = "examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/generated";
-    private const val PACKAGE: String = "xyz.superfunction.spfn.example.generated";
+    private val root: String = target.kotlinRoot;
+    private val pkg: String = target.kotlinPackage;
 
     fun emit(spec: Spec, bundle: Bundle, inputs: Inputs): Map<String, String>
     {
         val files = mutableMapOf<String, String>();
         spec.services.forEach { service ->
-            files["$ROOT/services/${type(service.name, "Service")}.kt"] = service(service, inputs);
+            files["$root/services/${type(service.name, "Service")}.kt"] = service(service, inputs);
         };
         spec.flows.forEach { flow ->
-            files["$ROOT/flows/${type(flow.name, "Flow")}.kt"] = flow(spec, flow, bundle, inputs);
+            files["$root/flows/${type(flow.name, "Flow")}.kt"] = flow(spec, flow, bundle, inputs);
         };
-        files["$ROOT/screens/ScreenFailure.kt"] = failure(inputs);
+        files["$root/screens/ScreenFailure.kt"] = failure(inputs);
         spec.screens.forEach { screen ->
-            files["$ROOT/screens/${type(screen.name, "Model")}.kt"] = model(spec, screen, bundle, inputs);
+            files["$root/screens/${type(screen.name, "Model")}.kt"] = model(spec, screen, bundle, inputs);
             if (screen.usecase)
             {
-                files["$ROOT/screens/${type(screen.name, "UseCase")}.kt"] = useCase(screen, bundle, inputs);
+                files["$root/screens/${type(screen.name, "UseCase")}.kt"] = useCase(screen, bundle, inputs);
             }
-            files["$ROOT/views/${type(screen.name, "Screen")}.kt"] = view(screen, bundle, inputs);
+            files["$root/views/${type(screen.name, "Screen")}.kt"] = view(screen, bundle, inputs);
         };
-        files["$ROOT/AppContainer.kt"] = container(spec, bundle, inputs);
+        files["$root/AppContainer.kt"] = container(spec, bundle, inputs);
         return files;
     }
 
@@ -79,7 +83,7 @@ object KotlinEmitter
     private fun service(service: ServiceDefinition, inputs: Inputs): String = buildString {
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE.services");
+        appendLine("package $pkg.services");
         appendLine();
         appendLine("import xyz.superfunction.spfn.client.SpfnClient");
         appendLine("import xyz.superfunction.spfn.generated.SpfnGeneratedCalls");
@@ -149,13 +153,13 @@ object KotlinEmitter
         val screens = spec.screensOf(flow);
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE.flows");
+        appendLine("package $pkg.flows");
         appendLine();
         appendLine("import androidx.compose.runtime.Composable");
         appendLine("import androidx.compose.runtime.remember");
-        appendLine("import xyz.superfunction.spfn.example.generated.AppContainer");
+        appendLine("import $pkg.AppContainer");
         screens.sortedBy { it.name }.forEach {
-            appendLine("import $PACKAGE.views.${type(it.name, "Screen")}");
+            appendLine("import $pkg.views.${type(it.name, "Screen")}");
         };
         appendLine("import xyz.superfunction.spfn.ui.Flow");
         appendLine("import xyz.superfunction.spfn.ui.FlowEntry");
@@ -258,7 +262,7 @@ object KotlinEmitter
     ): String = buildString {
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE.screens");
+        appendLine("package $pkg.screens");
         appendLine();
         appendLine("import kotlinx.coroutines.flow.MutableStateFlow");
         appendLine("import kotlinx.coroutines.flow.StateFlow");
@@ -268,8 +272,8 @@ object KotlinEmitter
             appendLine("import xyz.superfunction.spfn.client.SpfnClientError");
         }
         requestImports(screen).forEach { appendLine("import xyz.superfunction.spfn.generated.$it") };
-        appendLine("import $PACKAGE.flows.${route(flow)}");
-        screen.services.forEach { appendLine("import $PACKAGE.services.${type(it, "Service")}") };
+        appendLine("import $pkg.flows.${route(flow)}");
+        screen.services.forEach { appendLine("import $pkg.services.${type(it, "Service")}") };
         appendLine("import xyz.superfunction.spfn.ui.$stateImport");
         appendLine("import xyz.superfunction.spfn.ui.Flow");
     }
@@ -711,10 +715,10 @@ object KotlinEmitter
         val name = type(screen.name, "UseCase");
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE.screens");
+        appendLine("package $pkg.screens");
         appendLine();
         requestImports(screen).forEach { appendLine("import xyz.superfunction.spfn.generated.$it") };
-        appendLine("import $PACKAGE.services.${type(source.service, "Service")}");
+        appendLine("import $pkg.services.${type(source.service, "Service")}");
         appendLine();
         appendLine("/** What `${screen.name}` reads, named as the app's own act rather than as an operation. */");
         appendLine("interface $name");
@@ -748,7 +752,7 @@ object KotlinEmitter
     private fun failure(inputs: Inputs): String = buildString {
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE.screens");
+        appendLine("package $pkg.screens");
         appendLine();
         appendLine("import xyz.superfunction.spfn.client.SpfnClientError");
         appendLine("import xyz.superfunction.spfn.core.SpfnErrorEnvelope");
@@ -801,7 +805,7 @@ object KotlinEmitter
         val typed = screen.actions.flatMap { RouteParameters.inputs(screen, it, bundle) }.distinctBy { it.name };
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE.views");
+        appendLine("package $pkg.views");
         appendLine();
         viewImports(screen, typed).forEach { appendLine("import $it") };
         appendLine();
@@ -879,7 +883,7 @@ object KotlinEmitter
             "androidx.compose.runtime.collectAsState",
             "androidx.compose.ui.Modifier",
             "androidx.compose.ui.platform.testTag",
-            "$PACKAGE.screens.${type(screen.name, "Model")}",
+            "$pkg.screens.${type(screen.name, "Model")}",
             "xyz.superfunction.spfn.ui.${if (screen.isLoadable) "Loadable" else "Busy"}"
         );
         if (screen.actions.any { it.call != null })
@@ -973,24 +977,24 @@ object KotlinEmitter
     private fun container(spec: Spec, bundle: Bundle, inputs: Inputs): String = buildString {
         appendLine(header(inputs));
         appendLine();
-        appendLine("package $PACKAGE");
+        appendLine("package $pkg");
         appendLine();
         appendLine("import xyz.superfunction.spfn.client.SpfnClient");
         appendLine("import xyz.superfunction.spfn.client.SpfnKeyProvider");
         appendLine("import xyz.superfunction.spfn.client.SpfnSession");
         appendLine("import xyz.superfunction.spfn.client.SpfnTransport");
-        spec.flows.forEach { appendLine("import $PACKAGE.flows.${type(it.name, "Flow")}") };
-        spec.flows.forEach { appendLine("import $PACKAGE.flows.${route(it)}") };
+        spec.flows.forEach { appendLine("import $pkg.flows.${type(it.name, "Flow")}") };
+        spec.flows.forEach { appendLine("import $pkg.flows.${route(it)}") };
         spec.screens.forEach { screen ->
-            appendLine("import $PACKAGE.screens.${type(screen.name, "Model")}");
+            appendLine("import $pkg.screens.${type(screen.name, "Model")}");
             if (screen.usecase)
             {
-                appendLine("import $PACKAGE.screens.Default${type(screen.name, "UseCase")}");
+                appendLine("import $pkg.screens.Default${type(screen.name, "UseCase")}");
             }
         };
         spec.services.forEach {
-            appendLine("import $PACKAGE.services.Default${type(it.name, "Service")}");
-            appendLine("import $PACKAGE.services.${type(it.name, "Service")}");
+            appendLine("import $pkg.services.Default${type(it.name, "Service")}");
+            appendLine("import $pkg.services.${type(it.name, "Service")}");
         };
         appendLine("import xyz.superfunction.spfn.ui.Flow");
         appendLine();

@@ -29,6 +29,41 @@ dependencies {
     testImplementation(libs.junit)
 }
 
+/// The two consumers of the one screen spec, as the arguments the generator reads them
+/// from. Everything an app-specific value used to be a constant for lives here: nothing
+/// under `src/main` names an application any more.
+///
+/// The example target is the only one that emits the case table and the Maestro flows.
+/// Those artefacts name cells and FIXTURES, and the example app is the only app that
+/// installs them; the harness drives the same screens against a real server through its
+/// own flows, so a second copy of the table there would claim coverage nothing provides
+/// (decision E6, E7).
+val exampleTarget = listOf(
+    "--target=example",
+    "--swift-root=examples/ios-swiftui/Generated",
+    "--kotlin-root=examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/generated",
+    "--kotlin-package=xyz.superfunction.spfn.example.generated",
+    "--app-id=xyz.superfunction.spfn.example",
+    "--table-root=examples/ui-spec/generated",
+    "--generate-task=:ui-codegen:spfnGenerateUi",
+    "--verify-task=:ui-codegen:spfnUiVerify"
+)
+
+/// The harness's two apps. The Swift root is `GeneratedUI/` and not `Generated/`, which
+/// is XcodeGen's: that directory holds the harness's Info.plist and its entitlements, and
+/// this generator DELETES every file under a directory it owns that it did not emit.
+val harnessTarget = listOf(
+    "--target=harness",
+    "--swift-root=tools/harness/ios/GeneratedUI",
+    "--kotlin-root=tools/harness/android/src/main/kotlin/xyz/superfunction/spfn/harness/generated",
+    "--kotlin-package=xyz.superfunction.spfn.harness.generated",
+    "--app-id=xyz.superfunction.spfn.harness",
+    "--generate-task=:ui-codegen:spfnGenerateHarnessUi",
+    "--verify-task=:ui-codegen:spfnHarnessUiVerify"
+)
+
+val screenSpec = "examples/ui-spec/device-approval.json"
+
 /// Regenerates both example apps' scaffolds, the case table and the Maestro flows from
 /// the one spec. Deterministic: running it twice produces byte-identical files, which
 /// `./gradlew :ui-codegen:spfnUiVerify` proves.
@@ -37,7 +72,17 @@ tasks.register<JavaExec>("spfnGenerateUi") {
     description = "Generates the example apps' screen scaffolds, case table and flows from the screen spec."
     mainClass.set("xyz.superfunction.spfn.uicodegen.MainKt")
     classpath = sourceSets["main"].runtimeClasspath
-    args(rootDir.absolutePath, "examples/ui-spec/device-approval.json", "write")
+    args(listOf(rootDir.absolutePath, screenSpec, "write") + exampleTarget)
+}
+
+/// The same spec into the harness apps, which are the second consumer of these screens:
+/// the harness drives them against a real reference server rather than against a fixture.
+tasks.register<JavaExec>("spfnGenerateHarnessUi") {
+    group = "build"
+    description = "Generates the harness apps' screen scaffolds from the screen spec."
+    mainClass.set("xyz.superfunction.spfn.uicodegen.MainKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    args(listOf(rootDir.absolutePath, screenSpec, "write") + harnessTarget)
 }
 
 /// Generates in memory and compares against the checked-in output, so a hand-edited
@@ -46,12 +91,23 @@ tasks.register<JavaExec>("spfnGenerateUi") {
 /// shared artefact both runners read, and an unverified one is not evidence.
 tasks.register<JavaExec>("spfnUiVerify") {
     group = "verification"
-    description = "Fails if the checked-in scaffolds, case table or flows differ from a fresh generation."
+    description = "Fails if the checked-in example scaffolds, case table or flows differ from a fresh generation."
     mainClass.set("xyz.superfunction.spfn.uicodegen.MainKt")
     classpath = sourceSets["main"].runtimeClasspath
-    args(rootDir.absolutePath, "examples/ui-spec/device-approval.json", "verify")
+    args(listOf(rootDir.absolutePath, screenSpec, "verify") + exampleTarget)
+}
+
+/// The same gate for the second consumer. A separate task rather than a second argument
+/// list inside the first, so a failure names WHICH app's scaffold drifted: a run that
+/// verified both under one name would report the harness's staleness as the example's.
+tasks.register<JavaExec>("spfnHarnessUiVerify") {
+    group = "verification"
+    description = "Fails if the checked-in harness scaffolds differ from a fresh generation."
+    mainClass.set("xyz.superfunction.spfn.uicodegen.MainKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    args(listOf(rootDir.absolutePath, screenSpec, "verify") + harnessTarget)
 }
 
 tasks.named("check") {
-    dependsOn("spfnUiVerify")
+    dependsOn("spfnUiVerify", "spfnHarnessUiVerify")
 }

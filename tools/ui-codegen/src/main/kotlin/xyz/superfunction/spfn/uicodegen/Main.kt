@@ -1,8 +1,13 @@
 // SPFN Mobile — screen scaffold generator.
 //
-// Usage (from Gradle, which supplies the repository root):
-//   ./gradlew :ui-codegen:spfnGenerateUi   # rewrite the scaffolds, the table and the flows
-//   ./gradlew :ui-codegen:spfnUiVerify     # fail if any of them is not up to date
+// Usage (from Gradle, which supplies the repository root and the target):
+//   ./gradlew :ui-codegen:spfnGenerateUi         # the example apps, the table and the flows
+//   ./gradlew :ui-codegen:spfnGenerateHarnessUi  # the harness apps' scaffolds
+//   ./gradlew :ui-codegen:spfnUiVerify           # fail if either is not up to date
+//
+// One spec, one or more CONSUMERS. Which app a run writes into is a `Target` the caller
+// supplies — output roots, Kotlin package and application id — so this generator names no
+// app of its own and a second consumer costs a task rather than an edit here.
 //
 // The same two properties the contract generator holds to:
 //   - Zero network. The inputs are the vendored bundle and the spec, both on disk.
@@ -20,7 +25,8 @@
 //
 // And one more of its own: verification covers the FLOWS and the CASE TABLE as well as
 // the sources. The table is the artefact both runners read, and an unverified table is not
-// evidence of anything.
+// evidence of anything. Those two artefacts belong to the target that declares a table
+// root, which is the app whose fixtures the cells name — see `Target.tableRoot`.
 
 package xyz.superfunction.spfn.uicodegen
 
@@ -39,7 +45,11 @@ fun main(args: Array<String>)
 {
     if (args.size < 3)
     {
-        System.err.println("usage: ui-codegen <repoRoot> <specPath> <write|verify>");
+        System.err.println(
+            "usage: ui-codegen <repoRoot> <specPath> <write|verify> --target=<name> " +
+                "--swift-root=<dir> --kotlin-root=<dir> --kotlin-package=<pkg> --app-id=<id> " +
+                "[--table-root=<dir>]"
+        );
         kotlin.system.exitProcess(2);
     }
 
@@ -49,11 +59,12 @@ fun main(args: Array<String>)
 
     try
     {
-        val generated = generate(repoRoot, specPath);
+        val target = Target.parse(args.drop(3));
+        val generated = generate(repoRoot, specPath, target);
         when (mode)
         {
             "write" -> write(repoRoot, generated)
-            "verify" -> verify(repoRoot, generated)
+            "verify" -> verify(repoRoot, target, generated)
             else -> throw GenerationFailure("unknown mode '$mode'; expected write or verify")
         }
     }
@@ -64,8 +75,15 @@ fun main(args: Array<String>)
     }
 }
 
-/** Every file this generator owns, by repository-relative path. */
-fun generate(repoRoot: File, specPath: String): Map<String, String>
+/**
+ * Every file this generator owns for [target], by repository-relative path.
+ *
+ * The target decides WHERE the scaffold lands and which app id the table prints; it
+ * decides nothing about what the scaffold says. Two targets generated from one spec
+ * differ in their paths, their Kotlin package and — for a target that emits the table at
+ * all — that one printed id, and in nothing else.
+ */
+fun generate(repoRoot: File, specPath: String, target: Target): Map<String, String>
 {
     val specFile = File(repoRoot, specPath);
     if (!specFile.isFile)
@@ -94,13 +112,21 @@ fun generate(repoRoot: File, specPath: String): Map<String, String>
         specPath = specPath,
         specSha256 = sha256Hex(specBytes),
         bundleSha256 = bundle.sha256,
-        contractVersion = bundle.contractVersion
+        contractVersion = bundle.contractVersion,
+        generateTask = target.generateTask,
+        verifyTask = target.verifyTask
     );
-    val cells = Rules.cells(spec, bundle);
+    val scaffolds = KotlinEmitter(target).emit(spec, bundle, inputs) +
+        SwiftEmitter(target).emit(spec, bundle, inputs);
 
-    return KotlinEmitter.emit(spec, bundle, inputs) +
-        SwiftEmitter.emit(spec, bundle, inputs) +
-        CaseTable.emit(spec, cells, inputs);
+    // The table and the flows are the SPEC's artefacts and belong to the one app that
+    // installs the fixtures their cells name, so a target that declares no table root
+    // gets the scaffolds and nothing else (decision E6).
+    if (target.tableRoot == null)
+    {
+        return scaffolds;
+    }
+    return scaffolds + CaseTable(target).emit(spec, Rules.cells(spec, bundle), inputs);
 }
 
 /**
@@ -175,18 +201,18 @@ private fun write(repoRoot: File, generated: Map<String, String>)
     };
 }
 
-private fun verify(repoRoot: File, generated: Map<String, String>)
+private fun verify(repoRoot: File, target: Target, generated: Map<String, String>)
 {
     val problems = mutableListOf<String>();
 
     generated.toSortedMap().forEach { (path, content) ->
-        val target = File(repoRoot, path);
-        if (!target.isFile)
+        val checked = File(repoRoot, path);
+        if (!checked.isFile)
         {
             problems += "$path is missing";
             return@forEach;
         }
-        if (target.readText() != content)
+        if (checked.readText() != content)
         {
             problems += "$path differs from freshly generated output";
         }
@@ -197,11 +223,15 @@ private fun verify(repoRoot: File, generated: Map<String, String>)
     if (problems.isNotEmpty())
     {
         throw GenerationFailure(
-            "generated screen scaffolds are not up to date:\n  " + problems.joinToString("\n  ") +
-                "\nRun ./gradlew :ui-codegen:spfnGenerateUi"
+            "the ${target.name} target's screen scaffolds are not up to date:\n  " +
+                problems.joinToString("\n  ") +
+                "\nRun ./gradlew ${target.generateTask}"
         );
     }
-    println("ui-codegen: ${generated.size} generated files match the pinned bundle and the spec");
+    println(
+        "ui-codegen: ${generated.size} generated files for the ${target.name} target " +
+            "match the pinned bundle and the spec"
+    );
 }
 
 /**

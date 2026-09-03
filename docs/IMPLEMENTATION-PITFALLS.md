@@ -36,7 +36,7 @@
 | 계약 번들 교체·재핀, `upstream.lock.json` 수정 | [P1](#p1) [P2](#p2) [P3](#p3) [P6](#p6) |
 | `tools/validate/` 수정, 새 검사 추가 | [P4](#p4) [P5](#p5) [P6](#p6) [P7](#p7) |
 | `tools/contract-codegen/` 수정, 계약 타입 문법 변화 | [P8](#p8) [P2](#p2) |
-| `tools/ui-codegen/` 수정, 화면 스펙(`examples/ui-spec/*.json`) 작성·수정 | [P2](#p2) [P8](#p8) [P10](#p10) [P21](#p21) [P24](#p24) |
+| `tools/ui-codegen/` 수정, 화면 스펙(`examples/ui-spec/*.json`) 작성·수정, 생성물 소비처(`examples/**/Generated`·`generated`, `tools/harness/**/GeneratedUI`·`generated`) 추가 | [P2](#p2) [P8](#p8) [P10](#p10) [P21](#p21) [P24](#p24) |
 | 화면 모델·비동기 호출의 완료 처리, 네비게이션 스택 변경 | [P24](#p24) [P16](#p16) [P15](#p15) |
 | Swift·Kotlin 대칭 로직 추가·수정 | [P9](#p9) [P10](#p10) [P15](#p15) |
 | 플랫폼 콜백 API를 async/suspend로 감싸기, 제공자 어댑터 | [P16](#p16) [P15](#p15) |
@@ -88,7 +88,7 @@
 | 손으로 고정 | `examples/ui-spec/device-approval.json` (`contract.manifestSha256`) | 화면 스펙을 쓴 사람이 적는다. 번들을 재핀하면 lock과 **함께** 고쳐야 하는 자리 | `:ui-codegen:spfnGenerateUi`가 번들 sha256을 재계산해 lock과 스펙 **둘 다**에 대조하고, 어느 쪽이 어긋나도 생성을 거부한다 |
 | fixture 파생물 | `Contracts/fixtures/MANIFEST.json` (`bundleSha256`) | `derive-expected-values.py` 재실행. **손으로 고치지 않는다** | 파일 안 `derivedBy` 필드가 스스로 밝힌다 |
 | codegen 산출물 | 생성 파일 10개 헤더 (Swift 5 + Kotlin 5) | codegen 재생성. **손으로 고치지 않는다** | `:contract-codegen:spfnCodegenVerify` |
-| codegen 산출물 | `examples/` 아래 34개 — 두 앱의 `Generated`·`generated` 소스, case 표 둘, Maestro flow 14개 | `:ui-codegen:spfnGenerateUi` 재실행. **손으로 고치지 않는다** | `:ui-codegen:spfnUiVerify` (`check`에 물려 있다) |
+| codegen 산출물 | 화면 스캐폴드 52개 — `examples/` 아래 34개(두 앱의 `Generated`·`generated` 소스 18, case 표 둘, Maestro flow 14개)와 `tools/harness/` 아래 18개(`ios/GeneratedUI` 9, `android/**/harness/generated` 9; 하네스 대상은 표도 flow도 내지 않는다) | 대상별로 `:ui-codegen:spfnGenerateUi`·`:ui-codegen:spfnGenerateHarnessUi` 재실행. **손으로 고치지 않는다** | `:ui-codegen:spfnUiVerify`·`:ui-codegen:spfnHarnessUiVerify` (둘 다 `check`에 물려 있다) |
 | upstream 제공 | `Contracts/upstream-provenance.json` (`bundleSha256`) | 새 번들과 함께 도착한다. 갱신 대상이 아니라 **대조 대상** | validator 5절이 lock과 필드 단위로 맞춰 본다 |
 
 **처방.** 번들 교체는 lock 직접 편집 → **화면 스펙의 `contract.manifestSha256`도 같은

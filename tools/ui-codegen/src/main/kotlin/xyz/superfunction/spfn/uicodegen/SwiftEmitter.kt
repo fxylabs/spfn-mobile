@@ -1,4 +1,7 @@
-// The Swift half of the scaffold: the SwiftUI example app's generated sources.
+// The Swift half of the scaffold: one SwiftUI app's generated sources.
+//
+// Which app is the `Target`'s to say, exactly as in the Kotlin half: the output root is
+// read from it and this file names no app.
 //
 // This file mirrors KotlinEmitter declaration for declaration, in the same order, with the
 // same helper names. That is deliberate and it is load-bearing: SwiftUI does not compile on
@@ -7,8 +10,8 @@
 // Mac forces has to map back onto the Kotlin emitter line for line, or the two halves stop
 // being one scaffold.
 //
-// The output is app code, not package code: `Generated/` is outside `Sources/`, so
-// `swift build` here never sees it. It is still kept syntactically careful, because the
+// The output is app code, not package code: every target's Swift root is outside the
+// package's `Sources/`, so `swift build` here never sees it. It is still kept syntactically careful, because the
 // first reader after this generator is a compiler nobody on this host can run.
 
 package xyz.superfunction.spfn.uicodegen
@@ -17,9 +20,9 @@ import xyz.superfunction.spfn.codegen.Bundle
 import xyz.superfunction.spfn.codegen.FieldType
 import xyz.superfunction.spfn.codegen.Names
 
-object SwiftEmitter
+class SwiftEmitter(target: Target)
 {
-    const val ROOT: String = "examples/ios-swiftui/Generated";
+    private val root: String = target.swiftRoot;
 
     /** One name and one type, which is all a stored property and an init parameter share. */
     private data class Parameter(val name: String, val type: String)
@@ -28,21 +31,21 @@ object SwiftEmitter
     {
         val files = mutableMapOf<String, String>();
         spec.services.forEach { service ->
-            files["$ROOT/Services/${type(service.name, "Service")}.swift"] = service(service, inputs);
+            files["$root/Services/${type(service.name, "Service")}.swift"] = service(service, inputs);
         };
         spec.flows.forEach { flow ->
-            files["$ROOT/Flows/${type(flow.name, "Flow")}.swift"] = flow(spec, flow, bundle, inputs);
+            files["$root/Flows/${type(flow.name, "Flow")}.swift"] = flow(spec, flow, bundle, inputs);
         };
-        files["$ROOT/Screens/ScreenFailure.swift"] = failure(inputs);
+        files["$root/Screens/ScreenFailure.swift"] = failure(inputs);
         spec.screens.forEach { screen ->
-            files["$ROOT/Screens/${type(screen.name, "Model")}.swift"] = model(spec, screen, bundle, inputs);
+            files["$root/Screens/${type(screen.name, "Model")}.swift"] = model(spec, screen, bundle, inputs);
             if (screen.usecase)
             {
-                files["$ROOT/Screens/${type(screen.name, "UseCase")}.swift"] = useCase(screen, bundle, inputs);
+                files["$root/Screens/${type(screen.name, "UseCase")}.swift"] = useCase(screen, bundle, inputs);
             }
-            files["$ROOT/Views/${type(screen.name, "View")}.swift"] = view(screen, bundle, inputs);
+            files["$root/Views/${type(screen.name, "View")}.swift"] = view(screen, bundle, inputs);
         };
-        files["$ROOT/AppContainer.swift"] = container(spec, bundle, inputs);
+        files["$root/AppContainer.swift"] = container(spec, bundle, inputs);
         return files;
     }
 

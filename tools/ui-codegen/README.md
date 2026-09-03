@@ -1,9 +1,14 @@
 # `ui-codegen` — the screen scaffold generator
 
-One JSON spec in, two app scaffolds and a case table out.
+One JSON spec in, one app scaffold out per **target**.
 
-    ./gradlew :ui-codegen:spfnGenerateUi   # rewrite everything below
-    ./gradlew :ui-codegen:spfnUiVerify     # fail if any of it is not up to date (wired into `check`)
+    ./gradlew :ui-codegen:spfnGenerateUi          # the example apps, the case table and the flows
+    ./gradlew :ui-codegen:spfnGenerateHarnessUi   # the harness apps
+    ./gradlew :ui-codegen:spfnUiVerify            # fail if the example half is not up to date
+    ./gradlew :ui-codegen:spfnHarnessUiVerify     # the same for the harness half
+
+Both verify tasks are wired into `check`, and they are two tasks rather than one so a
+failure names WHICH app's scaffold drifted.
 
 Inputs — two files, the repository-relative path of one of them, and the lock that
 chooses the other:
@@ -17,14 +22,31 @@ chooses the other:
   digest the bundle's bytes must have, so it decides which bytes the run reads and whether
   the run happens at all. Nothing of it reaches the output directly.
 
-Outputs:
+## Targets
 
-| Where | What |
-| --- | --- |
-| `examples/ios-swiftui/Generated/` | the SwiftUI app's services, flow, screen models, use case and view skeletons |
-| `examples/android-compose/src/main/kotlin/…/generated/` | the same seven things in Kotlin |
-| `examples/ui-spec/generated/device-approval.cases.{json,md}` | the case table both runners read |
-| `examples/ui-spec/generated/flows/<cell>.yaml` | one Maestro flow per runnable cell |
+A **target** is which app a run writes into: a name, a Swift output root, a Kotlin output
+root, a Kotlin package, an application id, and — optionally — a root for the case table
+and the flows. Nothing under `src/main` names an app; the two shipped targets are argument
+lists in `build.gradle.kts` and a third would be a third task there.
+
+| Target | Swift root | Kotlin root and package | Table and flows |
+| --- | --- | --- | --- |
+| `example` | `examples/ios-swiftui/Generated/` | `examples/android-compose/src/main/kotlin/…/example/generated/` | `examples/ui-spec/generated/` |
+| `harness` | `tools/harness/ios/GeneratedUI/` | `tools/harness/android/src/main/kotlin/…/harness/generated/` | none |
+
+Each target gets the same nine files per platform: the service protocol and its default
+implementation, the route enum with its flow and flow host, one model per screen plus any
+use case, the shared screen failure, one view skeleton per screen, and the container.
+
+The case table and the Maestro flows go to the ONE target that declares a table root. They
+name cells, fixtures and expectations, and `examples/` holds the only app that installs
+those fixtures; the harness drives the same screens against a live reference server
+through `tools/harness/flows/d1-approve.yaml` and its two siblings, so a second copy of
+the table under `tools/harness/` would be claiming coverage nothing provides.
+
+The harness's Swift root is `GeneratedUI/` and not `Generated/` on purpose:
+`tools/harness/ios/Generated/` is XcodeGen's, holding the Info.plist and the entitlements,
+and this generator DELETES every file it did not emit from a directory it owns.
 
 ## What holds it together
 
