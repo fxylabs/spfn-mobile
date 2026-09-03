@@ -51,6 +51,7 @@
 | 러너가 id로 탭하는 컨트롤 추가·수정 (Compose·SwiftUI 뷰) | [P21](#p21) |
 | Compose·SwiftUI 화면의 스크롤 컨테이너 안에 러너가 탭하는 컨트롤 배치 | [P21](#p21) [P25](#p25) |
 | `FlowEntry`·시트 표시·`Screen` 헤더 수정 (`spfn-ui`/`SPFNUI`의 런타임) | [P15](#p15) [P21](#p21) [P22](#p22) [P25](#p25) |
+| SwiftUI 화면의 조상 뷰에 제스처 달기, 키보드 해제 처리 | [P27](#p27) [P15](#p15) |
 | Maestro 플로우 생성·수정 | [P22](#p22) [P21](#p21) [P23](#p23) |
 | 기기 러너의 증거 수집 시점 수정 (`run-cells.sh`, `run-harness.sh`) | [P23](#p23) [P7](#p7) [P12](#p12) |
 
@@ -463,10 +464,6 @@ xcodebuild -project <proj> -resolvePackageDependencies -scheme <scheme> 2>&1 \
 된다. `name:`을 빼지 말 것: path 의존성의 identity는 **디렉터리 이름**이라 worktree처럼
 브랜치 이름이 붙은 체크아웃에서 `.product(package:)`가 깨진다.
 
-**나온 곳.** w-9jqtj iOS — 하네스가 실기기에서 Google 시트를 띄우려면 `SocialGoogle`이
-필요했다. 프로브 프로젝트로 실측: `traits:`만 쓴 쪽은 원격 패키지 0개에
-`SPFNGooglePresentingContext` 미해결, 매니페스트 쪽은 GoogleSignIn 9.2.0 해석 + 빌드 성공.
-실물은 `tools/harness/ios/HarnessSupport/Package.swift`.
 
 ## P18. 테스트가 키 id를 고정하면 두 번째 키가 첫 번째를 덮는다 {#p18}
 
@@ -978,6 +975,53 @@ catches wider than SpfnClientError`다. 픽스처가 던질 수 있는 것으로
 `SpfnClient.execute` → `SpfnProcessServerClock.nowMillis`를 가리켰다. 같은 경로로 서버
 미기동(`SpfnClientError`가 아닌 전송 예외)과 깨진 응답도 죽었다. 18셀 표는 이 경우를
 가질 수 없었다 — 픽스처가 던지지 않는 예외는 표가 못 잡는다.
+
+## P27. SwiftUI의 `simultaneousGesture`는 자식이 먹은 탭에도 같이 발동한다 {#p27}
+
+**증상.** 화면 전체에 "빈 곳을 누르면 키보드를 내린다"를 달았더니 **필드를 눌러도** 키보드가
+내려간다. 러너 기준으로는 더 나쁘게 보인다: 탭은 성공하고, 포커스가 잡혔다가 같은 프레임에
+풀리고, 뒤따르는 `inputText`가 **아무 데도 안 들어가고**, 제출이 빈 값으로 나가 셀이
+"입력한 적 없는 값"으로 실패한다. 탭도 입력도 각자는 성공했다고 보고한다.
+
+원인은 이름 그대로다. `simultaneousGesture`는 "탭을 가로채지 않는다"는 뜻이 아니라
+**"실제로 맞은 뷰와 나란히 같이 발동한다"**는 뜻이다. 자식이 소비한 제스처가 부모에게 가지
+않는 Compose의 `pointerInput`/`detectTapGestures`와 여기서 갈린다 — 한쪽에서 옳은 한 줄이
+다른 쪽에서 정확히 반대로 동작한다([P15](#p15)).
+
+**탐지.** 두 가지 중 하나라도 보이면 의심한다.
+
+- 텍스트 필드가 있는 화면의 조상 뷰에 `simultaneousGesture(TapGesture()...)`가 붙어 있다.
+- 기기 셀이 **빈 입력으로 제출된 결과**(검증 에러, `state=error`)로 실패하는데, 러너 로그의
+  탭·입력 스텝은 전부 초록이다.
+
+```
+# 조상에 달린 동시 탭 제스처는 하나도 없어야 한다.
+grep -rn 'simultaneousGesture' Sources/SPFNUI
+```
+
+**처방.** "컨트롤이 안 가져간 탭"은 **뒤에 깔린 레이어**로 묻는다. SwiftUI는 앞에서 뒤로
+히트 테스트하며 답하는 첫 뷰에서 멈추므로, `ZStack`의 맨 아래에 둔 레이어에 탭이 닿았다는
+사실 자체가 "아무 컨트롤도 이 탭을 가져가지 않았다"는 뜻이다.
+
+```swift
+ZStack
+{
+    Color.clear
+        .contentShape(Rectangle())
+        .onTapGesture { SPFNKeyboard.dismiss() }
+    content   // 컨트롤은 앞에 있고, 손대지 않는다
+}
+```
+
+`Color.clear`는 그리는 게 없어 기본적으로 히트 테스트에 답하지 않으므로
+`contentShape(Rectangle())`이 필요하다. `scrollDismissesKeyboard(.interactively)`는 그대로
+둔다 — 그건 탭이 아니라 드래그에 대한 답이고 둘은 겹치지 않는다.
+
+**나온 곳.** w-evwna ui/scaffold-3b, iPhone 17 Pro 시뮬레이터 2026-09-02. `Screen.swift`가
+`.simultaneousGesture(TapGesture().onEnded { SPFNKeyboard.dismiss() })`를 프레임 전체에
+달고 있었고, 필드를 탭하는 셀(u1·u7·u8 등)이 전부 빈 제출로 실패했다. Compose 쪽
+`Screen.kt`는 같은 규칙을 `pointerInput`으로 쓰고 있어 멀쩡했다 — Linux 호스트에서는 두
+파일이 같은 규칙을 말하고 있다는 것까지만 보이고, 갈라지는 지점은 기기에서만 보인다.
 
 ## 원장
 

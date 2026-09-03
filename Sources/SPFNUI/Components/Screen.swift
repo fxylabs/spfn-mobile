@@ -89,19 +89,41 @@ public struct Screen<Content: View>: View
 
     public var body: some View
     {
-        VStack(spacing: 0)
+        ZStack
         {
-            header
-            scrollableBody
+            keyboardDismissLayer
+            VStack(spacing: 0)
+            {
+                header
+                scrollableBody
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(palette.background)
         .modifier(HiddenNavigationBar())
-        // A tap that lands on the frame rather than on a control puts the keyboard away.
-        // `simultaneousGesture` rather than `onTapGesture`: the latter would claim the tap
-        // and a button underneath it would stop responding.
-        .contentShape(Rectangle())
-        .simultaneousGesture(TapGesture().onEnded { SPFNKeyboard.dismiss() })
+    }
+
+    /// A tap that lands on the frame rather than on a control puts the keyboard away.
+    ///
+    /// BEHIND the content and never over it. The obvious spelling — a `simultaneousGesture`
+    /// on the whole screen — is the one that cannot work: "simultaneous" means the screen's
+    /// gesture fires ALONGSIDE whatever the tap actually hit, so tapping the field both
+    /// raised the keyboard and put it away again, and the text that followed went nowhere.
+    /// Cells u1, u7 and u8 submitted an empty field on an iPhone 17 Pro simulator on
+    /// 2026-09-02 for exactly that reason (docs/IMPLEMENTATION-PITFALLS.md P27).
+    ///
+    /// A layer underneath asks the question the rule actually asks — did this tap reach the
+    /// frame, or did a control take it — because SwiftUI hit-tests front to back and stops
+    /// at the first view that answers. `Color.clear` draws nothing and `contentShape` is
+    /// what makes something that draws nothing answer at all.
+    ///
+    /// The Compose half needs none of this: `detectTapGestures` in a `pointerInput` on the
+    /// parent never sees a press a child consumed, so the same rule is one modifier there.
+    private var keyboardDismissLayer: some View
+    {
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture { SPFNKeyboard.dismiss() }
     }
 
     /// The header. Both slots are laid out at the minimum touch target whether or not they
