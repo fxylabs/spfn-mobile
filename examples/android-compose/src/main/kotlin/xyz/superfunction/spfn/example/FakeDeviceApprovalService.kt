@@ -6,14 +6,22 @@
 // one to refuse.
 //
 // It sends nothing and holds no transport. A refusal here is a real `SpfnClientError` of
-// the same class the client would raise, because the screen models classify on that type
-// and a fake that threw something else would exercise a branch no server can reach.
+// the same class the client would raise, so a cell of the table exercises the branch a
+// server can really reach.
+//
+// The last two answers are not cells and never will be: `CRASH` and `CANCEL` throw what a
+// server cannot make happen but the SDK and the runtime can — the proof clock refusing a
+// base URL it does not trust is an `IllegalStateException`, and a cancelled coroutine is a
+// `CancellationException`. Both left a generated model through its own `catch` until 2f,
+// and no arrangement of the case table could have found them: the table's own fixtures
+// only ever threw the one type the models named. See `UnexpectedFailureTest`.
 //
 // Nothing here runs unless `SPFN_UI_FIXTURE` named a cell. See MainActivity: with no
 // launch argument there is no fake at all, not a fake that happens to be idle.
 
 package xyz.superfunction.spfn.example
 
+import kotlinx.coroutines.CancellationException
 import xyz.superfunction.spfn.client.SpfnClientError
 import xyz.superfunction.spfn.client.SpfnServerFailure
 import xyz.superfunction.spfn.core.SpfnErrorEnvelope
@@ -32,7 +40,16 @@ enum class Answer
     OK,
 
     /** Refuses, as a server that cannot find the code would. */
-    REFUSE
+    REFUSE,
+
+    /**
+     * Throws outside `SpfnClientError` entirely, as the SDK's own proof clock does when it
+     * will not trust the base URL. Not a cell: nothing a server does produces it.
+     */
+    CRASH,
+
+    /** Throws the cancellation a coroutine is cancelled by. Not a cell, for the same reason. */
+    CANCEL
 }
 
 /**
@@ -71,10 +88,7 @@ class FakeDeviceApprovalService(
         val answer = answerAt(lookupCount);
         lookupCount++;
         pause();
-        if (answer == Answer.REFUSE)
-        {
-            throw notFound(request.userCode);
-        }
+        raiseUnless(answer, request.userCode);
         return device();
     }
 
@@ -83,10 +97,7 @@ class FakeDeviceApprovalService(
         approveCount++;
         val answer = nextWrite();
         pause();
-        if (answer == Answer.REFUSE)
-        {
-            throw notFound(request.userCode);
-        }
+        raiseUnless(answer, request.userCode);
         return device();
     }
 
@@ -95,10 +106,16 @@ class FakeDeviceApprovalService(
         denyCount++;
         val answer = nextWrite();
         pause();
-        if (answer == Answer.REFUSE)
-        {
-            throw notFound(request.userCode);
-        }
+        raiseUnless(answer, request.userCode);
+    }
+
+    /** Throws what [answer] says this call throws, and returns where it says it answers. */
+    private fun raiseUnless(answer: Answer, userCode: String) = when (answer)
+    {
+        Answer.OK -> Unit
+        Answer.REFUSE -> throw notFound(userCode)
+        Answer.CRASH -> throw IllegalStateException("the fixture was told to fail unexpectedly")
+        Answer.CANCEL -> throw CancellationException("the fixture was told to cancel")
     }
 
     private fun answerAt(index: Int): Answer =
