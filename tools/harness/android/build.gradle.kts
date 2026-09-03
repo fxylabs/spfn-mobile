@@ -12,10 +12,13 @@ import java.util.Properties
 // validator fails on a keystore in the committed tree and .gitignore refuses to stage
 // one. There is no release build here to need anything more.
 //
-// No UI toolkit dependency either. The screen is a LinearLayout built in code, which
-// costs nothing: gradle/verification-metadata.xml pins every artifact with a real
-// checksum, and adding Compose would mean recording a hundred more of them for a screen
-// that is nine buttons and three labels (decision 01kzb8tjxp, D-5).
+// The screen is Compose, and it costs this module no checksum. What made a UI toolkit
+// expensive here was gradle/verification-metadata.xml — every artifact pinned by hand —
+// and examples/android-compose already pays that price for the same four artifacts at the
+// same versions (decision 01kzb8tjxp, D-5, superseded by the ui module). What is left is
+// the reason to move: the screen a flow drives and the screens the generator emits are now
+// the same kind of thing, found the same way, so `testTagsAsResourceId` is one rule for
+// this repository rather than one rule per app.
 //
 // The device social-login mode added two things this script has to carry: the run's own
 // client id and server address, which are NOT committed, and a cleartext exception for
@@ -27,6 +30,9 @@ import java.util.Properties
 plugins {
     // AGP 9 compiles Kotlin itself; applying org.jetbrains.kotlin.android is an error.
     alias(libs.plugins.android.application)
+    // AGP 9.2.1 turns the Compose feature on by asking whether this plugin is applied,
+    // so `buildFeatures { compose = true }` is not the switch and is deliberately absent.
+    alias(libs.plugins.kotlin.compose)
 }
 
 description = "SPFN Android harness: the app a Maestro flow drives. Not published."
@@ -232,13 +238,28 @@ dependencies {
     // provider logic of its own: it hands the adapter an Activity and a client id, and
     // answers SpfnKeyLifecycle.enroll with what comes back.
     implementation(project(":spfn-social-google"))
+    // `Busy`, and only `Busy`. The screen's `busy=` readout is the state of one write,
+    // which is the thing this module already names — a second boolean here would be a
+    // second vocabulary for it (android/spfn-ui/src/main/kotlin/.../Busy.kt).
+    implementation(project(":spfn-ui"))
     // HarnessActivity launches its button actions on Dispatchers.Main. The core
     // artifact contains the coroutine machinery but no Android Main dispatcher.
     implementation(libs.kotlinx.coroutines.android)
 
-    // The harness proves itself on a phone, not on a JVM, and this suite is the one
-    // exception: a receipt's bytes are pure text work — a timestamp, an escape, a field
+    // The screen. Foundation and no higher: Material would add a design this repository
+    // has not chosen, and every artifact here is one examples/android-compose already
+    // pins at the same version, so this module's screen adds no entry to
+    // gradle/verification-metadata.xml.
+    implementation(libs.androidx.compose.runtime)
+    implementation(libs.androidx.compose.ui)
+    implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.activity.compose)
+
+    // The harness proves itself on a phone, not on a JVM, and two things here are the
+    // exception. A receipt's bytes are pure text work — a timestamp, an escape, a field
     // order — and every way they can go wrong goes wrong silently, on someone else's
-    // machine, in a file nobody reads until it is evidence.
+    // machine, in a file nobody reads until it is evidence. A readout's text is the same
+    // kind of thing: a flow matches it as a regex, and a screen that draws `busy=idle`
+    // builds, installs and shows a wrong word to a runner that waits out its timeout.
     testImplementation(libs.junit)
 }
