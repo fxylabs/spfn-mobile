@@ -286,12 +286,19 @@ the phone — those are the two platform sections that follow this one.
 
 ### The screen
 
-**What a runner taps is in the first viewport.** That is the rule the order follows, and
-it is not a preference. Compose publishes only the nodes overlapping the viewport to the
-accessibility tree, so a control below the fold does not exist for the runner and
-Maestro's `tapOn` will not scroll to find it (`docs/IMPLEMENTATION-PITFALLS.md` P25). So
-the readouts and every control a flow taps come first, and what is left below is the half
-a person scrolls to on purpose.
+**What a runner taps is in the first viewport.** That is the rule the order follows, on
+both platforms, and it is not a preference. Compose's `verticalScroll` and SwiftUI's
+`ScrollView` both publish only the nodes overlapping the viewport to the accessibility
+tree, so a control below the fold does not exist for the runner and Maestro's `tapOn` will
+not scroll to find it (`docs/IMPLEMENTATION-PITFALLS.md` P25). So the readouts and every
+control a flow taps come first, and what is left below is the half a person scrolls to on
+purpose.
+
+The two screens are the same screen. They draw the same parts in the same order, with the
+same ids and the same readout text, and each one measured its own runner block against its
+own phone — the Android grid ends about 97dp above the fold on a Pixel 3a API 34, the iOS
+grid about 85pt above it on an iPhone 17 Pro. The arithmetic is in `RunnerBlock`'s KDoc
+and `runnerBlock`'s doc comment respectively.
 
 Top to bottom:
 
@@ -307,16 +314,15 @@ and `HarnessRunnerBlockTest` reads every `id:` selector out of `flows/` and asse
 are the first list and never the second. The block's HEIGHT is not something a JVM can
 answer — a device run is what proves the grid ends above the fold.
 
-The iOS order is unchanged, deliberately. SwiftUI's `ScrollView` DOES put its offscreen
-children into the XCUITest accessibility hierarchy, so the arrangement that failed every
-Android cell passes there — moving it would be for this table's sake and not for a
-defect's. And `ios/Sources/` belongs to no SwiftPM package: it is listed by
-`ios/project.yml` and compiled by Xcode on a Mac and nowhere else, so no gate on the
-Linux machine that made this change could have caught a slip in it. So the iOS screen
-still reads `device verification`, `device code`, then the lifecycle buttons, with the
-same ids and the same readout text throughout — and `open-approve` is still beside
-`sign-in-with-a-code` there, where the two halves of one feature belong when nothing
-forces them apart.
+The iOS screen has no such test, and cannot have one here: `ios/Sources/` belongs to no
+SwiftPM package — it is listed by `ios/project.yml` and compiled by Xcode on a Mac and
+nowhere else — so nothing on a Linux CI machine can read it. A run of
+`sh tools/harness/run-harness.sh ios` is the whole of that half's evidence, which is why
+this order was wrong there for a day after Android's was fixed: the README said SwiftUI
+kept its offscreen children in the hierarchy, nothing measured the claim, and all twelve
+cells then failed at `btn_wipe` on an iPhone 17 Pro. Both screens now put `open-approve`
+in the runner grid rather than beside `sign-in-with-a-code`, where the two halves of one
+feature would otherwise belong.
 
 The last two readouts belong to the generated flow. `stack=` is its own depth, spelled
 exactly as the generated screens spell it — a flow that is open draws the number twice,
