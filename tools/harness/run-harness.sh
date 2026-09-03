@@ -10,8 +10,15 @@
 # being fine the moment the question is whether a person can get through enrolment.
 #
 # So this script builds the harness app, installs it on an iOS simulator, an Android
-# emulator or an Android device, and runs the Maestro flows against it. Ten flows, one per
-# cell of the lifecycle's case table; tools/harness/README.md carries the table.
+# emulator or an Android device, and runs the Maestro flows against it. Ten flows for the
+# lifecycle's case table, and three more for the generated approval screens; both tables
+# are in tools/harness/README.md.
+#
+# For those last three this script is also the SECOND DEVICE. It parks a device request
+# with the reference server over curl, hands the flow the user code that request was
+# issued, and afterwards polls with the device code to see what the phone's decision
+# actually did on the server — so each of the three is asserted on the screen and on the
+# wire, and a cell needs both to earn its receipt.
 #
 # A physical iPhone is not on that list and cannot be: maestro ships no driver for one.
 # tools/harness/README.md carries the manual procedure that covers what a phone is for.
@@ -85,6 +92,32 @@ c9-resume-while-rotation-pending'
 # reason: what a target implements is a fact about the target, not a preference.
 REVOCATION_CASES='c10-revoke-then-proven-call'
 REVOCATION_OPS=${SPFN_HARNESS_REVOCATION_OPS-}
+
+# The three cells that drive the GENERATED approval screens against a live server. They
+# are not lifecycle cells and they do not run in the batch above, for one reason: each one
+# needs a device request that exists on the server before the flow launches, and the user
+# code the server issues for it is different every time.
+#
+# So this runner plays the WAITING DEVICE. Before each cell it parks a key over curl —
+# `auth.device.start`, whose body carries a real P-256 key from
+# :reference-server:spfnReferenceDeviceStartBody, because the server checks the fingerprint
+# against the decoded public key and the poll that collects an approval parses those bytes
+# as a key. It runs the flow with that request's user code, and then polls with the device
+# code to see what the phone's decision actually did on the server.
+#
+# Two assertions per cell, and both are needed. The flow says what the phone showed; the
+# poll says what the server did. A screen that closed its flow without sending would pass
+# the first and fail the second, and a cell that only read the screen would be evidence
+# about a screen rather than about the SDK (docs/IMPLEMENTATION-PITFALLS.md P7).
+APPROVAL_CASES='d1-approve
+d2-deny
+d3-unknown-code'
+
+# What d3 types, which is deliberately NOT the code the runner parked. Every character is
+# in the server's own user-code alphabet, so this is a code that could have been issued
+# and was not — a malformed one would exercise the server's shape check instead of its
+# lookup, which is a different cell.
+UNKNOWN_USER_CODE=ZZZZ-ZZZZ
 
 WORK=$(mktemp -d)
 RECEIPTS="$WORK/receipts"
@@ -236,6 +269,88 @@ for case in root.iter("testcase"):
     sys.exit(1 if bad else 0)
 sys.exit(1)
 PARSE
+}
+
+# First string value of a JSON key, the way tools/validate/validate.sh reads one.
+#
+# `head -1` is not decoration. `sed` with a greedy `.*` reports the LAST occurrence of a
+# key on a line, and a body that ever carried two would silently hand back the wrong one
+# (docs/IMPLEMENTATION-PITFALLS.md P5).
+json_string()
+{
+    printf '%s' "$1" | sed -n "s/.*\"$2\": *\"\([^\"]*\)\".*/\1/p" | head -1
+}
+
+# Parks a device request with the target and answers `<userCode> <deviceCode>`.
+#
+# The body carries a freshly generated P-256 key, because the server checks that
+# `fingerprint` is the SHA-256 of the decoded `publicKey` and the poll that collects an
+# approval registers those bytes as a key — twice measured, once in
+# `SpfnReferenceServer.deviceStart` and once in `SpfnReferenceState.enrollKey`. A constant
+# body satisfies neither, and a constant keyId could be registered once where a run needs
+# three.
+#
+# Empty output is the failure, and the caller treats it as one: a cell whose request was
+# never parked would otherwise run against a code nobody issued and report d3's result.
+park_device_request()
+{
+    BODY=$(./gradlew --console=plain -q :reference-server:spfnReferenceDeviceStartBody 2> /dev/null)
+    if [ -z "$BODY" ]
+    then
+        return 1
+    fi
+    STARTED=$(curl -sS -X POST -H 'content-type: application/json' \
+        -d "$BODY" "$1/_auth/device/start" 2> /dev/null)
+    USER_CODE=$(json_string "$STARTED" userCode)
+    DEVICE_CODE=$(json_string "$STARTED" deviceCode)
+    if [ -z "$USER_CODE" ] || [ -z "$DEVICE_CODE" ]
+    then
+        return 1
+    fi
+    printf '%s %s\n' "$USER_CODE" "$DEVICE_CODE"
+}
+
+# Polls $1 for device code $2 until the answer is $3, and prints what it last read.
+#
+# Up to ten attempts a second apart. An approval is applied before the phone's flow closes,
+# but the poll is a separate request from a separate process, and a single poll taken the
+# instant maestro returned read `pending` on a machine that was merely busy.
+#
+# The EXPECTED answer is what the loop stops on rather than "anything but pending", and
+# that is what makes d3 cheap as well as correct: `pending` is the answer that cell wants,
+# so it settles on the first attempt instead of spending ten seconds proving a negative.
+#
+# What is printed is the last answer read, whether or not it is the expected one, so a
+# caller that fails reports the value it failed on rather than the word "timeout".
+#
+# The three answers are told apart by the status as well as the body: `pending` and
+# `approved` are 200 with a `status` field, and a denial is a 403 refusal envelope whose
+# `code` is `DeviceAuthDeniedError`. Reading only the body would make a denial and an
+# answer nothing could be read out of into the same event.
+poll_device_request()
+{
+    ATTEMPT=0
+    ANSWER=''
+    while [ "$ATTEMPT" -lt 10 ]
+    do
+        POLL_STATUS=$(curl -sS -o "$WORK/poll.json" -w '%{http_code}' \
+            -X POST -H 'content-type: application/json' \
+            -d "{\"deviceCode\":\"$2\"}" "$1/_auth/device/poll" 2> /dev/null || true)
+        POLL_BODY=$(cat "$WORK/poll.json" 2> /dev/null || true)
+        if [ "$POLL_STATUS" = 200 ]
+        then
+            ANSWER=$(json_string "$POLL_BODY" status)
+        else
+            ANSWER=$(json_string "$POLL_BODY" code)
+        fi
+        if [ "$ANSWER" = "$3" ]
+        then
+            break
+        fi
+        ATTEMPT=$((ATTEMPT + 1))
+        sleep 1
+    done
+    printf '%s\n' "${ANSWER:-unreadable}"
 }
 
 # Polls the server's readiness route. Never a fixed sleep: a fixed sleep is either too
@@ -523,10 +638,10 @@ fi
 # Which cases this run is required to complete, decided here where both the target and
 # the caller's declaration are known. Announced either way: a case that silently left the
 # list is the failure this whole script is built to refuse.
-CASES=$LIFECYCLE_CASES
+BATCH_CASES=$LIFECYCLE_CASES
 if [ "$REVOCATION_OPS" = "1" ]
 then
-    CASES="$CASES
+    BATCH_CASES="$BATCH_CASES
 $REVOCATION_CASES"
     pass 'the caller declared the target implements revocation; c10 is expected'
 else
@@ -535,6 +650,16 @@ else
     printf '  --    with CONTRACT_UNSUPPORTED. Export SPFN_HARNESS_REVOCATION_OPS=1 against a\n'
     printf '  --    target that really implements it.\n'
 fi
+
+# Every case this run must complete, batched and per-cell alike. Section 5 checks a
+# receipt for each of these, so a cell that quietly left the list is the exact failure
+# this script is built to refuse.
+#
+# The approval cells are in the list and NOT in the batch: each needs a device request
+# parked on the server before its own launch, and the user code that request is issued is
+# different every time.
+CASES="$BATCH_CASES
+$APPROVAL_CASES"
 
 # ---------------------------------------------------------------------------
 printf '\n3. building and installing the harness\n'
@@ -574,7 +699,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-printf '\n4. the flows\n'
+printf '\n4a. the lifecycle flows\n'
 # ---------------------------------------------------------------------------
 # ONE maestro invocation for every case, not one per case.
 #
@@ -589,7 +714,7 @@ printf '\n4. the flows\n'
 # receipt. Section 5 then checks the receipts exactly as before.
 REPORT="$WORK/report.xml"
 FLOW_FILES=''
-for CASE in $CASES
+for CASE in $BATCH_CASES
 do
     FLOW_FILES="$FLOW_FILES $FLOWS/$CASE.yaml"
 done
@@ -611,7 +736,7 @@ then
     fail 'maestro wrote no report, so no case can be said to have run'
     sed 's/^/      /' "$WORK/maestro.log" | tail -40
 else
-    for CASE in $CASES
+    for CASE in $BATCH_CASES
     do
         # A case earns a receipt only when the report names it AND records no failure for
         # it. `case_status` exits non-zero for both "not in the report" and "failed",
@@ -632,6 +757,84 @@ then
     printf '  --    maestro output:\n'
     sed 's/^/      /' "$WORK/maestro.log" | tail -40
 fi
+
+# ---------------------------------------------------------------------------
+printf '\n4b. the approval cells, with this runner as the waiting device\n'
+# ---------------------------------------------------------------------------
+# One maestro invocation per cell here, and the batch's reason for not doing that does not
+# apply: these three cells cannot share a launch. Each needs a device request parked on the
+# server first, and the user code that request is issued is different every time, so the
+# code has to reach maestro as a variable of that invocation.
+#
+# The receipt is earned exactly as the batch's is — through `case_status` on this cell's
+# own JUnit report — and then a second time by the SERVER. Both must hold: a flow that
+# passed every on-screen assertion while the server still held the request `pending` has
+# proved something about a screen and nothing about the SDK, and a receipt for it would be
+# the most expensive kind of green there is.
+for CASE in $APPROVAL_CASES
+do
+    # What each cell types, and what the server must report afterwards. d3 types a code
+    # nobody was issued, so the request this runner parked has to be untouched by it —
+    # which is a stronger claim than "the screen showed an error", and the only one that
+    # rules out a phone acting on somebody else's request.
+    case "$CASE" in
+        d1-approve) TYPED='' ; EXPECTED_POLL=approved ;;
+        d2-deny) TYPED='' ; EXPECTED_POLL=DeviceAuthDeniedError ;;
+        d3-unknown-code) TYPED=$UNKNOWN_USER_CODE ; EXPECTED_POLL=pending ;;
+        *)
+            FLOW_STATUS=1
+            fail "$CASE has no declared user code or poll expectation"
+            continue
+            ;;
+    esac
+
+    PARKED=$(park_device_request "$BASE_URL" || true)
+    if [ -z "$PARKED" ]
+    then
+        FLOW_STATUS=1
+        fail "$CASE — no device request could be parked, so the cell was not run"
+        continue
+    fi
+    PARKED_USER_CODE=${PARKED% *}
+    PARKED_DEVICE_CODE=${PARKED#* }
+    if [ -z "$TYPED" ]
+    then
+        TYPED=$PARKED_USER_CODE
+    fi
+
+    CASE_REPORT="$WORK/report-$CASE.xml"
+    maestro --device "$TARGET" test "$FLOWS/$CASE.yaml" \
+        --format junit \
+        --output "$CASE_REPORT" \
+        -e APP_ID="$APP_ID" \
+        -e BASE_URL="$APP_BASE_URL" \
+        -e PROVIDER="$PROVIDER" \
+        -e TEST_USER="$TEST_USER" \
+        -e ID_TOKEN="${SPFN_HARNESS_ID_TOKEN-}" \
+        -e USER_CODE="$TYPED" \
+        > "$WORK/maestro-$CASE.log" 2>&1 || true
+
+    if [ ! -f "$CASE_REPORT" ] || ! case_status "$CASE_REPORT" "$CASE"
+    then
+        FLOW_STATUS=1
+        fail "$CASE — the flow did not pass"
+        sed 's/^/      /' "$WORK/maestro-$CASE.log" | tail -20
+        continue
+    fi
+
+    ANSWERED=$(poll_device_request "$BASE_URL" "$PARKED_DEVICE_CODE" "$EXPECTED_POLL")
+    if [ "$ANSWERED" != "$EXPECTED_POLL" ]
+    then
+        # No receipt. The flow passed and the server disagrees with it, which is the one
+        # disagreement these three cells exist to find.
+        FLOW_STATUS=1
+        fail "$CASE — the flow passed but the server answered '$ANSWERED', expected '$EXPECTED_POLL'"
+        continue
+    fi
+
+    printf '%s\n%s\n' "$PLATFORM" "$TARGET_DESCRIPTION" > "$RECEIPTS/$PLATFORM-$CASE"
+    pass "$CASE (server answered $ANSWERED)"
+done
 
 # ---------------------------------------------------------------------------
 printf '\n5. every case really ran\n'

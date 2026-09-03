@@ -23,6 +23,14 @@
 # The function is EXTRACTED from run-harness.sh rather than copied here. A copy would go
 # on passing after the original changed, which is the failure mode a probe exists to
 # prevent.
+#
+# `case_status` takes the case name as an argument, so the approval cells d1-d3 are
+# covered by it without naming them. What those three add is a SECOND gate — the server's
+# own answer, read out of a poll response with `json_string` — and that reader gets a probe
+# of its own below. Its fail-closed property is one line: an answer nothing could be read
+# out of is the empty string, and the empty string is never equal to `approved`,
+# `DeviceAuthDeniedError` or `pending`, so an unreadable poll withholds a receipt exactly
+# as a failed flow does (docs/IMPLEMENTATION-PITFALLS.md P7).
 
 set -eu
 
@@ -33,6 +41,7 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
 sed -n '/^case_status()/,/^}/p' "$RUNNER" > "$WORK/case_status.sh"
+sed -n '/^json_string()/,/^}/p' "$RUNNER" >> "$WORK/case_status.sh"
 if [ ! -s "$WORK/case_status.sh" ]
 then
     printf 'FAIL  case_status could not be extracted from run-harness.sh\n'
@@ -41,6 +50,13 @@ then
 fi
 # shellcheck source=/dev/null
 . "$WORK/case_status.sh"
+
+if ! command -v json_string > /dev/null 2>&1
+then
+    printf 'FAIL  json_string could not be extracted from run-harness.sh\n'
+    printf '      the probe cannot pass by failing to find what it tests\n'
+    exit 1
+fi
 
 cat > "$WORK/report.xml" <<'REPORT'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -55,6 +71,13 @@ cat > "$WORK/report.xml" <<'REPORT'
     </testcase>
     <testcase name="skipped-case" classname="Flow">
       <skipped/>
+    </testcase>
+    <!-- Two of the approval cells by name, so the reader is shown covering them rather
+         than assumed to: `case_status` takes the case as an argument and knows no case
+         names of its own, and this is what says so out loud. -->
+    <testcase name="d1-approve" classname="Flow"/>
+    <testcase name="d2-deny" classname="Flow">
+      <failure>Assertion is false: "http=204" is visible</failure>
     </testcase>
   </testsuite>
 </testsuites>
@@ -88,6 +111,34 @@ check "$WORK/report.xml" erroring-case none
 check "$WORK/report.xml" skipped-case none
 check "$WORK/report.xml" absent-case none
 check "$WORK/no-such-report.xml" passing-case none
+check "$WORK/report.xml" d1-approve receipt
+check "$WORK/report.xml" d2-deny none
+check "$WORK/report.xml" d3-unknown-code none
+
+printf '\nthe answer the server itself gave, read out of a poll response\n\n'
+
+# The three answers the approval cells assert on, and the three ways an answer can be
+# absent. The last three are the fail-closed cases: what comes back is the empty string,
+# which equals none of the three expectations, so no receipt is written.
+answers()
+{
+    if [ "$(json_string "$2" "$3")" = "$4" ]
+    then
+        printf 'ok    %-22s -> %s\n' "$1" "${4:-<empty>}"
+    else
+        printf 'FAIL  %-22s -> %s, expected %s\n' "$1" "$(json_string "$2" "$3")" "${4:-<empty>}"
+        STATUS=1
+    fi
+}
+
+answers 'a pending poll' '{"intervalMillis":200,"status":"pending"}' status pending
+answers 'an approved poll' '{"publicId":"public-u","status":"approved","userId":"u"}' status approved
+answers 'a denial envelope' \
+    '{"error":{"code":"DeviceAuthDeniedError","message":"the device request was denied","requestId":"r"}}' \
+    code DeviceAuthDeniedError
+answers 'an empty body' '' status ''
+answers 'a body that is not JSON' 'Bad Gateway' status ''
+answers 'a poll with no status' '{"error":{"code":"DeviceAuthNotFoundError"}}' status ''
 
 printf '\n'
 if [ "$STATUS" -eq 0 ]

@@ -1,0 +1,63 @@
+# SPFN Mobile — cell d1: approving a waiting device, end to end.
+#
+# The first of three cells that drive the GENERATED approval screens rather than the
+# harness's own. The screens under `harness/generated/` are tools/ui-codegen's, emitted
+# from the same spec the example app compiles, and this is the run that puts a real server
+# behind them: the example app's eighteen cells drive them against fixtures, and a fixture
+# cannot answer the question of whether the wire agrees.
+#
+# The waiting device is the RUNNER, not a second phone. tools/harness/run-harness.sh parks
+# a key with the reference server over curl before this flow starts, passes the user code
+# in as ${USER_CODE}, and polls with the device code afterwards. So this cell is asserted
+# in two places, and both are needed: the screen says what the phone showed, and the poll
+# says what the server actually did. A screen that closed its flow while the server still
+# held the request `pending` would pass on the first and fail on the second, which is the
+# whole reason the second exists (docs/IMPLEMENTATION-PITFALLS.md P7).
+#
+# Every selector below the `open-approve` tap belongs to the generated screens and is
+# spelled as `examples/ui-spec/generated/device-approval.cases.md` spells it. Nothing here
+# is a platform-only command: `back` is Android's and does nothing on iOS, so the flow
+# leaves every screen through a control the screen draws (P22).
+
+appId: ${APP_ID}
+name: d1-approve
+---
+- runFlow: reach-enrolled.yaml
+
+- tapOn:
+    id: "btn_open_approve"
+
+# The flow is up once its own field is on screen. Waiting on the FIELD rather than on a
+# readout, because `state=` and `stack=` are drawn by the harness screen underneath as
+# well — on Android the host stays in the hierarchy behind a modal cover — and an id
+# belongs to exactly one of the two screens.
+- extendedWaitUntil:
+    visible:
+      id: "enterCode.userCode"
+    timeout: 20000
+
+- tapOn:
+    id: "enterCode.userCode"
+- inputText: ${USER_CODE}
+
+- tapOn:
+    id: "enterCode.submit"
+
+# `reviewDevice` describes the waiting device before it decides, so `ready` means the
+# server answered the lookup this cell's own curl created.
+- extendedWaitUntil:
+    visible:
+      text: "state=ready"
+    timeout: 20000
+
+- tapOn:
+    id: "reviewDevice.approve"
+
+# The write's `then` is `close`, so the flow empties and the harness screen is uncovered.
+- extendedWaitUntil:
+    visible:
+      text: "stack=0"
+    timeout: 20000
+
+- assertVisible:
+    text: "http=200"
