@@ -239,6 +239,13 @@ Top to bottom, the same on both:
 | `sign-in-apple`, `sign-in-google` | the only two things in this mode that do anything. Android has the Google one only |
 | `sdk lifecycle (flows)` | a divider, and under it the ten buttons the Maestro flows tap — `enroll`, `rotate`, `resume`, `revoke`, `proven-call`, `note-revoked`, `wipe`, `custody-probe`, `block-network`, `open-network` |
 
+The Android half is Jetpack Compose and the iOS half is SwiftUI, and neither draws above
+its platform's foundation layer. A control is found by the id it carries — on Android a
+Compose test tag, published as the resource id a runner selects on by
+`testTagsAsResourceId` on the root — and a readout is found by its text. That is the same
+split the generated example screens use, so this repository now has one rule for it rather
+than one per app.
+
 **One tap is one attempt.** Every device-mode attempt wipes before it asks the provider for
 anything, so there is nothing to remember and no order to get wrong. The first device run
 produced three `alreadyEnrolled` receipts purely because a person forgot the wipe, and each
@@ -311,10 +318,9 @@ wanted; a build that finds no keys at all **succeeds**, and the app installs wit
 outcomes are different on purpose: an absent configuration is a normal checkout, and a
 typo in a configured one must not look like the same thing.
 
-The disabled button is the one titled `sign-in-google`. Its resource id is
-`btn_social_google`, which is what it has always been — a selector matches the id, and
-renaming one to agree with a title would break every selector that names it in exchange for
-nothing.
+The disabled button is the one titled `sign-in-google`. Its id is `btn_social_google`,
+which is what it has always been — a selector matches the id, and renaming one to agree with
+a title would break every selector that names it in exchange for nothing.
 
 `spfn.harness.serverBaseUrl` also drives the cleartext exception. `AndroidManifest.xml` no
 longer says "this app may speak plain HTTP to anything"; the build writes a network
@@ -341,11 +347,11 @@ Then, on the phone: pick the case in the selector, tap `sign-in-google`, and com
 dismiss the sheet. That is the whole attempt — see **The device sign-in mode** above for
 the screen and the five cases, which are the same here as on iOS.
 
-The selector is a `RadioGroup`, which is this platform's own way of saying "exactly one of
-these": it holds the invariant itself instead of leaving the screen to remember it. Each row
-keeps the resource id it always had — `btn_case_first_enroll` through
-`btn_case_server_reject`, declared in `res/values/ids.xml` — so anything that could already
-find a case still finds it.
+The selector holds "exactly one of these" in one field: a single case, so there is no
+arrangement of taps that selects two or none. Each row keeps the id it always had —
+`btn_case_first_enroll` through `btn_case_server_reject`, now a Compose test tag rather than
+an entry in `res/values/ids.xml` — so anything that could already find a case still finds
+it.
 
 ### Collecting the receipts
 

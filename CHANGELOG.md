@@ -5,6 +5,37 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The harness screen is Compose
+
+- **`tools/harness/android` draws its screen in Jetpack Compose**, foundation only and no
+  Material, in the shape `examples/android-compose` already had: `testTagsAsResourceId` set
+  once on the root, a `testTag` and a 48 dp minimum touch target on every control. The
+  twenty-one names `src/main/res/values/ids.xml` declared are now those test tags, spelled
+  identically — `btn_enroll` through `btn_device_deny` and `input_device_code` — so the
+  thirteen Maestro flows in `tools/harness/flows/` and `run-harness.sh` are unchanged to
+  the byte, which is what makes them the regression gate for this rewrite. `ids.xml` is
+  deleted: a resource id could only be referenced from code and never created there, and a
+  test tag is created where the control is written.
+- **The readouts moved out of the screen and into `HarnessReadout`**, because they are the
+  app's wire protocol with the flows rather than decoration: a flow matches `busy=ready`,
+  `state=…` and `outcome=…` as regexes, and a screen that drew `busy=idle` would build,
+  install and then time out thirteen flows twenty seconds at a time. `HarnessReadoutTest`
+  holds the whole table, hand-written from the flow files and the README rather than read
+  back out of the code (P10), and it was probed by breaking one word and watching it fail
+  (P7).
+- **`busy=` is now `xyz.superfunction.spfn.ui.Busy`.** The state of one write is a thing
+  this repository already names, and the harness had a second boolean for it. The
+  dependency on `:spfn-ui` puts androidx.lifecycle's atomic group on the harness's
+  classpath, which added five artifacts to `gradle/verification-metadata.xml` — three
+  livedata components nothing calls and two `.aar` checksums for components already there,
+  all of them pulled by the group alignment rather than by a call.
+- **The model, the transport and the receipts are untouched.** `HarnessModel` still posts
+  its device-code callback through `Handler(Looper.getMainLooper())`, and the screen's
+  state holder is written on that thread and no other; the countdown that redraws
+  `expires-in=` once a second is a `LaunchedEffect` keyed on the expiry, so it starts when
+  a code arrives and stops when the wait ends however it ends.
+
+
 ### What two real devices changed about the example cells
 
 - **Maestro's `back` is Android's command and does nothing on iOS.** The generated flows
