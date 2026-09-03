@@ -3,7 +3,7 @@ GENERATED FILE — DO NOT EDIT.
 
 generator:       spfn-ui-codegen 0.1.0-dev
 spec:            examples/ui-spec/device-approval.json
-specSha256:      ea4b08e490fa7f24720859c9b735a9d628949ad1595762d44cb1a833b0b7c164
+specSha256:      88e5159b5528860daa36d6ebae1f6a6940c8152eb8373bf4cb3656be70599153
 bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 contractVersion: 0.10.0
 
@@ -11,9 +11,9 @@ Regenerate with: ./gradlew :ui-codegen:spfnGenerateUi
 Verified by:     ./gradlew :ui-codegen:spfnUiVerify
 -->
 
-# Device approval — the case table
+# The showcase — the case table
 
-One row per cell of the screen table for the `approveDevice` flow.
+One row per cell of the screen table, across the 9 flows the spec declares.
 Every expectation is a READOUT, because a readout is the only thing both runners can
 read and neither can guess: `state=<…>` is the screen model's own state and
 `stack=<depth>` is the flow's.
@@ -60,6 +60,16 @@ proven on the JVM against the models and has no flow file.
 | `k7` | `enterCode` | `error` | `submit` | maestro | `ready` | `stack=1`, `state=error` | K7 and C7 — a refused input draws its refusal UNDER the field rather than somewhere on the screen, and the line is drawn at all |
 | `s1` | `enterCode` | `idle` | `screen.close` | maestro | `ready` | `stack=0` | S1 — the root of a flow presented over something draws the header's close, and pressing it closes the flow |
 | `s2` | `reviewDevice` | `ready` | `screen.back` | maestro | `ready` | `stack=1`, `state=idle` | S2 — a route above the root draws the header's back, and pressing it pops one route |
+| `keyboardForm-close` | `form` | `idle` | `submit` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
+| `longScroll-close` | `long` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
+| `modalTour-close` | `modalTwo` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
+| `pushTour-reach` | `tourThree` | `idle` | `next` | maestro | `ready` | `stack=3`, `state=idle` | R5 — every push adds one route, so the stack is as deep as the tour is long |
+| `pushTour-close` | `tourThree` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
+| `sheetFit-close` | `fitOne` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
+| `sheetFull-close` | `fullOne` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
+| `sheetHalf-close` | `halfOne` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
+| `sheetNav-reach` | `navTwo` | `idle` | `next` | maestro | `ready` | `stack=2`, `state=idle` | R5 — every push adds one route, so the stack is as deep as the tour is long |
+| `sheetNav-close` | `navTwo` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
 
 ## Running one
 
@@ -68,6 +78,36 @@ maestro test -e APP_ID=xyz.superfunction.spfn.example \
     examples/ui-spec/generated/flows/u1.yaml
 ```
 
-The launch carries `SPFN_UI_FIXTURE=<cell>`, which is the only thing that installs a
-fake service. Without it the app builds its client against the configured server and
-no fixture exists at all.
+The launch carries `SPFN_UI_FIXTURE=<cell>`, which is what says WHICH cell this run is
+and therefore which flow opens and what its fake service answers. A launch that names
+no cell opens the menu instead, on the same fake.
+
+## What a person checks
+
+10 cells with no runner. Every one of them is a GESTURE or a resting
+height, which is the class of thing a device runner reports success for whether or
+not the platform read it as the gesture it meant — cells u7b and u10b spent a Mac
+round on exactly that (`docs/IMPLEMENTATION-PITFALLS.md` P22). So these are checked
+by a person on a real phone, and the answers are written down.
+
+Launch the app with `SPFN_UI_FIXTURE=<cell>` to arrive on the right flow, do what the
+**Do** column says, and record what happened. Copy
+`examples/ui-spec/receipts/manual/TEMPLATE.md` to
+`examples/ui-spec/receipts/manual/<date>.md` and fill it in there; this table is
+generated and anything written into it is lost on the next generation.
+
+| Cell | Flow | Screen | Do | Expect | iPhone | Android |
+| --- | --- | --- | --- | --- | --- | --- |
+| `keyboardForm-keyboard` | `keyboardForm` | `form` | tap the field, and read the screen with the keyboard up | K1 — the field stays visible and the control under it is still reachable; nothing jumps as the keyboard arrives and nothing is left scrolled out of place (`stack=1`) |  |  |
+| `longScroll-headerHolds` | `longScroll` | `long` | scroll the body from the top to the bottom and back | S2's other half — the header and its title stay exactly where they are while the body moves under them, so the way out of the flow never scrolls away (`stack=1`) |  |  |
+| `modalTour-predictiveBack` | `modalTour` | `modalOne` | on Android, use the system back gesture on the flow's FIRST screen | R8 — a flow presented over something is closed by a back on its last route, so the whole flow goes rather than one route (`stack=0`) |  |  |
+| `pushTour-swipeBack` | `pushTour` | `tourTwo` | swipe in from the left edge on iPhone, or use the system back gesture on Android | S2 and R8 — the gesture is the flow's own pop, so one route drops and the screen under it is the one it was (`stack=1`) |  |  |
+| `pushTour-predictiveBack` | `pushTour` | `tourTwo` | on Android, press and HOLD the back gesture at the edge without releasing it | the screen underneath is drawn under the gesture while it is held, and releasing lands on it; letting go back at the edge cancels and changes nothing (`stack=1`) |  |  |
+| `sheetFit-detent` | `sheetFit` | `fitOne` | look at how tall the sheet stands, and compare the two platforms side by side | the sheet is as tall as its content and no taller, on both platforms, and it does not grow to a fraction of the window it did not need (`stack=1`) |  |  |
+| `sheetFull-detent` | `sheetFull` | `fullOne` | look at how tall the sheet stands, and compare the two platforms side by side | the sheet stands nearly full height and stops short of the top, leaving the screen under it visible above (`stack=1`) |  |  |
+| `sheetHalf-detent` | `sheetHalf` | `halfOne` | look at how tall the sheet stands, and compare the two platforms side by side | the sheet stands at about half the window on both platforms (`stack=1`) |  |  |
+| `sheetNav-snapBack` | `sheetNav` | `navOne` | drag the sheet's handle down a SHORT way — less than half its height — and let go | the sheet returns to the height it was standing at and the flow is untouched (`stack=1`) |  |  |
+| `sheetNav-dragAway` | `sheetNav` | `navTwo` | drag the sheet's handle down PAST half its height and let go | the whole flow closes rather than one route — a sheet is a presentation and a drag dismisses the presentation, from whatever depth it started at (`stack=0`) |  |  |
+
+Where a cell has to be walked to before the gesture, the walk is a tap on the
+controls named in the table's JSON `steps` — the same ids a flow file would use.

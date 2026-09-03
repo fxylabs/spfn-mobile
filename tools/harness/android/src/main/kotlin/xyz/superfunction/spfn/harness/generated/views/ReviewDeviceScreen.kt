@@ -2,7 +2,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-dev
 // spec:            examples/ui-spec/device-approval.json
-// specSha256:      ea4b08e490fa7f24720859c9b735a9d628949ad1595762d44cb1a833b0b7c164
+// specSha256:      88e5159b5528860daa36d6ebae1f6a6940c8152eb8373bf4cb3656be70599153
 // bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 // contractVersion: 0.10.0
 //
@@ -49,6 +49,8 @@ fun ReviewDeviceScreen(model: ReviewDeviceModel)
     {
         Column(modifier = Modifier.fillMaxWidth().padding(SpfnTokens.space4))
         {
+            SpfnText(text = "state=" + stateName(state), role = TextRole.Mono);
+            SpfnText(text = "stack=" + stack.size, role = TextRole.Mono);
             LoadableView(
                 state = state,
                 retryId = "reviewDevice.retry",
@@ -75,8 +77,6 @@ fun ReviewDeviceScreen(model: ReviewDeviceModel)
                 busy = writing,
                 onTap = { scope.launch { model.deny() } }
             );
-            SpfnText(text = "state=" + stateName(state), role = TextRole.Mono);
-            SpfnText(text = "stack=" + stack.size, role = TextRole.Mono);
         }
     }
 }
