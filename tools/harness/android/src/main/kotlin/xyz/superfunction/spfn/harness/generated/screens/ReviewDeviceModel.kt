@@ -11,10 +11,10 @@
 
 package xyz.superfunction.spfn.harness.generated.screens
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import xyz.superfunction.spfn.client.SpfnClientError
 import xyz.superfunction.spfn.generated.SpfnApproveDeviceAuthRequest
 import xyz.superfunction.spfn.generated.SpfnDenyDeviceAuthRequest
 import xyz.superfunction.spfn.generated.SpfnDeviceAuthInfoRequest
@@ -68,7 +68,11 @@ class ReviewDeviceModel(
         {
             useCase.lookup(userCode);
         }
-        catch (failure: SpfnClientError)
+        catch (cancelled: CancellationException)
+        {
+            throw cancelled;
+        }
+        catch (failure: Exception)
         {
             if (isCurrent(token))
             {
@@ -99,7 +103,11 @@ class ReviewDeviceModel(
         {
             deviceApproval.approve(SpfnApproveDeviceAuthRequest(userCode = userCode));
         }
-        catch (failure: SpfnClientError)
+        catch (cancelled: CancellationException)
+        {
+            throw cancelled;
+        }
+        catch (failure: Exception)
         {
             writing = false;
             if (isCurrent(token))
@@ -140,7 +148,11 @@ class ReviewDeviceModel(
         {
             deviceApproval.deny(SpfnDenyDeviceAuthRequest(userCode = userCode));
         }
-        catch (failure: SpfnClientError)
+        catch (cancelled: CancellationException)
+        {
+            throw cancelled;
+        }
+        catch (failure: Exception)
         {
             writing = false;
             if (isCurrent(token))

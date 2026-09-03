@@ -29,9 +29,14 @@ object ScreenFailure
 
     /**
      * The server's own envelope where there is one, and a local one where there is
-     * not. The message carries the SDK's class name and never any server text.
+     * not. The message carries the name of the SDK type that failed and never any
+     * server text.
+     *
+     * [Throwable] and not [SpfnClientError]: the SDK throws more than that one
+     * hierarchy, and a screen that could not name what it caught would have nothing
+     * to show for it.
      */
-    fun envelope(failure: SpfnClientError): SpfnErrorEnvelope = when (failure)
+    fun envelope(failure: Throwable): SpfnErrorEnvelope = when (failure)
     {
         is SpfnClientError.Auth -> failure.failure.envelope
         is SpfnClientError.Server -> failure.failure.envelope
