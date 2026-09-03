@@ -92,9 +92,9 @@ class CaseTable(target: Target)
         appendLine(Header.lines(inputs).joinToString("\n"));
         appendLine("-->");
         appendLine();
-        appendLine("# Device approval — the case table");
+        appendLine("# The showcase — the case table");
         appendLine();
-        appendLine("One row per cell of the screen table for the `${spec.flows.single().name}` flow.");
+        appendLine("One row per cell of the screen table, across the ${spec.flows.size} flows the spec declares.");
         appendLine("Every expectation is a READOUT, because a readout is the only thing both runners can");
         appendLine("read and neither can guess: `state=<…>` is the screen model's own state and");
         appendLine("`stack=<depth>` is the flow's.");
@@ -111,7 +111,7 @@ class CaseTable(target: Target)
         appendLine();
         appendLine("| Cell | Screen | State | Action | Runner | Fixture | Expect | Rule |");
         appendLine("| --- | --- | --- | --- | --- | --- | --- | --- |");
-        cells.forEach { cell ->
+        cells.filterNot { it.runsByHand }.forEach { cell ->
             appendLine(
                 "| `${cell.id}` | `${cell.screen}` | `${cell.state}` | `${cell.action}` | ${cell.runner} " +
                     "| `${cell.fixture}` | ${cell.expect.joinToString(", ") { "`$it`" }} | ${cell.rule} |"
@@ -125,10 +125,61 @@ class CaseTable(target: Target)
         appendLine("    $directory/flows/${cells.first { it.runsOnMaestro }.id}.yaml");
         appendLine("```");
         appendLine();
-        appendLine("The launch carries `SPFN_UI_FIXTURE=<cell>`, which is the only thing that installs a");
-        appendLine("fake service. Without it the app builds its client against the configured server and");
-        appendLine("no fixture exists at all.");
+        appendLine("The launch carries `SPFN_UI_FIXTURE=<cell>`, which is what says WHICH cell this run is");
+        appendLine("and therefore which flow opens and what its fake service answers. A launch that names");
+        appendLine("no cell opens the menu instead, on the same fake.");
+        append(checklist(spec, cells));
     }
+
+    /**
+     * The cells a person checks, as a checklist with somewhere to write the answer.
+     *
+     * A section rather than a file of its own, because a manual cell is a cell: it comes out
+     * of the same rule table, names the same flows and fixtures, and splitting it out would
+     * make the case table a document that quietly covers less than it appears to. What IS
+     * separate is where the answers go — a checklist that was written on would stop being
+     * generated output.
+     *
+     * Two result columns and not one. `custody=secureEnclave` in tools/harness/README.md is
+     * the precedent: a gesture answer with no phone beside it is not evidence, and iOS and
+     * Android read the same gesture through different platform machinery — a predictive back
+     * is Android's alone, an interactive-pop swipe is Apple's.
+     */
+    private fun checklist(spec: Spec, cells: List<Cell>): String = buildString {
+        val manual = cells.filter { it.runsByHand };
+        appendLine();
+        appendLine("## What a person checks");
+        appendLine();
+        appendLine("${manual.size} cells with no runner. Every one of them is a GESTURE or a resting");
+        appendLine("height, which is the class of thing a device runner reports success for whether or");
+        appendLine("not the platform read it as the gesture it meant — cells u7b and u10b spent a Mac");
+        appendLine("round on exactly that (`docs/IMPLEMENTATION-PITFALLS.md` P22). So these are checked");
+        appendLine("by a person on a real phone, and the answers are written down.");
+        appendLine();
+        appendLine("Launch the app with `SPFN_UI_FIXTURE=<cell>` to arrive on the right flow, do what the");
+        appendLine("**Do** column says, and record what happened. Copy");
+        appendLine("`examples/ui-spec/receipts/manual/TEMPLATE.md` to");
+        appendLine("`examples/ui-spec/receipts/manual/<date>.md` and fill it in there; this table is");
+        appendLine("generated and anything written into it is lost on the next generation.");
+        appendLine();
+        appendLine("| Cell | Flow | Screen | Do | Expect | iPhone | Android |");
+        appendLine("| --- | --- | --- | --- | --- | --- | --- |");
+        manual.forEach { cell ->
+            appendLine(
+                "| `${cell.id}` | `${spec.screenNamed(cell.screen).flow}` | `${cell.screen}` " +
+                    "| ${gesture(cell)} " +
+                    "| ${cell.rule} (${cell.expect.joinToString(", ") { "`$it`" }}) |  |  |"
+            );
+        };
+        appendLine();
+        appendLine("Where a cell has to be walked to before the gesture, the walk is a tap on the");
+        appendLine("controls named in the table's JSON `steps` — the same ids a flow file would use.");
+    }
+
+    /** The one thing a person does in a manual cell, out of its by-hand step. */
+    private fun gesture(cell: Cell): String = cell.steps
+        .filterIsInstance<Step.ByHand>()
+        .joinToString("; ") { it.description }
 
     // ---- one flow ----------------------------------------------------------
 
@@ -227,6 +278,20 @@ class CaseTable(target: Target)
             appendLine("- assertVisible:");
             appendLine("    id: \"${step.id}\"");
         }
+        // Both platforms, like `hideKeyboard` and unlike `back`, and a no-op when the
+        // element is already on screen — which is why a screen that declares a body gets
+        // one whether or not today's body is long enough to need it.
+        is Step.ScrollTo -> buildString {
+            appendLine("- scrollUntilVisible:");
+            appendLine("    element:");
+            appendLine("      id: \"${step.id}\"");
+        }
+        // Unreachable: a cell carrying one of these has the `manual` runner and no flow file
+        // is written for it. Stated as a refusal rather than as a blank line, because a
+        // gesture silently dropped from a flow is exactly the failure P22 is about.
+        is Step.ByHand -> throw SpecException(
+            "a by-hand step has no Maestro command; '${step.description}' belongs to a manual cell"
+        )
     }
 
     /**
@@ -271,6 +336,8 @@ class CaseTable(target: Target)
         Step.Return -> "return"
         Step.HideKeyboard -> "hideKeyboard"
         is Step.SeeId -> "see ${step.id}"
+        is Step.ScrollTo -> "scrollTo ${step.id}"
+        is Step.ByHand -> "byHand ${step.description}"
     }
 
     private fun array(values: List<String>): String =

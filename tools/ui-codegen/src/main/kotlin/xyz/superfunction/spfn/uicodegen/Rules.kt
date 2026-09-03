@@ -59,6 +59,31 @@
 // stack that has moved under them. k1–k7 and s1–s2 are the keyboard contract and the screen
 // frame, both of them device-only.
 //
+// ---------------------------------------------------------------------------
+// The showcase flows, and the fourth runner
+// ---------------------------------------------------------------------------
+//
+// Everything above is about ONE flow — the one that reads on a screen and writes on the
+// next — and the spec now carries seven more that read and write nothing at all. Those exist
+// so the three presentations, a stack inside a sheet, a keyboard and a body that does not fit
+// can be looked at; their ids are `<flow>-<what>`, because a terse letter per flow would be a
+// table with a key nobody could keep.
+//
+// Two things bound them. Each RULE row gets one cell on one representative flow, and each
+// flow gets one representative of its own — the way out, which is the only thing all of them
+// have and the one thing that has to work for any of them to leave a receipt. So a two-deep
+// stack earns a cell inside a sheet and not inside a modal, because u1 already stands two
+// deep in a modal, and a drag row is written once rather than once per sheet.
+//
+// The fourth runner is `manual`, and it exists because of what P22 is really about. A device
+// runner can be told to swipe; what it cannot do is make the platform READ that swipe as the
+// gesture it meant, and a command that completes without doing anything reports success. So
+// every gesture whose subject is the gesture — an edge swipe, a predictive back held at the
+// edge, a drag released either side of a dismissal threshold, a detent that snaps, a keyboard
+// that has to feel like it got out of the way, a header that must not scroll — is a cell with
+// no runner and a person's name on it. It goes in the case table like every other cell, in a
+// section of its own, and `examples/ui-spec/receipts/manual/` is where the answers go.
+//
 // Three of the k cells are CONDITIONAL, and that is the point of deriving them rather than
 // listing them: k3 exists only where the spec says `autofocus`, and k4 and k5 only where it
 // says `submitOnReturn`. A cell asserting that the return key submits, on a screen whose spec
@@ -101,6 +126,26 @@ sealed interface Step
 
     /** Asserts that the control with this id is on screen. */
     data class SeeId(val id: String) : Step
+
+    /**
+     * Scrolls until the control with this id is on screen.
+     *
+     * A no-op when it is already there, which is why it is emitted for every screen that
+     * declares a body rather than for the one body that happens to be long today: a body
+     * that grew past the fold would otherwise turn a passing cell into a failing one for a
+     * reason that is not a defect.
+     */
+    data class ScrollTo(val id: String) : Step
+
+    /**
+     * What a person does, in words, for a cell no runner drives.
+     *
+     * The one step with no command behind it. A gesture is the class of thing a device
+     * runner cannot hold still — an edge swipe that has to be recognised as an edge swipe, a
+     * drag released at a threshold, a detent that snaps — and a cell that claimed a runner
+     * for one would be a green row proving that a command completed (P22).
+     */
+    data class ByHand(val description: String) : Step
 }
 
 /**
@@ -114,7 +159,7 @@ data class Cell(
     val state: String,
     val action: String,
     val rule: String,
-    /** `unit`, `maestro`, or `both`. */
+    /** `unit`, `maestro`, `both`, or `manual`. */
     val runner: String,
     val fixture: String,
     val steps: List<Step>,
@@ -132,6 +177,9 @@ data class Cell(
     val runsOnMaestro: Boolean get() = runner == "maestro" || runner == "both";
 
     val runsAsUnitTest: Boolean get() = runner == "unit" || runner == "both";
+
+    /** Whether this cell is a person's to check, and therefore has no runner at all. */
+    val runsByHand: Boolean get() = runner == "manual";
 }
 
 /**
@@ -203,13 +251,77 @@ private class Roles(spec: Spec, val flow: FlowDefinition)
     val back: ActionDefinition = detail.actions.single { it.call == null };
 }
 
+/**
+ * A showcase flow's screens in the order a person walks them.
+ *
+ * These flows read nothing and write nothing — the presentation IS the subject — so their
+ * shape is one chain: a start screen, whatever it pushes, whatever that pushes. Everything
+ * the rules below need is a position in that chain and the action at it.
+ *
+ * A flow with no way out is refused here rather than producing a cell that leaves the app
+ * covered: every showcase flow's deepest screen has to carry an action that closes, because
+ * that is the one thing a runner must be able to do before it writes a receipt on the root.
+ */
+private class Tour(spec: Spec, val flow: FlowDefinition)
+{
+    val chain: List<ScreenDefinition> = build(spec, flow);
+
+    /** The screen the chain ends on, which is where every cell of this flow finishes. */
+    val deepest: ScreenDefinition get() = chain.last();
+
+    /** The action on [deepest] that empties the stack. */
+    val closing: ActionDefinition = deepest.actions.firstOrNull { it.then == Navigation.Close }
+        ?: throw SpecException(
+            "the case rules need a way out of '${flow.name}': '${deepest.name}' is the screen " +
+                "it ends on and no action of it closes the flow"
+        );
+
+    /** The action that moves on from the screen at [depth], counted from one. */
+    fun pushing(depth: Int): ActionDefinition = chain[depth - 1].actions
+        .first { it.then is Navigation.Push };
+
+    private companion object
+    {
+        fun build(spec: Spec, flow: FlowDefinition): List<ScreenDefinition>
+        {
+            val chain = mutableListOf(spec.screenNamed(flow.start));
+            while (true)
+            {
+                val next = chain.last().actions.firstOrNull { it.then is Navigation.Push } ?: return chain;
+                val target = spec.screenNamed((next.then as Navigation.Push).screen);
+                // A spec can only push within its own flow (refusal 3), so the only way a
+                // chain can fail to end is a cycle back onto a screen it already holds.
+                if (chain.any { it.name == target.name })
+                {
+                    throw SpecException(
+                        "the case rules walk '${flow.name}' from its start and '${target.name}' " +
+                            "is pushed twice; a showcase flow is a chain and not a loop"
+                    );
+                }
+                chain += target;
+            }
+        }
+    }
+}
+
 object Rules
 {
-    /** The whole table, in cell order, for the one flow the spec declares. */
+    /**
+     * The whole table, in cell order: the flow that reads and writes, then the showcase.
+     *
+     * The split is by SHAPE and not by name. Exactly one flow in this spec has a screen with
+     * a source, and everything from u1 to s2 is written about that shape — an entry screen
+     * that submits into a detail screen that reads. The rest read nothing: they exist so the
+     * three presentations, the two stacks and the two bodies can be looked at, and what is
+     * worth asserting about one of those is a different, much shorter list.
+     */
     fun cells(spec: Spec, bundle: Bundle): List<Cell>
     {
-        val flow = spec.flows.singleOrNull()
-            ?: throw SpecException("the case rules cover one flow; this spec declares ${spec.flows.size}");
+        val flow = spec.flows.filter { f -> spec.screensOf(f).any { it.isLoadable } }.singleOrNull()
+            ?: throw SpecException(
+                "the case rules cover exactly one flow that reads; this spec declares " +
+                    spec.flows.count { f -> spec.screensOf(f).any { it.isLoadable } }
+            );
         val roles = roles(spec, flow);
         if (roles.entry.isLoadable || !roles.detail.isLoadable)
         {
@@ -237,8 +349,208 @@ object Rules
         val inputId = "${roles.entry.name}.${input.name}";
 
         val cells = entryCells(roles, inputId) + detailCells(roles, inputId) + deepEntryCell(roles) +
-            keyboardCells(spec, roles, input.name, inputId) + frameCells(spec, roles, inputId);
-        return cells.map { it.copy(teardown = teardown(roles, depthOf(it))) };
+            keyboardCells(spec, roles, input.name, inputId) + frameCells(flow, spec, roles, inputId);
+        return cells.map { it.copy(teardown = teardown(roles, depthOf(it))) } +
+            spec.flows.filter { it.name != flow.name }.flatMap { showcase(spec, it, bundle) };
+    }
+
+    /**
+     * One showcase flow's cells: what a runner can prove, then what only a person can.
+     *
+     * Two automatic cells at most, and that is the ceiling being spent deliberately. Eight
+     * flows against the rule table would be dozens of cells, so each RULE row gets one cell
+     * on one representative flow and each flow gets one representative of its own — the way
+     * out, which is the only thing every one of them has. A depth this table already asserts
+     * on another presentation is not worth a second row, which is why a two-deep stack earns
+     * a cell inside a sheet and not inside a modal: `u1` already stands two deep in a modal.
+     */
+    private fun showcase(spec: Spec, flow: FlowDefinition, bundle: Bundle): List<Cell>
+    {
+        val tour = Tour(spec, flow);
+        val cells = mutableListOf<Cell>();
+        if (tour.chain.size > 2 || (tour.chain.size > 1 && flow.entry == "sheet"))
+        {
+            cells += reachCell(tour);
+        }
+        cells += closeCell(tour, bundle);
+        return cells + byHandCells(tour, bundle);
+    }
+
+    /** Every tap that walks a tour from its start down to its deepest screen. */
+    private fun walk(tour: Tour): List<Step> = (1 until tour.chain.size).map { depth ->
+        Step.Tap("${tour.chain[depth - 1].name}.${tour.pushing(depth).name}")
+    }
+
+    /**
+     * The flow stands where the pushes left it, which is what a chain of them is for.
+     *
+     * It ends with the stack still up, so it carries the teardown every such cell needs: the
+     * receipt control is on the app's root and every presentation here covers it.
+     */
+    private fun reachCell(tour: Tour): Cell = Cell(
+        "${tour.flow.name}-reach", tour.deepest.name, "idle", tour.pushing(tour.chain.size - 1).name,
+        "R5 — every push adds one route, so the stack is as deep as the tour is long",
+        "maestro", Fixtures.READY,
+        walk(tour),
+        expect(tour.chain.size, "idle"),
+        teardown = listOf(Step.Tap("${tour.deepest.name}.${tour.closing.name}"))
+    )
+
+    /**
+     * The way out, from the screen the tour ends on.
+     *
+     * Every showcase flow gets this one, and it is the cell that makes the rest of them
+     * runnable at all: the receipt control is on the app's root, which every presentation
+     * here covers, so a flow that could not be closed could not leave evidence.
+     *
+     * What comes before the tap is derived from the screen. A screen that collects types
+     * into it first, because its closing action is the write that reads the field; a screen
+     * that declares a body scrolls to the control first, because a body is exactly the thing
+     * that puts one below the fold.
+     */
+    private fun closeCell(tour: Tour, bundle: Bundle): Cell
+    {
+        val screen = tour.deepest;
+        val control = "${screen.name}.${tour.closing.name}";
+        val typed = RouteParameters.inputs(screen, tour.closing, bundle).map { input ->
+            Step.Type("${screen.name}.${input.name}", Fixtures.USER_CODE)
+        };
+        val reach = if (screen.bodyKey == null) emptyList()
+        else listOf(Step.ScrollTo(control), Step.SeeId(control));
+        return Cell(
+            "${tour.flow.name}-close", screen.name, "idle", tour.closing.name,
+            "R5 — close empties the stack whatever the depth and whatever presented it, so " +
+                "the flow is no longer on show",
+            "maestro", Fixtures.READY,
+            walk(tour) + typed + reach + Step.Tap(control),
+            expect(0, "idle")
+        );
+    }
+
+    /**
+     * What a person checks, because no runner can.
+     *
+     * Every one of these is a GESTURE or a resting height: an edge swipe that has to be
+     * recognised as one, a drag released either side of a threshold, a detent that snaps, a
+     * keyboard that has to feel like it got out of the way. A device runner can be told to
+     * swipe, and it will report success whether or not the platform read the swipe as the
+     * gesture it meant — which is P22 with a second name — so the honest runner here is a
+     * person and the honest artefact is a checklist.
+     *
+     * Derived from the same shape the automatic cells are: a pushed chain has a back
+     * gesture, a presentation over something has a predictive back that closes it, a sheet
+     * has a height and a drag, a screen that collects has a keyboard, and a body that does
+     * not fit has a header that must not go with it.
+     */
+    private fun byHandCells(tour: Tour, bundle: Bundle): List<Cell>
+    {
+        val flow = tour.flow;
+        val start = tour.chain.first();
+        val cells = mutableListOf<Cell>();
+
+        if (flow.entry == "push" && tour.chain.size > 1)
+        {
+            cells += byHand(
+                tour, "swipeBack", tour.chain[1].name, walk(tour).take(1),
+                "swipe in from the left edge on iPhone, or use the system back gesture on Android",
+                "S2 and R8 — the gesture is the flow's own pop, so one route drops and the " +
+                    "screen under it is the one it was",
+                listOf("stack=1")
+            );
+            cells += byHand(
+                tour, "predictiveBack", tour.chain[1].name, walk(tour).take(1),
+                "on Android, press and HOLD the back gesture at the edge without releasing it",
+                "the screen underneath is drawn under the gesture while it is held, and " +
+                    "releasing lands on it; letting go back at the edge cancels and changes nothing",
+                listOf("stack=1")
+            );
+        }
+        if (flow.entry == "modal")
+        {
+            cells += byHand(
+                tour, "predictiveBack", start.name, emptyList(),
+                "on Android, use the system back gesture on the flow's FIRST screen",
+                "R8 — a flow presented over something is closed by a back on its last route, " +
+                    "so the whole flow goes rather than one route",
+                listOf("stack=0")
+            );
+        }
+        // A sheet that stands alone is here to be LOOKED at — one row per height — and the
+        // sheet with a stack in it is here to be DRAGGED, from a depth where a drag that
+        // dropped one route instead of the presentation would be visible. Split that way
+        // rather than every row on every sheet, because three identical drag rows would be
+        // three chances to check the same thing and no chance to check anything else.
+        if (flow.entry == "sheet" && tour.chain.size == 1)
+        {
+            cells += byHand(
+                tour, "detent", start.name, emptyList(),
+                "look at how tall the sheet stands, and compare the two platforms side by side",
+                detentExpectation(requireNotNull(flow.detent)),
+                listOf("stack=1")
+            );
+        }
+        if (flow.entry == "sheet" && tour.chain.size > 1)
+        {
+            cells += byHand(
+                tour, "snapBack", start.name, emptyList(),
+                "drag the sheet's handle down a SHORT way — less than half its height — and let go",
+                "the sheet returns to the height it was standing at and the flow is untouched",
+                listOf("stack=1")
+            );
+            cells += byHand(
+                tour, "dragAway", tour.deepest.name, walk(tour),
+                "drag the sheet's handle down PAST half its height and let go",
+                "the whole flow closes rather than one route — a sheet is a presentation and " +
+                    "a drag dismisses the presentation, from whatever depth it started at",
+                listOf("stack=0")
+            );
+        }
+        if (start.actions.any { RouteParameters.inputs(start, it, bundle).isNotEmpty() })
+        {
+            cells += byHand(
+                tour, "keyboard", start.name, emptyList(),
+                "tap the field, and read the screen with the keyboard up",
+                "K1 — the field stays visible and the control under it is still reachable; " +
+                    "nothing jumps as the keyboard arrives and nothing is left scrolled out of place",
+                listOf("stack=1")
+            );
+        }
+        if (tour.chain.any { it.bodyScrolls })
+        {
+            cells += byHand(
+                tour, "headerHolds", tour.chain.first { it.bodyScrolls }.name, emptyList(),
+                "scroll the body from the top to the bottom and back",
+                "S2's other half — the header and its title stay exactly where they are while " +
+                    "the body moves under them, so the way out of the flow never scrolls away",
+                listOf("stack=1")
+            );
+        }
+        return cells;
+    }
+
+    private fun byHand(
+        tour: Tour,
+        name: String,
+        screen: String,
+        reach: List<Step>,
+        gesture: String,
+        rule: String,
+        expect: List<String>
+    ): Cell = Cell(
+        "${tour.flow.name}-$name", screen, "idle", name, rule,
+        "manual", Fixtures.READY,
+        reach + Step.ByHand(gesture),
+        expect
+    )
+
+    /** What a person is looking at when they look at a sheet of each height. */
+    private fun detentExpectation(detent: String): String = when (detent)
+    {
+        "fit" -> "the sheet is as tall as its content and no taller, on both platforms, and " +
+            "it does not grow to a fraction of the window it did not need"
+        "half" -> "the sheet stands at about half the window on both platforms"
+        else -> "the sheet stands nearly full height and stops short of the top, leaving the " +
+            "screen under it visible above"
     }
 
     /**
@@ -583,9 +895,13 @@ object Rules
      * what a flow presented over something offers, and a pushed flow offers none — so a spec
      * whose flow is `push` gets s2 and not s1.
      */
-    private fun frameCells(spec: Spec, roles: Roles, inputId: String): List<Cell>
+    private fun frameCells(
+        flow: FlowDefinition,
+        spec: Spec,
+        roles: Roles,
+        inputId: String
+    ): List<Cell>
     {
-        val flow = spec.flows.single();
         val reach = listOf(
             Step.Type(inputId, Fixtures.USER_CODE),
             Step.Tap("${roles.entry.name}.${roles.submit.name}"),

@@ -32,8 +32,16 @@ local.properties
 # to whoever held the device that day; what this repository keeps is the case table and the
 # flows, which say what a run must prove. The tracked `.keep` is what lets the runner
 # create the directory without deciding whether it may.
+#
+# The `manual/` subdirectory is the exception, and only its TEMPLATE is. A gesture answer
+# is a fact about a phone somebody held, so a filled-in one belongs to that run the same
+# way a pulled receipt does; the blank form is the artefact this repository keeps, beside
+# the checklist that says what to write into it.
 examples/ui-spec/receipts/*
 !examples/ui-spec/receipts/.keep
+!examples/ui-spec/receipts/manual/
+examples/ui-spec/receipts/manual/*
+!examples/ui-spec/receipts/manual/TEMPLATE.md
 
 # CocoaPods (fixture only; nothing here is a real integration)
 Pods/

@@ -117,8 +117,11 @@ APP_ID=xyz.superfunction.spfn.example
 # Every cell of the table that a device runner drives, and every flow file that drives one.
 # The floor below is stated as a number rather than derived, so a table or a flow directory
 # that lost its entries cannot lower its own bar. It was 14 until the keyboard contract and
-# the screen frame added nine device-only cells (k1–k7, s1–s2).
-EXPECTED_FLOOR=23
+# the screen frame added nine device-only cells (k1–k7, s1–s2), and 23 until the showcase
+# flows added ten more. The `manual` cells are NOT in it: they have no flow file and no
+# receipt, because the thing they check is a gesture and the runner for one is a person
+# (`examples/ui-spec/receipts/manual/`).
+EXPECTED_FLOOR=33
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT INT TERM
@@ -152,7 +155,17 @@ require()
     fi
 }
 
-# The ids of every cell whose runner is `both`, one per line, read from the table in $1.
+# The ids of every cell a device runner drives, one per line, read from the table in $1.
+#
+# `both` AND `maestro`, which is the whole set that has a flow file and therefore the whole
+# set that can leave a receipt. Reading only `both` was this script's own defect: the floor
+# was raised to cover the nine device-only cells the keyboard contract added while the reader
+# below went on yielding the fourteen that also run on the JVM, so the gate refused every run
+# with "the table named 14 cells with a device runner, fewer than 23". A gate whose two halves
+# count different things reports the mismatch as a failure of the app.
+#
+# `manual` is deliberately outside it. Those cells have no flow and leave no receipt; what
+# proves one is a person's answer in `examples/ui-spec/receipts/manual/<date>.md`.
 #
 # Read with python rather than grep for the reason the validator's own reader states: the
 # id and the runner are two lines of one object, and pairing them by proximity is how a
@@ -170,7 +183,7 @@ except Exception:
     sys.exit(0)
 
 for cell in table.get("cells", []):
-    if cell.get("runner") == "both":
+    if cell.get("runner") in ("both", "maestro"):
         print(cell["id"])
 CELLS
 }
@@ -971,8 +984,10 @@ printf '\n2. the warm-up\n'
 # the generated flows, whose first wait is the long one; this half means the cold start is
 # paid once, outside the table, where it is a warm-up rather than a red cell.
 #
-# With no fixture the app installs no fake service and reaches nothing: it draws its
-# unconfigured root, whose readouts are the ones waited for here.
+# With no fixture the app opens its MENU — the list of the nine flows, on the same `ready`
+# fake every cell runs on, with every flow closed. `stack=0` is what its readout says, and
+# that readout is what this waits for. It reaches nothing either way: the example app has no
+# real-server path at all.
 WARM_UP_LOG="$RUN_DIRECTORY/warm-up.log"
 cat > "$WORK/warm-up.yaml" <<WARMUP
 appId: \${APP_ID}

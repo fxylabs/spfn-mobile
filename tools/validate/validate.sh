@@ -2207,7 +2207,9 @@ section '14. the apps that consume the scaffold hold the generated boundary'
 #   c. every cell of the case table is covered by something. A table is a claim about what
 #      was checked, and a cell with neither a flow nor a test is a claim nobody honoured —
 #      and a `both` cell's flow may not carry a bare `- back`, because that command is
-#      Android's and does nothing at all on iOS (P22).
+#      Android's and does nothing at all on iOS (P22). A `manual` cell is covered by a
+#      person and by nothing here: what it checks is a gesture, and P22 is the record of a
+#      runner reporting success for one it never performed.
 #
 # TWO apps per platform are held to a and b, not one. tools/harness is the second consumer
 # of the same screen spec — it drives the generated approval screens against a live
@@ -2317,7 +2319,13 @@ do
         | grep -vE '^[0-9]+:[[:space:]]*(//|\*)' | sed "s#^#$source:#" | tr '\n' ' ')"
 done < "$TMP/example-dismiss-files.txt"
 
-if [ "$EXAMPLE_DISMISS_SCANNED" -ge 10 ]
+# The floor is above what EITHER app's generated Swift comes to on its own — the example is
+# 41 files across nine flows and the harness is 9 across the one it is narrowed to — so a
+# scan pointed at one root instead of two fails here rather than reporting the half it read
+# as clean. It was 10 while the spec had one flow and both apps generated it; the showcase
+# made the example alone clear that number four times over, and the probe case that takes
+# the harness root away stopped biting until this moved with it.
+if [ "$EXAMPLE_DISMISS_SCANNED" -ge 50 ]
 then
     pass "the generated dismiss scan read all $EXAMPLE_DISMISS_SCANNED generated Swift sources in both apps"
 else
@@ -2405,23 +2413,28 @@ do
             ;;
     esac
     case "$runner" in
-        unit|maestro|both) ;;
+        # `manual` covers itself and is listed rather than being read as a typo. Those cells
+        # check a gesture, which is the class of thing a device runner reports success for
+        # whether or not the platform read it as the gesture it meant (P22), so what proves
+        # one is a person's answer under examples/ui-spec/receipts/manual/ — and a table that
+        # refused to carry them would push them out of the table and out of anybody's sight.
+        unit|maestro|both|manual) ;;
         *) CELL_PROBLEMS="$CELL_PROBLEMS $cell:unreadable-runner" ;;
     esac
 done < "$TMP/example-cells.txt"
 
-if [ "$CELL_COUNT" -ge 30 ]
+if [ "$CELL_COUNT" -ge 50 ]
 then
     pass "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES"
 else
-    fail "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES, fewer than 30; it did not run"
+    fail "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES, fewer than 50; it did not run"
 fi
 
-if [ "$CELL_FLOWS_READ" -ge 23 ]
+if [ "$CELL_FLOWS_READ" -ge 33 ]
 then
     pass "the flow scan read all $CELL_FLOWS_READ device-cell flows looking for a bare system back"
 else
-    fail "the flow scan read $CELL_FLOWS_READ device-cell flows, fewer than 23; it did not run"
+    fail "the flow scan read $CELL_FLOWS_READ device-cell flows, fewer than 33; it did not run"
 fi
 
 # The floor under the test scan, stated as a number for the reason the cell count is: a
