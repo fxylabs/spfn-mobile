@@ -60,6 +60,7 @@ LAUNCH_INFO=tools/reference-server/build/reference-server-launch.txt
 IOS_BUNDLE_ID=xyz.superfunction.spfn.harness
 ANDROID_APPLICATION_ID=xyz.superfunction.spfn.harness
 ANDROID_APK=tools/harness/android/build/outputs/apk/debug/harness-android-debug.apk
+ANDROID_NETWORK_SECURITY_CONFIG=tools/harness/android/build/generated/spfn-harness-res/xml/spfn_harness_network_security_config.xml
 
 # The user the reference server's test id_token names. Not a credential: that server's
 # token grammar is `spfn-test-idtoken.<provider>.<user>.<nonce>` and it verifies nothing
@@ -301,6 +302,52 @@ json_string()
             exit;
         }
     '
+}
+
+# The hosts the generated network security config at $1 permits cleartext to, one per line.
+#
+# A missing file prints nothing, and the caller reads that as no host at all — which is
+# what a check that could not read its input is entitled to answer.
+cleartext_hosts()
+{
+    if [ ! -f "$1" ]
+    then
+        return 0
+    fi
+    sed -n 's|.*<domain[^>]*>\([^<]*\)</domain>.*|\1|p' "$1"
+}
+
+# The host of the URL $1: scheme stripped, port and path dropped.
+url_host()
+{
+    printf '%s' "$1" | sed -e 's|^[a-z][a-z0-9+.-]*://||' -e 's|/.*$||' -e 's|:[0-9]*$||'
+}
+
+# Whether the app built with the config at $1 may reach the URL $2 in the clear.
+#
+# Two values that come from two different places and nothing holds together. The config is
+# GENERATED at build time from the local.properties key `spfn.harness.serverBaseUrl`; $2 is
+# derived from the address the reference server actually bound. On the 2d run they had
+# drifted apart — the runner handed the app the emulator's alias for the host loopback
+# while the build permitted a LAN address — and every cell that touches the network came
+# back `err:connectivity`. The two that never call anything passed, which is the worst
+# possible shape for a wrong answer: it looks like a flow bug.
+#
+# A missing file answers no. That file IS the cleartext exception, so a run that cannot
+# find it has not learned the app is configured; it has learned nothing
+# (docs/IMPLEMENTATION-PITFALLS.md P7).
+cleartext_permits()
+{
+    if [ ! -f "$1" ]
+    then
+        return 1
+    fi
+    WANTED_HOST=$(url_host "$2")
+    if [ -z "$WANTED_HOST" ]
+    then
+        return 1
+    fi
+    cleartext_hosts "$1" | grep -qxF "$WANTED_HOST"
 }
 
 # Parks a device request with the target and answers `<userCode> <deviceCode>`.
@@ -718,6 +765,27 @@ else
     adb -s "$TARGET" install -r "$ANDROID_APK" > /dev/null
     pass "installed $ANDROID_APPLICATION_ID on $TARGET"
     APP_ID=$ANDROID_APPLICATION_ID
+
+    # The one host this build lets the app reach in the clear, held against the one this
+    # run is about to hand it. Here because the config is written by the build and read by
+    # the first flow, so this is the only point where both values exist and nothing has
+    # been spent yet: a mismatch costs a whole run to diagnose from the other end.
+    PERMITTED_HOSTS=$(cleartext_hosts "$ANDROID_NETWORK_SECURITY_CONFIG" | tr '\n' ' ' | sed 's/ *$//')
+    if ! cleartext_permits "$ANDROID_NETWORK_SECURITY_CONFIG" "$APP_BASE_URL"
+    then
+        if [ ! -f "$ANDROID_NETWORK_SECURITY_CONFIG" ]
+        then
+            fail "the build wrote no cleartext exception at $ANDROID_NETWORK_SECURITY_CONFIG"
+        else
+            fail "this build permits cleartext to ${PERMITTED_HOSTS:-no host at all}"
+            fail "and the app will be pointed at $(url_host "$APP_BASE_URL")"
+        fi
+        fail 'every call to any other host is refused before it leaves the app, and arrives'
+        fail 'at a receipt as err:connectivity on each cell that touches the network'
+        fail 'the permitted host is the local.properties key spfn.harness.serverBaseUrl'
+        exit 1
+    fi
+    pass "the build permits cleartext to $PERMITTED_HOSTS, which is where the app is pointed"
 fi
 
 # ---------------------------------------------------------------------------
