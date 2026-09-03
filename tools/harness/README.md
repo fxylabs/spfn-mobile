@@ -286,16 +286,37 @@ the phone — those are the two platform sections that follow this one.
 
 ### The screen
 
-Top to bottom, the same on both:
+**What a runner taps is in the first viewport.** That is the rule the order follows, and
+it is not a preference. Compose publishes only the nodes overlapping the viewport to the
+accessibility tree, so a control below the fold does not exist for the runner and
+Maestro's `tapOn` will not scroll to find it (`docs/IMPLEMENTATION-PITFALLS.md` P25). So
+the readouts and every control a flow taps come first, and what is left below is the half
+a person scrolls to on purpose.
+
+Top to bottom:
 
 | Part | What it is |
 | --- | --- |
 | the readouts | `state=`, `outcome=`, `busy=`, `network=`, `custody=`, `case=`, the configuration line, `receipt=`, `device-code=`, `expires-in=`, `stack=`, `http=`. A flow matches these by their text, never by an id |
-| `case (pick one)` | the five cases as one boxed single-choice selector |
-| the precondition line | what the selected case asks you to do at the sheet |
-| `sign-in-apple`, `sign-in-google` | the only two things in this mode that do anything. Android has the Google one only |
-| `device code` | `sign-in-with-a-code`, which signs THIS device in, and `open-approve`, which opens the generated approval screens over everything above. `open-approve` is disabled without an active key: the approval calls are proven ones |
-| `sdk lifecycle (flows)` | a divider, and under it the ten buttons the Maestro flows tap — `enroll`, `rotate`, `resume`, `revoke`, `proven-call`, `note-revoked`, `wipe`, `custody-probe`, `block-network`, `open-network` |
+| `sdk lifecycle (flows)` | a divider, and under it the eleven controls the Maestro flows tap, two to a row: `enroll`, `rotate`, `resume`, `revoke`, `proven-call`, `note-revoked`, `wipe`, `custody-probe`, `block-network`, `open-network`, and `open-approve`, which opens the generated approval screens over everything above and is disabled without an active key — the approval calls are proven ones |
+| `device verification` | `case (pick one)`, the five cases as one boxed single-choice selector; the precondition line, which is what the selected case asks you to do at the sheet; and `sign-in-apple` / `sign-in-google`, the only two things in this mode that do anything. Android has the Google one only |
+| `device code` | `sign-in-with-a-code`, which signs THIS device in |
+
+The two blocks are named in the Android screen as `RunnerBlockTags` and `HumanBlockTags`,
+and `HarnessRunnerBlockTest` reads every `id:` selector out of `flows/` and asserts they
+are the first list and never the second. The block's HEIGHT is not something a JVM can
+answer — a device run is what proves the grid ends above the fold.
+
+The iOS order is unchanged, deliberately. SwiftUI's `ScrollView` DOES put its offscreen
+children into the XCUITest accessibility hierarchy, so the arrangement that failed every
+Android cell passes there — moving it would be for this table's sake and not for a
+defect's. And `ios/Sources/` belongs to no SwiftPM package: it is listed by
+`ios/project.yml` and compiled by Xcode on a Mac and nowhere else, so no gate on the
+Linux machine that made this change could have caught a slip in it. So the iOS screen
+still reads `device verification`, `device code`, then the lifecycle buttons, with the
+same ids and the same readout text throughout — and `open-approve` is still beside
+`sign-in-with-a-code` there, where the two halves of one feature belong when nothing
+forces them apart.
 
 The last two readouts belong to the generated flow. `stack=` is its own depth, spelled
 exactly as the generated screens spell it — a flow that is open draws the number twice,
@@ -583,6 +604,13 @@ the app is behind the alert, showing every button. `xcrun simctl io <udid> scree
 answers the question in one command, and `xcrun simctl erase <udid>` clears the account
 along with everything else. A run that begins with nine identical element-not-found
 failures is worth one screenshot before it is worth any debugging.
+
+**On Android the same nine failures have a second cause, and the screenshot does not tell
+them apart.** A control the Compose column draws below the fold is not in the
+accessibility tree at all, so `tapOn` reports the same `Element not found` about a screen
+that is up, correct, and photographs perfectly. What separates the two is a dump rather
+than a picture: `adb shell uiautomator dump /sdcard/ui.xml` before anything is scrolled,
+and then whether the id the flow named is in it (`docs/IMPLEMENTATION-PITFALLS.md` P25).
 
 ## On a real Android phone
 
