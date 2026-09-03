@@ -22,14 +22,24 @@
 // for it to be revealed INTO. A body that did not shrink would scroll the field behind the
 // keyboard and report success.
 //
-// Nothing here is themed, because there is nothing to theme against yet: the whole visual
-// vocabulary is `ScreenStyle`, four dimensions and two colours in one object, so that the
-// token work can replace one file rather than hunt through this one.
+// The visual vocabulary is `SpfnTokens` and its Swift twin: a palette resolved from the
+// appearance, six spacing steps, two radii and four type styles. What is LEFT outside the
+// tokens is `Metrics` — the platform's minimum touch target and the header's height — because
+// neither is a value a design flow gets to move (decision S10).
+//
+// ---------------------------------------------------------------------------
+// Screen owns two of the seven keyboard clauses, and only two
+// ---------------------------------------------------------------------------
+//
+// The body gets out of the keyboard's way, and a tap outside a field puts the keyboard away.
+// Both are about the FRAME rather than about any field in it, which is why they are here and
+// the other five are on `SpfnTextField`.
 
 package xyz.superfunction.spfn.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -47,13 +57,16 @@ import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import xyz.superfunction.spfn.ui.ScreenLeading
+import xyz.superfunction.spfn.ui.SpfnStrings
+import xyz.superfunction.spfn.ui.tokens.SpfnTokens
 
 /**
  * A screen inside a flow: a header, and a body under it.
@@ -83,7 +96,19 @@ public fun Screen(
     content: @Composable ColumnScope.() -> Unit
 )
 {
-    Column(modifier = Modifier.fillMaxSize().background(ScreenStyle.BACKGROUND))
+    val palette = spfnPalette();
+    val focus = LocalFocusManager.current;
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(palette.background)
+            // A tap that lands on the frame rather than on a control puts the keyboard away.
+            // `detectTapGestures` in a `pointerInput` does not consume a press a child
+            // handles, so a button under this still gets its click.
+            .pointerInput(Unit) {
+                detectTapGestures { focus.clearFocus() };
+            }
+    )
     {
         Header(title = title, leading = leading, trailing = trailing);
         Body(scroll = scroll, content = content);
@@ -105,21 +130,21 @@ private fun Header(title: String, leading: (@Composable () -> Unit)?, trailing: 
         modifier = Modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.statusBars)
-            .heightIn(min = ScreenStyle.HEADER_HEIGHT)
-            .padding(horizontal = ScreenStyle.GUTTER),
+            .heightIn(min = Metrics.HEADER_HEIGHT)
+            .padding(horizontal = SpfnTokens.space4),
         verticalAlignment = Alignment.CenterVertically
     )
     {
-        Box(modifier = Modifier.sizeIn(minWidth = ScreenStyle.TOUCH_TARGET), contentAlignment = Alignment.CenterStart)
+        Box(modifier = Modifier.sizeIn(minWidth = Metrics.TOUCH_TARGET), contentAlignment = Alignment.CenterStart)
         {
             if (leading != null) leading() else FlowLeading();
         }
-        BasicText(
+        SpfnText(
             text = title,
-            style = ScreenStyle.title(),
-            modifier = Modifier.weight(1f).padding(horizontal = ScreenStyle.GUTTER)
+            role = TextRole.Title,
+            modifier = Modifier.weight(1f).padding(horizontal = SpfnTokens.space4)
         );
-        Box(modifier = Modifier.sizeIn(minWidth = ScreenStyle.TOUCH_TARGET), contentAlignment = Alignment.CenterEnd)
+        Box(modifier = Modifier.sizeIn(minWidth = Metrics.TOUCH_TARGET), contentAlignment = Alignment.CenterEnd)
         {
             trailing?.invoke();
         }
@@ -160,8 +185,8 @@ private fun FlowLeading()
     when (chrome.leading)
     {
         ScreenLeading.None -> Unit
-        ScreenLeading.Back -> HeaderControl(label = "Back", id = "screen.back", onClick = chrome.onBack)
-        ScreenLeading.Close -> HeaderControl(label = "Close", id = "screen.close", onClick = chrome.onClose)
+        ScreenLeading.Back -> HeaderControl(label = SpfnStrings.controlBack, id = "screen.back", onClick = chrome.onBack)
+        ScreenLeading.Close -> HeaderControl(label = SpfnStrings.controlClose, id = "screen.close", onClick = chrome.onClose)
     }
 }
 
@@ -175,12 +200,11 @@ private fun FlowLeading()
 @Composable
 private fun HeaderControl(label: String, id: String, onClick: () -> Unit)
 {
-    BasicText(
+    SpfnText(
         text = label,
-        style = ScreenStyle.control(),
         modifier = Modifier
             .testTag(id)
-            .sizeIn(minWidth = ScreenStyle.TOUCH_TARGET, minHeight = ScreenStyle.TOUCH_TARGET)
+            .sizeIn(minWidth = Metrics.TOUCH_TARGET, minHeight = Metrics.TOUCH_TARGET)
             .clickable(onClick = onClick)
             .wrapContentSize(Alignment.Center)
     );

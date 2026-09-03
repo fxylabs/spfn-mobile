@@ -67,6 +67,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
+import xyz.superfunction.spfn.ui.components.spfnPalette
+import xyz.superfunction.spfn.ui.tokens.SpfnTokens
 
 /** Where a sheet can rest: at the height its detent asked for, or gone. */
 internal enum class SheetAnchor
@@ -128,8 +130,8 @@ internal fun Sheet(detent: SheetDetent, onClose: () -> Unit, content: @Composabl
                     measured = true;
                 }
                 .offset { IntOffset(x = 0, y = state.offset.let { if (it.isNaN()) 0 else it.roundToInt() }) }
-                .clip(RoundedCornerShape(topStart = CORNER, topEnd = CORNER))
-                .background(SURFACE)
+                .clip(RoundedCornerShape(topStart = SpfnTokens.radiusLarge, topEnd = SpfnTokens.radiusLarge))
+                .background(spfnPalette().background)
                 .consumeWindowInsets(WindowInsets.statusBars)
                 .testTag("sheet")
         )
@@ -211,13 +213,8 @@ private fun Handle(state: AnchoredDraggableState<SheetAnchor>)
     }
 }
 
-/** The sheet's own surface. Replaced with a token when there are tokens. */
-private val SURFACE: Color = Color.White;
-
-/** How dark the scrim goes at rest. */
+/** How dark the scrim goes at rest. Not a token: it is this component's own arithmetic. */
 private const val SCRIM_OPACITY: Float = 0.4f;
-
-private val CORNER = 16.dp;
 private val HANDLE_ROW = 48.dp;
 private val HANDLE_WIDTH = 36.dp;
 private val HANDLE_HEIGHT = 4.dp;
