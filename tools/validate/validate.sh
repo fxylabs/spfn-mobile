@@ -2210,6 +2210,11 @@ section '14. the apps that consume the scaffold hold the generated boundary'
 #      Android's and does nothing at all on iOS (P22). A `manual` cell is covered by a
 #      person and by nothing here: what it checks is a gesture, and P22 is the record of a
 #      runner reporting success for one it never performed.
+#   d. the iOS example app can SEED every cell of that table. Every cell is launched by name
+#      into an app that answers "which fake do I install for this", and a cell the app does
+#      not know opens the menu instead of the flow — a run that reports nothing wrong and
+#      checks nothing. The Compose half has a unit test of its own for this (FixtureTableTest);
+#      the Swift half is an Xcode target with no test target, so the comparison is made here.
 #
 # TWO apps per platform are held to a and b, not one. tools/harness is the second consumer
 # of the same screen spec — it drives the generated approval screens against a live
@@ -2223,6 +2228,7 @@ section '14. the apps that consume the scaffold hold the generated boundary'
 EXAMPLE_CASES=examples/ui-spec/generated/device-approval.cases.json
 EXAMPLE_FLOWS=examples/ui-spec/generated/flows
 EXAMPLE_TESTS=examples/android-compose/src/test
+EXAMPLE_IOS_FIXTURES=examples/ios-swiftui/Sources/Fixtures.swift
 
 # Where a scaffold is consumed, both platforms and both apps.
 SCAFFOLD_APPS='examples tools/harness'
@@ -2452,6 +2458,69 @@ then
     pass 'every cell of the case table has the flow and the test its runner declares'
 else
     fail "cells of the case table are not covered by what they claim:$CELL_PROBLEMS"
+fi
+
+# --- d. the iOS app can seed every cell the table declares --------------------
+# `Fixtures.forCell` decides what a launch does, and a cell it does not recognise is not an
+# error there — it is the MENU, because launching the app from the home screen names no cell
+# at all. That is the right answer for a person and the wrong one for a runner: the flow
+# waits for a screen it will never see, and the cell fails somewhere that says nothing about
+# why. Cells u1c, u8d and u8e were missing from this file for a whole round.
+#
+# The file answers in two ways and both are read. A table cell is named outright by a `case`
+# string; a showcase cell is named `<flow>-<what>` and answered by its flow appearing in
+# `showcaseFlows`. Reading only the first would report every showcase cell unseeded, which
+# is a check nobody could leave green.
+if [ -f "$EXAMPLE_IOS_FIXTURES" ]
+then
+    # Per QUOTED STRING and not per line: one `case` line carries several ids.
+    grep -E '^[[:space:]]*case "' "$EXAMPLE_IOS_FIXTURES" \
+        | tr ',' '\n' | sed -n 's/.*"\([^"]*\)".*/\1/p' | sort -u > "$TMP/ios-fixture-ids.txt"
+    # The showcase flow names: the file's one list of bare quoted strings.
+    sed -n 's/^[[:space:]]*"\([A-Za-z][A-Za-z0-9]*\)",*$/\1/p' "$EXAMPLE_IOS_FIXTURES" \
+        | sort -u > "$TMP/ios-fixture-flows.txt"
+else
+    : > "$TMP/ios-fixture-ids.txt"
+    : > "$TMP/ios-fixture-flows.txt"
+fi
+
+IOS_FIXTURE_IDS=$(grep -c . "$TMP/ios-fixture-ids.txt" || true)
+IOS_FIXTURE_FLOWS=$(grep -c . "$TMP/ios-fixture-flows.txt" || true)
+IOS_FIXTURE_PROBLEMS=''
+
+while IFS=' ' read -r cell runner
+do
+    [ -n "$cell" ] || continue
+    case "$cell" in
+        *-*)
+            if ! grep -qxF "${cell%%-*}" "$TMP/ios-fixture-flows.txt"
+            then
+                IOS_FIXTURE_PROBLEMS="$IOS_FIXTURE_PROBLEMS $cell:no-ios-flow"
+            fi
+            ;;
+        *)
+            if ! grep -qxF "$cell" "$TMP/ios-fixture-ids.txt"
+            then
+                IOS_FIXTURE_PROBLEMS="$IOS_FIXTURE_PROBLEMS $cell:no-ios-fixture"
+            fi
+            ;;
+    esac
+done < "$TMP/example-cells.txt"
+
+# The floor both readers carry (P7). A file that moved, or a `case` spelling that changed,
+# reads as zero ids — and zero ids against zero cells would report perfect agreement.
+if [ "$IOS_FIXTURE_IDS" -ge 30 ] && [ "$IOS_FIXTURE_FLOWS" -ge 8 ]
+then
+    pass "the iOS fixture reader found $IOS_FIXTURE_IDS seeded cell ids and $IOS_FIXTURE_FLOWS showcase flows"
+else
+    fail "the iOS fixture reader found $IOS_FIXTURE_IDS cell ids and $IOS_FIXTURE_FLOWS showcase flows in $EXAMPLE_IOS_FIXTURES; it did not run"
+fi
+
+if [ -z "$IOS_FIXTURE_PROBLEMS" ]
+then
+    pass 'the iOS example app seeds every cell the case table declares'
+else
+    fail "cells of the case table have no seeding in the iOS example app:$IOS_FIXTURE_PROBLEMS"
 fi
 
 # ---------------------------------------------------------------------------

@@ -25,7 +25,10 @@
 #   h. a case table nothing can read cells out of fails instead of reporting full coverage;
 #   i. a bare `- back` in a device cell's flow fails, naming the cell;
 #   j. a flow scan that read no flow fails instead of reporting every flow clean;
-#   k. a test scan that matched no case fails instead of reporting every cell covered.
+#   k. a test scan that matched no case fails instead of reporting every cell covered;
+#   o. a cell the iOS app has no `case` for fails, naming the cell;
+#   p. a showcase flow the iOS app no longer lists fails, naming one of its cells;
+#   q. an iOS fixture file nothing can read fails instead of reporting every cell seeded.
 #
 # c and e run a ROOT-pinned copy of the validator whose own input has been taken away,
 # because their subject is what the check does when it cannot read — the one condition that
@@ -66,6 +69,7 @@ VIEW=examples/ios-swiftui/Generated/Views/EnterCodeView.swift
 CASES=examples/ui-spec/generated/device-approval.cases.json
 FLOW=examples/ui-spec/generated/flows/u1.yaml
 CELLTEST=examples/android-compose/src/test/kotlin/xyz/superfunction/spfn/example/CellTest.kt
+IOS_FIXTURES=examples/ios-swiftui/Sources/Fixtures.swift
 
 # The second consuming app: one hand-written source that may NOT name a descriptor, and
 # the one that may.
@@ -78,6 +82,7 @@ cp "$VIEW" "$TMP/view.bak"
 cp "$CASES" "$TMP/cases.bak"
 cp "$FLOW" "$TMP/flow.bak"
 cp "$CELLTEST" "$TMP/celltest.bak"
+cp "$IOS_FIXTURES" "$TMP/ios-fixtures.bak"
 cp "$HARNESS_SCREEN" "$TMP/harness-screen.bak"
 cp "$HARNESS_MODEL" "$TMP/harness-model.bak"
 
@@ -89,6 +94,7 @@ restore_files()
     cp "$TMP/cases.bak" "$CASES"
     cp "$TMP/flow.bak" "$FLOW"
     cp "$TMP/celltest.bak" "$CELLTEST"
+    cp "$TMP/ios-fixtures.bak" "$IOS_FIXTURES"
     cp "$TMP/harness-screen.bak" "$HARNESS_SCREEN"
     cp "$TMP/harness-model.bak" "$HARNESS_MODEL"
 }
@@ -271,6 +277,29 @@ expect_unrunnable 'a test scan that matched no case fails instead of reporting e
 sed 's/"id":/"identifier":/g' "$TMP/cases.bak" > "$CASES"
 expect_example_fail 'a case table nothing can read cells out of fails instead of reporting coverage' \
     'it did not run'
+
+# --- o, p, q. the iOS app's seeding of every cell ------------------------------
+# A cell the Swift app has no `case` for is not refused by the app: it opens the MENU, which
+# is the right answer for a person launching from the home screen and silence for a runner.
+# The Kotlin twin has a unit test; this is the Swift half's, and u1c is one of the three ids
+# that really were missing from this file.
+sed 's/"u1", "u1c", /"u1", /' "$TMP/ios-fixtures.bak" > "$IOS_FIXTURES"
+expect_example_fail 'a cell the iOS app has no fixture case for fails, naming the cell' \
+    'u1c:no-ios-fixture'
+
+# The other half of the same reader. A showcase cell is answered by its FLOW being listed
+# rather than by its own id, so a check that read only the `case` strings would call every
+# one of them unseeded — and one that read only the flows would miss the ids.
+sed 's/^        "sheetFit",$//' "$TMP/ios-fixtures.bak" > "$IOS_FIXTURES"
+expect_example_fail 'a showcase flow the iOS app no longer lists fails, naming one of its cells' \
+    'sheetFit-close:no-ios-flow'
+
+# The floor. Probed on a copy of the validator rather than by deleting the file, because
+# the file being gone is not a state this tree can be left in — and a reader that found no
+# ids at all would otherwise report every cell seeded.
+expect_unrunnable 'an iOS fixture file nothing can read fails instead of reporting every cell seeded' \
+    'it did not run' \
+    's#^EXAMPLE_IOS_FIXTURES=.*#EXAMPLE_IOS_FIXTURES=/nonexistent-fixtures.swift#'
 
 # --- the unmodified tree still reads clean -----------------------------------
 expect_example_clean 'the example scaffold section is clean again after every restoration'

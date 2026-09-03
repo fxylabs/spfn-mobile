@@ -14,10 +14,16 @@
 // says nothing about the screens. There is no real-server path in this app at all.
 //
 // The mapping is not free-hand: `examples/ui-spec/generated/device-approval.cases.json`
-// records a fixture name per cell. The Compose half has a unit test comparing the two;
-// this half has none yet, which is stated rather than hidden — the Swift app has no test
-// target, and adding one for a mapping the Kotlin twin already checks would be a second
-// copy of the same check on a platform this repository cannot run it on.
+// records a fixture name per cell, and both halves are held to it. The Compose half is held
+// by a unit test it can run for itself (`FixtureTableTest`); this half is held by
+// `tools/validate/validate.sh` section 14d, which reads the table's cell ids and this
+// file's `case` strings and refuses a cell that has no seeding here.
+//
+// The check is a text reader rather than a test because the Swift example is an Xcode
+// target: it has no test target, and on a Linux host there is nothing to run one with. What
+// a reader can still do is exactly what the Kotlin test does — compare two lists — and it
+// is what caught this file missing u1c, u8d and u8e on 2026-09-02, three cells the Kotlin
+// twin had carried since the day they were written.
 
 import Foundation
 
@@ -98,7 +104,7 @@ enum Fixtures
     {
         switch cell
         {
-        case "u1", "u2", "u5", "u6", "u7", "u7b", "u8", "u9":
+        case "u1", "u1c", "u2", "u5", "u6", "u7", "u7b", "u8", "u8d", "u8e", "u9":
             return ready()
         // The keyboard contract and the screen frame, which are about components rather than
         // about a service: every one of them runs against a server that simply answers, and
