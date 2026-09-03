@@ -333,6 +333,10 @@ url_host()
 # back `err:connectivity`. The two that never call anything passed, which is the worst
 # possible shape for a wrong answer: it looks like a flow bug.
 #
+# The alias is gone since 2f and both values are now spellings of the host loopback, which
+# narrows what can drift but does not remove the drift: the key is still hand-written per
+# machine and the port is still whatever the server bound.
+#
 # A missing file answers no. That file IS the cleartext exception, so a run that cannot
 # find it has not learned the app is configured; it has learned nothing
 # (docs/IMPLEMENTATION-PITFALLS.md P7).
@@ -461,7 +465,6 @@ require maestro 'install it with: brew install mobile-dev-inc/tap/maestro'
 printf '1. the target\n'
 # ---------------------------------------------------------------------------
 TARGET=${SPFN_HARNESS_TARGET-}
-IS_PHYSICAL_DEVICE=0
 
 if [ "$PLATFORM" = ios ]
 then
@@ -537,12 +540,6 @@ else
         fi
         TARGET=$ATTACHED
     fi
-    # An emulator serial is `emulator-5554`; anything else is a real device on the far
-    # side of a cable or a network, and that distinction decides which base URL can work.
-    case "$TARGET" in
-        emulator-*) ;;
-        *) IS_PHYSICAL_DEVICE=1 ;;
-    esac
     TARGET_DESCRIPTION=$(describe_android_target "$TARGET")
     pass "$TARGET_DESCRIPTION"
 
@@ -664,12 +661,22 @@ else
     pass "reference server ready at $BASE_URL (pid $SERVER_PID)"
 fi
 
-# The address the APP uses, which is not always the address this script uses. Three cases,
-# and each one is about how that particular target reaches the host's loopback:
+# The address the APP uses, which is not always the address this script uses. Every
+# Android target — emulator and phone alike — is given the same route to the host's
+# loopback, and the app keeps the address this script already has:
 #
 #   iOS simulator     shares the host's network stack, so its 127.0.0.1 is already right
-#   Android emulator  reaches the host's loopback at 10.0.2.2, its own alias for it
-#   Android device    reaches nothing by itself; `adb reverse` gives it a route
+#   Android target    reaches nothing by itself; `adb reverse` gives it a route
+#
+# The emulator has an alias of its own for the host loopback, 10.0.2.2, and this script
+# used to rewrite the base URL to it. That alias cannot be used, because the SDK will not
+# synchronize its proof clock over plain HTTP to anything but loopback — `isTrusted` in
+# android/spfn-client/.../SpfnClock.kt admits https, `localhost`, `::1` and `127.*` and
+# nothing else. On the 2d run every cell that needs a proof came back
+# `err:clockSynchronization:untrustedBaseURL` while registration and resume passed, which
+# reads as a flow bug and is not one. The SDK's rule is the right one; the alias was the
+# wrong route, and `adb reverse` — which an emulator supports exactly as a phone does —
+# is the one that keeps the address loopback at both ends.
 #
 # An external target is none of these — the caller named an address that is already
 # reachable — so nothing is rewritten and no route is opened.
@@ -677,31 +684,25 @@ APP_BASE_URL=$BASE_URL
 
 if [ -z "$TARGET_URL" ] && [ "$PLATFORM" = android ]
 then
-    if [ "$IS_PHYSICAL_DEVICE" -eq 0 ]
+    # `adb reverse tcp:N tcp:N` makes the TARGET's own 127.0.0.1:N arrive at the host's
+    # 127.0.0.1:N over the debugging connection. So the app keeps the base URL this script
+    # already has, and the loopback-bound reference server needs no second interface and no
+    # exposure to the network.
+    REVERSED_PORT=$(printf '%s' "$BASE_URL" | sed -n 's|.*:\([0-9][0-9]*\)$|\1|p')
+    if [ -z "$REVERSED_PORT" ]
     then
-        APP_BASE_URL=$(printf '%s' "$BASE_URL" | sed 's|//127\.0\.0\.1:|//10.0.2.2:|; s|//localhost:|//10.0.2.2:|')
-        pass "the app will use $APP_BASE_URL (the emulator's alias for the host loopback)"
-    else
-        # `adb reverse tcp:N tcp:N` makes the DEVICE's own 127.0.0.1:N arrive at the
-        # host's 127.0.0.1:N over the debugging connection. So the app keeps the base URL
-        # this script already has, and the loopback-bound reference server needs no
-        # second interface and no exposure to the network.
-        REVERSED_PORT=$(printf '%s' "$BASE_URL" | sed -n 's|.*:\([0-9][0-9]*\)$|\1|p')
-        if [ -z "$REVERSED_PORT" ]
-        then
-            fail "no port could be read from $BASE_URL, so no route to it can be opened"
-            exit 1
-        fi
-        if ! adb -s "$TARGET" reverse "tcp:$REVERSED_PORT" "tcp:$REVERSED_PORT" > /dev/null 2>&1
-        then
-            REVERSED_PORT=''
-            fail "the device refused a reverse route for port $REVERSED_PORT"
-            fail 'without it the device reaches nothing on this machine'
-            fail 'name a server it can reach instead: SPFN_HARNESS_TARGET_URL=http://<host>:<port>'
-            exit 1
-        fi
-        pass "the device reaches $BASE_URL through an adb reverse route on port $REVERSED_PORT"
+        fail "no port could be read from $BASE_URL, so no route to it can be opened"
+        exit 1
     fi
+    if ! adb -s "$TARGET" reverse "tcp:$REVERSED_PORT" "tcp:$REVERSED_PORT" > /dev/null 2>&1
+    then
+        REVERSED_PORT=''
+        fail "the target refused a reverse route for port $REVERSED_PORT"
+        fail 'without it the target reaches nothing on this machine'
+        fail 'name a server it can reach instead: SPFN_HARNESS_TARGET_URL=http://<host>:<port>'
+        exit 1
+    fi
+    pass "the target reaches $APP_BASE_URL through an adb reverse route on port $REVERSED_PORT"
 fi
 
 # Which cases this run is required to complete, decided here where both the target and

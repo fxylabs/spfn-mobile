@@ -6,10 +6,16 @@
 # The Android harness app is allowed to talk plain HTTP to exactly ONE host. That host is
 # written into a network security config by the build, out of the local.properties key
 # `spfn.harness.serverBaseUrl`, and the address run-harness.sh hands the app comes from
-# somewhere else entirely — the port the reference server bound, rewritten to the
-# emulator's alias for the host loopback. Nothing held the two together, and on the 2d run
-# they disagreed: ten of twelve cells came back err:connectivity, and the two that passed
-# were the two that never call anything. A wrong answer shaped like a flow bug.
+# somewhere else entirely — the port the reference server bound. Nothing held the two
+# together, and on the 2d run they disagreed: the runner rewrote the address to the
+# emulator's alias for the host loopback while the build permitted a LAN address, ten of
+# twelve cells came back err:connectivity, and the two that passed were the two that never
+# call anything. A wrong answer shaped like a flow bug.
+#
+# The alias is gone since 2f — every Android target reaches the host through `adb reverse`
+# and the app is handed `http://127.0.0.1:<port>` — so a run's own host is loopback. The
+# guard stays: the key is hand-written per machine, and a checkout configured for a LAN
+# server is exactly the disagreement above with the two addresses swapped.
 #
 # So the runner now compares them after the build and before the first flow. That check is
 # new code guarding a run, which is exactly the code worth doubting, so this probe drives
@@ -67,7 +73,8 @@ config()
     printf '</network-security-config>\n' >> "$1"
 }
 
-config "$WORK/emulator.xml" 10.0.2.2
+config "$WORK/loopback.xml" 127.0.0.1
+config "$WORK/alias.xml" 10.0.2.2
 config "$WORK/lan.xml" 10.67.210.235
 config "$WORK/nothing.xml" ''
 
@@ -93,26 +100,32 @@ check()
 
 printf 'SPFN Mobile — the cleartext host guard, probed\n\n'
 
-# The 2d run, in one line: the runner rewrites the base URL to the emulator's alias and the
-# build permitted a LAN address. Every cell that touches the network paid for it.
+# Every Maestro run — emulator and phone alike — reaches the host through `adb reverse` and
+# is handed the loopback address, so this is the shape a correctly configured checkout has.
+check 'a Maestro run behind adb reverse' "$WORK/loopback.xml" 'http://127.0.0.1:8080' permitted
+# The 2d run, in one line: the runner rewrote the base URL to the emulator's alias and the
+# build permitted a LAN address. Every cell that touches the network paid for it. The
+# alias is no longer handed to any app, but the guard is what makes that a refusal rather
+# than twelve cells of err:connectivity.
 check 'the LAN config the 2d run had' "$WORK/lan.xml" 'http://10.0.2.2:8080' refused
-check 'the emulator config it needed' "$WORK/emulator.xml" 'http://10.0.2.2:8080' permitted
+# A checkout left configured for a LAN server is the same disagreement the other way round:
+# the runner hands the app loopback and the build permits an address the app may not reach.
+check 'a LAN config against a loopback run' "$WORK/lan.xml" 'http://127.0.0.1:8080' refused
 check 'a LAN config with the LAN address' "$WORK/lan.xml" 'http://10.67.210.235:8080' permitted
-check 'a config that permits nothing' "$WORK/nothing.xml" 'http://10.0.2.2:8080' refused
-check 'no config file at all' "$WORK/absent.xml" 'http://10.0.2.2:8080' refused
-# A device run behind `adb reverse` keeps the loopback address, and the two spellings of it
-# are different hosts to a network security config — 127.0.0.1 is permitted by a config
-# naming 127.0.0.1 and by nothing else.
-check 'a device run behind adb reverse' "$WORK/loopback.xml" 'http://127.0.0.1:8080' refused
-config "$WORK/loopback.xml" 127.0.0.1
-check 'the same, once the build knows' "$WORK/loopback.xml" 'http://127.0.0.1:8080' permitted
+# The emulator's alias is a host like any other to a network security config: a build that
+# still names it does not permit the loopback address a 2f run hands the app.
+check 'the alias config a 2d checkout has' "$WORK/alias.xml" 'http://127.0.0.1:8080' refused
+check 'a config that permits nothing' "$WORK/nothing.xml" 'http://127.0.0.1:8080' refused
+check 'no config file at all' "$WORK/absent.xml" 'http://127.0.0.1:8080' refused
+# The two spellings of loopback are different hosts to a network security config —
+# 127.0.0.1 is permitted by a config naming 127.0.0.1 and by nothing else.
 check 'localhost against 127.0.0.1' "$WORK/loopback.xml" 'http://localhost:8080' refused
 # The URL the runner hands the app always carries a port and the config never does, so a
 # comparison that kept the port would refuse every correctly configured run.
-check 'a port the config cannot name' "$WORK/emulator.xml" 'http://10.0.2.2:53211' permitted
+check 'a port the config cannot name' "$WORK/loopback.xml" 'http://127.0.0.1:53211' permitted
 # An address nothing can be read out of is refused, not silently matched against the
 # nothing the config would then also hold.
-check 'a base URL with no host' "$WORK/emulator.xml" '' refused
+check 'a base URL with no host' "$WORK/loopback.xml" '' refused
 
 printf '\n'
 if [ "$STATUS" -eq 0 ]

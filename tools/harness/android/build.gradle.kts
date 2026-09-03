@@ -96,8 +96,8 @@ val harnessServerBaseUrl = harnessProperty(
  * the emulator's alias for the host loopback and the two spellings of the device's own
  * loopback, on the grounds that the Maestro runner uses them — and that made the exception
  * a standing one, granted to addresses no run had named. A build now permits what it was
- * told to permit: an emulator run configures `10.0.2.2` as the host, a device run behind
- * `adb reverse` configures `127.0.0.1`, and an unconfigured checkout permits cleartext to
+ * told to permit: a Maestro run configures `127.0.0.1`, which is what `adb reverse` gives
+ * an emulator and a phone alike, and an unconfigured checkout permits cleartext to
  * nothing.
  */
 val harnessCleartextHost = harnessServerBaseUrl.substringAfter("://").substringBefore(":");

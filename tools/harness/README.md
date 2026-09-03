@@ -146,25 +146,36 @@ may or may not have applied the request. So the flows reach that state by droppi
 network mid-rotation, through a harness button over the injected transport. Nothing in the
 SDK changed to allow it — the transport is injected, which is what the boundary is for.
 
-**The emulator's `127.0.0.1` is the emulator.** The reference server binds to the host's
-loopback address, and how a target reaches that address is different for each kind:
+**The app's `127.0.0.1` has to really be the host's.** The reference server binds to the
+host's loopback address, and every target reaches that address as loopback:
 
 | Target | How it reaches the reference server |
 | --- | --- |
 | iOS simulator | shares the host's network stack; `127.0.0.1` already works |
-| Android emulator | `10.0.2.2`, its own alias for the host loopback — the runner rewrites the URL |
-| Android device | `adb reverse`, opened by the runner and removed when the run ends |
+| Android emulator | `adb reverse`, opened by the runner and removed when the run ends |
+| Android device | the same `adb reverse`; nothing about the two differs here |
 
-`adb reverse` is why an Android phone needs no extra setup: the device's own `127.0.0.1`
-arrives at the host's over the debugging connection, so the server stays on loopback and
-is never exposed to the network.
+`adb reverse` is why neither Android target needs extra setup: the target's own
+`127.0.0.1` arrives at the host's over the debugging connection, so the server stays on
+loopback and is never exposed to the network.
+
+**Why not the emulator's own alias.** An emulator reaches the host loopback at `10.0.2.2`
+too, and the runner used to rewrite the base URL to it. The SDK will not have that: it
+synchronizes its proof clock over plain HTTP to loopback only — `isTrusted` in
+`android/spfn-client/src/main/kotlin/xyz/superfunction/spfn/client/SpfnClock.kt` admits
+`https`, `localhost`, `::1` and `127.*`, and answers anything else with
+`SpfnClockSynchronizationException.UntrustedBaseUrl`. On the 2d run that split the cells
+in two: registration and resume passed, and every cell needing a proof came back
+`err:clockSynchronization:untrustedBaseURL`. The SDK's rule is the right one — a clock a
+plaintext third party can set is a clock an attacker can set — so the runner gives the
+emulator the same loopback route it gives a phone.
 
 **On Android, that address also has to be the one the build permits.** The app speaks
 plain HTTP to exactly one host — the one `spfn.harness.serverBaseUrl` names — and to
-nothing else, so an emulator run puts `10.0.2.2` in that key and a device run behind
-`adb reverse` puts `127.0.0.1`. The alternative was to keep permanent exceptions for all
-three loopback spellings, which would make the exception a standing grant to addresses no
-run had named. See the device sign-in section below for the key.
+nothing else, so a Maestro run on either Android target puts `127.0.0.1` in that key. The
+alternative was to keep permanent exceptions for all three loopback spellings, which would
+make the exception a standing grant to addresses no run had named. See the device sign-in
+section below for the key.
 
 A physical iPhone is missing from that table because it never gets that far — the next
 section is why.
@@ -428,8 +439,8 @@ That is one host, not a set, and it decides what every run on this platform can 
 | Run | What goes in `spfn.harness.serverBaseUrl` |
 | --- | --- |
 | device sign-in against a LAN server | that machine's address |
-| Maestro flows on an emulator | `10.0.2.2`, the emulator's alias for the host loopback |
-| Maestro flows on a device behind `adb reverse` | `127.0.0.1` |
+| Maestro flows on an emulator | `127.0.0.1`, reached through `adb reverse` |
+| Maestro flows on a phone | `127.0.0.1`, the same route and the same key |
 
 A request to a host the build does not name is refused by the platform, before it leaves.
 
