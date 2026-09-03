@@ -264,13 +264,13 @@ class KotlinEmitter(target: Target)
         appendLine();
         appendLine("package $pkg.screens");
         appendLine();
+        if (screen.calls)
+        {
+            appendLine("import kotlinx.coroutines.CancellationException");
+        }
         appendLine("import kotlinx.coroutines.flow.MutableStateFlow");
         appendLine("import kotlinx.coroutines.flow.StateFlow");
         appendLine("import kotlinx.coroutines.flow.asStateFlow");
-        if (screen.calls)
-        {
-            appendLine("import xyz.superfunction.spfn.client.SpfnClientError");
-        }
         requestImports(screen).forEach { appendLine("import xyz.superfunction.spfn.generated.$it") };
         appendLine("import $pkg.flows.${route(flow)}");
         screen.services.forEach { appendLine("import $pkg.services.${type(it, "Service")}") };
@@ -475,16 +475,7 @@ class KotlinEmitter(target: Target)
         appendLine("        {");
         appendLine("            ${action.call.service}.${action.call.name}(${requestLiteral(action.call, screen, bundle)});");
         appendLine("        }");
-        // SpfnClientError and not Exception: CancellationException is not one of these, so
-        // a cancelled coroutine propagates instead of being recorded as a server refusal.
-        appendLine("        catch (failure: SpfnClientError)");
-        appendLine("        {");
-        appendLine("            if (isCurrent(token))");
-        appendLine("            {");
-        appendLine("                mutableState.value = Busy.Error(ScreenFailure.envelope(failure));");
-        appendLine("            }");
-        appendLine("            return;");
-        appendLine("        }");
+        append(catchClauses("Busy"));
         appendLine("        if (!isCurrent(token))");
         appendLine("        {");
         appendLine("            return;");
@@ -600,20 +591,52 @@ class KotlinEmitter(target: Target)
         appendLine("        {");
         appendLine("            $call;");
         appendLine("        }");
-        appendLine("        catch (failure: SpfnClientError)");
-        appendLine("        {");
-        appendLine("            if (isCurrent(token))");
-        appendLine("            {");
-        appendLine("                mutableState.value = Loadable.Error(ScreenFailure.envelope(failure));");
-        appendLine("            }");
-        appendLine("            return;");
-        appendLine("        };");
+        append(catchClauses("Loadable", terminator = ";"));
         appendLine("        if (isCurrent(token))");
         appendLine("        {");
         appendLine("            mutableState.value = Loadable.Ready(value);");
         appendLine("        }");
         appendLine("    }");
     }
+
+    /**
+     * What a call's `try` is followed by, in the two clauses every screen method needs.
+     *
+     * Cancellation first, and rethrown: a coroutine is cancelled BY an exception, so a
+     * handler that classified it would tell the screen a call failed while telling the
+     * caller's scope it was never cancelled (docs/IMPLEMENTATION-PITFALLS.md P16). Kotlin
+     * matches catch clauses in order, so this one has to be written above the wide one.
+     *
+     * Then `Exception` and not `SpfnClientError`, which is what these were until 2f. The
+     * SDK throws more than that one hierarchy — `SpfnClockSynchronizationException` is an
+     * `IllegalStateException` — and everything outside it left a generated model through
+     * `submit` and took the process with it. `ScreenFailure.envelope` classifies the whole
+     * of `Throwable` for the same reason, and by the same rule: the SDK type's own name
+     * and never any text a server chose.
+     *
+     * @param state `Busy` or `Loadable`, whichever this screen's own state is.
+     * @param before a statement the failure branch runs first, for a method holding a flag.
+     * @param terminator `;` where the `try` is an expression assigned to a value.
+     */
+    private fun catchClauses(state: String, before: String? = null, terminator: String = ""): String =
+        buildString {
+            appendLine("        catch (cancelled: CancellationException)");
+            appendLine("        {");
+            appendLine("            throw cancelled;");
+            appendLine("        }");
+            appendLine("        catch (failure: Exception)");
+            appendLine("        {");
+            if (before != null)
+            {
+                appendLine("            $before");
+            }
+            appendLine("            if (isCurrent(token))");
+            appendLine("            {");
+            appendLine("                mutableState.value = $state.Error(ScreenFailure.envelope(failure));");
+            appendLine("            }");
+            appendLine("            return;");
+            appendLine("        }$terminator");
+        }
 
     private fun sourceArguments(screen: ScreenDefinition, bundle: Bundle): String =
         RouteParameters.of(screen, bundle).joinToString(", ") { it.name }
@@ -679,15 +702,7 @@ class KotlinEmitter(target: Target)
         appendLine("        {");
         appendLine("            ${call.service}.${call.name}(${requestLiteral(call, screen, bundle)});");
         appendLine("        }");
-        appendLine("        catch (failure: SpfnClientError)");
-        appendLine("        {");
-        appendLine("            writing = false;");
-        appendLine("            if (isCurrent(token))");
-        appendLine("            {");
-        appendLine("                mutableState.value = Loadable.Error(ScreenFailure.envelope(failure));");
-        appendLine("            }");
-        appendLine("            return;");
-        appendLine("        }");
+        append(catchClauses("Loadable", before = "writing = false;"));
         appendLine("        writing = false;");
         appendLine("        if (!isCurrent(token))");
         appendLine("        {");
@@ -772,9 +787,14 @@ class KotlinEmitter(target: Target)
         appendLine();
         appendLine("    /**");
         appendLine("     * The server's own envelope where there is one, and a local one where there is");
-        appendLine("     * not. The message carries the SDK's class name and never any server text.");
+        appendLine("     * not. The message carries the name of the SDK type that failed and never any");
+        appendLine("     * server text.");
+        appendLine("     *");
+        appendLine("     * [Throwable] and not [SpfnClientError]: the SDK throws more than that one");
+        appendLine("     * hierarchy, and a screen that could not name what it caught would have nothing");
+        appendLine("     * to show for it.");
         appendLine("     */");
-        appendLine("    fun envelope(failure: SpfnClientError): SpfnErrorEnvelope = when (failure)");
+        appendLine("    fun envelope(failure: Throwable): SpfnErrorEnvelope = when (failure)");
         appendLine("    {");
         appendLine("        is SpfnClientError.Auth -> failure.failure.envelope");
         appendLine("        is SpfnClientError.Server -> failure.failure.envelope");

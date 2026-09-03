@@ -489,4 +489,53 @@ class SpecRefusalTest
         val after = generate(repoRoot, mutated).getValue(table);
         assertNotEquals("the case table did not move when the spec did", before, after);
     }
+
+    /**
+     * Every Kotlin screen method has to catch wider than the client's own hierarchy.
+     *
+     * `catch (failure: SpfnClientError)` is what these were until 2f, and it looks right:
+     * it is the taxonomy a server's answers arrive as, and it lets cancellation past. It
+     * lets everything else past too. `SpfnClockSynchronizationException` is an
+     * `IllegalStateException` raised before a request leaves, and on the 2026-09-03
+     * emulator run it went through `EnterCodeModel.submit` and took the process with it —
+     * three cells, no assertion anywhere near them, because the case table's fixtures
+     * throw `SpfnClientError` and nothing else could reach that branch (P26).
+     *
+     * Read off the emitted text because that is the only place this host can see it: the
+     * example app compiles these files, but a compiler is satisfied by the narrow catch
+     * and the crash needs a device. A count is asserted for each clause so a rename that
+     * emptied the read would pass the loop having read nothing (P7) — four calls across
+     * the two screens, one on `enterCode` and three on `reviewDevice`.
+     */
+    @Test
+    fun `every generated Kotlin call catches wider than SpfnClientError`()
+    {
+        val models = generate(repoRoot, specPath)
+            .filterKeys { it.startsWith("${target.kotlinRoot}/screens/") && it.endsWith("Model.kt") };
+        assertEquals("the generator wrote no Kotlin screen models to read", 2, models.size);
+
+        var wide = 0;
+        var cancellation = 0;
+        models.forEach { (path, content) ->
+            assertTrue(
+                "$path still catches only the client's own hierarchy",
+                !content.contains("catch (failure: SpfnClientError)")
+            );
+            wide += content.split("catch (failure: Exception)").size - 1;
+            cancellation += content.split("catch (cancelled: CancellationException)").size - 1;
+        };
+        assertEquals("a call is not caught wide enough to survive what the SDK throws", 4, wide);
+        assertEquals("a call classifies the cancellation it must rethrow", 4, cancellation);
+
+        // Order decides which clause wins, and Kotlin takes the first that matches.
+        assertEmits(
+            generated = models,
+            path = "${target.kotlinRoot}/screens/EnterCodeModel.kt",
+            expected = "        catch (cancelled: CancellationException)\n" +
+                "        {\n" +
+                "            throw cancelled;\n" +
+                "        }\n" +
+                "        catch (failure: Exception)\n"
+        );
+    }
 }

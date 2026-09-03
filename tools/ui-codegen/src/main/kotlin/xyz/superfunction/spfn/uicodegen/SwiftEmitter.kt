@@ -420,6 +420,13 @@ class SwiftEmitter(target: Target)
         appendLine("        {");
         appendLine("            ${discard(action.call)}try await ${action.call.service}.${action.call.name}(${requestLiteral(action.call, bundle)})");
         appendLine("        }");
+        // A bare `catch` here and in the two below, where Kotlin needs two clauses: Swift
+        // has one error type and every SDK failure is already an `Error`, so nothing this
+        // hierarchy can throw escapes. `CancellationError` is caught with the rest and
+        // cannot be rethrown — these methods do not throw — which is the one thing the two
+        // languages do not say alike (docs/IMPLEMENTATION-PITFALLS.md P15, P16). Swift
+        // cancellation is cooperative, so a cancelled task here shows a failure rather than
+        // resuming a caller that believes it was never cancelled.
         appendLine("        catch");
         appendLine("        {");
         appendLine("            if isCurrent(token)");
@@ -722,7 +729,11 @@ class SwiftEmitter(target: Target)
         appendLine("    }");
         appendLine();
         appendLine("    /// The server's own envelope where there is one, and a local one where there is");
-        appendLine("    /// not. The message carries the SDK's own case name and never any server text.");
+        appendLine("    /// not. The message carries the name of the SDK type that failed and never any");
+        appendLine("    /// server text.");
+        appendLine("    ///");
+        appendLine("    /// `Error` and not `SPFNClientError`: the SDK throws more than that one type, and");
+        appendLine("    /// a screen that could not name what it caught would have nothing to show for it.");
         appendLine("    public static func envelope(_ error: Error) -> SPFNErrorEnvelope");
         appendLine("    {");
         appendLine("        switch error");
