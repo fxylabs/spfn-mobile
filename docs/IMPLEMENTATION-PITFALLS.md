@@ -52,6 +52,7 @@
 | Compose·SwiftUI 화면의 스크롤 컨테이너 안에 러너가 탭하는 컨트롤 배치 | [P21](#p21) [P25](#p25) |
 | `FlowEntry`·시트 표시·`Screen` 헤더 수정 (`spfn-ui`/`SPFNUI`의 런타임) | [P15](#p15) [P21](#p21) [P22](#p22) [P25](#p25) |
 | SwiftUI 화면의 조상 뷰에 제스처 달기, 키보드 해제 처리 | [P27](#p27) [P15](#p15) |
+| 자체 헤더를 그리려고 시스템 내비게이션 바 숨기기 (SwiftUI) | [P29](#p29) [P15](#p15) [P22](#p22) |
 | `tools/validate/`·러너의 셸 스크립트에 sed·grep 정규식 추가 | [P28](#p28) [P4](#p4) [P7](#p7) |
 | Xcode 프로젝트를 손으로 `xcodebuild` (예제·하네스 둘 다) | [P17](#p17) |
 | Maestro 플로우 생성·수정 | [P22](#p22) [P21](#p21) [P23](#p23) |
@@ -1027,29 +1028,43 @@ catches wider than SpfnClientError`다. 픽스처가 던질 수 있는 것으로
 grep -rn 'simultaneousGesture' Sources/SPFNUI
 ```
 
-**처방.** "컨트롤이 안 가져간 탭"은 **뒤에 깔린 레이어**로 묻는다. SwiftUI는 앞에서 뒤로
-히트 테스트하며 답하는 첫 뷰에서 멈추므로, `ZStack`의 맨 아래에 둔 레이어에 탭이 닿았다는
-사실 자체가 "아무 컨트롤도 이 탭을 가져가지 않았다"는 뜻이다.
+**처방. 조상 뷰의 `onTapGesture`다.** 세 가지 철자 중 하나만 맞고, 나머지 둘은 각각
+반대쪽으로 틀린다.
+
+| 철자 | 필드 탭 | 빈 곳 탭 |
+| --- | --- | --- |
+| `simultaneousGesture`를 화면 전체에 | **깨짐** — 같이 발동해 방금 올라온 키보드를 내린다 | 내려간다 |
+| `ZStack` 맨 아래 `Color.clear` 레이어 | 멀쩡 | **안 내려감** — 앞의 스크롤 뷰가 히트 테스트에 먼저 답한다 |
+| 조상 뷰의 `onTapGesture` | 멀쩡 | 내려간다 |
 
 ```swift
-ZStack
-{
-    Color.clear
-        .contentShape(Rectangle())
-        .onTapGesture { SPFNKeyboard.dismiss() }
-    content   // 컨트롤은 앞에 있고, 손대지 않는다
-}
+VStack { header; body }
+    .contentShape(Rectangle())
+    .onTapGesture { SPFNKeyboard.dismiss() }
 ```
 
-`Color.clear`는 그리는 게 없어 기본적으로 히트 테스트에 답하지 않으므로
-`contentShape(Rectangle())`이 필요하다. `scrollDismissesKeyboard(.interactively)`는 그대로
-둔다 — 그건 탭이 아니라 드래그에 대한 답이고 둘은 겹치지 않는다.
+이유는 **형제와 조상이 다르기** 때문이다. 뒤에 깔린 형제는 이벤트를 아예 못 받는다 —
+히트 테스트는 앞에서 뒤로 가다 답하는 첫 뷰에서 멈추고, 스크롤 뷰는 자기 영역 어디서든
+답한다. 반면 제스처는 히트된 뷰에서 **위로** 올라가며 안쪽이 먼저 이긴다. 그래서 버튼과
+필드는 자기 탭을 가져가고, 스크롤 뷰가 그냥 깔고 있던 자리의 탭만 조상에게 온다.
+`contentShape(Rectangle())`은 프레임의 빈 부분이 히트 테스트에 답하게 하는 부분이다.
+
+`scrollDismissesKeyboard(.interactively)`는 그대로 둔다 — 그건 탭이 아니라 드래그에 대한
+답이고 둘은 겹치지 않는다.
+
+**러너에서 이걸 재는 셀은 `hideKeyboard`를 쓰는 셀이다.** iOS의 maestro `hideKeyboard`는
+표준 해제 동작을 찾고, 못 찾으면 `Couldn't hide the keyboard...`로 실패한다. 즉 **앱이
+바깥 탭에 응답하는지를 그대로 되비친다.** 형제 레이어 판을 돌렸을 때 정확히 k2·k5 둘만
+그 메시지로 실패했고, 조상 제스처로 바꾸자 k1·k2·k5·u1·s1·s2가 모두 통과했다.
 
 **나온 곳.** w-evwna ui/scaffold-3b, iPhone 17 Pro 시뮬레이터 2026-09-02. `Screen.swift`가
 `.simultaneousGesture(TapGesture().onEnded { SPFNKeyboard.dismiss() })`를 프레임 전체에
 달고 있었고, 필드를 탭하는 셀(u1·u7·u8 등)이 전부 빈 제출로 실패했다. Compose 쪽
 `Screen.kt`는 같은 규칙을 `pointerInput`으로 쓰고 있어 멀쩡했다 — Linux 호스트에서는 두
 파일이 같은 규칙을 말하고 있다는 것까지만 보이고, 갈라지는 지점은 기기에서만 보인다.
+
+가운데 줄(형제 레이어)은 같은 작업 3d에서 **고치다가 새로 만든** 실패다. 한 라운드 안에서
+같은 규칙을 두 번 틀리게 쓴 셈이고, 표를 여기 남기는 이유가 그것이다.
 
 ## P28. GNU sed에서 쓰던 `\?`는 BSD sed에서 조용히 리터럴이 된다 {#p28}
 
@@ -1080,6 +1095,45 @@ grep -rn --include='*.sh' '\\?' tools/ examples/
 `swift_value_names`가 Swift 이름 0개·Kotlin 이름 20개를 읽어 tokens·strings 두 검사가
 동시에 빨갰다. 같은 `\?`가 `probe-ui-vocabulary-rules.sh`의 변이 sed에도 있었고, 그쪽은
 변이가 안 먹어 프로브가 **무는지 못 무는지 자체를 못 보고 있었다.** 둘 다 `sed -E`로 옮겼다.
+
+## P29. 내비게이션 바를 숨기면 iOS의 스와이프 뒤로가기가 같이 죽는다 {#p29}
+
+**증상.** 자체 헤더를 그리려고 시스템 내비게이션 바를 숨긴다
+(`.toolbar(.hidden, for: .navigationBar)`). 헤더의 back 버튼은 잘 동작한다. 그런데 **화면
+왼쪽 가장자리에서 미는 제스처만** 아무 일도 하지 않는다. 에러도 로그도 없다 — 스와이프
+명령 자체는 성공으로 끝나고, 그 다음 단언이 실패한다.
+
+UIKit이 오래전부터 그렇다: 내비게이션 바가 숨겨지면
+`interactivePopGestureRecognizer`가 시작을 거부한다. SwiftUI의 `NavigationStack`도 그
+위에 얹혀 있어 그대로 물려받는다.
+
+**플랫폼이 갈리는 자리라는 것이 핵심이다**([P15](#p15)). Android의 시스템 back과 예측형
+back은 헤더를 숨기든 말든 그대로 동작하므로, "시스템 back은 플로우의 pop이다" 같은 규칙은
+**Android에서만 참인 채로 초록**일 수 있다. 두 플랫폼에 같은 셀을 둔 표만이 이걸 본다.
+
+**탐지.** 자체 헤더를 그리는 화면 컴포넌트에서 두 줄을 같이 본다. 둘 다 있으면 적중이다.
+
+```
+grep -rn 'toolbar(.hidden' Sources/          # 바를 숨기는 곳
+grep -rln 'swipe' examples/ui-spec/generated/flows/   # 가장자리 스와이프에 기대는 플로우
+```
+
+확인은 프로브다. 바를 숨기는 줄만 지우고 같은 셀을 다시 돌린다 — 통과하면 원인이 그 줄이다.
+
+**처방.** 공개 API로는 "바는 숨기고 제스처는 살린다"가 안 된다. 셋 중 하나를 **고르고
+적는다.**
+
+- UIKit으로 `interactivePopGestureRecognizer`의 delegate를 대신 구현한다. 루트에서 시작을
+  거부하는 가드를 반드시 같이 둔다(없으면 루트에서 스와이프 시 내비게이션 스택이 깨진다).
+- 바를 숨기지 않고 배경·제목·back 버튼만 비운다. 대신 바 높이만큼 레이아웃이 내려간다.
+- 그 셀의 iOS 절반을 사람이 확인하는 `manual`로 옮긴다. 표에 남되 러너가 거짓 초록을 내지
+  않는다.
+
+**나온 곳.** w-evwna ui/scaffold-3d, iPhone 17 Pro / iOS 26.3 시뮬레이터 2026-09-03.
+셀 u7b·u10b(규칙 R8)가 `Assertion is false: "stack=1" is visible`로 실패했다. 프로브 둘로
+원인을 갈랐다 — 키보드 해제 레이어를 통째로 빼도 같은 자리에서 같게 실패했고(무관),
+`HiddenNavigationBar`의 `.toolbar(.hidden, for: .navigationBar)` 한 줄만 빼자 u7b가 끝까지
+통과했다(적중). 두 셀의 Android 절반은 같은 라운드에서 통과한다.
 
 ## 원장
 
