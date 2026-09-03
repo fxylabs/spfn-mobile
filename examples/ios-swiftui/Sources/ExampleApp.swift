@@ -58,16 +58,31 @@ struct RootView: View
         ZStack
         {
             menu
-            ApproveDeviceFlowHost(container: launch.container)
-            PushTourFlowHost(container: launch.container)
-            ModalTourFlowHost(container: launch.container)
-            SheetFitFlowHost(container: launch.container)
-            SheetHalfFlowHost(container: launch.container)
-            SheetFullFlowHost(container: launch.container)
-            SheetNavFlowHost(container: launch.container)
-            KeyboardFormFlowHost(container: launch.container)
-            LongScrollFlowHost(container: launch.container)
+            hosts
         }
+    }
+
+    /// Every flow's host, drawn over the menu.
+    ///
+    /// A `ZStack` and not a `VStack`, and the hosts last, for the reason the Compose half
+    /// uses a `Box`: a pushed flow's stack is drawn OVER the menu rather than beside it, and
+    /// a modal or a sheet needs nothing from its host but a place in the view tree.
+    ///
+    /// Split out of `body` rather than listed there because a `ViewBuilder` takes ten
+    /// children and nine hosts beside the menu is exactly ten — a tenth flow in the spec
+    /// would have failed to compile with an error about none of this.
+    @ViewBuilder
+    private var hosts: some View
+    {
+        ApproveDeviceFlowHost(container: launch.container)
+        PushTourFlowHost(container: launch.container)
+        ModalTourFlowHost(container: launch.container)
+        SheetFitFlowHost(container: launch.container)
+        SheetHalfFlowHost(container: launch.container)
+        SheetFullFlowHost(container: launch.container)
+        SheetNavFlowHost(container: launch.container)
+        KeyboardFormFlowHost(container: launch.container)
+        LongScrollFlowHost(container: launch.container)
     }
 
     /// The list of flows, and the three readouts over it.

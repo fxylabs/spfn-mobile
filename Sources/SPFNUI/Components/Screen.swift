@@ -140,7 +140,7 @@ public struct Screen<Content: View>: View
                     // Fixed vertically, so what is measured below is the content's OWN
                     // height rather than whatever the scroll view proposed to it.
                     .fixedSize(horizontal: false, vertical: true)
-                    .background(contentMeasurement)
+                    .background { contentMeasurement }
             }
             .scrollDismissesKeyboard(.interactively)
         }
