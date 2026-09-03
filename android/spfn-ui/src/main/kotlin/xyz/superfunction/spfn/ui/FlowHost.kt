@@ -29,6 +29,12 @@
 // stacks its children (a `Box` filling the window), not in a `Column` where the host's own
 // content is laid out beside it. examples/android-compose does exactly that.
 //
+// The same sentence settles the system-bar insets: the host app owns them, and it owns
+// them AROUND this composable rather than only around its own content. A cover fills the
+// parent it was given, and an app targeting API 35 or later is drawn edge-to-edge whether
+// it asks or not, so a parent left un-inset puts the flow's first row under the status bar
+// (docs/IMPLEMENTATION-PITFALLS.md P25).
+//
 // It is deliberately NOT a `Dialog` or a `Popup`, and that is measured rather than
 // preferred. Both put their content in a second window with a semantics owner of its own,
 // and `testTagsAsResourceId` — the switch that turns a Compose test tag into the Android

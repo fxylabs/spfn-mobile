@@ -20,8 +20,11 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -135,6 +138,13 @@ class MainActivity : ComponentActivity()
  * host is the last child, so it is drawn OVER the readouts instead of below them; in a
  * Column it would be laid out beside them and cover nothing. That is the one thing
  * `FlowHost` asks of a host app that presents a flow modally — its own header states it.
+ *
+ * The system bars' insets are this root's job for the same reason. A cover fills its
+ * PARENT, so whatever the parent is given is what the flow's own first row is given, and
+ * an app targeting API 35 or later is drawn edge-to-edge whether it asks or not: without
+ * the padding here the flow's `state=` row lands under the status bar and the camera
+ * cutout, where a runner's hierarchy no longer carries it
+ * (docs/IMPLEMENTATION-PITFALLS.md P25).
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -148,7 +158,12 @@ private fun ExampleRoot(
     var receipt by remember { mutableStateOf("none") };
     val depth = container.approveDeviceFlow.stack.collectAsState().value.size;
 
-    Box(modifier = Modifier.fillMaxSize().semantics { testTagsAsResourceId = true })
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.systemBars)
+            .semantics { testTagsAsResourceId = true }
+    )
     {
         Column {
             BasicText(text = "fixture=$cell");

@@ -73,6 +73,12 @@ as a cover filling its parent, and a `Column` would lay it out beside the root's
 content instead. That is the one thing the host asks of an app that presents a flow
 modally; `android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/FlowHost.kt` states it.
 
+That root also owns the system-bar insets around the flow host, and not only around its own
+readouts: a `Modal` cover fills its parent, and an app targeting API 35 or later is drawn
+edge-to-edge whether it asks or not, so an un-inset parent puts the flow's first row under
+the status bar where a runner's hierarchy stops carrying it
+(`docs/IMPLEMENTATION-PITFALLS.md` P25).
+
 ## The one rule the validator enforces here
 
 The generated service is the only place a call descriptor is named. Everything above it —

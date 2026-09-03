@@ -848,6 +848,23 @@ grep -o '"resource-id" : "[^"]*"' bottom.json | sort -u | wc -l
 플로우가 탭하는 id 집합이 첫 덤프에 **전부** 있는지가 판정이다. 하나라도 없으면 그
 셀은 실패하며, 그 id를 그리는 코드가 스크롤 컨테이너의 어디에 있는지가 원인이다.
 
+**뷰포트 밖으로 미는 것은 스크롤만이 아니다 — 시스템 바도 민다.** targetSdk 35부터
+Android는 앱을 edge-to-edge로 그리므로, 인셋을 받지 못한 루트의 첫 행은 창의 y=0,
+즉 상태 표시줄·카메라 컷아웃 **아래**에 그려진다. 이때의 신호는 위와 다르다:
+uiautomator 덤프에는 그 노드가 **그대로 있고**, 러너가 읽는 계층(`maestro hierarchy`)에는
+**없다.** id로 하는 탭은 계속 맞으므로 입력과 제출은 성공하고, `visible` 단언만 깨진다.
+
+```
+adb -s <serial> shell uiautomator dump /sdcard/ui.xml   # 노드가 있다
+maestro hierarchy | grep '"state='                      # 없다
+adb -s <serial> shell dumpsys window displays | grep -i cutout   # 컷아웃·상태 표시줄 높이
+```
+
+판정은 **노드의 bounds y가 상태 표시줄 높이보다 작은가**이다. 작으면 배치가 아니라
+인셋이 원인이고, 고칠 자리는 그 노드를 그리는 화면이 아니라 그 화면을 담은 **호스트의
+루트**다. 모달 플로우의 커버는 부모를 가득 채우므로, 부모가 받은 인셋이 곧 플로우의 첫
+행이 받는 인셋이다.
+
 **처방.** 러너가 탭하는 컨트롤을 **첫 뷰포트 안에** 둔다.
 
 - 순서를 뒤집는다: readout → 러너 블록 → 사람 전용 블록. 사람은 스크롤하지만 러너는
@@ -895,8 +912,9 @@ iOS는 재배치가 필요 없다"고 적혀 있었고, 그 문장 하나가 iOS
 | --- | --- | --- | --- |
 | ui/scaffold-2a | Pixel 3a API 34 에뮬레이터, 2026-09-03 | `run-harness.sh android`의 c1~c9 **전부**가 `Element not found: Id matching regex: btn_wipe`. 첫 뷰포트의 접근성 트리에 id가 7개뿐이었고(`btn_case_*` 5개, `btn_social_google`, `btn_device_sign_in`) 전부 **사람이 쓰는** 컨트롤이었다. 끝까지 내린 뒤의 덤프에 나머지 14개가 있었다 | ui/scaffold-2c에서 Android 순서를 readout → 러너 2열 그리드 → 사람 블록으로 |
 | ui/scaffold-2b | iPhone 17 Pro / iOS 26.3 시뮬레이터, 2026-09-03 | `run-harness.sh ios`의 c1~c9·d1~d3 **12개 전부**가 같은 줄에서 같은 메시지로. 화면 내용이 약 1500pt, 뷰포트가 874pt였다. 끝까지 내리면 버튼은 보이지만 readout이 전부 사라져 **어느 스크롤 위치도 플로우를 만족시키지 못한다** | ui/scaffold-2d에서 iOS 순서를 같은 순서로 |
+| ui/scaffold-2f | Galaxy Z Flip4 (SM-F721N), Android 15 / API 35, 2026-09-03 | `run-harness.sh android`의 c1~c9는 통과하고 **d1~d3만** `Assertion is false: "state=ready" is visible`로 실패(d3는 `state=error`). 스크롤이 아니라 인셋이 원인이다: 하네스는 인셋을 자기 `Column`에만 줬고 생성 화면을 그리는 `ApproveDeviceFlowHost`는 그 Column의 **형제**라 인셋을 받지 못했다. 첫 행 `state=`가 컷아웃(94px)·상태 표시줄(262px) 아래 y=0에 그려져 uiautomator에는 남고 maestro 계층에서는 사라졌다. id 탭은 계속 맞아 입력·제출은 성공했다 | ui/scaffold-2g에서 인셋을 루트 `Box`로 올리고(`HarnessScreen.kt`) 예제 앱 루트에도 같이 줬다(`MainActivity.kt`) |
 
-두 라운드 모두 화면은 켜져 있었고 옳았다. 플로우 13개와 `run-harness.sh`의 플로우
+세 라운드 모두 화면은 켜져 있었고 옳았다. 플로우 13개와 `run-harness.sh`의 플로우
 목록은 어느 라운드에서도 손대지 않았다 — 고친 것은 화면뿐이다.
 
 ## P26. 생성 코드의 catch는 SDK 예외 계층 전체를 알아야 한다 {#p26}

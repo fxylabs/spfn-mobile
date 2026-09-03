@@ -655,6 +655,16 @@ the debug APK, and removes the route afterwards.
 The debug build signs with the machine's own `~/.android/debug.keystore`, which is why
 no signing material lives in this repository and none is needed to install on a phone.
 
+**The host app owns the system-bar insets, and it owns them around the flow host too.** The
+harness screen is a `Box` whose last child is the generated flow's host, because a `Modal`
+flow is drawn as a cover filling its parent; the same fact makes the insets the host's job,
+since whatever the parent is given is what the flow's first row is given. Android 15 draws
+an app targeting API 35 edge-to-edge whether it asks or not, so a root left un-inset puts
+`state=` under the status bar and the camera cutout — on a Galaxy Z Flip4 on 2026-09-03
+`uiautomator dump` still listed that row while `maestro hierarchy` did not, and `d1`–`d3`
+failed on `"state=ready" is visible` while every tap by id still landed
+(`docs/IMPLEMENTATION-PITFALLS.md` P25). An emulator on API 34 never shows it.
+
 **Wake it first.** A sleeping or locked Android target does not fail the run, it hangs it:
 `am instrument` is refused while the user's storage is locked, and Maestro waits forever
 with nothing in its log after `Selected device`. The runner wakes the target and refuses

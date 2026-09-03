@@ -111,18 +111,21 @@ fun HarnessScreen(screen: HarnessScreenState, actions: HarnessActions)
         modifier = Modifier
             .fillMaxSize()
             .background(Paper)
+            // The system bars' insets become padding HERE, on the root, and not on the
+            // column below. Every app targeting API 35 and later is drawn edge-to-edge
+            // whether it asks or not, so the window's top rows sit under the status bar and
+            // the camera cutout. Padding the column reached the column's own rows and
+            // nothing else, and the flow host is the column's SIBLING: on a Galaxy Z Flip4
+            // (Android 15) on 2026-09-03 the generated screens' first row — `state=` — drew
+            // at window y=0 behind the cutout, where uiautomator still lists it and the
+            // hierarchy a runner reads does not (docs/IMPLEMENTATION-PITFALLS.md P25).
+            .windowInsetsPadding(WindowInsets.systemBars)
             .semantics { testTagsAsResourceId = true }
     )
     {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                // The system bars' insets become padding. Without it the screen is
-                // edge-to-edge — which every app targeting API 35 and later now is, whether
-                // it asks or not — and on a real phone on 2026-09-01 the last button of the
-                // column sat under the navigation bar, reachable only by scrolling past the
-                // content.
-                .windowInsetsPadding(WindowInsets.systemBars)
                 // The column is longer than a phone, and what hangs off the bottom of it
                 // is out of the accessibility tree rather than merely out of sight (P25).
                 // Everything a flow touches is measured to land above the fold — see
