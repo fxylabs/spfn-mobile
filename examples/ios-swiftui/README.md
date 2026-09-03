@@ -89,8 +89,19 @@ readouts), `Fixtures.swift` (which seeding a cell runs under),
 The generated service is the only place a call descriptor is named, and `dismiss` is
 refused outright under `Generated/` — it closes a presentation without telling the flow,
 which is how a host ends up dismissed over a flow that still believes it is open.
-`tools/validate/validate.sh` section 14 enforces both, and
-`tools/validate/probe-example-scaffold-rules.sh` proves each refusal bites.
+`tools/validate/validate.sh` section 14 enforces both, over `examples/` and
+`tools/harness/` alike, and `tools/validate/probe-example-scaffold-rules.sh` proves each
+refusal bites. Two files are exempt from the first rule and both are named in the
+validator rather than covered by a directory: the harness's two `HarnessModel` files reach
+three operations the SDK wraps in nothing.
 
 The Android half of this app is `examples/android-compose`, generated from the same spec,
 with the same screen names, the same selectors and the same case table.
+
+And this app is not the only consumer of that spec. `tools/harness/ios` compiles the same
+screens from `tools/harness/ios/GeneratedUI`, written by the same generator under a second
+target. The difference is what stands behind them: this app runs them against fixtures and
+proves the screens' own rules, and the harness runs them against a live reference server
+and proves that the requests those rules produce are ones a server accepts — cells d1-d3
+in `tools/harness/README.md`. A fixture cannot answer the second question, which is why
+there are two apps and not one.

@@ -78,8 +78,19 @@ modally; `android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/FlowHost.kt`
 The generated service is the only place a call descriptor is named. Everything above it —
 screen models, use cases, views, and anything you write — sees the service interface and
 the generated request and response types. `tools/validate/validate.sh` section 14 fails on
-a `SpfnGeneratedCalls.` reference anywhere under `examples/` outside a generated services
-directory, and `tools/validate/probe-example-scaffold-rules.sh` proves that refusal bites.
+a `SpfnGeneratedCalls.` reference anywhere under `examples/` or `tools/harness/` outside a
+generated services directory, and `tools/validate/probe-example-scaffold-rules.sh` proves
+that refusal bites. Two files are exempt and both are named in the validator rather than
+covered by a directory: the harness's two `HarnessModel` files reach three operations the
+SDK wraps in nothing.
 
 The iOS half of this app is `examples/ios-swiftui`, generated from the same spec, with the
 same screen names, the same selectors and the same case table.
+
+And this app is not the only consumer of that spec. `tools/harness/android` compiles the
+same screens from `src/main/kotlin/…/harness/generated`, written by the same generator
+under a second target. The difference is what stands behind them: this app runs them
+against fixtures and proves the screens' own rules, and the harness runs them against a
+live reference server and proves that the requests those rules produce are ones a server
+accepts — cells d1-d3 in `tools/harness/README.md`. A fixture cannot answer the second
+question, which is why there are two apps and not one.

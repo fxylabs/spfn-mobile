@@ -22,7 +22,8 @@ sh tools/harness/run-harness.sh android
 | `ios/Harness.xcconfig` | the device mode's keys, declared empty, plus an optional include of the gitignored `Local.xcconfig` |
 | `ios/HarnessSupport/` | a SwiftPM package that enables the two adapter traits, and holds the harness rules that have tests |
 | `android/` | the same app in Kotlin, as the one application module in this repository |
-| `flows/` | the Maestro flows, one per cell of the case table below |
+| `ios/GeneratedUI/`, `android/…/harness/generated/` | the approval screens, written by `tools/ui-codegen`. Nothing in either is edited by hand |
+| `flows/` | the Maestro flows, one per cell of the two case tables below |
 | `run-harness.sh` | builds, installs, runs every flow, and fails unless every case left a receipt |
 | `probe-receipts.sh` | proves a receipt cannot be earned by a case that did not pass |
 | `probe-target-refusal.sh` | proves a physical iPhone cannot be mistaken for a simulator |
@@ -56,6 +57,62 @@ SPFN_HARNESS_REVOCATION_OPS=1 sh tools/harness/run-harness.sh ios
 Out of scope is announced, never skipped quietly. A case that silently left the expected
 list would turn the receipts — the only thing standing between this repository and a run
 that reports coverage it did not have — into decoration.
+
+## The second consuming app
+
+This harness is not only a screen of buttons any more. `tools/ui-codegen` emits the
+device-approval screens from `examples/ui-spec/device-approval.json` into two apps: the
+example apps under `examples/`, and this one. Same spec, same generator, two targets —
+`:ui-codegen:spfnGenerateHarnessUi` writes this half and `:ui-codegen:spfnHarnessUiVerify`
+fails when it has drifted.
+
+Why a second consumer, when the example apps already compile those screens: the example
+apps drive them against FIXTURES. Eighteen cells prove the screens' rules — what a second
+press during a call in flight does, what an answer arriving after its flow closed does —
+and not one of them proves that the request the screen sends is one a server accepts, or
+that the answer it gets back is one the SDK can read. A fixture cannot answer that. This
+app can, because it is already the app with a real transport, a real key and a real
+reference server behind it.
+
+What that costs the harness is a text field and three buttons it used to have. The
+approver's `info`, `approve` and `deny` were wired up by hand here — a second
+implementation of screens the generator emits — and they are gone. One button opens the
+generated flow, and everything after it belongs to `GeneratedUI/` and
+`android/…/harness/generated/`.
+
+### The approval cells
+
+| cell | what the phone does | what the screen must say | what the SERVER must say |
+| --- | --- | --- | --- |
+| `d1-approve` | types the code and approves the waiting device | flow closed, `stack=0`, `http=200` | the request is `approved` |
+| `d2-deny` | types the code and denies it | flow closed, `stack=0`, `http=204` | the request is `denied` |
+| `d3-unknown-code` | types `ZZZZ-ZZZZ`, which was never issued | still on `enterCode`, `stack=1`, `state=error` | the parked request is still `pending` |
+
+**Two assertions per cell, and both are needed.** `run-harness.sh` plays the waiting
+device: before each cell it parks a device request with the reference server over `curl`
+— `auth.device.start`, whose body carries a freshly generated P-256 key, because the
+server checks that `fingerprint` is the SHA-256 of the decoded `publicKey` and the poll
+that collects an approval parses those bytes as a key. It runs the flow with that
+request's user code, and afterwards polls with the device code, up to ten times a second
+apart.
+
+A cell earns its receipt only when the flow passed AND the server agrees. A phone that
+closed its flow without sending anything would pass every on-screen assertion and leave
+the server holding the request `pending`, which is precisely the disagreement these three
+cells exist to find. `d3` is the sharpest of the three: it types a code nobody was issued,
+and the request this runner parked must be untouched afterwards — a stronger claim than
+"the screen showed an error", and the only one that rules out a phone acting on somebody
+else's request.
+
+`d3`'s screen assertion stops at "an error is shown". The refusal's classification is the
+server's to choose — an unknown code and a spent one are answered alike on purpose, so a
+guess that landed cannot be told from one that did not — and a flow asserting a particular
+code would be asserting a choice this repository does not own.
+
+The three cells run one maestro invocation each, where the ten lifecycle cells share one.
+That is not a preference: each needs a device request that exists before its launch, and
+the user code the server issues for it is different every time, so it has to reach maestro
+as a variable of that invocation.
 
 ## What runs where
 
@@ -233,11 +290,18 @@ Top to bottom, the same on both:
 
 | Part | What it is |
 | --- | --- |
-| the readouts | `state=`, `outcome=`, `busy=`, `network=`, `custody=`, `case=`, the configuration line, `receipt=`. A flow matches these by their text, never by an id |
+| the readouts | `state=`, `outcome=`, `busy=`, `network=`, `custody=`, `case=`, the configuration line, `receipt=`, `device-code=`, `expires-in=`, `stack=`, `http=`. A flow matches these by their text, never by an id |
 | `case (pick one)` | the five cases as one boxed single-choice selector |
 | the precondition line | what the selected case asks you to do at the sheet |
 | `sign-in-apple`, `sign-in-google` | the only two things in this mode that do anything. Android has the Google one only |
+| `device code` | `sign-in-with-a-code`, which signs THIS device in, and `open-approve`, which opens the generated approval screens over everything above. `open-approve` is disabled without an active key: the approval calls are proven ones |
 | `sdk lifecycle (flows)` | a divider, and under it the ten buttons the Maestro flows tap — `enroll`, `rotate`, `resume`, `revoke`, `proven-call`, `note-revoked`, `wipe`, `custody-probe`, `block-network`, `open-network` |
+
+The last two readouts belong to the generated flow. `stack=` is its own depth, spelled
+exactly as the generated screens spell it — a flow that is open draws the number twice,
+and the two agree because they are one flow read twice rather than two counters. `http=`
+is the status of the last response the transport received, which is what tells a 200 from
+a 204 when a screen shows the same thing either way.
 
 The Android half is Jetpack Compose and the iOS half is SwiftUI, and neither draws above
 its platform's foundation layer. A control is found by the id it carries — on Android a
