@@ -8,7 +8,17 @@
       "deny":    { "operation": "authDeviceDeny" }
     }
   },
-  "flows": { "approveDevice": { "entry": "modal", "start": "enterCode" } },
+  "flows": {
+    "approveDevice": { "entry": "modal", "start": "enterCode" },
+    "pushTour":      { "entry": "push",  "start": "tourOne" },
+    "modalTour":     { "entry": "modal", "start": "modalOne" },
+    "sheetFit":      { "entry": "sheet", "sheet": { "detent": "fit" },  "start": "fitOne" },
+    "sheetHalf":     { "entry": "sheet", "sheet": { "detent": "half" }, "start": "halfOne" },
+    "sheetFull":     { "entry": "sheet", "sheet": { "detent": "full" }, "start": "fullOne" },
+    "sheetNav":      { "entry": "sheet", "sheet": { "detent": "half" }, "start": "navOne" },
+    "keyboardForm":  { "entry": "push",  "start": "form" },
+    "longScroll":    { "entry": "push",  "start": "long" }
+  },
   "screens": {
     "enterCode": {
       "flow": "approveDevice", "source": null,
@@ -30,6 +40,87 @@
         "retry":   { "call": "deviceApproval.lookup" },
         "back":    { "then": "pop", "role": "text" }
       }
+    },
+
+    "tourOne": {
+      "flow": "pushTour", "source": null, "body": "lorem.short",
+      "title": "Pushed, one of three",
+      "actions": { "next": { "then": { "push": "tourTwo" }, "role": "primary" } }
+    },
+    "tourTwo": {
+      "flow": "pushTour", "source": null, "body": "lorem.short",
+      "title": "Pushed, two of three",
+      "actions": {
+        "next": { "then": { "push": "tourThree" }, "role": "primary" },
+        "back": { "then": "pop", "role": "text" }
+      }
+    },
+    "tourThree": {
+      "flow": "pushTour", "source": null, "body": "lorem.short",
+      "title": "Pushed, three of three",
+      "actions": {
+        "done": { "then": "close", "role": "primary" },
+        "back": { "then": "pop", "role": "text" }
+      }
+    },
+
+    "modalOne": {
+      "flow": "modalTour", "source": null, "body": "lorem.short",
+      "title": "Over everything, one of two",
+      "actions": { "next": { "then": { "push": "modalTwo" }, "role": "primary" } }
+    },
+    "modalTwo": {
+      "flow": "modalTour", "source": null, "body": "lorem.short",
+      "title": "Over everything, two of two",
+      "actions": {
+        "done": { "then": "close", "role": "primary" },
+        "back": { "then": "pop", "role": "text" }
+      }
+    },
+
+    "fitOne": {
+      "flow": "sheetFit", "source": null, "body": "lorem.short",
+      "title": "A sheet that fits",
+      "actions": { "done": { "then": "close", "role": "primary" } }
+    },
+    "halfOne": {
+      "flow": "sheetHalf", "source": null, "body": "lorem.short",
+      "title": "A sheet at half",
+      "actions": { "done": { "then": "close", "role": "primary" } }
+    },
+    "fullOne": {
+      "flow": "sheetFull", "source": null, "body": "lorem.short",
+      "title": "A sheet at full",
+      "actions": { "done": { "then": "close", "role": "primary" } }
+    },
+
+    "navOne": {
+      "flow": "sheetNav", "source": null, "body": "lorem.short",
+      "title": "Inside a sheet",
+      "actions": { "next": { "then": { "push": "navTwo" }, "role": "primary" } }
+    },
+    "navTwo": {
+      "flow": "sheetNav", "source": null, "body": "lorem.short",
+      "title": "Deeper inside a sheet",
+      "actions": {
+        "done": { "then": "close", "role": "primary" },
+        "back": { "then": "pop", "role": "text" }
+      }
+    },
+
+    "form": {
+      "flow": "keyboardForm", "source": null, "body": "lorem.short",
+      "title": "A form in a pushed flow",
+      "inputs": {
+        "userCode": { "kind": "code", "label": "Code from the device", "submitOnReturn": true, "autofocus": true }
+      },
+      "actions": { "submit": { "call": "deviceApproval.lookup", "then": "close", "role": "primary" } }
+    },
+
+    "long": {
+      "flow": "longScroll", "source": null, "body": "lorem.long",
+      "title": "A body that does not fit",
+      "actions": { "done": { "then": "close", "role": "primary" } }
     }
   }
 }

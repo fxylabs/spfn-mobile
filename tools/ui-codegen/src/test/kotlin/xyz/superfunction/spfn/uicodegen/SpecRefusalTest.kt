@@ -45,6 +45,9 @@ class SpecRefusalTest
         kotlinPackage = "probe.generated",
         appId = "probe.app",
         tableRoot = "suite/cases",
+        // Every flow, which is what a consumer of the whole showcase takes. The two cases
+        // below narrow a copy of this target, so the field is exercised both ways.
+        flows = null,
         runnerReadouts = true,
         generateTask = ":ui-codegen:spfnGenerateSuiteUi",
         verifyTask = ":ui-codegen:spfnSuiteUiVerify"
@@ -681,6 +684,72 @@ class SpecRefusalTest
         assertNotEquals("the case table did not move when the spec did", before, after);
     }
 
+    @Test
+    fun `a body key this generator does not carry is refused`()
+    {
+        assertRefused(
+            "body-key.json",
+            replaceOnce("\"body\": \"lorem.long\"", "\"body\": \"lorem.enormous\""),
+            "which is not a body this generator carries"
+        );
+    }
+
+    /**
+     * A screen that reads shows what it read, and static prose under it is the second
+     * answer to a question that already has one.
+     */
+    @Test
+    fun `a body on a screen that reads is refused`()
+    {
+        assertRefused(
+            "body-source.json",
+            replaceOnce(
+                "\"flow\": \"approveDevice\", \"source\": \"deviceApproval.lookup\", \"usecase\": true,",
+                "\"flow\": \"approveDevice\", \"source\": \"deviceApproval.lookup\", \"usecase\": true, " +
+                    "\"body\": \"lorem.short\","
+            ),
+            "a screen that reads shows what it read"
+        );
+    }
+
+    /**
+     * The showcase flows are emitted for the app that shows them and for nobody else.
+     *
+     * `--flows` is a call argument, so a misspelling in it is the failure that would
+     * otherwise emit an app with no screens at all and report success. The narrowing itself
+     * is checked in the other direction too: the harness's one flow brings its own screens
+     * and its own service and leaves the other eight flows' behind.
+     */
+    @Test
+    fun `a target narrowed to a flow the spec does not declare is refused`()
+    {
+        try
+        {
+            generate(repoRoot, specPath, target.copy(flows = setOf("approveDevice", "approveDevices")));
+            fail("generation accepted a --flows value naming no flow");
+        }
+        catch (failure: RuntimeException)
+        {
+            val message = failure.message ?: "";
+            assertTrue("refused, but not on the unknown flow: $message", message.contains("approveDevices"));
+        }
+    }
+
+    @Test
+    fun `a narrowed target emits the screens of its own flows and no others`()
+    {
+        val narrowed = generate(repoRoot, specPath, target.copy(flows = setOf("approveDevice")));
+        val views = narrowed.keys.filter { it.startsWith("${target.swiftRoot}/Views/") }.sorted();
+        assertEquals(
+            listOf("${target.swiftRoot}/Views/EnterCodeView.swift", "${target.swiftRoot}/Views/ReviewDeviceView.swift"),
+            views
+        );
+        // The whole spec still has to be read before it is narrowed, so the count below is
+        // the evidence that narrowing dropped something rather than that nothing was there.
+        val whole = generate(repoRoot, specPath).keys.filter { it.startsWith("${target.swiftRoot}/Views/") };
+        assertEquals("the unnarrowed target lost views of its own", 14, whole.size);
+    }
+
     /**
      * Every Kotlin screen method has to catch wider than the client's own hierarchy.
      *
@@ -695,28 +764,36 @@ class SpecRefusalTest
      * Read off the emitted text because that is the only place this host can see it: the
      * example app compiles these files, but a compiler is satisfied by the narrow catch
      * and the crash needs a device. A count is asserted for each clause so a rename that
-     * emptied the read would pass the loop having read nothing (P7) — four calls across
-     * the two screens, one on `enterCode` and three on `reviewDevice`.
+     * emptied the read would pass the loop having read nothing (P7) — five calls across
+     * three screens: one on `enterCode`, three on `reviewDevice` and one on `form`. The
+     * showcase's other eleven screens call nothing and have nothing to catch, which the
+     * count of models CARRYING a catch is what states.
      */
     @Test
     fun `every generated Kotlin call catches wider than SpfnClientError`()
     {
         val models = generate(repoRoot, specPath)
             .filterKeys { it.startsWith("${target.kotlinRoot}/screens/") && it.endsWith("Model.kt") };
-        assertEquals("the generator wrote no Kotlin screen models to read", 2, models.size);
+        assertEquals("the generator wrote no Kotlin screen models to read", 14, models.size);
 
         var wide = 0;
         var cancellation = 0;
+        var catching = 0;
         models.forEach { (path, content) ->
             assertTrue(
                 "$path still catches only the client's own hierarchy",
                 !content.contains("catch (failure: SpfnClientError)")
             );
+            if (content.contains("catch ("))
+            {
+                catching += 1;
+            }
             wide += content.split("catch (failure: Exception)").size - 1;
             cancellation += content.split("catch (cancelled: CancellationException)").size - 1;
         };
-        assertEquals("a call is not caught wide enough to survive what the SDK throws", 4, wide);
-        assertEquals("a call classifies the cancellation it must rethrow", 4, cancellation);
+        assertEquals("the screens that call are not the ones this suite is reading", 3, catching);
+        assertEquals("a call is not caught wide enough to survive what the SDK throws", 5, wide);
+        assertEquals("a call classifies the cancellation it must rethrow", 5, cancellation);
 
         // Order decides which clause wins, and Kotlin takes the first that matches.
         assertEmits(

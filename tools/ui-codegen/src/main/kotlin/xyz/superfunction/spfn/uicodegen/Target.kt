@@ -44,6 +44,21 @@ data class Target(
     val tableRoot: String?,
 
     /**
+     * The flows this target emits, or null for every flow the spec declares.
+     *
+     * A CALL argument and deliberately not a spec key. One spec, more than one consumer, and
+     * which of a showcase's flows a consumer has a use for is a fact about the consumer —
+     * the harness drives device approval against a live reference server and has no use for
+     * a sheet that exists to be dragged, so a generator that wrote every flow into it would
+     * grow the harness app by seven flows nothing there opens.
+     *
+     * Narrowing takes the screens of the named flows with them, and the services those
+     * screens reach: a service nothing kept calls is a protocol and a default implementation
+     * with no caller, which is the same dead weight one layer down.
+     */
+    val flows: Set<String>?,
+
+    /**
      * Whether the generated views draw the `state=` and `stack=` readouts.
      *
      * A readout is TEST equipment. It is the one thing both runners can read and neither can
@@ -105,6 +120,7 @@ data class Target(
                 kotlinPackage = required(fields, "--kotlin-package"),
                 appId = required(fields, "--app-id"),
                 tableRoot = fields["--table-root"],
+                flows = fields["--flows"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet(),
                 runnerReadouts = readouts(fields),
                 generateTask = required(fields, "--generate-task"),
                 verifyTask = required(fields, "--verify-task")
@@ -118,6 +134,7 @@ data class Target(
             "--kotlin-package",
             "--app-id",
             "--table-root",
+            "--flows",
             "--runner-readouts",
             "--generate-task",
             "--verify-task"

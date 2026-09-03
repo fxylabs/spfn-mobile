@@ -92,17 +92,20 @@ fun generate(repoRoot: File, specPath: String, target: Target): Map<String, Stri
     }
     val specBytes = specFile.readBytes();
     val bundle = loadBundle(repoRoot);
-    val spec = Spec.read(String(specBytes, Charsets.UTF_8), bundle);
+    val whole = Spec.read(String(specBytes, Charsets.UTF_8), bundle);
+    // Read whole and narrowed after, so a flow this target does not want is still checked
+    // before it is dropped: a target cannot hide a broken flow by not asking for it.
+    val spec = whole.narrowedTo(target.flows);
 
     // The digest gate, in the direction the spec adds. `loadBundle` already refused a
     // bundle whose bytes disagree with the lock; this refuses a SPEC written against a
     // different bundle than the one pinned now. Both are needed: they are different
     // mistakes, and only the second one can arrive with the lock untouched.
-    if (spec.manifestSha256 != bundle.sha256)
+    if (whole.manifestSha256 != bundle.sha256)
     {
         throw GenerationFailure(
             "spec digest mismatch for $specPath\n" +
-                "  spec says:  ${spec.manifestSha256}\n" +
+                "  spec says:  ${whole.manifestSha256}\n" +
                 "  bundle is:  ${bundle.sha256}\n" +
                 "Refusing to generate. The spec was written against a different contract bundle."
         );

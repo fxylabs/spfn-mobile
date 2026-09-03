@@ -55,12 +55,23 @@ val exampleTarget = listOf(
 /// The harness's two apps. The Swift root is `GeneratedUI/` and not `Generated/`, which
 /// is XcodeGen's: that directory holds the harness's Info.plist and its entitlements, and
 /// this generator DELETES every file under a directory it owns that it did not emit.
+///
+/// It is also the target that narrows: `--flows` is a call argument and not a spec key,
+/// because which of a showcase's flows a consumer has a use for is a fact about the
+/// consumer and not something the screens say about themselves.
 val harnessTarget = listOf(
     "--target=harness",
     "--swift-root=tools/harness/ios/GeneratedUI",
     "--kotlin-root=tools/harness/android/src/main/kotlin/xyz/superfunction/spfn/harness/generated",
     "--kotlin-package=xyz.superfunction.spfn.harness.generated",
     "--app-id=xyz.superfunction.spfn.harness",
+    // ONE flow of the nine, and the rest are not the harness's business. The spec is a
+    // showcase: seven of its flows exist so a person can look at the three presentations, a
+    // stack inside a sheet, a keyboard and a body that does not fit. The harness drives
+    // device approval against a live reference server, so every other flow would arrive
+    // here as screens, views and routes nothing in this app opens. The screens of the
+    // flows that stay come with them, and so do the services those screens reach.
+    "--flows=approveDevice",
     // The harness drives these screens against a live server through d1–d3, which wait on
     // `state=ready` and `stack=0`. Without the readouts those three flows have nothing to
     // wait for.
