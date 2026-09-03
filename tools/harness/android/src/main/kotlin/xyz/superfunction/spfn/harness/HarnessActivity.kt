@@ -1,111 +1,50 @@
 package xyz.superfunction.spfn.harness
 
-import android.animation.AnimatorSet
-import android.animation.ObjectAnimator
-import android.animation.StateListAnimator
-import android.app.Activity
-import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.text.InputType
-import android.text.TextWatcher
-import android.view.Gravity
-import android.view.View
-import android.view.ViewGroup
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.ScrollView
-import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import xyz.superfunction.spfn.ui.Busy
 
 /**
- * The harness screen.
+ * What owns the harness: one model, one screen state, and the scope every tap runs in.
  *
- * Readouts, then the half a person drives, then the half the flows drive — all built in
- * code. This is not a sample app and not a design: every view exists because a flow needs
- * to tap it or a person needs to read it.
- *
- * The order is what a device run bought. The device-mode controls sit on top because that
- * is what a phone is for here, and the ten lifecycle buttons sit under a divider that says
- * so — with every resource id and every title they always had, because a flow finds them by
- * those strings and a rearranged screen must not be a renamed one.
- *
- * How a flow finds them is split, and the split is forced by the platforms rather than
- * chosen. A flow's `id:` matches an accessibility identifier on iOS and a RESOURCE id on
- * Android, and a resource id is fixed at build time — so a button, whose identity never
- * changes, is found by id on both, while a readout, whose whole point is that its value
- * changes, is found by its text. The label rides in that text (`state=unenrolled`) so the
- * match names which readout it means.
- *
- * The first run on a real phone is what settled this: all nine cases failed with
- * "Element not found: Id matching regex: wipe" while the screen was on and correct,
- * because content descriptions are not resource ids.
+ * The screen itself is [HarnessScreen]. This half is the three things a composable cannot
+ * hold — the model, a coroutine scope that dies with the Activity, and the Toast — and the
+ * wiring between them. [HarnessScreenState] is the join: the model answers with plain
+ * fields and a callback, and [HarnessScreenState.readFrom] copies them into snapshot state
+ * on the main thread, which is what the old view tree's `render()` did with fifteen
+ * `setText` calls.
  *
  * A tap answers in three ways, and the readouts are none of them. The readouts are the
  * machine-readable truth and they are written for a flow: a person who taps a button and
  * watches one word two lines up change from `ready` to `busy` and back inside a second has
- * watched nothing happen. So every tappable view here changes under a finger
- * ([pressFeedback]), the one action that outlives its tap by seconds shows a spinner while
- * it runs ([attemptSpinner]), and every action ends in a Toast naming what it did
- * ([announce]). None of the three is a readout and no flow may read one — see [announce]
- * for what keeps a flow's selector off the Toast.
- *
- * tools/harness/ios/Sources/HarnessView.swift is the same screen in SwiftUI, with the
- * same button ids and the same readout text.
+ * watched nothing happen. So every control changes under a finger, the one action that
+ * outlives its tap by seconds shows a marker while it runs, and every action ends in a
+ * Toast naming what it did ([announce]). None of the three is a readout and no flow may
+ * read one — see [announce] for what keeps a flow's selector off the Toast.
  */
-class HarnessActivity : Activity()
+class HarnessActivity : ComponentActivity()
 {
+    /**
+     * Where every tap's work runs, owned here and cancelled in [onDestroy].
+     *
+     * The Activity's rather than a composition's: an action that survives a
+     * recomposition — a provider sheet, a device code somebody is walking to another phone
+     * with — must not be cancelled by one, and `rememberCoroutineScope` dies with the
+     * composable that remembered it.
+     */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main);
 
     private lateinit var model: HarnessModel;
-    private lateinit var stateLabel: TextView;
-    private lateinit var outcomeLabel: TextView;
-    private lateinit var busyLabel: TextView;
-    private lateinit var networkLabel: TextView;
-    private lateinit var custodyLabel: TextView;
-    private lateinit var caseLabel: TextView;
-    private lateinit var socialLabel: TextView;
-    private lateinit var receiptLabel: TextView;
 
-    /** What the selected case asks a person to do at the sheet. Not a readout a flow reads. */
-    private lateinit var preconditionLabel: TextView;
-
-    private lateinit var deviceCodeLabel: TextView;
-    private lateinit var expiresLabel: TextView;
-
-    /** Where a person types a code read off another device's screen. */
-    private lateinit var approverField: EditText;
-
-    /** Redraws the countdown once a second while a code is on screen, and nothing else. */
-    private var countdown: Job? = null;
-
-    /**
-     * The spinner beside `sign-in-google`, shown for as long as that attempt runs.
-     *
-     * The device-mode attempt is the only action on this screen that takes long enough for
-     * a person to wonder whether the tap landed: it wipes, puts a provider sheet up, waits
-     * for an account to be picked, enrols, and writes a file. `busy=busy` says all of that
-     * in one word two lines above the button, which is a fact for a flow rather than an
-     * answer to a finger.
-     *
-     * The ten lifecycle buttons get no spinner. Their work is one request and it is over
-     * before a spinner would have finished appearing; a spinner that flashes is noise, and
-     * the Toast that follows is the reaction those taps needed.
-     */
-    private lateinit var attemptSpinner: ProgressBar;
+    private val screen = HarnessScreenState();
 
     /**
      * The Toast currently on screen, held only so the next one can replace it.
@@ -116,29 +55,20 @@ class HarnessActivity : Activity()
      */
     private var signal: Toast? = null;
 
-    /**
-     * Whether an action is running, held here rather than passed to each `render` call.
-     *
-     * It was a parameter, and a case button repainted the screen with `busy=false` while
-     * another action was still in flight — a readout that told a flow to stop waiting for
-     * something that had not finished. One piece of state, written where it changes.
-     */
-    private var busy: Boolean = false;
-
-    /** The views a running action must not be able to be interrupted through. */
-    private val socialViews = mutableListOf<View>();
-
     override fun onCreate(savedInstanceState: Bundle?)
     {
         super.onCreate(savedInstanceState);
         model = HarnessModel(this, HarnessConfiguration.fromLaunch(intent));
-        // The model posts the callback onto this thread and then calls this, so the code
-        // reaches the screen the moment the server answers rather than when the whole
+        // The model posts the callback onto the main thread and then calls this, so the
+        // code reaches the screen the moment the server answers rather than when the whole
         // sign-in finishes — which is the point of showing a code at all.
-        model.onDeviceCodeShown = { render() };
-        setContentView(buildScreen());
+        model.onDeviceCodeShown = { screen.readFrom(model) };
+
+        val actions = actions();
+        setContent { HarnessScreen(screen, actions) };
+
         model.refresh();
-        render();
+        screen.readFrom(model);
     }
 
     override fun onDestroy()
@@ -151,433 +81,98 @@ class HarnessActivity : Activity()
         super.onDestroy();
     }
 
-    private fun buildScreen(): ViewGroup
-    {
-        val column = LinearLayout(this);
-        column.orientation = LinearLayout.VERTICAL;
-        column.setPadding(32, 32, 32, 32);
-
-        stateLabel = label(column);
-        outcomeLabel = label(column);
-        busyLabel = label(column);
-        networkLabel = label(column);
-        custodyLabel = label(column);
-        caseLabel = label(column);
-        socialLabel = label(column);
-        receiptLabel = label(column);
-        deviceCodeLabel = label(column);
-        expiresLabel = label(column);
-
-        column.addView(deviceMode());
-        column.addView(deviceCodeMode());
-        column.addView(lifecycleDivider());
-
-        for (action in actions())
+    /**
+     * Every tappable thing on the screen, with the tag a flow finds it by.
+     *
+     * Built once and handed to the composition, because these lambdas close over the model
+     * and the scope, and neither of those is a thing a recomposition should be able to
+     * replace.
+     */
+    private fun actions(): HarnessActions = HarnessActions(
+        // Selecting is instant work, so it does not go through [perform]: showing
+        // `busy=busy` for a field assignment would teach a flow to wait for nothing.
+        selectCase = { case -> model.selectSocialCase(case); screen.readFrom(model) },
+        socialSignIn = HarnessAction("btn_social_google", "sign-in-google")
         {
-            column.addView(button(action));
-        }
-
-        val scroll = ScrollView(this);
-        scroll.addView(column);
-        // The system bars' insets become this view's padding. Without it the screen is
-        // edge-to-edge — which every app targeting API 35 and later now is, whether it asks
-        // or not — and on a real phone on 2026-09-01 the last button of the column sat under
-        // the navigation bar, reachable only by scrolling past the end of the content.
-        scroll.fitsSystemWindows = true;
-        return scroll;
-    }
-
-    /**
-     * The half of the screen a person drives and no flow does, above the half that no
-     * person drives.
-     *
-     * Two things to tap and one thing to choose. The five cases used to be buttons in the
-     * same column as the sign-in and the ten lifecycle actions — seventeen views that looked
-     * alike, of which two did anything — and the operator was expected to remember a wipe
-     * before each attempt as well.
-     */
-    private fun deviceMode(): ViewGroup
-    {
-        val block = LinearLayout(this);
-        block.orientation = LinearLayout.VERTICAL;
-        block.setPadding(0, 0, 0, 24);
-
-        block.addView(heading("device verification"));
-        block.addView(caseSelector());
-
-        preconditionLabel = TextView(this);
-        preconditionLabel.textSize = 14f;
-        preconditionLabel.setPadding(0, 12, 0, 4);
-        block.addView(preconditionLabel);
-
-        block.addView(signInRow());
-        return block;
-    }
-
-    /**
-     * The one action button and the spinner that says it is still running.
-     *
-     * The spinner is [View.INVISIBLE] rather than `GONE` when idle so that showing it moves
-     * nothing: a control that changes the layout of the screen while an attempt runs is a
-     * control that can move another one out from under a finger.
-     */
-    private fun signInRow(): ViewGroup
-    {
-        val row = LinearLayout(this);
-        row.orientation = LinearLayout.HORIZONTAL;
-        row.gravity = Gravity.CENTER_VERTICAL;
-
-        attemptSpinner = ProgressBar(this, null, android.R.attr.progressBarStyleSmall);
-        attemptSpinner.visibility = View.INVISIBLE;
-        val spinnerLayout = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        spinnerLayout.leftMargin = 24;
-        attemptSpinner.layoutParams = spinnerLayout;
-
-        val signIn = signInButton();
-        // A vertical LinearLayout gives its children MATCH_PARENT width and a horizontal
-        // one gives them WRAP_CONTENT, so moving this button into a row would have shrunk
-        // the screen's main action to the width of its own title without anything saying
-        // so. The weight puts it back: the button takes the row less the spinner.
-        signIn.layoutParams = LinearLayout.LayoutParams(
-            0,
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            1f
-        );
-        socialViews.add(signIn);
-        row.addView(signIn);
-        row.addView(attemptSpinner);
-        return row;
-    }
-
-    /**
-     * The five cases as one single-choice control, boxed so it cannot be mistaken for a
-     * stack of actions.
-     *
-     * A [RadioGroup] is the platform's own answer to "exactly one of these": it keeps the
-     * invariant itself rather than leaving the screen to remember it, and each row is still
-     * a view with a resource id, which is the only kind of element a Maestro selector can
-     * find. The ids are the ones this screen always used, so anything that could already
-     * find a case still finds it.
-     *
-     * The listener is attached AFTER the initial selection is checked. A [RadioGroup.check]
-     * fires the listener, and a listener that repainted the screen during construction would
-     * reach labels that do not exist yet.
-     */
-    private fun caseSelector(): ViewGroup
-    {
-        val box = LinearLayout(this);
-        box.orientation = LinearLayout.VERTICAL;
-        box.background = selectorBorder();
-        box.setPadding(24, 16, 24, 16);
-
-        val header = TextView(this);
-        header.text = "case (pick one)";
-        header.textSize = 14f;
-        box.addView(header);
-
-        val group = RadioGroup(this);
-        group.orientation = RadioGroup.VERTICAL;
-        for (case in HarnessSocialCase.entries)
-        {
-            val option = caseOption(case);
-            socialViews.add(option);
-            group.addView(option);
-        }
-        group.check(caseId(model.socialCase));
-        group.setOnCheckedChangeListener { _, checked ->
-            model.selectSocialCase(caseOf(checked));
-            render();
-        };
-        box.addView(group);
-        return box;
-    }
-
-    /**
-     * One case, spelled exactly as the shared spec spells it and as iOS spells it.
-     *
-     * The label is the wire name and nothing else. It used to be `case-first-enroll` here
-     * against `[first-enroll]` on iOS, and a device run spent a round trip working out that
-     * the three spellings were one case. Selection rides in the radio button's own mark,
-     * where a selection belongs, and never in the text.
-     *
-     * Selecting is instant work, so it does not go through [perform]: showing `busy=busy`
-     * for a field assignment would teach a flow to wait for nothing.
-     */
-    private fun caseOption(case: HarnessSocialCase): RadioButton
-    {
-        val option = RadioButton(this);
-        option.id = caseId(case);
-        option.text = case.wireName;
-        option.textSize = 16f;
-        option.stateListAnimator = pressFeedback();
-        return option;
-    }
-
-    private fun caseId(case: HarnessSocialCase): Int = when (case)
-    {
-        HarnessSocialCase.FIRST_ENROLL -> R.id.btn_case_first_enroll
-        HarnessSocialCase.RE_LOGIN -> R.id.btn_case_re_login
-        HarnessSocialCase.USER_CANCEL -> R.id.btn_case_user_cancel
-        HarnessSocialCase.NETWORK_FAILURE -> R.id.btn_case_network_failure
-        HarnessSocialCase.SERVER_REJECT -> R.id.btn_case_server_reject
-    };
-
-    /**
-     * The case a checked resource id names.
-     *
-     * Exhaustive over the same five ids [caseId] writes, and it throws rather than falling
-     * back to a default: an id this cannot name is a row nothing here put in the group, and
-     * silently reading it as `first-enroll` would file the receipt under a case the person
-     * did not pick.
-     */
-    private fun caseOf(id: Int): HarnessSocialCase =
-        HarnessSocialCase.entries.first { caseId(it) == id };
-
-    /**
-     * The one button that opens a real provider sheet.
-     *
-     * Disabled — visibly, with the reason on the `social=` label — when this build carries
-     * no client id or no server address. A checkout of this repository is exactly that
-     * build, and it installs and runs: the configuration is missing, so the action that
-     * needs it is unavailable, which is a state rather than a crash.
-     *
-     * The title is `sign-in-google`, the same word the iOS harness puts on the same action.
-     * The RESOURCE id stays `btn_social_google`, which is what it has always been: a
-     * resource id is what a selector matches, and renaming one to tidy a title would break
-     * every selector that already names it for nothing.
-     */
-    private fun signInButton(): Button
-    {
-        val view = Button(this);
-        view.id = R.id.btn_social_google;
-        view.text = "sign-in-google";
-        view.isAllCaps = false;
-        view.stateListAnimator = pressFeedback();
-        // The signal names the outcome and the receipt's FILE NAME, and nothing else the
-        // receipt holds. Everything else in that file is evidence about an account, and a
-        // Toast is the one part of this screen that survives into a photograph of it.
-        view.setOnClickListener {
-            perform(attemptSpinner, { "${model.outcome}\n${model.receipt}" })
+            // The signal names the outcome and the receipt's FILE NAME, and nothing else
+            // the receipt holds. Everything else in that file is evidence about an account,
+            // and a Toast is the one part of this screen that survives into a photograph.
+            perform(attempt = true, signal = { "${model.outcome}\n${model.receipt}" })
             {
                 model.signInWithGoogle(this@HarnessActivity);
             }
-        };
-        return view;
-    }
-
-    /**
-     * Signing this device in with a code, and approving another device that shows one.
-     *
-     * Two halves of one flow on one screen, because a harness has one phone in front of
-     * it at a time and either half has to be reachable. The code a person types to approve
-     * is its own field: a single one would let this device approve itself.
-     */
-    private fun deviceCodeMode(): ViewGroup
-    {
-        val block = LinearLayout(this);
-        block.orientation = LinearLayout.VERTICAL;
-        block.setPadding(0, 8, 0, 16);
-
-        block.addView(heading("device code"));
-        block.addView(button(Triple(R.id.btn_device_sign_in, "sign-in-with-a-code") { signInWithACode() }));
-
-        val approve = TextView(this);
-        approve.text = "approve a device";
-        approve.textSize = 14f;
-        approve.setPadding(0, 12, 0, 4);
-        block.addView(approve);
-
-        approverField = EditText(this);
-        approverField.id = R.id.input_device_code;
-        approverField.hint = "XXXX-XXXX";
-        approverField.setSingleLine();
-        approverField.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS;
-        approverField.addTextChangedListener(object : TextWatcher
-        {
-            override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
-
-            override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) = Unit
-
-            // The code is passed to the server exactly as typed: the server folds case,
-            // spaces and dashes on the way in, so nothing here reformats it.
-            override fun afterTextChanged(text: android.text.Editable?)
-            {
-                model.setApproverCode(text?.toString().orEmpty());
-            }
-        });
-        block.addView(approverField);
-
-        block.addView(button(Triple(R.id.btn_device_info, "device-info") { model.describeWaitingDevice() }));
-        block.addView(button(Triple(R.id.btn_device_approve, "device-approve") { model.approveWaitingDevice() }));
-        block.addView(button(Triple(R.id.btn_device_deny, "device-deny") { model.denyWaitingDevice() }));
-        return block;
-    }
-
-    /**
-     * The one action on this screen that waits for a person on ANOTHER device.
-     *
-     * `busy=busy` says it is running, as it does for every other action. What it needs on
-     * top of that is a ticker, so `expires-in=` counts down rather than sitting at whatever
-     * it was when the code arrived: the countdown is the one thing on this screen that
-     * changes without anybody tapping. The ticker is the only timer here and it stops when
-     * the wait does, however the wait ends.
-     */
-    private suspend fun signInWithACode()
-    {
-        countdown?.cancel();
-        countdown = scope.launch {
-            while (true)
-            {
-                delay(1_000);
-                render();
-            }
-        };
-        try
-        {
-            model.signInWithACode();
-        }
-        finally
-        {
-            countdown?.cancel();
-            countdown = null;
-        }
-    }
-
-    /** The rule and the caption that say which half of the screen is below them. */
-    private fun lifecycleDivider(): ViewGroup
-    {
-        val block = LinearLayout(this);
-        block.orientation = LinearLayout.VERTICAL;
-        block.setPadding(0, 8, 0, 8);
-
-        val rule = View(this);
-        rule.setBackgroundColor(Color.GRAY);
-        rule.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 2);
-        block.addView(rule);
-        block.addView(heading("sdk lifecycle (flows)"));
-        return block;
-    }
-
-    private fun heading(text: String): TextView
-    {
-        val view = TextView(this);
-        view.text = text;
-        view.textSize = 16f;
-        view.setTypeface(null, Typeface.BOLD);
-        view.setPadding(0, 8, 0, 8);
-        return view;
-    }
-
-    /**
-     * The box that makes the case selector read as one control.
-     *
-     * A stroke rather than a fill: the harness declares no theme, so it takes the platform's,
-     * and a background colour chosen here would be a guess about what the text colour will be
-     * on someone's phone. A grey outline is legible against a light one and a dark one.
-     */
-    private fun selectorBorder(): GradientDrawable
-    {
-        val border = GradientDrawable();
-        border.shape = GradientDrawable.RECTANGLE;
-        border.cornerRadius = 12f;
-        border.setStroke(2, Color.GRAY);
-        return border;
-    }
-
-    /**
-     * Every button the flows tap: its resource id, its visible text, and what it does.
-     *
-     * The text is lowercase and `isAllCaps` is turned off, so what a reader sees on the
-     * phone is the same word the flow file names.
-     */
-    private fun actions(): List<Triple<Int, String, suspend () -> Unit>> = listOf(
-        Triple(R.id.btn_enroll, "enroll") { model.enroll() },
-        Triple(R.id.btn_rotate, "rotate") { model.rotate() },
-        Triple(R.id.btn_resume, "resume") { model.resumeRotation() },
-        Triple(R.id.btn_revoke, "revoke") { model.revokeActiveKey() },
-        Triple(R.id.btn_proven_call, "proven-call") { model.provenCall() },
-        Triple(R.id.btn_note_revoked, "note-revoked") { model.noteSessionRevoked() },
-        Triple(R.id.btn_wipe, "wipe") { model.wipe() },
-        Triple(R.id.btn_custody_probe, "custody-probe") { model.probeCustody() },
-        Triple(R.id.btn_block_network, "block-network") { model.setNetworkBlocked(true) },
-        Triple(R.id.btn_open_network, "open-network") { model.setNetworkBlocked(false) }
+        },
+        deviceSignIn = action("btn_device_sign_in", "sign-in-with-a-code") { model.signInWithACode() },
+        setApproverCode = { code -> model.setApproverCode(code) },
+        approver = listOf(
+            action("btn_device_info", "device-info") { model.describeWaitingDevice() },
+            action("btn_device_approve", "device-approve") { model.approveWaitingDevice() },
+            action("btn_device_deny", "device-deny") { model.denyWaitingDevice() }
+        ),
+        lifecycle = lifecycleActions()
     );
 
     /**
-     * Whole seconds until the shown code expires, or `-` when none is showing.
+     * The ten buttons the flows tap, in the order the flows expect to find them.
      *
-     * Computed on every render, which the ticker causes once a second. A countdown rather
-     * than an instant because what the person holding this phone needs to know is how long
-     * they have to walk to the other one.
+     * The title is lowercase and uncapitalised, so what a reader sees on the phone is the
+     * same word the flow file names.
      */
-    private fun expiresIn(): String
-    {
-        val expiry = model.deviceCodeExpiresAtMillis ?: return "-";
-        val remaining = expiry - System.currentTimeMillis();
-        return if (remaining > 0) "${remaining / 1_000}s" else "expired";
-    }
-
-    private fun label(parent: ViewGroup): TextView
-    {
-        val view = TextView(this);
-        view.textSize = 16f;
-        parent.addView(view);
-        return view;
-    }
-
-    private fun button(action: Triple<Int, String, suspend () -> Unit>): Button
-    {
-        val view = Button(this);
-        view.id = action.first;
-        view.text = action.second;
-        view.isAllCaps = false;
-        view.stateListAnimator = pressFeedback();
-        // A lifecycle action's signal is the `outcome=` value it already produces and
-        // nothing more. These ten buttons write no receipt, and inventing a second
-        // vocabulary for the Toast would give a reader two names for one result.
-        view.setOnClickListener { perform(null, { model.outcome }, action.third) };
-        return view;
-    }
+    private fun lifecycleActions(): List<HarnessAction> = listOf(
+        action("btn_enroll", "enroll") { model.enroll() },
+        action("btn_rotate", "rotate") { model.rotate() },
+        action("btn_resume", "resume") { model.resumeRotation() },
+        action("btn_revoke", "revoke") { model.revokeActiveKey() },
+        action("btn_proven_call", "proven-call") { model.provenCall() },
+        action("btn_note_revoked", "note-revoked") { model.noteSessionRevoked() },
+        action("btn_wipe", "wipe") { model.wipe() },
+        action("btn_custody_probe", "custody-probe") { model.probeCustody() },
+        action("btn_block_network", "block-network") { model.setNetworkBlocked(true) },
+        action("btn_open_network", "open-network") { model.setNetworkBlocked(false) }
+    );
 
     /**
-     * What a view does under a finger, given to every button and every case row on this
-     * screen.
+     * One action whose signal is the `outcome=` value it already produces and nothing more.
      *
-     * Not decoration and not a theme. These views are built in code against whatever theme
-     * the device supplies, so what a press looks like — a ripple, a lift, or nothing at all
-     * — is the device's answer rather than this screen's, and on a phone held at arm's
-     * length across a desk the honest answer to "did that tap land?" was often nothing.
-     * Alpha and scale are visible on any theme, light or dark, and need no colour chosen
-     * here: the same reason [selectorBorder] draws a stroke instead of a fill.
-     *
-     * This REPLACES the default state list animator, which on a platform button is the
-     * elevation lift. That is the trade and it is deliberate: a lift of a few pixels is
-     * what was already there and was already being missed.
-     *
-     * A fresh instance per view. A [StateListAnimator] binds to the view it is set on, and
-     * one instance shared across the sixteen views here would follow the last one.
+     * These buttons write no receipt, and inventing a second vocabulary for the Toast would
+     * give a reader two names for one result.
      */
-    private fun pressFeedback(): StateListAnimator
-    {
-        val animator = StateListAnimator();
-        animator.addState(intArrayOf(android.R.attr.state_pressed), pressAnimation(0.55f, 0.97f));
-        animator.addState(IntArray(0), pressAnimation(1f, 1f));
-        return animator;
-    }
+    private fun action(tag: String, title: String, run: suspend () -> Unit): HarnessAction =
+        HarnessAction(tag, title) { perform(attempt = false, signal = { model.outcome }, action = run) };
 
-    private fun pressAnimation(alpha: Float, scale: Float): AnimatorSet
+    /**
+     * The network work leaves the main thread; the screen state is written back on it. A
+     * flow waits for `busy=ready` rather than sleeping for a guessed number of seconds, and
+     * the flag is set HERE, synchronously inside the tap, so there is no window where a
+     * started action still reads as finished.
+     *
+     * [attempt] shows the running marker for exactly as long as the action runs, and
+     * [signal] is read AFTER it finishes — it is a lambda rather than a string for that
+     * reason alone, since the outcome it names does not exist yet at the moment of the tap.
+     *
+     * The restore is a `finally` and the announcement is not. A cancelled coroutine is the
+     * screen going away rather than an action finishing, so the marker and the busy flag
+     * are put back and nothing is announced: a Toast is a claim that something completed
+     * (P16), and one shown here would appear over whatever screen replaced this one.
+     */
+    private fun perform(attempt: Boolean, signal: () -> String, action: suspend () -> Unit)
     {
-        val set = AnimatorSet();
-        set.duration = 60L;
-        set.playTogether(
-            ObjectAnimator.ofFloat(null, View.ALPHA, alpha),
-            ObjectAnimator.ofFloat(null, View.SCALE_X, scale),
-            ObjectAnimator.ofFloat(null, View.SCALE_Y, scale)
-        );
-        return set;
+        screen.busy = Busy.Busy;
+        screen.attemptRunning = attempt;
+        screen.readFrom(model);
+        scope.launch {
+            try
+            {
+                withContext(Dispatchers.IO) { action() };
+            }
+            finally
+            {
+                screen.busy = Busy.Idle;
+                screen.attemptRunning = false;
+                screen.readFrom(model);
+            }
+            announce(signal());
+        };
     }
 
     /**
@@ -588,18 +183,18 @@ class HarnessActivity : Activity()
      * are on the button they just pressed.
      *
      * The text carries NO readout prefix — `ok:wiped`, not `outcome=ok:wiped`. Every flow
-     * selector in tools/harness/flows/ matches either a resource id or a readout's text
+     * selector in tools/harness/flows/ matches either a control's id or a readout's text
      * (`outcome=…`, `state=…`, `busy=…`), and dropping the prefix is what makes it
      * impossible for one of them to match this window instead of the label it means. A
      * transient signal a flow could assert on is a flow that passes because a Toast was
      * still up (docs/IMPLEMENTATION-PITFALLS.md P7).
      *
      * The text is ALL that keeps a flow off this window, and the iOS half has a second
-     * lock the Android half cannot have. A SwiftUI banner is marked
-     * `accessibilityHidden`, which deletes it from the hierarchy a flow searches; a Toast
-     * announces itself to the accessibility layer by design, because being heard is what a
-     * Toast is for. Same rule, different strength, and the strength is the platform's
-     * rather than this file's (P15).
+     * lock the Android half cannot have. A SwiftUI banner is marked `accessibilityHidden`,
+     * which deletes it from the hierarchy a flow searches; a Toast announces itself to the
+     * accessibility layer by design, because being heard is what a Toast is for. Same
+     * rule, different strength, and the strength is the platform's rather than this
+     * file's (P15).
      */
     private fun announce(text: String)
     {
@@ -607,70 +202,5 @@ class HarnessActivity : Activity()
         val toast = Toast.makeText(this, text, Toast.LENGTH_LONG);
         signal = toast;
         toast.show();
-    }
-
-    /**
-     * The network work leaves the main thread; the labels are written back on it. A flow
-     * waits for `busy=ready` rather than sleeping for a guessed number of seconds, and the
-     * flag is set HERE, synchronously inside the click, so there is no window where a
-     * started action still reads as finished.
-     *
-     * [indicator] is shown for exactly as long as the action runs, and [signal] is read
-     * AFTER it finishes — it is a lambda rather than a string for that reason alone, since
-     * the outcome it names does not exist yet at the moment of the tap.
-     *
-     * The restore is a `finally` and the announcement is not. A cancelled coroutine is the
-     * screen going away rather than an action finishing, so the spinner and the busy flag
-     * are put back and nothing is announced: a Toast is a claim that something completed
-     * (P16), and one shown here would appear over whatever screen replaced this one.
-     */
-    private fun perform(indicator: View?, signal: () -> String, action: suspend () -> Unit)
-    {
-        busy = true;
-        indicator?.visibility = View.VISIBLE;
-        render();
-        scope.launch {
-            try
-            {
-                withContext(Dispatchers.IO) { action() };
-            }
-            finally
-            {
-                busy = false;
-                indicator?.visibility = View.INVISIBLE;
-                render();
-            }
-            announce(signal());
-        };
-    }
-
-    private fun render()
-    {
-        stateLabel.text = "state=${model.state}";
-        outcomeLabel.text = "outcome=${model.outcome}";
-        busyLabel.text = if (busy) "busy=busy" else "busy=ready";
-        // Permanent, not a message the two network buttons leave behind. The first device
-        // run burned three attempts on a transport still shut from an earlier case: a
-        // blocked switch mimics a real network drop exactly, which is what makes it worth
-        // reading and impossible to notice.
-        networkLabel.text = if (model.networkBlocked) "network=blocked" else "network=open";
-        custodyLabel.text = "custody=${model.custody}";
-        caseLabel.text = "case=${model.socialCase.wireName}";
-        // The word only. A client id and a server address are what this build was given,
-        // and neither belongs on a screen that ends up in a screenshot.
-        socialLabel.text = "social=${HarnessSocialConfiguration.readout}";
-        receiptLabel.text = "receipt=${model.receipt}";
-        deviceCodeLabel.text = "device-code=${model.deviceCode}";
-        expiresLabel.text = "expires-in=${expiresIn()}";
-        preconditionLabel.text = model.socialCase.precondition;
-
-        // A sign-in and a case change are both refused while one attempt is in flight. A
-        // second tap would start a second sheet over the first, and the first attempt's
-        // receipt would be written about a run that no longer describes the screen.
-        val available = HarnessSocialConfiguration.isConfigured && !busy;
-        for (view in socialViews)
-        {
-            view.isEnabled = available;
-        }
     }
 }
