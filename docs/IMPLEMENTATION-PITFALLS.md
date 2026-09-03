@@ -36,7 +36,7 @@
 | 계약 번들 교체·재핀, `upstream.lock.json` 수정 | [P1](#p1) [P2](#p2) [P3](#p3) [P6](#p6) |
 | `tools/validate/` 수정, 새 검사 추가 | [P4](#p4) [P5](#p5) [P6](#p6) [P7](#p7) |
 | `tools/contract-codegen/` 수정, 계약 타입 문법 변화 | [P8](#p8) [P2](#p2) |
-| `tools/ui-codegen/` 수정, 화면 스펙(`examples/ui-spec/*.json`) 작성·수정, 생성물 소비처(`examples/**/Generated`·`generated`, `tools/harness/**/GeneratedUI`·`generated`) 추가 | [P2](#p2) [P8](#p8) [P10](#p10) [P21](#p21) [P24](#p24) |
+| `tools/ui-codegen/` 수정, 화면 스펙(`examples/ui-spec/*.json`) 작성·수정, 생성물 소비처(`examples/**/Generated`·`generated`, `tools/harness/**/GeneratedUI`·`generated`) 추가 | [P2](#p2) [P8](#p8) [P10](#p10) [P21](#p21) [P24](#p24) [P26](#p26) |
 | 화면 모델·비동기 호출의 완료 처리, 네비게이션 스택 변경 | [P24](#p24) [P16](#p16) [P15](#p15) |
 | Swift·Kotlin 대칭 로직 추가·수정 | [P9](#p9) [P10](#p10) [P15](#p15) |
 | 플랫폼 콜백 API를 async/suspend로 감싸기, 제공자 어댑터 | [P16](#p16) [P15](#p15) |
@@ -899,6 +899,67 @@ iOS는 재배치가 필요 없다"고 적혀 있었고, 그 문장 하나가 iOS
 두 라운드 모두 화면은 켜져 있었고 옳았다. 플로우 13개와 `run-harness.sh`의 플로우
 목록은 어느 라운드에서도 손대지 않았다 — 고친 것은 화면뿐이다.
 
+## P26. 생성 코드의 catch는 SDK 예외 계층 전체를 알아야 한다 {#p26}
+
+**증상.** 화면이 호출 하나에 **죽는다.** 에러 상태가 아니라 프로세스가 사라진다. 앱은
+켜져 있고 모델도 옳고 단위 스위트는 전부 초록이며, 죽는 자리는 생성된 화면 모델의
+`catch` 절 바로 그 자리다. 그 절이 클라이언트 자신의 계층(`SpfnClientError`)만 이름하고,
+SDK는 그 밖으로도 던지기 때문이다 — `SpfnClockSynchronizationException`은
+`IllegalStateException`이고, 요청이 나가기 **전에** 던져지므로 서버가 무엇을 답하든
+상관이 없다.
+
+좁은 catch는 신중해 보이는 쪽이라 더 위험하다. 넓게 잡으면 취소까지 삼킨다는
+([P16](#p16)) 옳은 이유가 붙어 있고, 그 이유는 취소 절을 **먼저** 두면 그대로 지켜진다.
+
+**표가 이것을 못 잡는다는 것이 이 항목의 요점이다.** 케이스 표의 픽스처는 서버의 답을
+읽어 들이는 타입, 즉 `SpfnClientError`만 던진다 — 그것이 픽스처의 옳은 설계다. 그러면
+문제의 분기는 **어떤 셀도 들어갈 수 없는 분기**가 되고, 셀을 더 만들어도 달라지지
+않는다. 표의 크기가 아니라 표의 어휘가 한계다.
+
+**탐지.** 생성된 모델의 catch 절을 텍스트로 읽는다. 컴파일러는 좁은 catch에 만족하고,
+크래시는 기기에서만 난다.
+
+```
+# 클라이언트 계층만 이름하는 절은 하나도 없어야 한다 — 두 파일 모두 0.
+grep -c 'catch (failure: SpfnClientError)' \
+    examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/generated/screens/*Model.kt
+
+# 그리고 호출마다 취소 절이 넓은 절보다 앞에 있어야 한다 — 두 수가 같아야 한다.
+grep -c 'catch (cancelled: CancellationException)' \
+    examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/generated/screens/*Model.kt
+grep -c 'catch (failure: Exception)' \
+    examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/generated/screens/*Model.kt
+```
+
+같은 판정을 에미터에 대고 하는 것이
+`tools/ui-codegen/src/test/kotlin/.../SpecRefusalTest.kt`의 `every generated Kotlin call
+catches wider than SpfnClientError`다. 픽스처가 던질 수 있는 것으로 하는 판정은
+`examples/android-compose/src/test/.../UnexpectedFailureTest.kt`다.
+
+**처방.** 세 가지를 한 자리에서 정한다.
+
+- **취소를 먼저, 그리고 다시 던진다.** Kotlin은 절을 쓴 순서로 맞추므로
+  `catch (cancelled: CancellationException) { throw cancelled }`가 넓은 절 위에 온다.
+  분류하면 화면에는 실패라고 말하면서 호출자 스코프에는 취소된 적 없다고 말하게 된다
+  ([P16](#p16)).
+- **나머지는 전부 분류한다.** 넓은 절은 `Exception`이고, 분류기는 `Throwable`을 받는다.
+  분류 문자열은 **SDK 타입 자신의 이름**이고 서버가 고른 텍스트는 담지 않는다 — 넓히는
+  것은 잡는 범위지 화면에 찍히는 내용이 아니다.
+- **두 언어에 같은 규칙을 적되 같은 문법을 강요하지 않는다** ([P15](#p15)). Swift는
+  에러 타입이 하나고 bare `catch`가 전부를 잡으므로 절을 더할 것이 없다. 대신 Swift는
+  `CancellationError`를 되던질 수 없다 — 그 메서드들은 throw하지 않는다 — 그러니 그
+  차이는 고치는 것이 아니라 **에미터에 적어 둔다.**
+
+**픽스처를 쓰는 쪽에는 셀이 아닌 답을 둔다.** 예제 앱의 `Answer`에 `CRASH`(SDK가 던지는
+비클라이언트 예외)와 `CANCEL`을 더했고, 둘 다 `Fixtures.forCell`에 없다 — 셀이 아니고
+표는 움직이지 않는다. 표가 못 덮는 것을 표에 억지로 넣는 대신, 표 옆에 둔다.
+
+**나온 곳.** ui/scaffold-2f, Pixel 3a API 34 에뮬레이터 2026-09-03. 기기 모드 d1~d3 세
+셀이 전부 크래시했고 logcat은 `EnterCodeModel.submit(EnterCodeModel.kt:82)` →
+`SpfnClient.execute` → `SpfnProcessServerClock.nowMillis`를 가리켰다. 같은 경로로 서버
+미기동(`SpfnClientError`가 아닌 전송 예외)과 깨진 응답도 죽었다. 18셀 표는 이 경우를
+가질 수 없었다 — 픽스처가 던지지 않는 예외는 표가 못 잡는다.
+
 ## 원장
 
 change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서 나온 finding 수**를 적는다.
@@ -915,6 +976,13 @@ change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서
 | PR #24 잔여 fresh 리뷰 | 1 | 6 (5 확정, 1 기각) | 0 |
 | ui/scaffold-2c (하네스 화면 배치, Android) | 1 (기기) | 1 | 0 |
 | ui/scaffold-2d (하네스 화면 배치, iOS) | 1 (기기) | 1 | **1** |
+| ui/scaffold-2f (생성 코드의 catch 범위, 러너의 에뮬레이터 주소) | 1 (기기) | 2 | 0 |
+
+**ui/scaffold-2f 읽는 법.** finding 둘 다 novel이고 뒤 칸은 0이다. 한 건은 러너가
+에뮬레이터에 준 주소를 SDK가 신뢰하지 않은 것 — 등록부 항목이 아니라 러너와 SDK 규칙의
+어긋남이고, 고친 것은 러너다. 다른 한 건이 [P26](#p26)이 됐다. 그 건은 **표가 구조적으로
+못 잡는 모양**이라는 것이 등록할 값어치의 전부다: 셀을 더 만들어도 픽스처의 어휘가
+같으면 같은 자리에서 같은 것을 놓친다.
 
 **ui/scaffold-2d 읽는 법.** 뒤 칸이 0이 아닌 첫 줄이다. [P25](#p25)는 이미 등록된
 항목이었고, iOS 실패는 그 항목이 **"iOS는 해당 없음"이라고 적고 있어서** 났다. 항목이
