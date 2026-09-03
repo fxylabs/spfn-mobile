@@ -271,14 +271,36 @@ sys.exit(1)
 PARSE
 }
 
-# First string value of a JSON key, the way tools/validate/validate.sh reads one.
+# First string value of a JSON key — the FIRST occurrence, wherever on the body it sits.
 #
-# `head -1` is not decoration. `sed` with a greedy `.*` reports the LAST occurrence of a
-# key on a line, and a body that ever carried two would silently hand back the wrong one
+# Not a `sed` one-liner, and `head -1` was never enough to make it one. A greedy `.*` before
+# the key matches as much as it can, so `sed` reports the LAST occurrence of the key ON A
+# LINE, and `head -1` only ever chose between LINES — a JSON body arrives as one.
+# `{"userCode":"first","nested":{"userCode":"last"}}` answered `last`, which is the wrong
+# one for every caller here: a poll's own `status` is not one nested inside an error object
 # (docs/IMPLEMENTATION-PITFALLS.md P5).
+#
+# `awk` walks to the first `"<key>":` by index and stops there, so first-hit is what the
+# code does and not only what the comment claims. Everything the old expression accepted is
+# still accepted — a colon with or without spaces after it, a value with anything but a
+# quote in it — and anything it cannot read is the empty string, which is what the callers
+# treat as a failure.
 json_string()
 {
-    printf '%s' "$1" | sed -n "s/.*\"$2\": *\"\([^\"]*\)\".*/\1/p" | head -1
+    printf '%s' "$1" | awk -v key="\"$2\":" '
+        {
+            at = index($0, key);
+            if (at == 0) next;
+            rest = substr($0, at + length(key));
+            sub(/^ +/, "", rest);
+            if (substr(rest, 1, 1) != "\"") next;
+            rest = substr(rest, 2);
+            end = index(rest, "\"");
+            if (end == 0) next;
+            print substr(rest, 1, end - 1);
+            exit;
+        }
+    '
 }
 
 # Parks a device request with the target and answers `<userCode> <deviceCode>`.

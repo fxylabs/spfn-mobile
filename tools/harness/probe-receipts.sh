@@ -139,6 +139,11 @@ answers 'a denial envelope' \
 answers 'an empty body' '' status ''
 answers 'a body that is not JSON' 'Bad Gateway' status ''
 answers 'a poll with no status' '{"error":{"code":"DeviceAuthNotFoundError"}}' status ''
+# The one that says first-hit out loud. The reader used to be `sed` with a greedy `.*`,
+# which reports the LAST occurrence of a key on a line — and a JSON body is one line, so
+# `head -1` never saw the first. This body carries the key twice on purpose: the top-level
+# one is the answer, and the nested one is what a wrong reader hands back.
+answers 'a key that repeats' '{"userCode":"first","nested":{"userCode":"last"}}' userCode first
 
 printf '\n'
 if [ "$STATUS" -eq 0 ]
