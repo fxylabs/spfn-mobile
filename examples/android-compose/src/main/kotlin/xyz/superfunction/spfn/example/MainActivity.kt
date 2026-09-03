@@ -1,51 +1,63 @@
 // SPFN Mobile — the Compose example app's one screen holder.
 //
-// Everything below the root is generated. What is written here is the three things a
-// generator cannot know: which fixture this launch asked for, where a receipt goes, and
-// what to do when neither a fixture nor a configured server exists.
+// Counterpart of examples/ios-swiftui/Sources/ExampleApp.swift.
 //
-// The fixture is the only door a fake service comes through. There is no flag inside the
-// app that switches one on: with no `SPFN_UI_FIXTURE` extra, `Fixtures.forCell` is never
-// reached and the app builds its client against the configured server instead.
+// Everything below the root is generated. What is written here is the three things a
+// generator cannot know: which fixture this launch asked for, where a receipt goes, and what
+// to show a person who launched the app without asking for anything.
+//
+// The last of those is the MENU, and it replaced a screen that said the app was
+// unconfigured. `SPFN_UI_FIXTURE=<cell>` still decides everything a runner cares about — it
+// says which flow opens, on which seeding, at which depth — and a launch that names no cell
+// now lands on a list of the nine flows instead of on a sentence about a server.
+//
+// The menu runs on the same fake every cell does, and that is not the fail-closed rule
+// bending. This app has no enrolment path of its own, so a client built against a configured
+// server would refuse every call for want of a key: a person pressing a menu button would
+// get a refusal that says nothing about the screens the button opens. There is no
+// real-server path here at all — the manifest declares no INTERNET permission and nothing in
+// this app can send.
 //
 // `testTagsAsResourceId` is set once, here, on the root. It is what turns the generated
-// views' test tags into Android resource ids, which is what a Maestro `id:` selector
-// matches — the same split the harness records: a control by id, a readout by text.
+// views' test tags into Android resource ids, which is what a Maestro `id:` selector matches
+// — the same split the harness records: a control by id, a readout by text.
 
 package xyz.superfunction.spfn.example
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
-import androidx.compose.ui.unit.dp
-import xyz.superfunction.spfn.client.SpfnAndroidKeystoreEngine
-import xyz.superfunction.spfn.client.SpfnKeyLifecycle
-import xyz.superfunction.spfn.client.SpfnOkHttpTransport
-import xyz.superfunction.spfn.client.SpfnSharedPreferencesKeyMetadataStore
 import xyz.superfunction.spfn.core.SpfnVersion
 import xyz.superfunction.spfn.example.generated.AppContainer
 import xyz.superfunction.spfn.example.generated.flows.ApproveDeviceFlowHost
+import xyz.superfunction.spfn.example.generated.flows.KeyboardFormFlowHost
+import xyz.superfunction.spfn.example.generated.flows.LongScrollFlowHost
+import xyz.superfunction.spfn.example.generated.flows.ModalTourFlowHost
+import xyz.superfunction.spfn.example.generated.flows.PushTourFlowHost
+import xyz.superfunction.spfn.example.generated.flows.SheetFitFlowHost
+import xyz.superfunction.spfn.example.generated.flows.SheetFullFlowHost
+import xyz.superfunction.spfn.example.generated.flows.SheetHalfFlowHost
+import xyz.superfunction.spfn.example.generated.flows.SheetNavFlowHost
 import xyz.superfunction.spfn.generated.SpfnGeneratedContract
+import xyz.superfunction.spfn.ui.components.PrimaryButton
+import xyz.superfunction.spfn.ui.components.Screen
+import xyz.superfunction.spfn.ui.components.SecondaryButton
+import xyz.superfunction.spfn.ui.components.SpfnText
+import xyz.superfunction.spfn.ui.components.TextRole
 
 class MainActivity : ComponentActivity()
 {
@@ -54,80 +66,38 @@ class MainActivity : ComponentActivity()
         super.onCreate(savedInstanceState);
 
         val cell = intent?.getStringExtra(FIXTURE_EXTRA).orEmpty();
-        val fixture = if (cell.isEmpty()) null else Fixtures.forCell(cell);
-        val container = containerFor(fixture);
+        val named = Fixtures.forCell(cell);
+        val fixture = named ?: Fixtures.menu();
+        val container = AppContainer(fixture.service());
+
+        // The container opened all nine flows; this decides which one is on show. Done here
+        // rather than in the composition because it is a fact about the LAUNCH: a person
+        // pressing a menu button reaches `Flows.open` instead, and neither should be able to
+        // put a second presentation over the first.
+        Flows.openOnly(container, fixture.flow, fixture.openAt);
+
         val receipts = ExampleReceiptStore(this);
 
         setContent {
-            if (container == null)
-            {
-                UnconfiguredScreen();
-            }
-            else
-            {
-                ExampleRoot(
-                    cell = cell.ifEmpty { NONE },
-                    fixture = fixture?.name ?: NONE,
-                    container = container,
-                    receipts = receipts
-                );
-            }
+            ExampleRoot(
+                cell = cell.ifEmpty { NONE },
+                fixture = fixture.name,
+                container = container,
+                receipts = receipts
+            );
         };
-    }
-
-    /**
-     * The fixture's container, or the live one, or nothing.
-     *
-     * Nothing is a real answer and not a failure: a checkout with no `local.properties`
-     * and no enrolled key has no server to reach, and an app that invented one would
-     * report a refusal from an address nobody named.
-     */
-    private fun containerFor(fixture: Fixture?): AppContainer?
-    {
-        if (fixture != null)
-        {
-            val container = AppContainer(fixture.service());
-            fixture.openAt?.let { container.approveDeviceFlow.open(it) };
-            return container;
-        }
-        return liveContainer();
-    }
-
-    /**
-     * The app against the configured server, built the SDK's own way.
-     *
-     * Fail-closed at both steps, and neither message names a value: no configured base URL
-     * means no client, and no enrolled key means no client either — this app has no
-     * enrolment path of its own, because enrolment is what tools/harness exists to drive.
-     */
-    private fun liveContainer(): AppContainer?
-    {
-        val baseUrl = BuildConfig.EXAMPLE_SERVER_BASE_URL;
-        if (baseUrl.isEmpty())
-        {
-            return null;
-        }
-        val transport = SpfnOkHttpTransport();
-        val provider = SpfnKeyLifecycle(
-            transport = transport,
-            store = SpfnSharedPreferencesKeyMetadataStore(this, KEY_STORE_NAME),
-            engine = SpfnAndroidKeystoreEngine(),
-            baseUrl = baseUrl
-        ).activeProvider() ?: return null;
-        return AppContainer.live(transport = transport, keyProvider = provider, baseUrl = baseUrl);
     }
 
     private companion object
     {
         const val FIXTURE_EXTRA: String = "SPFN_UI_FIXTURE";
         const val NONE: String = "none";
-        const val KEY_STORE_NAME: String = "xyz.superfunction.spfn.example";
     }
 }
 
 /**
- * The app's root: the readouts a flow reads before and after the flow itself, and the one
- * control that is not a screen's.
+ * The app's root: the menu, the readouts a flow reads before and after the flow itself, and
+ * the one control that is not a screen's.
  *
  * The receipt control lives here rather than on a screen because a cell that ends with the
  * flow closed has no screen left to press. Every generated flow unwinds itself before
@@ -135,15 +105,15 @@ class MainActivity : ComponentActivity()
  * view entirely while it is open, on Android as well as on iOS.
  *
  * A `Box` rather than a `Column`, and that is the whole reason the cover works. The flow
- * host is the last child, so it is drawn OVER the readouts instead of below them; in a
- * Column it would be laid out beside them and cover nothing. That is the one thing
+ * hosts are the last children, so they are drawn OVER the menu instead of below it; in a
+ * Column they would be laid out beside it and cover nothing. That is the one thing
  * `FlowHost` asks of a host app that presents a flow modally — its own header states it.
  *
- * The system bars' insets are this root's job for the same reason. A cover fills its
- * PARENT, so whatever the parent is given is what the flow's own first row is given, and
- * an app targeting API 35 or later is drawn edge-to-edge whether it asks or not: without
- * the padding here the flow's `state=` row lands under the status bar and the camera
- * cutout, where a runner's hierarchy no longer carries it
+ * The system bars' insets are this root's job for the same reason. A cover fills its PARENT,
+ * so whatever the parent is given is what the flow's own first row is given, and an app
+ * targeting API 35 or later is drawn edge-to-edge whether it asks or not: without the
+ * padding here the flow's `state=` row lands under the status bar and the camera cutout,
+ * where a runner's hierarchy no longer carries it
  * (docs/IMPLEMENTATION-PITFALLS.md P25).
  */
 @OptIn(ExperimentalComposeUiApi::class)
@@ -156,7 +126,7 @@ private fun ExampleRoot(
 )
 {
     var receipt by remember { mutableStateOf("none") };
-    val depth = container.approveDeviceFlow.stack.collectAsState().value.size;
+    val depth = Flows.depth(container);
 
     Box(
         modifier = Modifier
@@ -165,44 +135,67 @@ private fun ExampleRoot(
             .semantics { testTagsAsResourceId = true }
     )
     {
-        Column {
-            BasicText(text = "fixture=$cell");
-            BasicText(text = "stack=$depth");
-            BasicText(text = "receipt=$receipt");
-            BasicText(
-                text = "write receipt",
-                modifier = Modifier
-                    .testTag("example.receipt")
-                    .heightIn(min = 48.dp)
-                    .clickable {
-                        receipt = receipts.write(
-                            ExampleReceipt(
-                                cell = cell,
-                                fixture = fixture,
-                                stackDepth = depth,
-                                timestampMillis = System.currentTimeMillis(),
-                                sdkVersion = SpfnVersion.CURRENT,
-                                contractVersion = SpfnGeneratedContract.BINDING.importedVersion
-                            )
-                        );
-                    }
+        Menu(container = container, cell = cell, depth = depth, receipt = receipt)
+        {
+            receipt = receipts.write(
+                ExampleReceipt(
+                    cell = cell,
+                    fixture = fixture,
+                    stackDepth = depth,
+                    timestampMillis = System.currentTimeMillis(),
+                    sdkVersion = SpfnVersion.CURRENT,
+                    contractVersion = SpfnGeneratedContract.BINDING.importedVersion
+                )
             );
-        }
+        };
+
         ApproveDeviceFlowHost(container);
+        PushTourFlowHost(container);
+        ModalTourFlowHost(container);
+        SheetFitFlowHost(container);
+        SheetHalfFlowHost(container);
+        SheetFullFlowHost(container);
+        SheetNavFlowHost(container);
+        KeyboardFormFlowHost(container);
+        LongScrollFlowHost(container);
     }
 }
 
-/** What a checkout with no fixture, no server and no key has to show. */
+/**
+ * The list of flows, and the three readouts over it.
+ *
+ * Drawn out of the SDK's own components rather than out of `BasicText` with a `clickable`,
+ * because a row of text a person taps is exactly the control that reports its neighbour's
+ * rectangle to a runner: `PrimaryButton` carries the 48dp minimum and the menu gets it for
+ * free (docs/IMPLEMENTATION-PITFALLS.md P21).
+ *
+ * The readouts and the receipt control come ABOVE the list, and that is a rule about reach
+ * rather than about layout. Every cell that ends with its flow closed reads `stack=0` here
+ * and then presses `example.receipt` here, and nine buttons stacked over them would put both
+ * below the fold on a phone — a menu that scrolled its own diagnostics out of sight would
+ * fail those cells for a reason that is not a defect.
+ *
+ * `fixture=` is the CELL this launch named, which is `none` on the menu even though a fake
+ * is installed: the fake is what the menu runs on, and the receipt's own record is where its
+ * name is written down.
+ */
 @Composable
-private fun UnconfiguredScreen()
+private fun Menu(
+    container: AppContainer,
+    cell: String,
+    depth: Int,
+    receipt: String,
+    onReceipt: () -> Unit
+)
 {
-    Column(modifier = Modifier.fillMaxSize())
+    Screen(title = "SPFN showcase")
     {
-        BasicText(text = "fixture=none");
-        BasicText(text = "stack=0");
-        BasicText(
-            text = "This build names no server and holds no enrolled key, so it sends nothing. " +
-                "Launch it with SPFN_UI_FIXTURE=<cell> to drive the screens against a fixture."
-        );
+        SpfnText(text = "fixture=$cell", role = TextRole.Mono);
+        SpfnText(text = "stack=$depth", role = TextRole.Mono);
+        SpfnText(text = "receipt=$receipt", role = TextRole.Mono);
+        SecondaryButton(title = "write receipt", id = "example.receipt", onTap = onReceipt);
+        Flows.ALL.forEach { flow ->
+            PrimaryButton(title = flow, id = "menu.$flow", onTap = { Flows.open(container, flow) });
+        };
     }
 }

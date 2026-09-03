@@ -3,12 +3,19 @@
 // Counterpart of
 // examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/MainActivity.kt.
 // Everything below the root is generated; what is written here is the three things a
-// generator cannot know: which fixture this launch asked for, where a receipt goes, and
-// what to do when neither a fixture nor a configured server exists.
+// generator cannot know: which fixture this launch asked for, where a receipt goes, and what
+// to show a person who launched the app without asking for anything.
 //
-// The fixture is the only door a fake service comes through. There is no flag inside the
-// app that switches one on: with no `-SPFN_UI_FIXTURE <cell>` launch argument,
-// `Fixtures.forCell` is never reached.
+// The last of those is the MENU, and it replaced a screen that said the app was
+// unconfigured. `-SPFN_UI_FIXTURE <cell>` still decides everything a runner cares about — it
+// says which flow opens, on which seeding, at which depth — and a launch that names no cell
+// now lands on a list of the nine flows instead of on a sentence about a server.
+//
+// The menu runs on the same fake every cell does, and that is not the fail-closed rule
+// bending. This app has no enrolment path of its own, so a client built against a configured
+// server would refuse every call for want of a key: a person pressing a menu button would
+// get a refusal that says nothing about the screens the button opens. There is no
+// real-server path in this app at all.
 //
 // The argument is read straight out of `ProcessInfo.processInfo.arguments`. Maestro's
 // `launchApp: arguments:` reaches iOS as `-key value` pairs, which is also why the harness
@@ -16,7 +23,6 @@
 // wants is one launch's own argument and not a value that outlives the launch.
 
 import Foundation
-import SPFNClient
 import SPFNCore
 import SPFNGenerated
 import SPFNUI
@@ -34,8 +40,8 @@ struct ExampleApp: App
     }
 }
 
-/// The app's root: the readouts a flow reads before and after the flow itself, and the one
-/// control that is not a screen's.
+/// The app's root: the menu, the readouts a flow reads before and after the flow itself, and
+/// the one control that is not a screen's.
 ///
 /// The receipt control lives here rather than on a screen because a cell that ends with
 /// the flow closed has no screen left to press. Every generated flow unwinds itself before
@@ -49,44 +55,60 @@ struct RootView: View
 
     var body: some View
     {
-        if let container = launch.container
+        ZStack
         {
-            configured(container)
-        }
-        else
-        {
-            unconfigured
+            menu
+            ApproveDeviceFlowHost(container: launch.container)
+            PushTourFlowHost(container: launch.container)
+            ModalTourFlowHost(container: launch.container)
+            SheetFitFlowHost(container: launch.container)
+            SheetHalfFlowHost(container: launch.container)
+            SheetFullFlowHost(container: launch.container)
+            SheetNavFlowHost(container: launch.container)
+            KeyboardFormFlowHost(container: launch.container)
+            LongScrollFlowHost(container: launch.container)
         }
     }
 
-    @ViewBuilder
-    private func configured(_ container: AppContainer) -> some View
+    /// The list of flows, and the three readouts over it.
+    ///
+    /// Drawn out of the SDK's own components rather than out of `Text` with a tap gesture,
+    /// because a row of text a person taps is exactly the control that reports its
+    /// neighbour's rectangle to a runner: `PrimaryButton` carries the 44pt minimum and the
+    /// menu gets it for free (docs/IMPLEMENTATION-PITFALLS.md P21).
+    ///
+    /// The readouts and the receipt control come ABOVE the list, and that is a rule about
+    /// reach rather than about layout. Every cell that ends with its flow closed reads
+    /// `stack=0` here and then presses `example.receipt` here, and nine buttons stacked over
+    /// them would put both below the fold on a phone.
+    ///
+    /// `fixture=` is the CELL this launch named, which is `none` on the menu even though a
+    /// fake is installed: the fake is what the menu runs on, and the receipt's own record is
+    /// where its name is written down.
+    private var menu: some View
     {
-        VStack(alignment: .leading, spacing: 8)
+        Screen(title: "SPFN showcase")
         {
-            Text("fixture=" + launch.cell)
-            Text("stack=" + String(container.approveDeviceFlow.stack.count))
-            Text("receipt=" + receipt)
-            Button("write receipt")
+            VStack(alignment: .leading, spacing: SPFNTokens.space4)
             {
-                receipt = write(depth: container.approveDeviceFlow.stack.count)
+                SpfnText("fixture=" + launch.cell, role: .mono)
+                SpfnText("stack=" + String(Flows.depth(launch.container)), role: .mono)
+                SpfnText("receipt=" + receipt, role: .mono)
+                SecondaryButton(
+                    title: "write receipt",
+                    identifier: "example.receipt",
+                    onTap: { receipt = write(depth: Flows.depth(launch.container)) }
+                )
+                ForEach(Flows.all, id: \.self)
+                { flow in
+                    PrimaryButton(
+                        title: flow,
+                        identifier: "menu." + flow,
+                        onTap: { Flows.open(launch.container, flow: flow) }
+                    )
+                }
             }
-            .accessibilityIdentifier("example.receipt")
-            ApproveDeviceFlowHost(container: container)
-        }
-    }
-
-    /// What a checkout with no fixture, no server and no key has to show.
-    private var unconfigured: some View
-    {
-        VStack(alignment: .leading, spacing: 8)
-        {
-            Text("fixture=none")
-            Text("stack=0")
-            Text(
-                "This build names no server and holds no enrolled key, so it sends nothing. "
-                    + "Launch it with -SPFN_UI_FIXTURE <cell> to drive the screens against a fixture."
-            )
+            .padding(SPFNTokens.space4)
         }
     }
 
@@ -121,26 +143,23 @@ struct Launch
     /// The cell the launch named, or `none`.
     let cell: String
 
-    /// The seeding that cell runs under, or `none`.
+    /// The seeding that cell runs under. Every launch has one, the menu included.
     let fixture: String
 
-    /// The app's graph, or `nil` when there is neither a fixture nor a configured server.
-    let container: AppContainer?
+    /// The app's graph, with exactly the flow this launch is about left open.
+    let container: AppContainer
 
     static func fromProcess() -> Launch
     {
-        let cell = argument(named: "SPFN_UI_FIXTURE") ?? ""
-        guard !cell.isEmpty, let fixture = Fixtures.forCell(cell)
-        else
-        {
-            return Launch(cell: cell.isEmpty ? "none" : cell, fixture: "none", container: nil)
-        }
+        let named = argument(named: "SPFN_UI_FIXTURE") ?? ""
+        let fixture = Fixtures.forCell(named) ?? Fixtures.menu()
         let container = AppContainer(deviceApproval: fixture.service())
-        if let openAt = fixture.openAt
-        {
-            try? container.approveDeviceFlow.open(at: openAt)
-        }
-        return Launch(cell: cell, fixture: fixture.name, container: container)
+        // The container opened all nine flows; this decides which one is on show. Done here
+        // rather than in the view because it is a fact about the LAUNCH: a person pressing a
+        // menu button reaches `Flows.open` instead, and neither should be able to put a
+        // second presentation over the first.
+        Flows.openOnly(container, flow: fixture.flow, openAt: fixture.openAt)
+        return Launch(cell: named.isEmpty ? "none" : named, fixture: fixture.name, container: container)
     }
 
     /// The value after `-<name>` in this process's arguments, or `nil`.
