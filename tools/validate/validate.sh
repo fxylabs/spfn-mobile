@@ -2110,6 +2110,52 @@ kotlin_ui_names()
     ' $(cat "$TMP/ui-kotlin-files.txt") | sort -u
 }
 
+# The host vocabulary, by NAME rather than by members.
+#
+# `HostEntry` is a pair of fields, and `NavigationHost` is a `View` on one platform and a
+# `@Composable fun` on the other, so neither has a case list or a public method set for
+# `compare_ui_type` to read. What both have is a name a host app and a generated flow write
+# down, and a name only one platform declares is a flow that can only be hosted on one of
+# them — the same divergence the comparisons above are for, one level coarser.
+#
+# `\b` is deliberately not used: it is a GNU extension and this script runs on a Mac too,
+# where it is not read as a word boundary at all (docs/IMPLEMENTATION-PITFALLS.md P28 is the
+# same class of defect one tool along). The boundary is spelled out instead.
+UI_HOST_NAMES='NavigationHost HostStack HostEntry WayOut'
+
+compare_ui_host_names()
+{
+    ONLY_SWIFT=''
+    ONLY_KOTLIN=''
+    FOUND=0
+    for NAME in $UI_HOST_NAMES
+    do
+        IN_SWIFT=$(grep -rlE "^(public )?(final )?(struct|class|enum|protocol) $NAME([^A-Za-z0-9_]|\$)" \
+            "$UI_SWIFT_DIR" 2>/dev/null | head -n 1)
+        IN_KOTLIN=$(grep -rlE "^(public )?(sealed |data |enum )*(class|interface|object|fun) $NAME([^A-Za-z0-9_]|\$)" \
+            "$UI_KOTLIN_DIR" 2>/dev/null | head -n 1)
+        if [ -n "$IN_SWIFT" ] && [ -n "$IN_KOTLIN" ]
+        then
+            FOUND=$((FOUND + 1))
+        elif [ -n "$IN_SWIFT" ]
+        then
+            ONLY_SWIFT="$ONLY_SWIFT $NAME"
+        elif [ -n "$IN_KOTLIN" ]
+        then
+            ONLY_KOTLIN="$ONLY_KOTLIN $NAME"
+        else
+            ONLY_SWIFT="$ONLY_SWIFT $NAME(neither)"
+        fi
+    done
+
+    if [ -z "$(printf '%s%s' "$ONLY_SWIFT" "$ONLY_KOTLIN" | tr -d ' ')" ]
+    then
+        pass "the host vocabulary is declared on both platforms ($FOUND names:$(printf ' %s' $UI_HOST_NAMES))"
+    else
+        fail "the host vocabulary differs between platforms — only in Swift:${ONLY_SWIFT:- none}| only in Kotlin:${ONLY_KOTLIN:- none}"
+    fi
+}
+
 # One type, both halves. Reads each side, refuses an empty read on either, and names the
 # extra and the missing separately — "they differ" is not enough to act on.
 compare_ui_type()
@@ -2157,6 +2203,11 @@ then
     # suites check against the same hand-written vectors; this is what checks that they are
     # still the same three questions.
     compare_ui_type SheetGeometry func fun
+    # The host's stack is the third piece of arithmetic written twice, and the one a pushed
+    # flow's whole behaviour now rests on: an operation only one platform has is a
+    # reconciliation only one platform performs.
+    compare_ui_type HostStack func fun
+    compare_ui_host_names
 else
     fail "the ui module is incomplete: $UI_SWIFT_DIR or $UI_KOTLIN_DIR is missing"
 fi
