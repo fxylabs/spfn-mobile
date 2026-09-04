@@ -48,11 +48,15 @@ name: u7b
     when:
       platform: Android
     commands:
+      - waitForAnimationToEnd:
+          timeout: 3000
       - back
 - runFlow:
     when:
       platform: iOS
     commands:
+      - waitForAnimationToEnd:
+          timeout: 3000
       - swipe:
           start: "1%, 50%"
           end: "90%, 50%"

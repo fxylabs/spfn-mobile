@@ -309,17 +309,33 @@ class CaseTable(target: Target)
      * NavigationStack path itself and the binding's setter turns that into one `flow.pop()`
      * per dropped entry. Probed end to end on the simulator: `stack=1`, `state=idle`,
      * receipt written.
+     *
+     * `waitForAnimationToEnd` stands in front of both gestures, and it earned that place on
+     * a device rather than by inspection: `reach` lands on a `Cell` whose readout goes to
+     * `ready`/`error` the instant the write's response arrives, but the route that pushed
+     * over the entry screen settles a moment after that — its own transition is still
+     * running when the readout already reads the new state. A back gesture fired into that
+     * gap is not delayed, it is DROPPED: `stack=2` never moves, on Android and, once caught,
+     * confirmed the same way on iOS. `docs/IMPLEMENTATION-PITFALLS.md P30` has the probes
+     * that found the gap (u7b/u10b, ui/scaffold-3d, Pixel 3a API 34 emulator, 2026-09-04) —
+     * a readout `Step.Await` waits on the very state that turns out to hold no promise about
+     * the transition drawn under it, so nothing short of asking the platform whether its own
+     * animation is still running closes it.
      */
     private fun systemBack(): String = buildString {
         appendLine("- runFlow:");
         appendLine("    when:");
         appendLine("      platform: Android");
         appendLine("    commands:");
+        appendLine("      - waitForAnimationToEnd:");
+        appendLine("          timeout: 3000");
         appendLine("      - back");
         appendLine("- runFlow:");
         appendLine("    when:");
         appendLine("      platform: iOS");
         appendLine("    commands:");
+        appendLine("      - waitForAnimationToEnd:");
+        appendLine("          timeout: 3000");
         appendLine("      - swipe:");
         appendLine("          start: \"1%, 50%\"");
         appendLine("          end: \"90%, 50%\"");
