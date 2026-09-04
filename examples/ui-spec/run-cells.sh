@@ -120,8 +120,9 @@ APP_ID=xyz.superfunction.spfn.example
 # the screen frame added nine device-only cells (k1–k7, s1–s2), and 23 until the showcase
 # flows added ten more. The `manual` cells are NOT in it: they have no flow file and no
 # receipt, because the thing they check is a gesture and the runner for one is a person
-# (`examples/ui-spec/receipts/manual/`).
-EXPECTED_FLOOR=33
+# (`examples/ui-spec/receipts/manual/`). It went to 35 when a pushed flow's root gained a
+# way out worth asserting (decision N2): `pushTour-rootBack` and `pushTour-rootSystemBack`.
+EXPECTED_FLOOR=35
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT INT TERM

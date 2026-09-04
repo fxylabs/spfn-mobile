@@ -439,6 +439,18 @@
       "flow": null
     },
     {
+      "id": "modalTour-closeOnRight",
+      "screen": "modalOne",
+      "state": "idle",
+      "action": "closeOnRight",
+      "rule": "N3 \u2014 the way out is an X drawn as an icon in the header's TOP RIGHT corner, the same size and shape on both platforms, and it is not a word on the left",
+      "runner": "manual",
+      "fixture": "ready",
+      "steps": ["byHand look at the header of the flow's first screen, on both phones"],
+      "expect": ["stack=1"],
+      "flow": null
+    },
+    {
       "id": "pushTour-reach",
       "screen": "tourThree",
       "state": "idle",
@@ -461,6 +473,30 @@
       "steps": ["tap tourOne.next", "tap tourTwo.next", "scrollTo tourThree.done", "see tourThree.done", "tap tourThree.done"],
       "expect": ["stack=0"],
       "flow": "flows/pushTour-close.yaml"
+    },
+    {
+      "id": "pushTour-rootBack",
+      "screen": "tourOne",
+      "state": "idle",
+      "action": "headerBack",
+      "rule": "N2 \u2014 the back on a pushed flow's root closes the flow, which is what hands the person back to the host's own screen",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["tap screen.back", "see menu.pushTour"],
+      "expect": ["stack=0"],
+      "flow": "flows/pushTour-rootBack.yaml"
+    },
+    {
+      "id": "pushTour-rootSystemBack",
+      "screen": "tourOne",
+      "state": "idle",
+      "action": "systemBack",
+      "rule": "N2 and R8 \u2014 the system back on a pushed flow's root is the same act as the header's, so the flow closes and the host is underneath",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["systemBack", "see menu.pushTour"],
+      "expect": ["stack=0"],
+      "flow": "flows/pushTour-rootSystemBack.yaml"
     },
     {
       "id": "pushTour-swipeBack",

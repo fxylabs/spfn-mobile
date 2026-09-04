@@ -350,8 +350,22 @@ object Rules
 
         val cells = entryCells(roles, inputId) + detailCells(roles, inputId) + deepEntryCell(roles) +
             keyboardCells(spec, roles, input.name, inputId) + frameCells(flow, spec, roles, inputId);
+        val showcaseFlows = spec.flows.filter { it.name != flow.name };
+        // One flow speaks for the push entry, the way one flow speaks for each rule row: what
+        // a pushed root's way out does is the same rule on all three of them, and three
+        // copies of it would be three chances to check one thing and no chance to check
+        // another.
+        //
+        // The one it is is the pushed flow with the longest chain, because on a flow whose
+        // root is its only screen "the root's way out" and "the flow's only way out" are the
+        // same sentence and the cell stops being about the root. Ties go to the first, which
+        // is the order the spec is read in.
+        val representative = showcaseFlows
+            .filter { it.entry == "push" }
+            .maxByOrNull { Tour(spec, it).chain.size }
+            ?.name;
         return cells.map { it.copy(teardown = teardown(roles, depthOf(it))) } +
-            spec.flows.filter { it.name != flow.name }.flatMap { showcase(spec, it, bundle) };
+            showcaseFlows.flatMap { showcase(spec, it, bundle, representsPush = it.name == representative) };
     }
 
     /**
@@ -364,7 +378,7 @@ object Rules
      * on another presentation is not worth a second row, which is why a two-deep stack earns
      * a cell inside a sheet and not inside a modal: `u1` already stands two deep in a modal.
      */
-    private fun showcase(spec: Spec, flow: FlowDefinition, bundle: Bundle): List<Cell>
+    private fun showcase(spec: Spec, flow: FlowDefinition, bundle: Bundle, representsPush: Boolean): List<Cell>
     {
         val tour = Tour(spec, flow);
         val cells = mutableListOf<Cell>();
@@ -373,7 +387,48 @@ object Rules
             cells += reachCell(tour);
         }
         cells += closeCell(tour, bundle);
+        if (representsPush)
+        {
+            cells += rootCells(tour);
+        }
         return cells + byHandCells(tour, bundle);
+    }
+
+    /**
+     * What a pushed flow's ROOT does, which is the row decision N2 changed.
+     *
+     * Both cells stand on the flow's first screen and both end with the flow closed and the
+     * host's own menu back on show, because that is the claim: a pushed flow is appended to
+     * the host's stack, so the way out of its first screen is a way back to the host rather
+     * than a control that is not drawn at all. The old table had nothing to assert here —
+     * "the host app's back" was whatever the app did — and that is exactly why a first screen
+     * with no way off it reached a phone (docs/IMPLEMENTATION-PITFALLS.md P31).
+     *
+     * `menu.<flow>` is asserted as well as `stack=0`, and it is the half that says WHERE the
+     * flow went. `stack=0` is true of a flow that closed onto a blank screen too.
+     */
+    private fun rootCells(tour: Tour): List<Cell>
+    {
+        val start = tour.chain.first();
+        val menu = Step.SeeId("menu.${tour.flow.name}");
+        return listOf(
+            Cell(
+                "${tour.flow.name}-rootBack", start.name, "idle", "headerBack",
+                "N2 — the back on a pushed flow's root closes the flow, which is what hands " +
+                    "the person back to the host's own screen",
+                "maestro", Fixtures.READY,
+                listOf(Step.Tap("screen.back"), menu),
+                expect(0, "idle")
+            ),
+            Cell(
+                "${tour.flow.name}-rootSystemBack", start.name, "idle", "systemBack",
+                "N2 and R8 — the system back on a pushed flow's root is the same act as the " +
+                    "header's, so the flow closes and the host is underneath",
+                "maestro", Fixtures.READY,
+                listOf(Step.SystemBack, menu),
+                expect(0, "idle")
+            )
+        );
     }
 
     /** Every tap that walks a tour from its start down to its deepest screen. */
@@ -473,6 +528,16 @@ object Rules
                 "R8 — a flow presented over something is closed by a back on its last route, " +
                     "so the whole flow goes rather than one route",
                 listOf("stack=0")
+            );
+            // A person's cell because the subject is what it LOOKS like. A runner can assert
+            // that `screen.close` exists and be told the truth by a header that drew the word
+            // "Close" in body type on the left, which is the defect decision N3 is about.
+            cells += byHand(
+                tour, "closeOnRight", start.name, emptyList(),
+                "look at the header of the flow's first screen, on both phones",
+                "N3 — the way out is an X drawn as an icon in the header's TOP RIGHT corner, " +
+                    "the same size and shape on both platforms, and it is not a word on the left",
+                listOf("stack=1")
             );
         }
         // A sheet that stands alone is here to be LOOKED at — one row per height — and the
