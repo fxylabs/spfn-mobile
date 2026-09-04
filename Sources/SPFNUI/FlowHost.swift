@@ -27,6 +27,21 @@
 //
 // `interactiveDismissDisabled` is deliberately absent. A sheet a user cannot drag away is a
 // sheet that has to justify itself, and no flow in this repository has that to say yet.
+//
+// ---------------------------------------------------------------------------
+// A `.push` flow has two paths, and only one of them is whole
+// ---------------------------------------------------------------------------
+//
+// Inside a `NavigationHost` (decision N1) a pushed flow builds NO navigator: it registers
+// with the host and syncs its stack onto the host's, so its first screen slides in from the
+// right over the host's own screen and its header's back leads back to it.
+//
+// Outside one, the old inline stack is still what this draws, and it is kept for
+// compatibility rather than because it is right: WITHOUT A HOST THERE IS NEITHER THE
+// TRANSITION NOR THE WAY BACK TO THE HOST. The flow's root is the navigator's root, so
+// nothing slides and there is no route underneath; the root's back still closes the flow
+// (decision N2), which is the most that path can offer. An app that wants the transition
+// wraps its root in `NavigationHost`.
 
 import SwiftUI
 
@@ -40,6 +55,9 @@ public struct FlowHost<Route: FlowRoute, Content: View>: View
     private let flow: Flow<Route>
     private let entry: FlowEntry
     private let content: (Route) -> Content
+
+    /// The host's stack, if this flow is inside one. `nil` is the compatibility path.
+    @Environment(\.hostStack) private var host
 
     public init(
         flow: Flow<Route>,
@@ -57,7 +75,14 @@ public struct FlowHost<Route: FlowRoute, Content: View>: View
         switch entry
         {
         case .push:
-            navigation
+            if let host = host
+            {
+                appended(to: host)
+            }
+            else
+            {
+                navigation
+            }
         case .modal:
             presenter
         case .sheet(let detent):
@@ -65,8 +90,8 @@ public struct FlowHost<Route: FlowRoute, Content: View>: View
         }
     }
 
-    /// The stack itself. `.push` shows this directly, inside whatever navigation the host
-    /// app already has; `.modal` shows it inside a cover and `.sheet` inside a sheet.
+    /// The stack itself. `.modal` shows it inside a cover and `.sheet` inside a sheet, and
+    /// `.push` shows it directly only where there is no `NavigationHost` to append to.
     ///
     /// The chrome goes on here rather than around the presentation, so it reaches the
     /// screens of all three entry styles by the same line: a `Screen` inside this stack
@@ -105,6 +130,49 @@ public struct FlowHost<Route: FlowRoute, Content: View>: View
             wayOut: flow.wayOut(entry: entry),
             onBack: { [flow, entry] in flow.back(entry: entry) },
             onClose: { [flow] in flow.close() }
+        )
+    }
+
+    /// A zero-sized anchor that puts this flow's routes on the HOST's stack, and draws
+    /// nothing itself.
+    ///
+    /// The same shape `presenter` and `sheetPresenter` have, and for the same reason: what a
+    /// flow needs from the view tree is a place to stand, not a place to draw. What is drawn
+    /// is drawn by `NavigationHost`, out of the registration below.
+    ///
+    /// `initial: true` is what makes this one modifier rather than two. The first sync is
+    /// not a special case — it is the change from "this flow has nothing on the host's
+    /// stack" to whatever it has — and registering on every change as well is what keeps the
+    /// chrome closure reading a flow whose depth has moved.
+    private func appended(to host: HostStackStore) -> some View
+    {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onChange(of: flow.stack, initial: true)
+            {
+                host.register(owner: ObjectIdentifier(flow), registration: registration)
+                host.sync(owner: ObjectIdentifier(flow), routes: flow.stack.map { AnyHashable($0) })
+            }
+    }
+
+    /// How the host draws this flow's routes, and what this flow's back does.
+    ///
+    /// The chrome is read INSIDE the closure and not captured beside it, so the header a
+    /// route draws is the one its flow's current depth asks for rather than the one it asked
+    /// for when the route was pushed.
+    private var registration: HostRegistration
+    {
+        HostRegistration(
+            screen:
+            { route in
+                guard let route = route.base as? Route
+                else
+                {
+                    return AnyView(EmptyView())
+                }
+                return AnyView(self.content(route).environment(\.screenChrome, self.chrome))
+            },
+            back: { [flow] in flow.back(entry: .push) }
         )
     }
 
