@@ -55,8 +55,9 @@
 | 자체 헤더를 그리려고 시스템 내비게이션 바 숨기기 (SwiftUI) | [P29](#p29) [P15](#p15) [P22](#p22) |
 | `tools/validate/`·러너의 셸 스크립트에 sed·grep 정규식 추가 | [P28](#p28) [P4](#p4) [P7](#p7) |
 | Xcode 프로젝트를 손으로 `xcodebuild` (예제·하네스 둘 다) | [P17](#p17) |
-| Maestro 플로우 생성·수정 | [P22](#p22) [P21](#p21) [P23](#p23) |
+| Maestro 플로우 생성·수정 | [P22](#p22) [P21](#p21) [P23](#p23) [P30](#p30) |
 | 기기 러너의 증거 수집 시점 수정 (`run-cells.sh`, `run-harness.sh`) | [P23](#p23) [P7](#p7) [P12](#p12) |
+| readout을 기다린 다음 바로 back·swipe·pop 제스처를 보내는 셀 작성 | [P30](#p30) [P15](#p15) |
 
 ---
 
@@ -1129,11 +1130,60 @@ grep -rln 'swipe' examples/ui-spec/generated/flows/   # 가장자리 스와이�
 - 그 셀의 iOS 절반을 사람이 확인하는 `manual`로 옮긴다. 표에 남되 러너가 거짓 초록을 내지
   않는다.
 
+**고른 것.** 첫 번째 — Sources/SPFNUI/Components/SwipeBack.swift의 `SwipeBackGesture`가
+`UIViewRepresentable`로 내비게이션 스택 안에 있는 뷰를 하나 심고, 그 뷰의 `next` 리스폰더
+체인을 걸어 올라가 `UINavigationController`를 찾아 `interactivePopGestureRecognizer`의
+`isEnabled`를 직접 켠다. 루트 가드는 새 delegate를 짜는 대신 `Screen`이 이미 갖고 있던
+조건을 그대로 썼다 — `chrome.leading == .back`이 헤더에 back 버튼을 그릴지 결정하는 바로
+그 식이고, 스택 깊이가 2 이상일 때만 참이다. `delegate = nil`은 제스처를 켤 때만 건드리고,
+끌 때는 `isEnabled = false`만으로 충분해 UIKit 자신의 delegate를 그대로 둔다.
+Sources/SPFNUI/Components/Screen.swift가 `.modifier(SwipeBackGesture(enabled:))`로
+붙여 쓴다.
+
 **나온 곳.** w-evwna ui/scaffold-3d, iPhone 17 Pro / iOS 26.3 시뮬레이터 2026-09-03.
 셀 u7b·u10b(규칙 R8)가 `Assertion is false: "stack=1" is visible`로 실패했다. 프로브 둘로
 원인을 갈랐다 — 키보드 해제 레이어를 통째로 빼도 같은 자리에서 같게 실패했고(무관),
 `HiddenNavigationBar`의 `.toolbar(.hidden, for: .navigationBar)` 한 줄만 빼자 u7b가 끝까지
-통과했다(적중). 두 셀의 Android 절반은 같은 라운드에서 통과한다.
+통과했다(적중). 두 셀의 Android 절반은 이 라운드의 첫 기기 실행에서는 통과했지만, 코드
+수정 뒤 다시 돌린 기기 게이트에서는 실패했다 — 원인은 이 절이 아니라 [P30](#p30)이다.
+
+## P30. 화면 전환 애니메이션이 아직 도는 동안 온 back 제스처는 지연이 아니라 소실이다 {#p30}
+
+**증상.** `- back`(Android)이나 edge swipe(iOS)가 `Assertion is false: "stack=1" is
+visible`로 실패한다. `state=ready`/`state=error` 같은 화면의 readout은 이미 원하는 값을
+보이고 있어서 — 셀은 그 readout을 기다린 다음 바로 back을 보낸다 — 타이밍 문제로 보이지
+않는다. `- back` 명령 자체는 `COMPLETED`로 끝나고, 그 다음에 아무리 오래
+`extendedWaitUntil`로 `stack=1`을 기다려도 스택은 끝까지 그대로다: 뒤에 온 대기가 아니라
+**그 back 자체가 아무 일도 하지 않은 것**이다.
+
+원인은 readout과 내비게이션이 같은 프레임에서 갈라진다는 것이다. 두 번째 화면을 미는
+전환(push)은 그 화면의 `state=ready`/`state=error` readout이 그리는 것과 같은 상태 변화로
+시작되지만, readout은 즉시 그려지고 전환 애니메이션은 그보다 조금 더 돈다. 그 짧은 창
+안에 도착한 back은 대상이 아직 자리 잡지 않은 스택에 온 것이라 버려진다 — Android의
+`BackHandler`도, iOS의 `interactivePopGestureRecognizer`도 마찬가지다. 플랫폼이 다른데
+증상이 같다는 것 자체가 "화면 하나의 버그"가 아니라는 신호다([P15](#p15)).
+
+**탐지.** `extendedWaitUntil`로 readout을 기다린 바로 다음 줄이 `back`/`swipe`인 셀에서,
+그 readout이 나타난 시점과 아래에 새 라우트가 실제로 얹히는 시점이 같은 코드 경로 안에서
+갈라지는지 본다. 프로브는 back 앞에 `waitForAnimationToEnd`를 하나 끼워 같은 셀을 다시
+돌리는 것 — 통과하면 원인이 그 간격이다.
+
+**처방.** readout을 기다리는 것과 전환이 끝나기를 기다리는 것은 다른 질문이라, 다른
+질문을 물어야 한다. `tools/ui-codegen`의
+`CaseTable.systemBack()`(tools/ui-codegen/src/main/kotlin/xyz/superfunction/spfn/uicodegen/CaseTable.kt)이
+`back`/`swipe` 앞에 `waitForAnimationToEnd: {timeout: 3000}`를 두 플랫폼 모두에 심어,
+readout이 참인 것과 전환이 안정된 것을 별개로 확인한다. 셀 파일은 손으로 고치지 않는다 —
+생성기를 고치고 `./gradlew :ui-codegen:spfnGenerateUi :ui-codegen:spfnGenerateHarnessUi`로
+다시 뽑는다.
+
+**나온 곳.** w-evwna ui/scaffold-3d, Pixel 3a API 34 에뮬레이터(cold boot) 및 iPhone 17
+Pro / iOS 26.3 시뮬레이터, 2026-09-04. P29를 고친 뒤 다시 돌린 기기 게이트에서 Android의
+u7b·u10b가 처음으로 실패했다 — 같은 라운드의 5커밋에 Android 코드 변경은 전혀 없어
+회귀가 아니라 이 문서가 놓치고 있던 자리였다. `waitForAnimationToEnd` 없이,
+`stack=2`(전환이 이미 끝났다는 별개의 readout)를 명시적으로 기다린 뒤 back을 보내도 여전히
+실패했다 — readout을 무엇으로 바꿔도 못 잡는다는 뜻이라, `stack=2` 대기가 아니라
+`waitForAnimationToEnd` 3000ms가 유일하게 먹힌 조합이었다. 두 플랫폼 모두 두 번씩 다시
+돌려 통과를 확인했다.
 
 ## 원장
 
@@ -1152,6 +1202,14 @@ change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서
 | ui/scaffold-2c (하네스 화면 배치, Android) | 1 (기기) | 1 | 0 |
 | ui/scaffold-2d (하네스 화면 배치, iOS) | 1 (기기) | 1 | **1** |
 | ui/scaffold-2f (생성 코드의 catch 범위, 러너의 에뮬레이터 주소) | 1 (기기) | 2 | 0 |
+| ui/scaffold-3d (내비게이션 바 숨김의 스와이프 back, 전환 애니메이션 중 소실되는 back) | 2 (기기) | 2 | 0 |
+
+**ui/scaffold-3d 읽는 법.** finding 둘 다 novel이고 뒤 칸은 0이다. 첫 라운드가 잡은
+것은 [P29](#p29)(iOS만, 이전 라운드에서 이미 항목으로 있었다), 그 처방을 넣은 뒤 다시
+돌린 두 번째 기기 게이트가 잡은 것이 [P30](#p30) — Android에서 먼저 나왔지만 두 플랫폼
+모두에 있던 자리다. 같은 라운드 안에서 항목을 하나 넣고 나서야 다음 항목이 드러난 순서
+자체가, 하나를 고치면 다음 셀 실행이 그 아래 있던 것을 새로 비춘다는 것을 보여준다 —
+이 문서가 놓친 것이 아니라 두 결함이 같은 셀 둘(u7b·u10b)에 겹쳐 있었을 뿐이다.
 
 **ui/scaffold-2f 읽는 법.** finding 둘 다 novel이고 뒤 칸은 0이다. 한 건은 러너가
 에뮬레이터에 준 주소를 SDK가 신뢰하지 않은 것 — 등록부 항목이 아니라 러너와 SDK 규칙의

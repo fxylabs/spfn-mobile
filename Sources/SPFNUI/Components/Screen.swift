@@ -26,6 +26,13 @@
 // that drew its own bar as well would put two back controls on one screen, only one of which
 // the flow knows about.
 //
+// Hiding that bar has a side effect neither half of the file above says: UIKit's edge swipe
+// back belongs to the bar it hides along with it, silently, so a header's own back button
+// keeps working while the gesture does nothing (docs/IMPLEMENTATION-PITFALLS.md P29; cells
+// u7b and u10b are what caught it). `SwipeBackGesture` below is the fix this file chose over
+// P29's other two — reach past UIKit for the gesture rather than empty the bar instead of
+// hiding it, or move those two cells' iOS half to a human to check by hand.
+//
 // ---------------------------------------------------------------------------
 // Screen owns two of the seven keyboard clauses, and only two
 // ---------------------------------------------------------------------------
@@ -97,6 +104,10 @@ public struct Screen<Content: View>: View
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(palette.background)
         .modifier(HiddenNavigationBar())
+        // P29: the bar this hides is where the edge swipe back lived. `chrome.leading ==
+        // .back` is the same "this is not the root" test the header already uses to decide
+        // whether to draw a back control, so a root screen never has the gesture turned on.
+        .modifier(SwipeBackGesture(enabled: chrome.leading == .back))
         // A tap that lands on the frame rather than on a control puts the keyboard away.
         //
         // `onTapGesture` on the ANCESTOR, which is neither of the two spellings that fail.
