@@ -45,8 +45,12 @@ struct ExampleApp: App
 ///
 /// The receipt control lives here rather than on a screen because a cell that ends with
 /// the flow closed has no screen left to press. Every generated flow unwinds itself before
-/// reaching it, which is what makes the control reachable here at all — a modal flow
-/// covers this view entirely while it is open.
+/// reaching it, which is what makes the control reachable here at all — a modal flow covers
+/// this view entirely while it is open, and a pushed one stands on the host's stack over it.
+///
+/// `stack=` counts the FLOWS' own depths added up (`Flows.depth`) and not the host's stack,
+/// which is what keeps every cell's expectation the same number it was: a pushed flow that
+/// now appends to the host has exactly the depth it had when it drew its own stack.
 @MainActor
 struct RootView: View
 {
@@ -55,18 +59,27 @@ struct RootView: View
 
     var body: some View
     {
-        ZStack
+        NavigationHost
         {
-            menu
-            hosts
+            ZStack
+            {
+                menu
+                hosts
+            }
         }
     }
 
-    /// Every flow's host, drawn over the menu.
+    /// Every flow's host, beside the menu in the view tree and over it on the screen.
+    ///
+    /// The `NavigationHost` around them is what a pushed flow appends to (decision N1):
+    /// without it `PushTourFlowHost` would draw a stack of its own over this view, with no
+    /// transition into it and no route under its first screen to go back to
+    /// (docs/IMPLEMENTATION-PITFALLS.md P31). A modal and a sheet need nothing from it and
+    /// behave the same inside it.
     ///
     /// A `ZStack` and not a `VStack`, and the hosts last, for the reason the Compose half
-    /// uses a `Box`: a pushed flow's stack is drawn OVER the menu rather than beside it, and
-    /// a modal or a sheet needs nothing from its host but a place in the view tree.
+    /// uses a `Box`: a modal flow's cover is drawn OVER the menu rather than beside it, and
+    /// a sheet needs nothing from its host but a place in the view tree.
     ///
     /// Split out of `body` rather than listed there because a `ViewBuilder` takes ten
     /// children and nine hosts beside the menu is exactly ten — a tenth flow in the spec
