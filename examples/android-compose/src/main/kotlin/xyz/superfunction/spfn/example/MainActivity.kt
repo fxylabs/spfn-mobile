@@ -144,38 +144,46 @@ private fun ExampleRoot(
     var receipt by remember { mutableStateOf("none") };
     val depth = Flows.depth(container);
 
-    NavigationHost {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.systemBars)
-                .semantics { testTagsAsResourceId = true }
-        )
-        {
-            Menu(container = container, cell = cell, depth = depth, receipt = receipt)
+    // OUTSIDE the host, and that is the whole of P33. `NavigationHost` draws a pushed
+    // flow's routes out of its own NavDisplay, which makes them SIBLINGS of the root below
+    // rather than children of it — so a switch set on that root is not above them, and
+    // `testTagsAsResourceId` resolves by walking semantics PARENTS. Set inside, every
+    // control in every pushed flow silently loses its resource id and every `tapOn: id:` in
+    // those cells stops matching.
+    Box(modifier = Modifier.fillMaxSize().semantics { testTagsAsResourceId = true })
+    {
+        NavigationHost {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.systemBars)
+            )
             {
-                receipt = receipts.write(
-                    ExampleReceipt(
-                        cell = cell,
-                        fixture = fixture,
-                        stackDepth = depth,
-                        timestampMillis = System.currentTimeMillis(),
-                        sdkVersion = SpfnVersion.CURRENT,
-                        contractVersion = SpfnGeneratedContract.BINDING.importedVersion
-                    )
-                );
-            };
+                Menu(container = container, cell = cell, depth = depth, receipt = receipt)
+                {
+                    receipt = receipts.write(
+                        ExampleReceipt(
+                            cell = cell,
+                            fixture = fixture,
+                            stackDepth = depth,
+                            timestampMillis = System.currentTimeMillis(),
+                            sdkVersion = SpfnVersion.CURRENT,
+                            contractVersion = SpfnGeneratedContract.BINDING.importedVersion
+                        )
+                    );
+                };
 
-            ApproveDeviceFlowHost(container);
-            PushTourFlowHost(container);
-            ModalTourFlowHost(container);
-            SheetFitFlowHost(container);
-            SheetHalfFlowHost(container);
-            SheetFullFlowHost(container);
-            SheetNavFlowHost(container);
-            KeyboardFormFlowHost(container);
-            LongScrollFlowHost(container);
-        }
+                ApproveDeviceFlowHost(container);
+                PushTourFlowHost(container);
+                ModalTourFlowHost(container);
+                SheetFitFlowHost(container);
+                SheetHalfFlowHost(container);
+                SheetFullFlowHost(container);
+                SheetNavFlowHost(container);
+                KeyboardFormFlowHost(container);
+                LongScrollFlowHost(container);
+            }
+        };
     };
 }
 

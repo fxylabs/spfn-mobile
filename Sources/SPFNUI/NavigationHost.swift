@@ -40,6 +40,14 @@
 // than a destination declared closer to its flow: a `navigationDestination` inside a lazy
 // container or outside the stack is ignored, and this one is neither by construction.
 //
+// What a host app wraps its own root in does NOT reach a pushed flow here either. The root
+// is the stack's root and a pushed flow's routes are destinations above it, so a modifier or
+// an environment value applied inside the root closure is not above them. It matters far
+// less on this platform than on Compose — a SwiftUI accessibility identifier is per-view and
+// survives any presentation, where Android's `testTagsAsResourceId` is inherited and does
+// not (docs/IMPLEMENTATION-PITFALLS.md P33) — and the rule is the same on both: what is
+// meant for the whole of an app's navigation goes outside this view.
+//
 // The registry is also what carries the CHROME. A `Screen` reads its way out of the
 // environment, and the value it has to read is the owning flow's — not the host's, and not
 // whichever flow happened to register last — so the closure the owner registers wraps its

@@ -37,6 +37,27 @@
 //
 // The same sentence with the same consequence is why nothing is unregistered on dispose on
 // the SwiftUI half either.
+//
+// ---------------------------------------------------------------------------
+// What a host app puts on its own root does NOT reach a pushed flow
+// ---------------------------------------------------------------------------
+//
+// The `root` this takes is one entry of this NavDisplay, and a pushed flow's routes are
+// other entries of it. They are SIBLINGS of the root, not children of it, so a `Modifier`,
+// a `CompositionLocalProvider` or a `semantics` block an app wraps its own content in is
+// simply not above them.
+//
+// It costs a runner its selectors, silently. `testTagsAsResourceId` — the switch that turns
+// a Compose test tag into the Android resource id a Maestro `id:` selector matches — is
+// resolved by walking semantics PARENTS, so an app that sets it inside this host keeps it
+// for its own screens and loses it for every screen of every pushed flow: the text on those
+// screens still matches and every control stops being findable
+// (docs/IMPLEMENTATION-PITFALLS.md P33).
+//
+// So anything an app means for the whole of its navigation goes OUTSIDE this composable.
+// What belongs inside is what belongs to the app's own screen and not to the flows: its own
+// insets, for one, because a pushed `Screen` spends the status bar inset on its own header
+// where nothing above it has consumed one (docs/IMPLEMENTATION-PITFALLS.md P25).
 
 package xyz.superfunction.spfn.ui
 

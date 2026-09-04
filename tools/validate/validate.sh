@@ -2574,6 +2574,38 @@ else
     fail "cells of the case table have no seeding in the iOS example app:$IOS_FIXTURE_PROBLEMS"
 fi
 
+# The Compose example app's `id:` selectors, and the one line order they depend on
+# (docs/IMPLEMENTATION-PITFALLS.md P33).
+#
+# `testTagsAsResourceId` is what turns a Compose test tag into the Android resource id a
+# Maestro `id:` selector matches, and it is resolved by walking semantics PARENTS. A pushed
+# flow's routes are drawn by `NavigationHost`'s own navigator, which makes them SIBLINGS of
+# the root it was handed rather than children of it — so the switch has to be set OUTSIDE
+# that host to reach them.
+#
+# Set inside, nothing fails to build and nothing warns: the text on a pushed screen still
+# matches and every control on it stops being findable. On 2026-09-04 that was five cells of
+# thirty-five, all three push flows at once, and the log said `Element not found`.
+#
+# Line numbers, because what is being checked is which encloses which and this file has one
+# of each.
+EXAMPLE_ANDROID_ROOT='examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/MainActivity.kt'
+TAGS_LINE=$(grep -n 'testTagsAsResourceId = true' "$ROOT/$EXAMPLE_ANDROID_ROOT" | head -1 | cut -d: -f1)
+HOST_LINE=$(grep -n 'NavigationHost {' "$ROOT/$EXAMPLE_ANDROID_ROOT" | head -1 | cut -d: -f1)
+
+if [ -n "$TAGS_LINE" ] && [ -n "$HOST_LINE" ]
+then
+    pass "the Compose example app sets testTagsAsResourceId (line $TAGS_LINE) and opens a NavigationHost (line $HOST_LINE)"
+    if [ "$TAGS_LINE" -lt "$HOST_LINE" ]
+    then
+        pass 'testTagsAsResourceId is set outside the NavigationHost, where a pushed flow inherits it'
+    else
+        fail "testTagsAsResourceId is set inside the NavigationHost (line $TAGS_LINE against line $HOST_LINE); every control of every pushed flow loses its resource id"
+    fi
+else
+    fail "$EXAMPLE_ANDROID_ROOT has no testTagsAsResourceId or no NavigationHost; this check did not run"
+fi
+
 # ---------------------------------------------------------------------------
 section '15. the visual vocabulary is written twice and says the same thing'
 # ---------------------------------------------------------------------------
