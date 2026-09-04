@@ -50,8 +50,14 @@
 | 플랫폼 `#if canImport(...)` 가드 추가, 한 플랫폼에서 모듈 비우기 | [P20](#p20) [P7](#p7) |
 | 러너가 id로 탭하는 컨트롤 추가·수정 (Compose·SwiftUI 뷰) | [P21](#p21) |
 | Compose·SwiftUI 화면의 스크롤 컨테이너 안에 러너가 탭하는 컨트롤 배치 | [P21](#p21) [P25](#p25) |
-| Maestro 플로우 생성·수정 | [P22](#p22) [P21](#p21) [P23](#p23) |
+| `FlowEntry`·시트 표시·`Screen` 헤더 수정 (`spfn-ui`/`SPFNUI`의 런타임) | [P15](#p15) [P21](#p21) [P22](#p22) [P25](#p25) |
+| SwiftUI 화면의 조상 뷰에 제스처 달기, 키보드 해제 처리 | [P27](#p27) [P15](#p15) |
+| 자체 헤더를 그리려고 시스템 내비게이션 바 숨기기 (SwiftUI) | [P29](#p29) [P15](#p15) [P22](#p22) |
+| `tools/validate/`·러너의 셸 스크립트에 sed·grep 정규식 추가 | [P28](#p28) [P4](#p4) [P7](#p7) |
+| Xcode 프로젝트를 손으로 `xcodebuild` (예제·하네스 둘 다) | [P17](#p17) |
+| Maestro 플로우 생성·수정 | [P22](#p22) [P21](#p21) [P23](#p23) [P30](#p30) |
 | 기기 러너의 증거 수집 시점 수정 (`run-cells.sh`, `run-harness.sh`) | [P23](#p23) [P7](#p7) [P12](#p12) |
+| readout을 기다린 다음 바로 back·swipe·pop 제스처를 보내는 셀 작성 | [P30](#p30) [P15](#p15) |
 
 ---
 
@@ -462,10 +468,32 @@ xcodebuild -project <proj> -resolvePackageDependencies -scheme <scheme> 2>&1 \
 된다. `name:`을 빼지 말 것: path 의존성의 identity는 **디렉터리 이름**이라 worktree처럼
 브랜치 이름이 붙은 체크아웃에서 `.product(package:)`가 깨진다.
 
+**처방 2 — derived data는 Xcode 프로젝트마다 따로 준다.** 트레이트를 켜는 것은 매니페스트지만,
+**켜진 결과를 캐시하는 것은 derived data**다. 이 저장소에는 Xcode 프로젝트가 둘 있고
+(`examples/ios-swiftui/SPFNExample.xcodeproj`, `tools/harness/ios/SPFNHarness.xcodeproj`)
+트레이트를 쓰는 쪽은 하네스뿐이다. 둘을 같은 `-derivedDataPath`에 빌드하면 예제가 먼저
+해석해 둔 **트레이트 없는** SwiftPM 그래프를 하네스가 그대로 물려받는다. 실패는 또 조용하다 —
+"트레이트가 꺼졌다"가 아니라 `HarnessSocialSignIn.swift:42: incorrect argument label in call
+(have 'presenting:', expected 'driver:')` 처럼 **엉뚱한 시그니처 에러**로 나온다.
+
+두 러너는 이미 서로 다른 경로를 쓴다 — `examples/ui-spec/install-device.sh`는
+`/tmp/spfn-example-device`, `tools/harness/run-harness.sh`는 자기 실행마다 새로 만드는
+`$WORK/dd`. 손으로 `xcodebuild`를 부를 때가 위험한 자리다.
+
+```
+# 두 프로젝트, 두 경로. 하나로 합치지 말 것.
+xcodebuild -project examples/ios-swiftui/SPFNExample.xcodeproj  ... -derivedDataPath <dir>/example
+xcodebuild -project tools/harness/ios/SPFNHarness.xcodeproj     ... -derivedDataPath <dir>/harness
+```
+
 **나온 곳.** w-9jqtj iOS — 하네스가 실기기에서 Google 시트를 띄우려면 `SocialGoogle`이
 필요했다. 프로브 프로젝트로 실측: `traits:`만 쓴 쪽은 원격 패키지 0개에
 `SPFNGooglePresentingContext` 미해결, 매니페스트 쪽은 GoogleSignIn 9.2.0 해석 + 빌드 성공.
 실물은 `tools/harness/ios/HarnessSupport/Package.swift`.
+
+공유 derived data 쪽은 w-evwna ui/scaffold-3d, 2026-09-03 맥. 예제와 하네스를 한 디렉터리에
+빌드했더니 하네스만 `HarnessSocialSignIn.swift:42`에서 인자 레이블 에러로 죽었고, 경로를
+갈라 주자 두 프로젝트 다 그대로 빌드됐다.
 
 ## P18. 테스트가 키 id를 고정하면 두 번째 키가 첫 번째를 덮는다 {#p18}
 
@@ -978,6 +1006,185 @@ catches wider than SpfnClientError`다. 픽스처가 던질 수 있는 것으로
 미기동(`SpfnClientError`가 아닌 전송 예외)과 깨진 응답도 죽었다. 18셀 표는 이 경우를
 가질 수 없었다 — 픽스처가 던지지 않는 예외는 표가 못 잡는다.
 
+## P27. SwiftUI의 `simultaneousGesture`는 자식이 먹은 탭에도 같이 발동한다 {#p27}
+
+**증상.** 화면 전체에 "빈 곳을 누르면 키보드를 내린다"를 달았더니 **필드를 눌러도** 키보드가
+내려간다. 러너 기준으로는 더 나쁘게 보인다: 탭은 성공하고, 포커스가 잡혔다가 같은 프레임에
+풀리고, 뒤따르는 `inputText`가 **아무 데도 안 들어가고**, 제출이 빈 값으로 나가 셀이
+"입력한 적 없는 값"으로 실패한다. 탭도 입력도 각자는 성공했다고 보고한다.
+
+원인은 이름 그대로다. `simultaneousGesture`는 "탭을 가로채지 않는다"는 뜻이 아니라
+**"실제로 맞은 뷰와 나란히 같이 발동한다"**는 뜻이다. 자식이 소비한 제스처가 부모에게 가지
+않는 Compose의 `pointerInput`/`detectTapGestures`와 여기서 갈린다 — 한쪽에서 옳은 한 줄이
+다른 쪽에서 정확히 반대로 동작한다([P15](#p15)).
+
+**탐지.** 두 가지 중 하나라도 보이면 의심한다.
+
+- 텍스트 필드가 있는 화면의 조상 뷰에 `simultaneousGesture(TapGesture()...)`가 붙어 있다.
+- 기기 셀이 **빈 입력으로 제출된 결과**(검증 에러, `state=error`)로 실패하는데, 러너 로그의
+  탭·입력 스텝은 전부 초록이다.
+
+```
+# 조상에 달린 동시 탭 제스처는 하나도 없어야 한다.
+grep -rn 'simultaneousGesture' Sources/SPFNUI
+```
+
+**처방. 조상 뷰의 `onTapGesture`다.** 세 가지 철자 중 하나만 맞고, 나머지 둘은 각각
+반대쪽으로 틀린다.
+
+| 철자 | 필드 탭 | 빈 곳 탭 |
+| --- | --- | --- |
+| `simultaneousGesture`를 화면 전체에 | **깨짐** — 같이 발동해 방금 올라온 키보드를 내린다 | 내려간다 |
+| `ZStack` 맨 아래 `Color.clear` 레이어 | 멀쩡 | **안 내려감** — 앞의 스크롤 뷰가 히트 테스트에 먼저 답한다 |
+| 조상 뷰의 `onTapGesture` | 멀쩡 | 내려간다 |
+
+```swift
+VStack { header; body }
+    .contentShape(Rectangle())
+    .onTapGesture { SPFNKeyboard.dismiss() }
+```
+
+이유는 **형제와 조상이 다르기** 때문이다. 뒤에 깔린 형제는 이벤트를 아예 못 받는다 —
+히트 테스트는 앞에서 뒤로 가다 답하는 첫 뷰에서 멈추고, 스크롤 뷰는 자기 영역 어디서든
+답한다. 반면 제스처는 히트된 뷰에서 **위로** 올라가며 안쪽이 먼저 이긴다. 그래서 버튼과
+필드는 자기 탭을 가져가고, 스크롤 뷰가 그냥 깔고 있던 자리의 탭만 조상에게 온다.
+`contentShape(Rectangle())`은 프레임의 빈 부분이 히트 테스트에 답하게 하는 부분이다.
+
+`scrollDismissesKeyboard(.interactively)`는 그대로 둔다 — 그건 탭이 아니라 드래그에 대한
+답이고 둘은 겹치지 않는다.
+
+**러너에서 이걸 재는 셀은 `hideKeyboard`를 쓰는 셀이다.** iOS의 maestro `hideKeyboard`는
+표준 해제 동작을 찾고, 못 찾으면 `Couldn't hide the keyboard...`로 실패한다. 즉 **앱이
+바깥 탭에 응답하는지를 그대로 되비친다.** 형제 레이어 판을 돌렸을 때 정확히 k2·k5 둘만
+그 메시지로 실패했고, 조상 제스처로 바꾸자 k1·k2·k5·u1·s1·s2가 모두 통과했다.
+
+**나온 곳.** w-evwna ui/scaffold-3b, iPhone 17 Pro 시뮬레이터 2026-09-02. `Screen.swift`가
+`.simultaneousGesture(TapGesture().onEnded { SPFNKeyboard.dismiss() })`를 프레임 전체에
+달고 있었고, 필드를 탭하는 셀(u1·u7·u8 등)이 전부 빈 제출로 실패했다. Compose 쪽
+`Screen.kt`는 같은 규칙을 `pointerInput`으로 쓰고 있어 멀쩡했다 — Linux 호스트에서는 두
+파일이 같은 규칙을 말하고 있다는 것까지만 보이고, 갈라지는 지점은 기기에서만 보인다.
+
+가운데 줄(형제 레이어)은 같은 작업 3d에서 **고치다가 새로 만든** 실패다. 한 라운드 안에서
+같은 규칙을 두 번 틀리게 쓴 셈이고, 표를 여기 남기는 이유가 그것이다.
+
+## P28. GNU sed에서 쓰던 `\?`는 BSD sed에서 조용히 리터럴이 된다 {#p28}
+
+**증상.** 리눅스 VM에서 초록이던 `validate.sh` 섹션이 맥에서 빨갛다. 파일도 그대로 있고
+내용도 그대로인데 추출 결과만 **0건**이다. 원인은 정규식 방언이다 — `sed -n 's/... \(static
+\)\?let .../p'`의 `\?`는 GNU sed에서 "앞의 그룹 0회 또는 1회"지만, BSD(맥) sed의 기본
+정규식에는 그 연산자가 없어 **역슬래시와 물음표 두 글자를 그대로** 찾는다. 맞는 줄이
+하나도 없으니 0건이다.
+
+**이 저장소에서 이게 살아남은 이유가 요점이다.** 구현은 리눅스 VM에서 하고 기기 게이트만
+맥에서 돈다. 그래서 맥에서만 갈리는 문법은 **기기 라운드까지 발견되지 않는다** — 코드가
+아니라 검사 스크립트에 있으면 더 오래 산다. 검사 스크립트는 CI가 리눅스에서만 돌린다.
+
+**탐지.** 셸 스크립트 전체에서 한 번에 본다. 0건이어야 한다.
+
+```
+grep -rn --include='*.sh' '\\?' tools/ examples/
+```
+
+`\+`, `\|`도 같은 부류다. 셋 다 `sed -E`로 옮기면 두 방언에서 같은 뜻이 된다.
+
+**처방.** 그룹 반복·교대가 필요하면 **`sed -E`**를 쓴다(`(static )?`, `+`, `|`). BRE에
+남길 이유가 없다. 그리고 이 함정이 조용하지 않았던 유일한 이유는 추출부에 **바닥**이
+있었기 때문이다([P7](#p7)) — "0건 읽음"이 "이상 없음"이 아니라 "못 돌았음"으로 보고됐다.
+바닥 없는 추출부였다면 맥에서도 초록으로 지나갔다.
+
+**나온 곳.** w-evwna ui/scaffold-3d, 2026-09-03 맥. `validate.sh` 섹션 15의
+`swift_value_names`가 Swift 이름 0개·Kotlin 이름 20개를 읽어 tokens·strings 두 검사가
+동시에 빨갰다. 같은 `\?`가 `probe-ui-vocabulary-rules.sh`의 변이 sed에도 있었고, 그쪽은
+변이가 안 먹어 프로브가 **무는지 못 무는지 자체를 못 보고 있었다.** 둘 다 `sed -E`로 옮겼다.
+
+## P29. 내비게이션 바를 숨기면 iOS의 스와이프 뒤로가기가 같이 죽는다 {#p29}
+
+**증상.** 자체 헤더를 그리려고 시스템 내비게이션 바를 숨긴다
+(`.toolbar(.hidden, for: .navigationBar)`). 헤더의 back 버튼은 잘 동작한다. 그런데 **화면
+왼쪽 가장자리에서 미는 제스처만** 아무 일도 하지 않는다. 에러도 로그도 없다 — 스와이프
+명령 자체는 성공으로 끝나고, 그 다음 단언이 실패한다.
+
+UIKit이 오래전부터 그렇다: 내비게이션 바가 숨겨지면
+`interactivePopGestureRecognizer`가 시작을 거부한다. SwiftUI의 `NavigationStack`도 그
+위에 얹혀 있어 그대로 물려받는다.
+
+**플랫폼이 갈리는 자리라는 것이 핵심이다**([P15](#p15)). Android의 시스템 back과 예측형
+back은 헤더를 숨기든 말든 그대로 동작하므로, "시스템 back은 플로우의 pop이다" 같은 규칙은
+**Android에서만 참인 채로 초록**일 수 있다. 두 플랫폼에 같은 셀을 둔 표만이 이걸 본다.
+
+**탐지.** 자체 헤더를 그리는 화면 컴포넌트에서 두 줄을 같이 본다. 둘 다 있으면 적중이다.
+
+```
+grep -rn 'toolbar(.hidden' Sources/          # 바를 숨기는 곳
+grep -rln 'swipe' examples/ui-spec/generated/flows/   # 가장자리 스와이프에 기대는 플로우
+```
+
+확인은 프로브다. 바를 숨기는 줄만 지우고 같은 셀을 다시 돌린다 — 통과하면 원인이 그 줄이다.
+
+**처방.** 공개 API로는 "바는 숨기고 제스처는 살린다"가 안 된다. 셋 중 하나를 **고르고
+적는다.**
+
+- UIKit으로 `interactivePopGestureRecognizer`의 delegate를 대신 구현한다. 루트에서 시작을
+  거부하는 가드를 반드시 같이 둔다(없으면 루트에서 스와이프 시 내비게이션 스택이 깨진다).
+- 바를 숨기지 않고 배경·제목·back 버튼만 비운다. 대신 바 높이만큼 레이아웃이 내려간다.
+- 그 셀의 iOS 절반을 사람이 확인하는 `manual`로 옮긴다. 표에 남되 러너가 거짓 초록을 내지
+  않는다.
+
+**고른 것.** 첫 번째 — Sources/SPFNUI/Components/SwipeBack.swift의 `SwipeBackGesture`가
+`UIViewRepresentable`로 내비게이션 스택 안에 있는 뷰를 하나 심고, 그 뷰의 `next` 리스폰더
+체인을 걸어 올라가 `UINavigationController`를 찾아 `interactivePopGestureRecognizer`의
+`isEnabled`를 직접 켠다. 루트 가드는 새 delegate를 짜는 대신 `Screen`이 이미 갖고 있던
+조건을 그대로 썼다 — `chrome.leading == .back`이 헤더에 back 버튼을 그릴지 결정하는 바로
+그 식이고, 스택 깊이가 2 이상일 때만 참이다. `delegate = nil`은 제스처를 켤 때만 건드리고,
+끌 때는 `isEnabled = false`만으로 충분해 UIKit 자신의 delegate를 그대로 둔다.
+Sources/SPFNUI/Components/Screen.swift가 `.modifier(SwipeBackGesture(enabled:))`로
+붙여 쓴다.
+
+**나온 곳.** w-evwna ui/scaffold-3d, iPhone 17 Pro / iOS 26.3 시뮬레이터 2026-09-03.
+셀 u7b·u10b(규칙 R8)가 `Assertion is false: "stack=1" is visible`로 실패했다. 프로브 둘로
+원인을 갈랐다 — 키보드 해제 레이어를 통째로 빼도 같은 자리에서 같게 실패했고(무관),
+`HiddenNavigationBar`의 `.toolbar(.hidden, for: .navigationBar)` 한 줄만 빼자 u7b가 끝까지
+통과했다(적중). 두 셀의 Android 절반은 이 라운드의 첫 기기 실행에서는 통과했지만, 코드
+수정 뒤 다시 돌린 기기 게이트에서는 실패했다 — 원인은 이 절이 아니라 [P30](#p30)이다.
+
+## P30. 화면 전환 애니메이션이 아직 도는 동안 온 back 제스처는 지연이 아니라 소실이다 {#p30}
+
+**증상.** `- back`(Android)이나 edge swipe(iOS)가 `Assertion is false: "stack=1" is
+visible`로 실패한다. `state=ready`/`state=error` 같은 화면의 readout은 이미 원하는 값을
+보이고 있어서 — 셀은 그 readout을 기다린 다음 바로 back을 보낸다 — 타이밍 문제로 보이지
+않는다. `- back` 명령 자체는 `COMPLETED`로 끝나고, 그 다음에 아무리 오래
+`extendedWaitUntil`로 `stack=1`을 기다려도 스택은 끝까지 그대로다: 뒤에 온 대기가 아니라
+**그 back 자체가 아무 일도 하지 않은 것**이다.
+
+원인은 readout과 내비게이션이 같은 프레임에서 갈라진다는 것이다. 두 번째 화면을 미는
+전환(push)은 그 화면의 `state=ready`/`state=error` readout이 그리는 것과 같은 상태 변화로
+시작되지만, readout은 즉시 그려지고 전환 애니메이션은 그보다 조금 더 돈다. 그 짧은 창
+안에 도착한 back은 대상이 아직 자리 잡지 않은 스택에 온 것이라 버려진다 — Android의
+`BackHandler`도, iOS의 `interactivePopGestureRecognizer`도 마찬가지다. 플랫폼이 다른데
+증상이 같다는 것 자체가 "화면 하나의 버그"가 아니라는 신호다([P15](#p15)).
+
+**탐지.** `extendedWaitUntil`로 readout을 기다린 바로 다음 줄이 `back`/`swipe`인 셀에서,
+그 readout이 나타난 시점과 아래에 새 라우트가 실제로 얹히는 시점이 같은 코드 경로 안에서
+갈라지는지 본다. 프로브는 back 앞에 `waitForAnimationToEnd`를 하나 끼워 같은 셀을 다시
+돌리는 것 — 통과하면 원인이 그 간격이다.
+
+**처방.** readout을 기다리는 것과 전환이 끝나기를 기다리는 것은 다른 질문이라, 다른
+질문을 물어야 한다. `tools/ui-codegen`의
+`CaseTable.systemBack()`(tools/ui-codegen/src/main/kotlin/xyz/superfunction/spfn/uicodegen/CaseTable.kt)이
+`back`/`swipe` 앞에 `waitForAnimationToEnd: {timeout: 3000}`를 두 플랫폼 모두에 심어,
+readout이 참인 것과 전환이 안정된 것을 별개로 확인한다. 셀 파일은 손으로 고치지 않는다 —
+생성기를 고치고 `./gradlew :ui-codegen:spfnGenerateUi :ui-codegen:spfnGenerateHarnessUi`로
+다시 뽑는다.
+
+**나온 곳.** w-evwna ui/scaffold-3d, Pixel 3a API 34 에뮬레이터(cold boot) 및 iPhone 17
+Pro / iOS 26.3 시뮬레이터, 2026-09-04. P29를 고친 뒤 다시 돌린 기기 게이트에서 Android의
+u7b·u10b가 처음으로 실패했다 — 같은 라운드의 5커밋에 Android 코드 변경은 전혀 없어
+회귀가 아니라 이 문서가 놓치고 있던 자리였다. `waitForAnimationToEnd` 없이,
+`stack=2`(전환이 이미 끝났다는 별개의 readout)를 명시적으로 기다린 뒤 back을 보내도 여전히
+실패했다 — readout을 무엇으로 바꿔도 못 잡는다는 뜻이라, `stack=2` 대기가 아니라
+`waitForAnimationToEnd` 3000ms가 유일하게 먹힌 조합이었다. 두 플랫폼 모두 두 번씩 다시
+돌려 통과를 확인했다.
+
 ## 원장
 
 change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서 나온 finding 수**를 적는다.
@@ -995,6 +1202,14 @@ change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서
 | ui/scaffold-2c (하네스 화면 배치, Android) | 1 (기기) | 1 | 0 |
 | ui/scaffold-2d (하네스 화면 배치, iOS) | 1 (기기) | 1 | **1** |
 | ui/scaffold-2f (생성 코드의 catch 범위, 러너의 에뮬레이터 주소) | 1 (기기) | 2 | 0 |
+| ui/scaffold-3d (내비게이션 바 숨김의 스와이프 back, 전환 애니메이션 중 소실되는 back) | 2 (기기) | 2 | 0 |
+
+**ui/scaffold-3d 읽는 법.** finding 둘 다 novel이고 뒤 칸은 0이다. 첫 라운드가 잡은
+것은 [P29](#p29)(iOS만, 이전 라운드에서 이미 항목으로 있었다), 그 처방을 넣은 뒤 다시
+돌린 두 번째 기기 게이트가 잡은 것이 [P30](#p30) — Android에서 먼저 나왔지만 두 플랫폼
+모두에 있던 자리다. 같은 라운드 안에서 항목을 하나 넣고 나서야 다음 항목이 드러난 순서
+자체가, 하나를 고치면 다음 셀 실행이 그 아래 있던 것을 새로 비춘다는 것을 보여준다 —
+이 문서가 놓친 것이 아니라 두 결함이 같은 셀 둘(u7b·u10b)에 겹쳐 있었을 뿐이다.
 
 **ui/scaffold-2f 읽는 법.** finding 둘 다 novel이고 뒤 칸은 0이다. 한 건은 러너가
 에뮬레이터에 준 주소를 SDK가 신뢰하지 않은 것 — 등록부 항목이 아니라 러너와 SDK 규칙의

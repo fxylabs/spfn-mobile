@@ -1,6 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
-import java.util.Properties
 
 // SPFN Mobile — the Compose example application.
 //
@@ -18,10 +17,11 @@ import java.util.Properties
 // ~/.android/debug.keystore, which is outside this tree — the validator fails on a keystore
 // in the committed tree — and there is no release build here to need anything more.
 //
-// The one configured value, the server this app would talk to, comes from local.properties
-// exactly the way the harness reads its own. It fails closed: a checkout with no
-// local.properties builds and installs, and the app reports itself unconfigured rather
-// than reaching an address nobody named.
+// It reads no configuration at all, and that is the shape rather than an omission: this app
+// has no enrolment path of its own — enrolment is what tools/harness exists to drive — so a
+// client it built against a configured server would refuse every call for want of a key.
+// Every screen here runs against a launch fixture, the menu included, and the manifest
+// declares no INTERNET permission.
 
 plugins {
     // AGP 9 compiles Kotlin itself; applying org.jetbrains.kotlin.android is an error.
@@ -34,33 +34,14 @@ plugins {
 description = "SPFN Compose example: the generated device-approval scaffold, running. Not published."
 
 // ---------------------------------------------------------------------------
-// Run configuration: read from local.properties, never committed, never printed.
+// No run configuration
 // ---------------------------------------------------------------------------
-// Only key NAMES appear in this file and in every message it can produce.
-
-val exampleLocalProperties = Properties().apply {
-    val file = rootProject.file("local.properties");
-    if (file.exists())
-    {
-        file.inputStream().use { load(it) };
-    }
-}
-
-/**
- * The SPFN server this app would send to: scheme, host, optional port, nothing else. A
- * value that is present but malformed fails the build rather than being dropped, because
- * a silently ignored typo looks exactly like a machine that was never configured. The
- * scheme pattern is spelled without the two letters that would make this line read as a
- * committed URL to tools/validate/validate.sh, which forbids one outside the root.
- */
-val exampleServerBaseUrl = (exampleLocalProperties.getProperty("spfn.example.serverBaseUrl") ?: "")
-    .trim()
-    .also { value ->
-        if (value.isNotEmpty() && !Regex("^[a-z][a-z0-9+.-]*://[A-Za-z0-9.-]+(:[0-9]{1,5})?\$").matches(value))
-        {
-            throw GradleException("local.properties key 'spfn.example.serverBaseUrl' does not match the expected shape");
-        }
-    }
+// There used to be one: a server address read from local.properties, and a client this app
+// built against it when no launch fixture named a cell. Nothing reached it. This app has no
+// enrolment path — enrolment is tools/harness's whole subject — so every call that client
+// made was refused for want of a key, and the branch existed to produce a refusal from an
+// address nobody had configured. The menu replaced it, on the same fake every cell runs on,
+// and the INTERNET permission went with it.
 
 android {
     namespace = "xyz.superfunction.spfn.example"
@@ -72,14 +53,6 @@ android {
         targetSdk = libs.versions.target.sdk.get().toInt()
         versionCode = 1
         versionName = "0.0.0"
-
-        // Empty is the configured absence, and the app treats it as one.
-        buildConfigField("String", "EXAMPLE_SERVER_BASE_URL", "\"$exampleServerBaseUrl\"")
-    }
-
-    buildFeatures {
-        // Off by default since AGP 8, and the one field above is the only reason it is on.
-        buildConfig = true
     }
 
     // Restated rather than inherited, for the same reason every other module restates it:

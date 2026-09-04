@@ -2,7 +2,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-dev
 // spec:            examples/ui-spec/device-approval.json
-// specSha256:      cd02e9ed576538e540a939229a0e476a76708e84286a3ccd09f5f680bf7ab8b5
+// specSha256:      88e5159b5528860daa36d6ebae1f6a6940c8152eb8373bf4cb3656be70599153
 // bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 // contractVersion: 0.10.0
 //
@@ -13,6 +13,7 @@ package xyz.superfunction.spfn.harness.generated.screens
 
 import xyz.superfunction.spfn.client.SpfnClientError
 import xyz.superfunction.spfn.core.SpfnErrorEnvelope
+import xyz.superfunction.spfn.ui.SpfnStrings
 
 /** Turns what a call threw into the envelope a screen state carries. */
 object ScreenFailure
@@ -46,4 +47,68 @@ object ScreenFailure
             requestId = ""
         )
     };
+
+    /** The code names a device the server is not holding a request for. */
+    const val DEVICE_NOT_FOUND_KEY: String = "deviceNotFound";
+
+    /** Nothing was reached, or what came back was not readable. */
+    const val NETWORK_KEY: String = "network";
+
+    /** The server refused this device's credentials. */
+    const val UNAUTHORIZED_KEY: String = "unauthorized";
+
+    /** The screen refused its own input. Nothing was sent. */
+    const val VALIDATION_KEY: String = "validation";
+
+    /** Anything this build classifies as nothing more specific. */
+    const val UNEXPECTED_KEY: String = "unexpected";
+
+    /**
+     * Which of the five keys [envelope] is shown under.
+     *
+     * The two families below are the contract's own 401s and 404s, listed from the
+     * pinned bundle at generation time.
+     */
+    fun messageKey(envelope: SpfnErrorEnvelope): String = when (envelope.code)
+    {
+        VALIDATION -> VALIDATION_KEY
+        CALL_FAILED -> NETWORK_KEY
+        "InvalidSocialTokenError", "PROOF_EXPIRED", "PROOF_INVALID", "PROOF_REPLAYED", "SESSION_REVOKED" -> UNAUTHORIZED_KEY
+        "DeviceAuthNotFoundError" -> DEVICE_NOT_FOUND_KEY
+        else -> UNEXPECTED_KEY
+    };
+
+    /**
+     * The sentence for [envelope], looked up in [SpfnStrings].
+     *
+     * Never the server's own words: `message` is text a server chose and a screen that
+     * drew it would publish whatever the server felt like saying (decision C7).
+     */
+    fun message(envelope: SpfnErrorEnvelope): String = when (messageKey(envelope))
+    {
+        DEVICE_NOT_FOUND_KEY -> SpfnStrings.errorDeviceNotFound
+        NETWORK_KEY -> SpfnStrings.errorNetwork
+        UNAUTHORIZED_KEY -> SpfnStrings.errorUnauthorized
+        VALIDATION_KEY -> SpfnStrings.errorValidation
+        else -> SpfnStrings.errorUnexpected
+    };
+
+    /** Whether this failure belongs under a field rather than to the screen. */
+    fun isFieldRefusal(envelope: SpfnErrorEnvelope): Boolean = envelope.code == VALIDATION;
+
+    /**
+     * The sentence to draw under [field], or null when this failure is not that field's.
+     *
+     * The one read of `message` in this file, and it is safe because the value there is
+     * this generator's own field name: [validation] above is what put it there.
+     */
+    fun fieldMessage(envelope: SpfnErrorEnvelope?, field: String): String? =
+        if (envelope != null && envelope.code == VALIDATION && envelope.message == field)
+        {
+            SpfnStrings.errorValidation
+        }
+        else
+        {
+            null
+        };
 }

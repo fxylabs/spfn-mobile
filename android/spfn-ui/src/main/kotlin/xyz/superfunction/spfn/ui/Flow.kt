@@ -94,6 +94,79 @@ public class Flow<R : FlowRoute>(initial: List<R> = emptyList())
     }
 
     /**
+     * What a back gesture does here, and whether this flow did it.
+     *
+     * The one place the close table lives, so that the two hosts spend it rather than each
+     * restate it: a stack of two or more pops, a stack of one closes for [FlowEntry.Modal]
+     * and [FlowEntry.Sheet] and is refused for [FlowEntry.Push], and a closed flow is
+     * refused outright. `false` means the gesture was not this flow's — the host app's back
+     * applies — which is why the hosts ask [handlesBack] BEFORE they claim the gesture.
+     *
+     * @return whether this flow consumed the back.
+     */
+    public fun back(entry: FlowEntry): Boolean
+    {
+        if (!handlesBack(entry))
+        {
+            return false;
+        }
+        if (mutableStack.value.size > 1)
+        {
+            pop();
+            return true;
+        }
+        close();
+        return true;
+    }
+
+    /**
+     * Whether [back] would consume a back gesture, asked before the gesture is claimed.
+     *
+     * A back handler has to be enabled or disabled ahead of the event on both platforms —
+     * Android's `BackHandler` takes an `enabled` flag and a handler that consumed a back
+     * cannot hand it on — so "would you handle this" is a separate question from "handle
+     * this", and both answer out of the same rule.
+     */
+    public fun handlesBack(entry: FlowEntry): Boolean
+    {
+        val depth = mutableStack.value.size;
+        if (depth == 0)
+        {
+            return false;
+        }
+        if (depth > 1)
+        {
+            return true;
+        }
+        return entry != FlowEntry.Push;
+    }
+
+    /**
+     * The leading control the screen at the top of this flow should show.
+     *
+     * Depth decides first: anything standing on a route above the root goes back, whatever
+     * it was entered as. On the root, a flow presented over something offers the way out it
+     * was given — a close — and a pushed flow offers nothing, because its way out is the
+     * host app's own back.
+     *
+     * A host app that passes its own leading slot to `Screen` overrides this; this is what
+     * a screen shows when nobody said otherwise.
+     */
+    public fun leading(entry: FlowEntry): ScreenLeading
+    {
+        val depth = mutableStack.value.size;
+        if (depth > 1)
+        {
+            return ScreenLeading.Back;
+        }
+        if (depth == 0 || entry == FlowEntry.Push)
+        {
+            return ScreenLeading.None;
+        }
+        return ScreenLeading.Close;
+    }
+
+    /**
      * The one writer.
      *
      * The order of the two writes is the invariant: growing publishes the stack first and

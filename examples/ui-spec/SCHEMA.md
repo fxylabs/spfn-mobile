@@ -58,12 +58,28 @@ returns `Void`/`Unit` rather than a value nothing can decode.
 
 ```json
 "flows": { "approveDevice": { "entry": "modal", "start": "enterCode" } }
+"flows": { "pickPlan":      { "entry": "sheet", "sheet": { "detent": "half" }, "start": "plans" } }
 ```
 
 | Field | Allowed values | Meaning |
 | --- | --- | --- |
-| `entry` | `"modal"`, `"push"` | Maps to `FlowEntry.modal` / `FlowEntry.Modal` and its push twin. It decides what a system back on the flow's LAST route does: `modal` closes the flow, `push` lets the host app's back apply. |
+| `entry` | `"modal"`, `"push"`, `"sheet"` | Maps to `FlowEntry.modal` / `FlowEntry.Modal` and its two siblings. It decides what a system back on the flow's LAST route does: `modal` and `sheet` close the flow, `push` lets the host app's back apply. |
+| `sheet.detent` | `"fit"`, `"half"`, `"full"` | How tall the sheet stands. **Required** when `entry` is `sheet` and **refused** otherwise. |
 | `start` | a screen name | The route the flow opens on. |
+
+`sheet` is required-and-refused in both directions on purpose. A sheet with no detent has no
+height to resolve, and a modal with one carries a number nothing reads — which is the state
+`FlowEntry` stopped being an enum to avoid, said one layer up. `fit` measures its content and
+never exceeds `full`; `half` and `full` are fractions of the space the host gave the flow, and
+`SheetGeometry` resolves all three identically on both platforms.
+
+A spec carries as many flows as it has, and `device-approval.json` beside this file carries
+nine. One of them reads and writes; the other eight exist so the three presentations, a stack
+inside a sheet, a keyboard and a body that does not fit can be looked at. Nothing in this page
+is per-flow — the generator emits a route enum, a factory and a host for each — but two things
+downstream are, and both are named where they live: `Rules.kt` covers exactly one flow that
+reads and derives a much shorter list for the rest, and a target may narrow to a subset with
+`--flows` (below).
 
 ## `screens`
 
@@ -81,7 +97,77 @@ returns `Void`/`Unit` rather than a value nothing can decode.
 | `flow` | flow name | Which flow this screen belongs to. Required. |
 | `source` | `null` or `service.method` | The read that fills the screen. `null` means the screen reads nothing. |
 | `usecase` | boolean, optional | `true` puts a use-case protocol between the model and the service. Default `false`. |
+| `title` | string, optional | The header's title. Default: the screen's own name. |
+| `scroll` | boolean, optional | Whether the body scrolls, and therefore gets out of the keyboard's way. Default `true`. |
+| `header.close` | boolean, optional | Whether the header draws a close. Default: `true` on the root of a `modal` or a `sheet`, `false` everywhere else. |
+| `inputs` | object, optional | What the screen says about the inputs it collects. See below. |
+| `body` | body key, optional | The static prose the screen draws. Refused on a screen with a `source`. See below. |
 | `actions` | object | One entry per control on the screen. |
+
+`title` is **not** required, deliberately. A screen with no title is a screen somebody has not
+named yet, and a header reading `enterCode` says exactly that — where a refusal would stop a
+spec being writable in the order people actually write one.
+
+`header.close` only ever suppresses. `Flow.leading` gives a back to every route above the
+root and a close to the root of a flow presented over something, so `false` means anything
+only on a root that would have had a close: a consent step, or a screen mid-way through
+something a person should finish or cancel deliberately. Written on any other screen it
+changes nothing — and in particular it never removes a back.
+
+### `body`
+
+```json
+"long": { "flow": "longScroll", "source": null, "body": "lorem.long", "actions": { … } }
+```
+
+A KEY, never the words. A spec says what a screen IS, and a paragraph of body copy is not
+that: a spec carrying its own prose is one nobody can read the structure out of, and the
+longest body here is thirty lines on its own. The words live in
+`tools/ui-codegen/.../BodyText.kt`, which is the same split `SPFNStrings` makes for the
+sentence a failed screen shows, and the emitters write one text component per paragraph.
+
+Two keys today, and the set is closed — a key the table does not carry is refused by name
+(refusal 7's family), because the failure it prevents is quiet: a screen that drew nothing
+looks like a screen somebody had not filled in yet.
+
+| Key | What it is for |
+| --- | --- |
+| `lorem.short` | two paragraphs. A screen that needs something above its control |
+| `lorem.long` | eight paragraphs. Long enough to put the control at its foot below the fold on a phone, which is what makes a scrolling cell exercise anything |
+
+`body` is **refused** on a screen with a `source` (refusal 9). That screen's body is what
+it read; a static one written under it would be a second answer to the same question, and
+the read's would be the one nobody could see.
+
+### `inputs`
+
+```json
+"inputs": {
+  "userCode": { "kind": "code", "label": "Code from the device", "submitOnReturn": true, "autofocus": true }
+}
+```
+
+An input is **derived**, not declared: `RouteParameters.inputs` reads it off the contract,
+because what a screen has to collect is a fact about the request its action sends. This object
+is the decoration on top of it, keyed by the derived input's own name.
+
+| Field | Allowed values | Rule |
+| --- | --- | --- |
+| `kind` | `"code"`, `"text"`, `"email"`, `"number"` | Decides the keyboard, never the request. Default `"text"`. |
+| `label` | string | What the field is called on screen. Default: the input's own name. |
+| `submitOnReturn` | boolean | Whether the return key performs the screen's action, and therefore says `go` rather than `done`. Default `false`. |
+| `autofocus` | boolean | Whether the field takes focus when the screen appears. Default `false`. |
+
+`code` is the strict one and the reason `kind` exists at all. A machine-issued code left as
+ordinary text is capitalised at its first letter, offered a correction for what looks like a
+word, and can have its hyphen substituted — and the request then carries a code the server
+never issued, with no failure anywhere except a refusal the person cannot explain. `code` asks
+for an ASCII keyboard, capitalises every character, and turns autocorrection off, on both
+platforms.
+
+An entry naming something the screen does not collect is **refused** (refusal 8): the inputs
+come from the contract, so a request field renamed upstream would otherwise leave a stale
+decoration behind and the field would go on being collected as plain text.
 
 ### `actions`
 
@@ -89,6 +175,11 @@ returns `Void`/`Unit` rather than a value nothing can decode.
 | --- | --- | --- |
 | `call` | `service.method`, optional | The write this action performs. Absent means the action only navigates. |
 | `then` | see below, optional | What happens to the flow after the action succeeds. Absent means the flow does not move. |
+| `role` | `"primary"`, `"secondary"`, `"destructive"`, `"text"`, optional | Which component draws the control. Default `"secondary"`. |
+
+`role` decides a fill and a font and nothing else — never what the action does. The default is
+`secondary` rather than `primary` because a default that shouted would make every unconsidered
+control the loudest thing on its screen.
 
 `then` takes one of four forms:
 
@@ -101,7 +192,7 @@ returns `Void`/`Unit` rather than a value nothing can decode.
 
 An action with neither `call` nor `then` is refused: it is a control that does nothing.
 
-## The six refusals
+## The nine refusals
 
 The generator fails, and generates nothing at all, when:
 
@@ -120,12 +211,27 @@ The generator fails, and generates nothing at all, when:
    would otherwise reach a Kotlin compiler as a missing method, one stage too late and in
    the wrong file.
 6. **A key the generator does not read.** Every object above — the top level, `contract`, a
-   service method, a flow, a screen, an action and an object `then` — is checked against the
-   keys listed for it, and an extra one is refused by its path: `screens.reviewDevice.useCase
-   is not a key this generator reads`. This is the refusal that makes the promise at the top
-   of this page true for OPTIONAL keys. A required key misspelled is already a missing-key
-   refusal; a misspelled `usecase` is not, and without this rule it would emit a screen whose
-   use-case layer was asked for and quietly left out.
+   service method, a flow, a flow's `sheet`, a screen, its `header`, an input, an action and an
+   object `then` — is checked against the keys listed for it, and an extra one is refused by
+   its path: `screens.reviewDevice.useCase is not a key this generator reads`. This is the
+   refusal that makes the promise at the top of this page true for OPTIONAL keys. A required
+   key misspelled is already a missing-key refusal; a misspelled `usecase` is not, and without
+   this rule it would emit a screen whose use-case layer was asked for and quietly left out.
+7. **A value outside a closed set.** `entry`, `sheet.detent`, `role` and `inputs.<i>.kind` each
+   admit a fixed list, and every one of those values becomes a component name or an enum case
+   on both platforms. A word outside the list would not fail here — it would reach an emitter
+   that writes `FieldKind.Otp`, and the first evidence would be a compile error in a file
+   nobody wrote. A `sheet` on a flow that is not one, and a sheet flow with no `sheet`, are
+   refused under the same rule.
+8. **An `inputs` entry that decorates nothing.** The inputs a screen collects come from the
+   contract, so `inputs.userCod` beside a request field called `userCode` is a decoration with
+   no field under it: the field keeps being collected, as plain text with no label and no
+   return key. Nothing fails and the screen is not the one somebody wrote.
+9. **A `body` on a screen that reads, or one naming words that do not exist.** Both
+   directions, for the reason `sheet.detent` is refused both ways: a screen with a `source`
+   shows what it read, and static prose under it is either words nothing draws or words drawn
+   over the read the screen exists for. A key outside `BodyText`'s closed set is refused by
+   name rather than emitted as an empty screen.
 
 ## How a screen's state type is derived
 
@@ -161,10 +267,26 @@ One spec, more than one consumer. Which app a run writes into is a **target**: t
 supplies the two output roots, the Kotlin package and the application id, and the
 generator names no app of its own. Two targets ship today, one Gradle task each:
 
-| Target | Task | Swift root | Kotlin root | Table and flows |
-| --- | --- | --- | --- | --- |
-| `example` | `:ui-codegen:spfnGenerateUi` | `examples/ios-swiftui/Generated` | `examples/android-compose/src/main/kotlin/…/example/generated` | yes |
-| `harness` | `:ui-codegen:spfnGenerateHarnessUi` | `tools/harness/ios/GeneratedUI` | `tools/harness/android/src/main/kotlin/…/harness/generated` | no |
+| Target | Task | Swift root | Kotlin root | Flows | Table and flows | Readouts |
+| --- | --- | --- | --- | --- | --- | --- |
+| `example` | `:ui-codegen:spfnGenerateUi` | `examples/ios-swiftui/Generated` | `examples/android-compose/src/main/kotlin/…/example/generated` | all nine | yes | yes |
+| `harness` | `:ui-codegen:spfnGenerateHarnessUi` | `tools/harness/ios/GeneratedUI` | `tools/harness/android/src/main/kotlin/…/harness/generated` | `approveDevice` | no | yes |
+
+`--flows` is the fourth column and, like the last two, a **target** field rather than a spec
+key. Which of a showcase's flows a consumer has a use for is a fact about the consumer: the
+harness drives device approval against a live reference server, so the other eight would
+arrive there as routes, models and views nothing in that app opens. Narrowing takes the
+screens of the flows that stay, and the services those screens reach — a service nothing kept
+calls would be a protocol and a default implementation with no caller. The whole spec is read
+and checked first and narrowed after, so a target cannot hide a broken flow by not asking for
+it. A `--flows` value naming something that is not a flow is refused.
+
+`--runner-readouts` is the last column and it is a **target** field rather than a spec key,
+for the reason the output roots are: one spec, more than one consumer, and what a consumer is
+FOR is not something the screens say about themselves. A readout is test equipment — the one
+thing both runners can read and neither can guess, and two lines of monospaced diagnostics on
+a screen a person is meant to use. Both consumers that ship today are driven by a runner and
+set it; the third, whenever it arrives, is a real app and leaves it off.
 
 The case table and the Maestro flows are the **spec's** artefacts and not an app's: they
 name cells, fixtures and expectations, and one app installs the fixtures those cells run
@@ -180,7 +302,7 @@ on what has drifted.
     <swift root>/Services/…            the service protocol and its default impl
     <swift root>/Flows/…               the route enum, the flow, the flow host
     <swift root>/Screens/…             one model per screen, plus any use case
-    <swift root>/Views/…               one view skeleton per screen
+    <swift root>/Views/…               one view per screen, built out of SPFNUI's components
     <kotlin root>/…                    the same nine files in Kotlin
 
 and, for the target that declares a table root:
@@ -188,6 +310,26 @@ and, for the target that declares a table root:
     <table root>/device-approval.cases.json   the case table
     <table root>/device-approval.cases.md     the same table for a reader
     <table root>/flows/<cell>.yaml            one Maestro flow per runnable cell
+
+### What a generated view is made of
+
+Nothing in a generated view draws a control of its own. A field is an `SpfnTextField`, a
+control is the button its `role` names, a refusal is a `StatusText`, a read's four states are
+a `LoadableView`, and the whole thing stands inside a `Screen`. So the minimum touch target,
+the keyboard contract, the palette and the words a failure is shown in live in the SDK —
+written once per platform and compared by section 15 of `tools/validate/validate.sh` — rather
+than being re-emitted into every view, where a fix would have to be made in the generator and
+shipped before an app could take it.
+
+What a **value** looks like is still the human's, outside the generated directory: the ready
+slot a `LoadableView` gets is deliberately empty.
+
+A failure is shown by its **key** and never by the server's words. The generated
+`ScreenFailure` classifies an envelope's code — the 401 and 404 families are read out of the
+pinned bundle at generation time — into one of `deviceNotFound`, `network`, `unauthorized`,
+`validation` or `unexpected`, and `SPFNStrings`/`SpfnStrings` is where each of those becomes a
+sentence. `message` is text a server chose, and a screen that drew it would publish whatever
+the server felt like saying to whoever is holding the phone (decision C7).
 
 Selector rules, which both platforms and both runners share:
 

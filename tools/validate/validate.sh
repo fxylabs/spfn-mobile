@@ -2014,6 +2014,11 @@ swift_ui_names()
         return 0
     fi
     awk -v want="$1" -v kind="$2" '
+        # The current type is per FILE. Without this it survives into the next one, and a
+        # file whose first declaration this grammar does not recognise — an `internal enum`,
+        # say — would hand its members to whatever type the PREVIOUS file ended on (P5, the
+        # wrong-hit class).
+        FNR == 1 { current = "" }
         /^(public )?(final )?(class|struct|enum|protocol|extension) / {
             declaration = $0
             sub(/^public /, "", declaration)
@@ -2063,6 +2068,7 @@ kotlin_ui_names()
         return 0
     fi
     awk -v want="$1" -v kind="$2" '
+        FNR == 1 { current = "" }
         /^[A-Za-z]/ {
             declaration = $0
             sub(/^public /, "", declaration)
@@ -2082,6 +2088,16 @@ kotlin_ui_names()
             sub(/^[[:space:]]+public /, "", name)
             sub(/^data /, "", name)
             sub(/^[a-z]+ /, "", name)
+            sub(/[^A-Za-z0-9_].*$/, "", name)
+            if (name != "") { print tolower(name) }
+        }
+        # A Kotlin enum entry carries no modifier and no keyword — it is a capitalised name
+        # on a line of its own, ending the list or followed by a comma or a semicolon. The
+        # anchor is that the WHOLE line is that name: a member declaration, a call and a
+        # brace all carry something else on the line and none of them is read here.
+        current == want && kind == "entry" && /^[[:space:]]+[A-Z][A-Za-z0-9_]*[,;]?[[:space:]]*$/ {
+            name = $0
+            sub(/^[[:space:]]+/, "", name)
             sub(/[^A-Za-z0-9_].*$/, "", name)
             if (name != "") { print tolower(name) }
         }
@@ -2128,6 +2144,19 @@ then
     compare_ui_type Loadable case case
     compare_ui_type Busy case case
     compare_ui_type Flow func fun
+    # How a flow is entered, how tall a sheet stands, and what a screen's leading control
+    # is. All three arrived with the sheet entry, and all three are named by generated code
+    # and by host apps — a name only one platform has is a screen only one platform can be
+    # written for. `case` against `entry` is not an asymmetry in the vocabulary but in the
+    # two languages: Swift spells a closed set of names as enum cases either way, Kotlin
+    # spells one with a payload as nested declarations and one without as enum entries.
+    compare_ui_type FlowEntry case case
+    compare_ui_type SheetDetent case entry
+    compare_ui_type ScreenLeading case entry
+    # The sheet's arithmetic is written twice and has to answer the same, which the two
+    # suites check against the same hand-written vectors; this is what checks that they are
+    # still the same three questions.
+    compare_ui_type SheetGeometry func fun
 else
     fail "the ui module is incomplete: $UI_SWIFT_DIR or $UI_KOTLIN_DIR is missing"
 fi
@@ -2178,7 +2207,14 @@ section '14. the apps that consume the scaffold hold the generated boundary'
 #   c. every cell of the case table is covered by something. A table is a claim about what
 #      was checked, and a cell with neither a flow nor a test is a claim nobody honoured —
 #      and a `both` cell's flow may not carry a bare `- back`, because that command is
-#      Android's and does nothing at all on iOS (P22).
+#      Android's and does nothing at all on iOS (P22). A `manual` cell is covered by a
+#      person and by nothing here: what it checks is a gesture, and P22 is the record of a
+#      runner reporting success for one it never performed.
+#   d. the iOS example app can SEED every cell of that table. Every cell is launched by name
+#      into an app that answers "which fake do I install for this", and a cell the app does
+#      not know opens the menu instead of the flow — a run that reports nothing wrong and
+#      checks nothing. The Compose half has a unit test of its own for this (FixtureTableTest);
+#      the Swift half is an Xcode target with no test target, so the comparison is made here.
 #
 # TWO apps per platform are held to a and b, not one. tools/harness is the second consumer
 # of the same screen spec — it drives the generated approval screens against a live
@@ -2192,6 +2228,7 @@ section '14. the apps that consume the scaffold hold the generated boundary'
 EXAMPLE_CASES=examples/ui-spec/generated/device-approval.cases.json
 EXAMPLE_FLOWS=examples/ui-spec/generated/flows
 EXAMPLE_TESTS=examples/android-compose/src/test
+EXAMPLE_IOS_FIXTURES=examples/ios-swiftui/Sources/Fixtures.swift
 
 # Where a scaffold is consumed, both platforms and both apps.
 SCAFFOLD_APPS='examples tools/harness'
@@ -2288,7 +2325,13 @@ do
         | grep -vE '^[0-9]+:[[:space:]]*(//|\*)' | sed "s#^#$source:#" | tr '\n' ' ')"
 done < "$TMP/example-dismiss-files.txt"
 
-if [ "$EXAMPLE_DISMISS_SCANNED" -ge 10 ]
+# The floor is above what EITHER app's generated Swift comes to on its own — the example is
+# 41 files across nine flows and the harness is 9 across the one it is narrowed to — so a
+# scan pointed at one root instead of two fails here rather than reporting the half it read
+# as clean. It was 10 while the spec had one flow and both apps generated it; the showcase
+# made the example alone clear that number four times over, and the probe case that takes
+# the harness root away stopped biting until this moved with it.
+if [ "$EXAMPLE_DISMISS_SCANNED" -ge 50 ]
 then
     pass "the generated dismiss scan read all $EXAMPLE_DISMISS_SCANNED generated Swift sources in both apps"
 else
@@ -2376,33 +2419,38 @@ do
             ;;
     esac
     case "$runner" in
-        unit|maestro|both) ;;
+        # `manual` covers itself and is listed rather than being read as a typo. Those cells
+        # check a gesture, which is the class of thing a device runner reports success for
+        # whether or not the platform read it as the gesture it meant (P22), so what proves
+        # one is a person's answer under examples/ui-spec/receipts/manual/ — and a table that
+        # refused to carry them would push them out of the table and out of anybody's sight.
+        unit|maestro|both|manual) ;;
         *) CELL_PROBLEMS="$CELL_PROBLEMS $cell:unreadable-runner" ;;
     esac
 done < "$TMP/example-cells.txt"
 
-if [ "$CELL_COUNT" -ge 18 ]
+if [ "$CELL_COUNT" -ge 50 ]
 then
     pass "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES"
 else
-    fail "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES; it did not run"
+    fail "the cell coverage check read $CELL_COUNT cells from $EXAMPLE_CASES, fewer than 50; it did not run"
 fi
 
-if [ "$CELL_FLOWS_READ" -ge 14 ]
+if [ "$CELL_FLOWS_READ" -ge 33 ]
 then
     pass "the flow scan read all $CELL_FLOWS_READ device-cell flows looking for a bare system back"
 else
-    fail "the flow scan read $CELL_FLOWS_READ device-cell flows; it did not run"
+    fail "the flow scan read $CELL_FLOWS_READ device-cell flows, fewer than 33; it did not run"
 fi
 
 # The floor under the test scan, stated as a number for the reason the cell count is: a
 # shrinking tree may not lower its own bar. A scan that matched nothing and a scan that
 # could not run are one failure here, which is the point of having a floor at all.
-if [ "$CELL_TESTS_READ" -ge 18 ]
+if [ "$CELL_TESTS_READ" -ge 21 ]
 then
     pass "the test scan matched a case declaration for $CELL_TESTS_READ JVM cells under $EXAMPLE_TESTS"
 else
-    fail "the test scan matched case declarations for $CELL_TESTS_READ JVM cells, fewer than 18; it did not run"
+    fail "the test scan matched case declarations for $CELL_TESTS_READ JVM cells, fewer than 21; it did not run"
 fi
 
 if [ -z "$CELL_PROBLEMS" ]
@@ -2410,6 +2458,229 @@ then
     pass 'every cell of the case table has the flow and the test its runner declares'
 else
     fail "cells of the case table are not covered by what they claim:$CELL_PROBLEMS"
+fi
+
+# --- d. the iOS app can seed every cell the table declares --------------------
+# `Fixtures.forCell` decides what a launch does, and a cell it does not recognise is not an
+# error there — it is the MENU, because launching the app from the home screen names no cell
+# at all. That is the right answer for a person and the wrong one for a runner: the flow
+# waits for a screen it will never see, and the cell fails somewhere that says nothing about
+# why. Cells u1c, u8d and u8e were missing from this file for a whole round.
+#
+# The file answers in two ways and both are read. A table cell is named outright by a `case`
+# string; a showcase cell is named `<flow>-<what>` and answered by its flow appearing in
+# `showcaseFlows`. Reading only the first would report every showcase cell unseeded, which
+# is a check nobody could leave green.
+if [ -f "$EXAMPLE_IOS_FIXTURES" ]
+then
+    # Per QUOTED STRING and not per line: one `case` line carries several ids.
+    grep -E '^[[:space:]]*case "' "$EXAMPLE_IOS_FIXTURES" \
+        | tr ',' '\n' | sed -n 's/.*"\([^"]*\)".*/\1/p' | sort -u > "$TMP/ios-fixture-ids.txt"
+    # The showcase flow names: the file's one list of bare quoted strings.
+    sed -n 's/^[[:space:]]*"\([A-Za-z][A-Za-z0-9]*\)",*$/\1/p' "$EXAMPLE_IOS_FIXTURES" \
+        | sort -u > "$TMP/ios-fixture-flows.txt"
+else
+    : > "$TMP/ios-fixture-ids.txt"
+    : > "$TMP/ios-fixture-flows.txt"
+fi
+
+IOS_FIXTURE_IDS=$(grep -c . "$TMP/ios-fixture-ids.txt" || true)
+IOS_FIXTURE_FLOWS=$(grep -c . "$TMP/ios-fixture-flows.txt" || true)
+IOS_FIXTURE_PROBLEMS=''
+
+while IFS=' ' read -r cell runner
+do
+    [ -n "$cell" ] || continue
+    case "$cell" in
+        *-*)
+            if ! grep -qxF "${cell%%-*}" "$TMP/ios-fixture-flows.txt"
+            then
+                IOS_FIXTURE_PROBLEMS="$IOS_FIXTURE_PROBLEMS $cell:no-ios-flow"
+            fi
+            ;;
+        *)
+            if ! grep -qxF "$cell" "$TMP/ios-fixture-ids.txt"
+            then
+                IOS_FIXTURE_PROBLEMS="$IOS_FIXTURE_PROBLEMS $cell:no-ios-fixture"
+            fi
+            ;;
+    esac
+done < "$TMP/example-cells.txt"
+
+# The floor both readers carry (P7). A file that moved, or a `case` spelling that changed,
+# reads as zero ids — and zero ids against zero cells would report perfect agreement.
+if [ "$IOS_FIXTURE_IDS" -ge 30 ] && [ "$IOS_FIXTURE_FLOWS" -ge 8 ]
+then
+    pass "the iOS fixture reader found $IOS_FIXTURE_IDS seeded cell ids and $IOS_FIXTURE_FLOWS showcase flows"
+else
+    fail "the iOS fixture reader found $IOS_FIXTURE_IDS cell ids and $IOS_FIXTURE_FLOWS showcase flows in $EXAMPLE_IOS_FIXTURES; it did not run"
+fi
+
+if [ -z "$IOS_FIXTURE_PROBLEMS" ]
+then
+    pass 'the iOS example app seeds every cell the case table declares'
+else
+    fail "cells of the case table have no seeding in the iOS example app:$IOS_FIXTURE_PROBLEMS"
+fi
+
+# ---------------------------------------------------------------------------
+section '15. the visual vocabulary is written twice and says the same thing'
+# ---------------------------------------------------------------------------
+# Section 13 does this for the STATE vocabulary — Loadable, Busy, Flow — and the argument is
+# the same one: two hand-written halves stay one vocabulary only because somebody compares
+# them. What is new is what they carry. A component set is three parallel lists, and a name
+# that exists on one platform only breaks each of them differently:
+#
+#   a. TOKENS. `SpfnTokens.accent` with no `SPFNTokens.accent` beside it is a component that
+#      compiles on Android and cannot be written for iOS. The palette's six colours are
+#      fields of a struct and the rest are statics on an enum, so both spellings are read.
+#   b. STRINGS. Every sentence a generated screen can show is one of these, and the
+#      generated `ScreenFailure` names them by key on both platforms. A key on one side only
+#      is a screen that says nothing where the other says something — and it is the failure
+#      path, which is the one nobody runs.
+#   c. COMPONENTS. A `DestructiveButton` on one platform and not the other is a spec `role`
+#      the generator can emit for one app and not the other.
+#   d. the touch minimum. It used to be re-emitted into every generated view and was read off
+#      the emitted text by the generator's own suite; the components own it now, so this is
+#      where it is checked. 44 on Apple, 48 on Android, and P21 is what both are for.
+#
+# Every extraction has a floor, for the reason section 13's do: a reader that read nothing
+# produces an empty set, two empty sets agree, and the section would report parity having
+# read no code at all (docs/IMPLEMENTATION-PITFALLS.md P7).
+SWIFT_TOKENS=Sources/SPFNUI/Tokens/SPFNTokens.swift
+KOTLIN_TOKENS=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/tokens/SpfnTokens.kt
+SWIFT_STRINGS=Sources/SPFNUI/SPFNStrings.swift
+KOTLIN_STRINGS=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/SpfnStrings.kt
+SWIFT_COMPONENTS=Sources/SPFNUI/Components
+KOTLIN_COMPONENTS=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/components
+
+# The names one Swift value table declares: `public static let x` on a type, and `public let
+# x` on the palette struct whose fields ARE six of the keys. Lowercased, because the two
+# languages spell the same key with the same letters and neither casing is the vocabulary.
+#
+# `sed -E`, for the reason the JSON readers at the top of this file give: BSD sed has no
+# `\?` in a basic expression and matches the two characters literally, so this read returned
+# NOTHING on a Mac while returning every name on Linux. It failed the way the floor is built
+# to catch — "the extraction did not run" — rather than silently, which is the only reason
+# it was one line to find (docs/IMPLEMENTATION-PITFALLS.md P28).
+swift_value_names()
+{
+    [ -f "$1" ] || return 0
+    sed -E -n 's/^[[:space:]]*public (static )?let ([A-Za-z0-9_]*).*$/\2/p' "$1" \
+        | tr 'A-Z' 'a-z' | sort -u
+}
+
+# The same for Kotlin: `public val x` on an object, and the `public val x` of a data class's
+# constructor, which is that language's spelling of the palette's six fields.
+kotlin_value_names()
+{
+    [ -f "$1" ] || return 0
+    sed -n 's/^[[:space:]]*public val \([A-Za-z0-9_]*\).*$/\1/p' "$1" \
+        | tr 'A-Z' 'a-z' | sort -u
+}
+
+# One table, both halves. Reads each side, refuses an empty read on either, and names the
+# extra and the missing separately — "they differ" is not enough to act on.
+compare_value_table()
+{
+    LABEL=$1
+    swift_value_names "$2" > "$TMP/values-swift-$LABEL.txt"
+    kotlin_value_names "$3" > "$TMP/values-kotlin-$LABEL.txt"
+    VALUE_SWIFT=$(grep -c . "$TMP/values-swift-$LABEL.txt" || true)
+    VALUE_KOTLIN=$(grep -c . "$TMP/values-kotlin-$LABEL.txt" || true)
+
+    if [ "$VALUE_SWIFT" -ge "$4" ] && [ "$VALUE_KOTLIN" -ge "$4" ]
+    then
+        pass "$LABEL: read $VALUE_SWIFT names from $2 and $VALUE_KOTLIN from $3"
+    else
+        fail "$LABEL: read $VALUE_SWIFT Swift names and $VALUE_KOTLIN Kotlin names, fewer than $4 a side; the extraction did not run"
+        return 0
+    fi
+
+    ONLY_SWIFT=$(comm -23 "$TMP/values-swift-$LABEL.txt" "$TMP/values-kotlin-$LABEL.txt" | tr '\n' ' ')
+    ONLY_KOTLIN=$(comm -13 "$TMP/values-swift-$LABEL.txt" "$TMP/values-kotlin-$LABEL.txt" | tr '\n' ' ')
+    if [ -z "$(printf '%s%s' "$ONLY_SWIFT" "$ONLY_KOTLIN" | tr -d ' ')" ]
+    then
+        pass "$LABEL keys match on both platforms ($VALUE_SWIFT of them)"
+    else
+        fail "$LABEL differs between platforms — only in Swift: ${ONLY_SWIFT:-none}| only in Kotlin: ${ONLY_KOTLIN:-none}"
+    fi
+}
+
+if [ -f "$SWIFT_TOKENS" ] && [ -f "$KOTLIN_TOKENS" ]
+then
+    compare_value_table tokens "$SWIFT_TOKENS" "$KOTLIN_TOKENS" 18
+else
+    fail "the token twins are incomplete: $SWIFT_TOKENS or $KOTLIN_TOKENS is missing"
+fi
+
+if [ -f "$SWIFT_STRINGS" ] && [ -f "$KOTLIN_STRINGS" ]
+then
+    compare_value_table strings "$SWIFT_STRINGS" "$KOTLIN_STRINGS" 8
+else
+    fail "the string twins are incomplete: $SWIFT_STRINGS or $KOTLIN_STRINGS is missing"
+fi
+
+# --- c. the components are the same set on both platforms --------------------
+# A Swift component is a `public struct X: View`; a Kotlin one is a `public fun X(` whose
+# name is capitalised, which is that platform's spelling of the same thing. Anything not
+# public is not part of the set: `RoleButton` is what all four buttons are and is neither
+# platform's API.
+if [ -d "$SWIFT_COMPONENTS" ] && [ -d "$KOTLIN_COMPONENTS" ]
+then
+    grep -rhoE '^public struct [A-Za-z0-9_]+' "$SWIFT_COMPONENTS" \
+        | sed 's/^public struct //' | tr 'A-Z' 'a-z' | sort -u > "$TMP/components-swift.txt"
+    grep -rhoE '^public fun <?[A-Za-z0-9_ :]*>? ?[A-Z][A-Za-z0-9_]*\(' "$KOTLIN_COMPONENTS" \
+        | sed -e 's/^public fun //' -e 's/^<[^>]*> *//' -e 's/($//' -e 's/(//' \
+        | tr 'A-Z' 'a-z' | sort -u > "$TMP/components-kotlin.txt"
+    COMPONENTS_SWIFT=$(grep -c . "$TMP/components-swift.txt" || true)
+    COMPONENTS_KOTLIN=$(grep -c . "$TMP/components-kotlin.txt" || true)
+
+    if [ "$COMPONENTS_SWIFT" -ge 8 ] && [ "$COMPONENTS_KOTLIN" -ge 8 ]
+    then
+        pass "the component scan read $COMPONENTS_SWIFT Swift components and $COMPONENTS_KOTLIN Kotlin ones"
+    else
+        fail "the component scan read $COMPONENTS_SWIFT Swift and $COMPONENTS_KOTLIN Kotlin components, fewer than 8 a side; it did not run"
+    fi
+
+    ONLY_SWIFT=$(comm -23 "$TMP/components-swift.txt" "$TMP/components-kotlin.txt" | tr '\n' ' ')
+    ONLY_KOTLIN=$(comm -13 "$TMP/components-swift.txt" "$TMP/components-kotlin.txt" | tr '\n' ' ')
+    if [ -z "$(printf '%s%s' "$ONLY_SWIFT" "$ONLY_KOTLIN" | tr -d ' ')" ]
+    then
+        pass "the component set matches on both platforms ($(tr '\n' ' ' < "$TMP/components-swift.txt"))"
+    else
+        fail "the component set differs — only in Swift: ${ONLY_SWIFT:-none}| only in Kotlin: ${ONLY_KOTLIN:-none}"
+    fi
+else
+    fail "the component directories are incomplete: $SWIFT_COMPONENTS or $KOTLIN_COMPONENTS is missing"
+fi
+
+# --- d. every component that can be touched is held to the platform minimum --
+# The number itself is checked, not merely referenced: `Metrics` is one file per platform and
+# a value edited down there would silently un-size every control at once. 44 is Apple's and
+# 48 is Android's, and P21 is the run that paid for both — Compose reported one control's
+# bounds inside a neighbour's and cell u5 tapped the wrong node.
+if grep -q 'touchTarget: CGFloat = 44' "$SWIFT_COMPONENTS/Metrics.swift" 2>/dev/null
+then
+    pass "the Swift components hold the 44pt minimum touch target"
+else
+    fail "$SWIFT_COMPONENTS/Metrics.swift does not declare Apple's 44pt minimum touch target"
+fi
+
+if grep -q 'TOUCH_TARGET: Dp = 48.dp' "$KOTLIN_COMPONENTS/Metrics.kt" 2>/dev/null
+then
+    pass "the Kotlin components hold the 48dp minimum touch target"
+else
+    fail "$KOTLIN_COMPONENTS/Metrics.kt does not declare Android's 48dp minimum touch target"
+fi
+
+TOUCH_SWIFT=$(grep -rl 'Metrics.touchTarget' "$SWIFT_COMPONENTS" 2>/dev/null | grep -c . || true)
+TOUCH_KOTLIN=$(grep -rl 'Metrics.TOUCH_TARGET' "$KOTLIN_COMPONENTS" 2>/dev/null | grep -c . || true)
+if [ "$TOUCH_SWIFT" -ge 3 ] && [ "$TOUCH_KOTLIN" -ge 3 ]
+then
+    pass "the minimum is applied in $TOUCH_SWIFT Swift component files and $TOUCH_KOTLIN Kotlin ones"
+else
+    fail "the minimum is applied in $TOUCH_SWIFT Swift and $TOUCH_KOTLIN Kotlin component files, fewer than 3 a side; a control has stopped being sized"
 fi
 
 # ---------------------------------------------------------------------------

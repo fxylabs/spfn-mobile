@@ -119,13 +119,13 @@ inside the auth module, but only at test time; every main edge is still exactly 
 ### The `ui` module
 
 `ui` holds the UI runtime vocabulary, and it depends on core alone. What it carries is
-four types a screen needs before it holds any screen: `Loadable`
+five things a screen needs before it holds any screen: `Loadable`
 (loading·ready·empty·error) for one read, `Busy` (idle·busy·error) for one write,
-`FlowRoute`/`Flow` for a stack of routes with a presented flag, and `FlowHost`, the one
-place a platform navigator is bound to that stack. `Loadable`'s and `Busy`'s error states
-carry core's own error envelope, which is the whole reason for the edge; nothing here
-needs a transport, a session or a generated operation, so an app that only renders state
-links none of them.
+`FlowRoute`/`Flow` for a stack of routes with a presented flag, `FlowHost`, the one place a
+platform navigator is bound to that stack, and `Screen`, the frame a route is drawn in.
+`Loadable`'s and `Busy`'s error states carry core's own error envelope, which is the whole
+reason for the edge; nothing here needs a transport, a session or a generated operation, so
+an app that only renders state links none of them.
 
 `Flow` is deliberately free of the UI toolkit on both platforms — SwiftUI on one side,
 Compose on the other — because every rule it holds is a rule about a list. That is what
@@ -140,6 +140,16 @@ refused outright in `SPFNUI` and the validator's section 13 enforces it: it clos
 presentation without telling the flow, which is exactly how a host ends up dismissed over
 a flow that still believes it is open.
 
+#### Three ways in
+
+A flow is entered in one of three ways, and the difference is what it is drawn over.
+
+| `FlowEntry` | iOS | Android |
+| --- | --- | --- |
+| `push` | the stack inline, in the host app's own `NavigationStack` | `NavDisplay` inline |
+| `modal` | `fullScreenCover` (`sheet` on macOS, which has no full-screen cover) | an opaque cover filling the parent |
+| `sheet(detent)` | `sheet` + `presentationDetents` | a sheet drawn out of `foundation` — scrim, drag handle, `AnchoredDraggableState` |
+
 A `Modal` entry COVERS. That is the one rule the host adds to the flow's own: a modal
 flow was presented over something, so both halves draw it as an opaque cover — a
 `fullScreenCover` on iOS, and on Android a surface that fills everything the host gave the
@@ -150,6 +160,68 @@ walking semantics parents, so a flow inside one would lose every selector it has
 of staying in one window is that the host's content remains in the accessibility tree
 behind the cover, where iOS's presentation removes it. A `Push` flow covers nothing: it
 was pushed into the host's own navigation and is part of it.
+
+A `Sheet` entry stands at a height its `SheetDetent` names — `fit`, `half` or `full` — and
+keeps that height for the whole flow: pushing a route inside a sheet navigates WITHIN the
+sheet rather than resizing it or opening a second one. The two platforms draw it
+differently on purpose. iOS hands the detent to `presentationDetents` and the system draws
+its own sheet, because a sheet a person recognises is worth more than a sheet that matches
+Android to the pixel; `half` and `full` are the system's `.medium` and `.large`, and `fit`
+takes `SheetGeometry`'s unmeasured fallback because SwiftUI resolves detents before it lays
+the content out. Android has no sheet outside Material, this repository does not depend on
+Material, so `Sheet.kt` draws one: a scrim that closes on a tap, a drag handle, and one
+surface anchored between where it rests and gone. The drag is the HANDLE's alone, which is
+how a sheet and a scrolling screen inside it avoid competing for the same gesture without
+any nested-scroll arbitration. What the two halves share is `SheetGeometry` — the heights,
+the dismissal threshold and the scrim's fade — written twice and tested twice against the
+same hand-written vectors.
+
+#### What closes a flow, and what only moves inside it
+
+The table is stated once in code, in `Flow.back(entry:)`, `Flow.handlesBack(entry:)` and
+`Flow.leading(entry:)`, and both hosts spend it rather than restate it. Every dismissal —
+a system back, a swipe, an X, a scrim tap, a sheet dragged away — reaches the flow through
+`Flow.close()`; nothing calls a platform dismissal directly, which is the same rule that
+makes `@Environment(\.dismiss)` refused outright.
+
+| presentation | header back | system back / swipe back | X | drag the sheet down |
+| --- | --- | --- | --- | --- |
+| push, stack ≥ 2 | pop | pop | none | n/a |
+| push, root | none | the host app's | none | n/a |
+| modal, stack ≥ 2 | pop | pop | close | n/a |
+| modal, root | none | close | close | n/a |
+| sheet, stack ≥ 2 | pop | pop | close | close |
+| sheet, root | none | close | close | close |
+
+`Flow.handlesBack` is asked BEFORE the gesture is claimed, which is what the "the host
+app's" cell needs: a back handler has to be enabled or disabled ahead of the event on both
+platforms, and a handler that has already consumed a back cannot hand it on. Every cell of
+the table has a test of its own on both platforms, named after the cell
+(`sheet_root_systemBack_closes`).
+
+#### `Screen` owns the insets
+
+`Screen` is the frame a route is drawn in: a header carrying the title, a leading slot, a
+trailing slot, and a body that scrolls unless the caller says it does not. The leading slot
+is `Flow.leading`'s answer unless the host app passes one of its own, which is what makes a
+back appear at depth and an X appear on the root of a presented flow without any screen
+knowing which flow it is in.
+
+It owns the insets, and that replaces the earlier rule that the host app owned them. The
+header consumes the status bar inset and nothing else does; the body consumes the bottom
+one — the navigation bar or the home indicator — unioned with the keyboard so that the two
+never add up. A host that pads its own root as well does not pad twice: Compose's
+`windowInsetsPadding` CONSUMES what it applies, so the header of a `Screen` inside an
+already-padded host adds nothing, and a sheet consumes the status bar inset before its
+content sees it because a sheet stands nowhere near the status bar. A host app that does
+NOT use `Screen` still owns its own insets, which is the case
+`examples/android-compose` and `tools/harness` are in for their own rows
+(docs/IMPLEMENTATION-PITFALLS.md P25).
+
+There are no design tokens yet, so `Screen` draws in the system font, black on white, and
+every value it draws with is in one `ScreenStyle` object per platform — the token work
+replaces those two files and touches no layout. The touch targets in them are not
+placeholders: 48dp on Android and 44pt on iOS are what P21 is about.
 
 The two platforms are asymmetric in `externalDeps` because they are asymmetric in fact.
 SwiftUI and Observation are frameworks the OS ships, so SwiftPM resolves no package for

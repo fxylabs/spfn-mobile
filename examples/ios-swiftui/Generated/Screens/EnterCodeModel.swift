@@ -2,7 +2,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-dev
 // spec:            examples/ui-spec/device-approval.json
-// specSha256:      cd02e9ed576538e540a939229a0e476a76708e84286a3ccd09f5f680bf7ab8b5
+// specSha256:      88e5159b5528860daa36d6ebae1f6a6940c8152eb8373bf4cb3656be70599153
 // bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 // contractVersion: 0.10.0
 //
@@ -95,6 +95,20 @@ public final class EnterCodeModel
         flow.push(.reviewDevice(userCode: userCode))
     }
 
+    /// Drops this screen's refusal, so editing the input clears the line under it.
+    ///
+    /// A no-op on a screen that is not the one on show, and a no-op when there is no
+    /// refusal to drop: it never interrupts a write.
+    public func clearError()
+    {
+        guard isOnShow, case .error = state
+        else
+        {
+            return
+        }
+        state = .idle
+    }
+
     /// Whether an answer bearing `token` still belongs to a screen that is on show.
     ///
     /// Three questions: is this the current request, is the flow still presented, and
@@ -104,8 +118,17 @@ public final class EnterCodeModel
     /// buried under a second copy of its own route is not on show either.
     private func isCurrent(_ token: Int) -> Bool
     {
-        token == generation
-            && flow.isPresented
-            && flow.stack.last == ApproveDeviceRoute.enterCode
+        token == generation && isOnShow
+    }
+
+    /// Whether this screen's own route is the one the person is standing on.
+    ///
+    /// Split out of `isCurrent` because a second caller needs it without a token: the
+    /// view calls `clearError()` when the text changes, and that is not an answer to a
+    /// request — it has no generation to compare — while it is still something that must
+    /// not write into a screen nobody is looking at.
+    private var isOnShow: Bool
+    {
+        flow.isPresented && flow.stack.last == ApproveDeviceRoute.enterCode
     }
 }

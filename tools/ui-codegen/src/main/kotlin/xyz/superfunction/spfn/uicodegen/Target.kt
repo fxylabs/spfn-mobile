@@ -44,6 +44,36 @@ data class Target(
     val tableRoot: String?,
 
     /**
+     * The flows this target emits, or null for every flow the spec declares.
+     *
+     * A CALL argument and deliberately not a spec key. One spec, more than one consumer, and
+     * which of a showcase's flows a consumer has a use for is a fact about the consumer —
+     * the harness drives device approval against a live reference server and has no use for
+     * a sheet that exists to be dragged, so a generator that wrote every flow into it would
+     * grow the harness app by seven flows nothing there opens.
+     *
+     * Narrowing takes the screens of the named flows with them, and the services those
+     * screens reach: a service nothing kept calls is a protocol and a default implementation
+     * with no caller, which is the same dead weight one layer down.
+     */
+    val flows: Set<String>?,
+
+    /**
+     * Whether the generated views draw the `state=` and `stack=` readouts.
+     *
+     * A readout is TEST equipment. It is the one thing both runners can read and neither can
+     * guess, and it is also two lines of monospaced diagnostics on a screen a person is meant
+     * to use — so it belongs to the consumers that are driven by a runner and to no other
+     * (decision C6). Both targets that ship today set it; the third consumer, whenever it
+     * arrives, is a real app and leaves it off.
+     *
+     * It is a target field rather than a spec key for the same reason the output roots are:
+     * one spec, more than one consumer, and what a consumer is FOR is not something the
+     * screens say about themselves.
+     */
+    val runnerReadouts: Boolean,
+
+    /**
      * The Gradle task that rewrites this target's files, for every header to print.
      *
      * A header that named the wrong task would be an instruction to regenerate somebody
@@ -90,6 +120,8 @@ data class Target(
                 kotlinPackage = required(fields, "--kotlin-package"),
                 appId = required(fields, "--app-id"),
                 tableRoot = fields["--table-root"],
+                flows = fields["--flows"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet(),
+                runnerReadouts = readouts(fields),
                 generateTask = required(fields, "--generate-task"),
                 verifyTask = required(fields, "--verify-task")
             );
@@ -102,9 +134,25 @@ data class Target(
             "--kotlin-package",
             "--app-id",
             "--table-root",
+            "--flows",
+            "--runner-readouts",
             "--generate-task",
             "--verify-task"
         )
+
+        /**
+         * `--runner-readouts=true`, or false when the argument is absent.
+         *
+         * Refused rather than coerced when it is neither word: `--runner-readouts=yes` that
+         * fell through to false would silently emit a scaffold whose cells cannot be run,
+         * and the first evidence of it would be fourteen Maestro flows timing out.
+         */
+        private fun readouts(fields: Map<String, String>): Boolean = when (val value = fields["--runner-readouts"])
+        {
+            null, "false" -> false
+            "true" -> true
+            else -> throw IllegalArgumentException("--runner-readouts is '$value'; it must be true or false")
+        }
 
         private fun required(fields: Map<String, String>, key: String): String
         {

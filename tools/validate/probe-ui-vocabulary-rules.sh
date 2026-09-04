@@ -23,6 +23,14 @@
 #   i. `import SwiftUI` outside a canImport guard fails — SPFNUI builds on Linux, so the
 #      guard on FlowHost.swift is the whole of what makes that true.
 #
+# and the same two questions of section 15, which is section 13's shape applied to the
+# VISUAL vocabulary — the tokens, the strings and the component set:
+#
+#   j. a token deleted from one platform's table fails, naming the side it is missing from;
+#   k. a component that exists on one platform only fails;
+#   l. a token table this reader can extract nothing out of fails instead of reporting
+#      parity — the floor, which is the half of a reader that goes quiet rather than red.
+#
 # e, f and h run a ROOT-pinned copy of the validator whose own input has been taken away,
 # because their subject is what the check does when it cannot read — the one condition
 # that cannot be produced by editing the tree without destroying it.
@@ -61,12 +69,18 @@ SWIFT_FLOW=Sources/SPFNUI/Flow.swift
 SWIFT_HOST=Sources/SPFNUI/FlowHost.swift
 KOTLIN_LOADABLE=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/Loadable.kt
 KOTLIN_FLOW=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/Flow.kt
+KOTLIN_TOKENS=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/tokens/SpfnTokens.kt
+SWIFT_TOKENS=Sources/SPFNUI/Tokens/SPFNTokens.swift
+SWIFT_BUTTONS=Sources/SPFNUI/Components/Buttons.swift
 
 cp "$SWIFT_LOADABLE" "$TMP/swift-loadable.bak"
 cp "$SWIFT_FLOW" "$TMP/swift-flow.bak"
 cp "$SWIFT_HOST" "$TMP/swift-host.bak"
 cp "$KOTLIN_LOADABLE" "$TMP/kotlin-loadable.bak"
 cp "$KOTLIN_FLOW" "$TMP/kotlin-flow.bak"
+cp "$KOTLIN_TOKENS" "$TMP/kotlin-tokens.bak"
+cp "$SWIFT_TOKENS" "$TMP/swift-tokens.bak"
+cp "$SWIFT_BUTTONS" "$TMP/swift-buttons.bak"
 
 restore_files()
 {
@@ -75,6 +89,9 @@ restore_files()
     cp "$TMP/swift-host.bak" "$SWIFT_HOST"
     cp "$TMP/kotlin-loadable.bak" "$KOTLIN_LOADABLE"
     cp "$TMP/kotlin-flow.bak" "$KOTLIN_FLOW"
+    cp "$TMP/kotlin-tokens.bak" "$KOTLIN_TOKENS"
+    cp "$TMP/swift-tokens.bak" "$SWIFT_TOKENS"
+    cp "$TMP/swift-buttons.bak" "$SWIFT_BUTTONS"
 }
 
 restore()
@@ -102,6 +119,11 @@ trap 'on_signal 143' TERM
 # sections for reasons that have nothing to do with the ui module, and a probe that keyed
 # on the validator's exit status would report those as its own evidence.
 UI_SECTION='/^13\. the ui vocabulary/,$p'
+
+# Section 15 begins at its own heading. Scoped separately from section 13 even though 13's
+# range already runs to the end of the report: a mutation aimed at the visual vocabulary has
+# to be shown to fail THAT section, not merely to fail somewhere below line 13.
+TOKEN_SECTION='/^15\. the visual vocabulary/,$p'
 
 # Runs the validator and expects section 13 to refuse, on the named rule.
 expect_ui_fail()
@@ -257,6 +279,53 @@ expect_unrunnable 'a dismiss scan that reads no source fails instead of reportin
 sed 's/^#if canImport(SwiftUI)$//; s/^#endif$//' "$TMP/swift-host.bak" > "$SWIFT_HOST"
 expect_fail_anywhere 'import SwiftUI outside a canImport guard fails in a module that builds on Linux' \
     'an Apple-only framework is imported unconditionally'
+
+# --- j, k, l. the visual vocabulary is two halves too ------------------------------
+# Runs the validator and expects SECTION 15 to refuse, on the named rule.
+expect_token_fail()
+{
+    LABEL=$1
+    MARKER=$2
+    sh tools/validate/validate.sh > "$TMP/run.log" 2>&1 || true
+    sed -n "$TOKEN_SECTION" "$TMP/run.log" > "$TMP/token-section.log"
+    if ! grep -q '^  FAIL' "$TMP/token-section.log"
+    then
+        fail "$LABEL — the visual vocabulary section passed"
+    elif grep -qF -- "$MARKER" "$TMP/token-section.log"
+    then
+        pass "$LABEL"
+    else
+        fail "$LABEL — the section failed, but not on the expected rule"
+    fi
+    restore_files
+}
+
+# One token taken off the Kotlin half. It is the cheapest real divergence there is — a
+# component written against `SPFNTokens.accent` on one platform and nothing on the other —
+# and it is exactly what a merge that dropped a line would leave behind.
+sed '/public val accent: Color,/d' "$TMP/kotlin-tokens.bak" > "$KOTLIN_TOKENS"
+expect_token_fail 'a token deleted from the Kotlin table fails, naming the side it is missing from' \
+    'tokens differs between platforms'
+
+# One component that exists on one platform only. A spec `role` the generator can emit for
+# one app and not the other, which would surface as a compile error in a generated file.
+sed 's/^public struct DestructiveButton: View$/public struct RuinousButton: View/' \
+    "$TMP/swift-buttons.bak" > "$SWIFT_BUTTONS"
+expect_token_fail 'a component only one platform has fails, naming it' \
+    'the component set differs'
+
+# A table whose declarations this reader cannot see. The file is still there and still
+# names tokens — every `let` is simply spelled in a way the grammar does not admit — which
+# is the condition the `-f` guard above cannot produce: two sides that both exist, one of
+# which yielded nothing. Without the floor the empty set would agree with the full one and
+# the section would report parity over a table it never read (P7).
+# `sed -E` here for the same reason the reader it probes uses it: BSD sed reads `\?` in a
+# basic expression as two literal characters, so on a Mac this mutation changed nothing and
+# the probe reported the floor unbitten (P28).
+sed -E 's/^([[:space:]]*)public (static )?let /\1public \2var /' \
+    "$TMP/swift-tokens.bak" > "$SWIFT_TOKENS"
+expect_token_fail 'a token table this reader can extract nothing from fails instead of reporting parity' \
+    'the extraction did not run'
 
 # --- the unmodified tree still reads clean -----------------------------------------
 expect_ui_clean 'the ui vocabulary section is clean again after every restoration'

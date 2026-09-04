@@ -1,8 +1,11 @@
 # The SwiftUI example app
 
-The device-approval flow, generated from one screen spec, running on iOS. It exists so the
-generated scaffolds have somewhere to compile and so a Maestro cell has something to tap —
-it is not a design and not a sample of a product, and it is never published.
+Nine flows, generated from one screen spec, running on iOS: device approval, a three-deep
+push, a modal over everything, three sheets at three heights, a stack inside a sheet, a form
+with a keyboard, and a body that does not fit. It exists so the generated scaffolds have
+somewhere to compile, so a Maestro cell has something to tap and so a person can look at the
+three presentations side by side — it is not a design and not a sample of a product, and it
+is never published.
 
     ./gradlew :ui-codegen:spfnGenerateUi          # (re)generate everything under Generated/
     xcodegen generate --spec examples/ios-swiftui/project.yml
@@ -18,13 +21,22 @@ deployment target is iOS 17, which is what `@Observable` and this package's base
         examples/ui-spec/generated/flows/u1.yaml
 
 The flow launches the app with `SPFN_UI_FIXTURE=<cell>`, which reaches iOS as the launch
-argument pair `-SPFN_UI_FIXTURE <cell>`. That argument is the only thing that installs a
-fake service: with no argument, `Fixtures.forCell` is never reached and the app reports
-itself unconfigured and sends nothing. There is no flag inside the app that turns a fake
-on.
+argument pair `-SPFN_UI_FIXTURE <cell>`. That argument says which cell this run is, and
+therefore which of the nine flows opens, on which seeding, at which depth.
+
+**A launch that names no cell opens the MENU**, on the same `ready` fake every cell runs on.
+That corrects what this page used to say: the app does not report itself unconfigured and it
+is not the fixture argument that installs a fake. There is no real-server path in this app at
+all — it has no enrolment path of its own, so a client built against a configured server would
+refuse every call for want of a key, which is a refusal that says nothing about the screens a
+menu button opens. Reaching a real server is `tools/harness`'s whole subject.
 
 `examples/ui-spec/generated/device-approval.cases.md` is the table, and it is shared with
-the Compose app: the same cells, the same selectors, the same flow files.
+the Compose app: the same cells, the same selectors, the same flow files. Its last section is
+the ten cells no runner drives — a swipe back, a sheet dragged past its threshold, a detent
+that has to snap — because a device runner reports success for a gesture whether or not the
+platform read it as one (`docs/IMPLEMENTATION-PITFALLS.md` P22). Those are a person's, and
+the section below is how to reach them.
 
 Receipts land in `Documents/receipts/receipt-<cell>-<millis>.json`. `UIFileSharingEnabled`
 exposes that directory to Finder and to the Files app, which is what makes a receipt
@@ -55,6 +67,41 @@ through `xcrun simctl get_app_container` and land, with the per-cell Maestro rep
 `examples/ui-spec/receipts/ios/<date>/`.
 `sh examples/ui-spec/run-cells.sh --probe` proves the receipt gate bites and needs no
 simulator.
+
+## Seeing the showcase on a real device
+
+    export SPFN_IOS_TEAM=<your Apple Developer team id>
+    export SPFN_IOS_DEVICE=<the phone's HARDWARE identifier>
+    export SPFN_IOS_DEVICECTL_UDID=<the same phone's CoreDevice udid>
+
+    sh examples/ui-spec/install-device.sh ios
+    sh examples/ui-spec/install-device.sh ios --fixture sheetHalf-detent
+
+One command from a checkout to a phone showing the menu: it generates the project, builds and
+signs for the device, installs with `devicectl` and launches. With `--fixture <cell>` it
+launches straight onto that cell's flow, which is how the `manual` rows of the case table are
+reached — record the answers in a copy of
+`examples/ui-spec/receipts/manual/TEMPLATE.md`.
+
+**The two ids are two different ids.** `xcodebuild -destination` takes the hardware
+identifier, the long dashed `00008120-…` form; `devicectl` takes CoreDevice's own udid for
+the same phone, which is an unrelated UUID. Passing either where the other belongs fails, and
+neither failure says the id was the wrong KIND of id — xcodebuild says the destination is
+unavailable and devicectl says it found no matching device, and both read as "the phone is
+not plugged in". `xcrun devicectl list devices` prints the CoreDevice udid; add `--verbose`
+for the hardware identifier beside it.
+
+Nothing here has a default. An unset variable stops the run naming the variable and printing
+nothing else, which `sh examples/ui-spec/install-device.sh --probe` proves without a phone.
+The signing settings and the trust prompt on first launch are the ones
+`tools/harness/README.md` records in full: `project.yml` pins manual signing so that no
+credential lives in this tree, so a device build overrides it, and the certificate has to be
+trusted on the phone under Settings, General, VPN & Device Management before the app will
+start.
+
+**Maestro cannot drive a physical iPhone**, so `run-cells.sh` is a simulator command and this
+one is not. `tools/harness/README.md` records why in detail: every method of Maestro's
+`DeviceControlIOSDevice` but three throws `NotImplementedError`.
 
 ## What is generated and what is not
 

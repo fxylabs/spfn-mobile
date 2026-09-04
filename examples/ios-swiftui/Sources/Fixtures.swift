@@ -3,16 +3,27 @@
 // Counterpart of
 // examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/Fixtures.kt.
 //
-// One `switch` over cell ids, and the only thing that installs a fake service. A launch
-// that names no cell reaches `nil` here, and `ExampleApp` builds the live container
-// instead — so the fixture code is inert in a build that was not asked for one rather than
-// being switched off by a flag inside it.
+// One `switch` over cell ids, and the only thing that decides what this app does at launch.
+// A launch that names a cell this app knows opens that cell's flow on that cell's seeding; a
+// launch that names none opens the MENU, on the same fake nothing else can reach.
+//
+// The menu is on a fake and not on a server, and that is not the fail-closed rule bending.
+// This app has no enrolment path of its own — enrolment is what tools/harness exists to
+// drive — so a client it built against a configured server would refuse every call for want
+// of a key, and the screen a person got for pressing a menu button would be a refusal that
+// says nothing about the screens. There is no real-server path in this app at all.
 //
 // The mapping is not free-hand: `examples/ui-spec/generated/device-approval.cases.json`
-// records a fixture name per cell. The Compose half has a unit test comparing the two;
-// this half has none yet, which is stated rather than hidden — the Swift app has no test
-// target, and adding one for a mapping the Kotlin twin already checks would be a second
-// copy of the same check on a platform this repository cannot run it on.
+// records a fixture name per cell, and both halves are held to it. The Compose half is held
+// by a unit test it can run for itself (`FixtureTableTest`); this half is held by
+// `tools/validate/validate.sh` section 14d, which reads the table's cell ids and this
+// file's `case` strings and refuses a cell that has no seeding here.
+//
+// The check is a text reader rather than a test because the Swift example is an Xcode
+// target: it has no test target, and on a Linux host there is nothing to run one with. What
+// a reader can still do is exactly what the Kotlin test does — compare two lists — and it
+// is what caught this file missing u1c, u8d and u8e on 2026-09-02, three cells the Kotlin
+// twin had carried since the day they were written.
 
 import Foundation
 
@@ -21,6 +32,13 @@ struct Fixture: Sendable
 {
     /// The seeding's own name, as `device-approval.cases.json` records it.
     let name: String
+
+    /// The flow this launch opens, by the name the spec gives it, or nil for the menu.
+    ///
+    /// The container opens every flow it holds, so something has to say which one is on show
+    /// — see ``Flows/openOnly(_:flow:openAt:)``. Nil is the menu: every flow closed, and a
+    /// person choosing.
+    let flow: String?
 
     /// What each successive read does; the last entry repeats.
     let answers: [Answer]
@@ -59,14 +77,39 @@ enum Fixtures
     /// How long a `slow` call waits, so a person can watch an in-flight state.
     private static let pauseNanoseconds: UInt64 = 1_500_000_000
 
+    /// The flow the case table's own cells are about.
+    static let approveDevice = "approveDevice"
+
+    /// The flows the showcase adds, which every cell of theirs runs `ready` against.
+    ///
+    /// Written out rather than derived from a cell id alone. A showcase cell is named
+    /// `<flow>-<what>` by the generator, so the flow IS readable off the id — but reading it
+    /// off an id nobody checked would open a flow for `nonsense-cell` and report the app as
+    /// configured. The id gives the name and this set is what says the name is real.
+    private static let showcaseFlows: Set<String> = [
+        "pushTour",
+        "modalTour",
+        "sheetFit",
+        "sheetHalf",
+        "sheetFull",
+        "sheetNav",
+        "keyboardForm",
+        "longScroll",
+    ]
+
     /// The fixture a cell runs under, or `nil` when the launch named no cell this app
-    /// knows. `nil` is the fail-closed answer and it is not an error: a person who
-    /// launches this app from the home screen passes no argument at all.
+    /// knows. `nil` is the menu and it is not an error: a person who launches this app from
+    /// the home screen passes no argument at all, and gets the list of flows.
     static func forCell(_ cell: String) -> Fixture?
     {
         switch cell
         {
-        case "u1", "u2", "u5", "u6", "u7", "u7b", "u8", "u9":
+        case "u1", "u1c", "u2", "u5", "u6", "u7", "u7b", "u8", "u8d", "u8e", "u9":
+            return ready()
+        // The keyboard contract and the screen frame, which are about components rather than
+        // about a service: every one of them runs against a server that simply answers, and
+        // what the cell is looking at is the field, the return key or the header control.
+        case "k1", "k2", "k3", "k4", "k5", "k6", "k7", "s1", "s2":
             return ready()
         case "u3", "u11":
             return slow()
@@ -81,14 +124,47 @@ enum Fixtures
         case "u14":
             return deepReady()
         default:
+            return showcase(cell)
+        }
+    }
+
+    /// The menu: the same fake every cell gets, and no flow opened.
+    static func menu() -> Fixture
+    {
+        Fixture(name: "ready", flow: nil, answers: [.ok], writeAnswers: [.ok], pauseNanoseconds: 0, openAt: nil)
+    }
+
+    /// A showcase cell's fixture, read off its own `<flow>-<what>` id, or nil.
+    ///
+    /// Every showcase cell answers `ready`: those flows read and write nothing, and the one
+    /// that does — the form — is there for its keyboard and not for its refusals.
+    private static func showcase(_ cell: String) -> Fixture?
+    {
+        guard let separator = cell.firstIndex(of: "-")
+        else
+        {
             return nil
         }
+        let flow = String(cell[cell.startIndex ..< separator])
+        guard showcaseFlows.contains(flow)
+        else
+        {
+            return nil
+        }
+        return Fixture(name: "ready", flow: flow, answers: [.ok], writeAnswers: [.ok], pauseNanoseconds: 0, openAt: nil)
     }
 
     /// Every read and every write answers.
     static func ready() -> Fixture
     {
-        Fixture(name: "ready", answers: [.ok], writeAnswers: [.ok], pauseNanoseconds: 0, openAt: nil)
+        Fixture(
+            name: "ready",
+            flow: approveDevice,
+            answers: [.ok],
+            writeAnswers: [.ok],
+            pauseNanoseconds: 0,
+            openAt: nil
+        )
     }
 
     /// Every call waits before answering, so an in-flight state can be observed.
@@ -96,6 +172,7 @@ enum Fixtures
     {
         Fixture(
             name: "slow",
+            flow: approveDevice,
             answers: [.ok],
             writeAnswers: [.ok],
             pauseNanoseconds: pauseNanoseconds,
@@ -111,13 +188,27 @@ enum Fixtures
     /// nobody is looking at.
     static func writeRefused() -> Fixture
     {
-        Fixture(name: "writeRefused", answers: [.ok], writeAnswers: [.refuse], pauseNanoseconds: 0, openAt: nil)
+        Fixture(
+            name: "writeRefused",
+            flow: approveDevice,
+            answers: [.ok],
+            writeAnswers: [.refuse],
+            pauseNanoseconds: 0,
+            openAt: nil
+        )
     }
 
     /// Every read refuses, so the entry screen's own call never gets as far as pushing.
     static func refused() -> Fixture
     {
-        Fixture(name: "refused", answers: [.refuse], writeAnswers: [.ok], pauseNanoseconds: 0, openAt: nil)
+        Fixture(
+            name: "refused",
+            flow: approveDevice,
+            answers: [.refuse],
+            writeAnswers: [.ok],
+            pauseNanoseconds: 0,
+            openAt: nil
+        )
     }
 
     /// The first read answers and every later one refuses: a detail screen standing in error.
@@ -125,6 +216,7 @@ enum Fixtures
     {
         Fixture(
             name: "sourceRefused",
+            flow: approveDevice,
             answers: [.ok, .refuse],
             writeAnswers: [.ok],
             pauseNanoseconds: 0,
@@ -137,6 +229,7 @@ enum Fixtures
     {
         Fixture(
             name: "sourceRefusedOnce",
+            flow: approveDevice,
             answers: [.ok, .refuse, .ok],
             writeAnswers: [.ok],
             pauseNanoseconds: 0,
@@ -149,6 +242,7 @@ enum Fixtures
     {
         Fixture(
             name: "deepReady",
+            flow: approveDevice,
             answers: [.ok],
             writeAnswers: [.ok],
             pauseNanoseconds: 0,

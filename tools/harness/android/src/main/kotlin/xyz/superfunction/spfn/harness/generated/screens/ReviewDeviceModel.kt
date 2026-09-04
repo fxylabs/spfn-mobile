@@ -2,7 +2,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-dev
 // spec:            examples/ui-spec/device-approval.json
-// specSha256:      cd02e9ed576538e540a939229a0e476a76708e84286a3ccd09f5f680bf7ab8b5
+// specSha256:      88e5159b5528860daa36d6ebae1f6a6940c8152eb8373bf4cb3656be70599153
 // bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 // contractVersion: 0.10.0
 //
@@ -56,8 +56,18 @@ class ReviewDeviceModel(
      */
     private var generation: Int = 0;
 
+    /**
+     * Whether one of this screen's writes is in flight.
+     *
+     * Readable, because the control that started it draws itself busy from this and a
+     * control that span off a flag of its own could disagree with the model about
+     * whether the press it is refusing was taken. It is a `MutableStateFlow` rather
+     * than a `Boolean` for the reason `state` is: a composition reads it.
+     */
+    private val mutableWriting: MutableStateFlow<Boolean> = MutableStateFlow(false);
+
     /** Whether one of this screen's writes is in flight. */
-    private var writing: Boolean = false;
+    val writing: StateFlow<Boolean> = mutableWriting.asStateFlow();
 
     /** Reads this screen's source. Called once when the screen appears, however it appeared. */
     suspend fun load()
@@ -93,12 +103,12 @@ class ReviewDeviceModel(
      */
     suspend fun approve()
     {
-        if (writing || mutableState.value !is Loadable.Ready)
+        if (mutableWriting.value || mutableState.value !is Loadable.Ready)
         {
             return;
         }
         val token = ++generation;
-        writing = true;
+        mutableWriting.value = true;
         try
         {
             deviceApproval.approve(SpfnApproveDeviceAuthRequest(userCode = userCode));
@@ -109,14 +119,14 @@ class ReviewDeviceModel(
         }
         catch (failure: Exception)
         {
-            writing = false;
+            mutableWriting.value = false;
             if (isCurrent(token))
             {
                 mutableState.value = Loadable.Error(ScreenFailure.envelope(failure));
             }
             return;
         }
-        writing = false;
+        mutableWriting.value = false;
         if (!isCurrent(token))
         {
             return;
@@ -138,12 +148,12 @@ class ReviewDeviceModel(
      */
     suspend fun deny()
     {
-        if (writing || mutableState.value !is Loadable.Ready)
+        if (mutableWriting.value || mutableState.value !is Loadable.Ready)
         {
             return;
         }
         val token = ++generation;
-        writing = true;
+        mutableWriting.value = true;
         try
         {
             deviceApproval.deny(SpfnDenyDeviceAuthRequest(userCode = userCode));
@@ -154,14 +164,14 @@ class ReviewDeviceModel(
         }
         catch (failure: Exception)
         {
-            writing = false;
+            mutableWriting.value = false;
             if (isCurrent(token))
             {
                 mutableState.value = Loadable.Error(ScreenFailure.envelope(failure));
             }
             return;
         }
-        writing = false;
+        mutableWriting.value = false;
         if (!isCurrent(token))
         {
             return;
@@ -172,7 +182,7 @@ class ReviewDeviceModel(
     /** Reads the source again. Ignored while a write of this screen's is in flight. */
     suspend fun retry()
     {
-        if (writing)
+        if (mutableWriting.value)
         {
             return;
         }
@@ -188,8 +198,17 @@ class ReviewDeviceModel(
      * true — and it asks for the top rather than for membership, because a screen
      * buried under a second copy of its own route is not on show either.
      */
-    private fun isCurrent(token: Int): Boolean =
-        token == generation &&
-            flow.isPresented.value &&
+    private fun isCurrent(token: Int): Boolean = token == generation && isOnShow();
+
+    /**
+     * Whether this screen's own route is the one the person is standing on.
+     *
+     * Split out of [isCurrent] because a second caller needs it without a token: the
+     * view calls [clearError] when the text changes, and that is not an answer to a
+     * request — it has no generation to compare — while it is still something that must
+     * not write into a screen nobody is looking at.
+     */
+    private fun isOnShow(): Boolean =
+        flow.isPresented.value &&
             flow.stack.value.lastOrNull() == ApproveDeviceRoute.ReviewDevice(userCode = userCode)
 }

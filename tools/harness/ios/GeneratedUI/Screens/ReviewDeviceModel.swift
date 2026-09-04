@@ -2,7 +2,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-dev
 // spec:            examples/ui-spec/device-approval.json
-// specSha256:      cd02e9ed576538e540a939229a0e476a76708e84286a3ccd09f5f680bf7ab8b5
+// specSha256:      88e5159b5528860daa36d6ebae1f6a6940c8152eb8373bf4cb3656be70599153
 // bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 // contractVersion: 0.10.0
 //
@@ -45,7 +45,11 @@ public final class ReviewDeviceModel
     private var generation: Int = 0
 
     /// Whether one of this screen's writes is in flight.
-    private var writing: Bool = false
+    ///
+    /// Readable, because the control that started it draws itself busy from this and a
+    /// control that spun off a flag of its own could disagree with the model about
+    /// whether the press it is refusing was taken.
+    public private(set) var writing: Bool = false
 
     public init(
         useCase: any ReviewDeviceUseCase,
@@ -184,8 +188,17 @@ public final class ReviewDeviceModel
     /// buried under a second copy of its own route is not on show either.
     private func isCurrent(_ token: Int) -> Bool
     {
-        token == generation
-            && flow.isPresented
-            && flow.stack.last == ApproveDeviceRoute.reviewDevice(userCode: userCode)
+        token == generation && isOnShow
+    }
+
+    /// Whether this screen's own route is the one the person is standing on.
+    ///
+    /// Split out of `isCurrent` because a second caller needs it without a token: the
+    /// view calls `clearError()` when the text changes, and that is not an answer to a
+    /// request — it has no generation to compare — while it is still something that must
+    /// not write into a screen nobody is looking at.
+    private var isOnShow: Bool
+    {
+        flow.isPresented && flow.stack.last == ApproveDeviceRoute.reviewDevice(userCode: userCode)
     }
 }
