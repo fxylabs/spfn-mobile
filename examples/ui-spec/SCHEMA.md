@@ -108,11 +108,12 @@ reads and derives a much shorter list for the rest, and a target may narrow to a
 named yet, and a header reading `enterCode` says exactly that — where a refusal would stop a
 spec being writable in the order people actually write one.
 
-`header.close` only ever suppresses. `Flow.leading` gives a back to every route above the
-root and a close to the root of a flow presented over something, so `false` means anything
-only on a root that would have had a close: a consent step, or a screen mid-way through
-something a person should finish or cancel deliberately. Written on any other screen it
-changes nothing — and in particular it never removes a back.
+`header.close` only ever suppresses. `Flow.wayOut` gives a back to every route above the
+root and to the root of a pushed flow, and a close — the X in the header's TRAILING slot —
+to the root of a flow presented over something, so `false` means anything only on a root
+that would have had a close: a consent step, or a screen mid-way through something a person
+should finish or cancel deliberately. Written on any other screen it changes nothing — and
+in particular it never removes a back.
 
 ### `body`
 

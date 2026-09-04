@@ -88,8 +88,8 @@ class JavaVisibilityTest
             // for a property whose name already begins with `is`. Written out as the
             // compiler emits it, checked with javap on the built class.
             sortedSetOf(
-                "back", "close", "getStack", "handlesBack", "isPresented", "leading",
-                "open", "pop", "push", "replace"
+                "back", "close", "getStack", "handlesBack", "isPresented", "open",
+                "pop", "push", "replace", "wayOut"
             ),
             callable
         );

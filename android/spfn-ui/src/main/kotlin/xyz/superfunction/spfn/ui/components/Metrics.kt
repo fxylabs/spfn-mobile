@@ -33,6 +33,9 @@ internal object Metrics
 
     /** How thick a field's or an outlined control's border is drawn. */
     val BORDER_WIDTH: Dp = 1.dp;
+
+    /** How big a header's own mark is drawn, inside a [TOUCH_TARGET]-sized frame. */
+    val ICON_SIZE: Dp = 20.dp;
 }
 
 /**

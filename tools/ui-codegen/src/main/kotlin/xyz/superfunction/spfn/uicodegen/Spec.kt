@@ -116,12 +116,16 @@ data class ScreenDefinition(
     /**
      * Whether this screen's header suppresses a close the FLOW would otherwise have drawn.
      *
-     * Not the same question as [close] and the emitters need this one. `Flow.leading` draws a
-     * back on every route above the root, and the root of a pushed flow draws nothing — so
-     * `close = false` is the ordinary answer for most screens and means "the flow decides".
-     * Only a root that would have had a close and asked not to has anything to pass, and a
-     * view that passed an empty leading slot everywhere would erase every back control in the
-     * app (which is exactly what the first cut of this emitter did).
+     * Not the same question as [close] and the emitters need this one. `Flow.wayOut` draws a
+     * back on every route above the root and on a pushed flow's root — so `close = false` is
+     * the ordinary answer for most screens and means "the flow decides". Only a root that
+     * would have had a close and asked not to has anything to pass, and a view that passed an
+     * empty slot everywhere would erase every way out in the app (which is exactly what the
+     * first cut of this emitter did).
+     *
+     * What gets passed is the TRAILING slot, because that is where the X is drawn
+     * (decision N3). It was the leading slot while the close lived there, and a suppression
+     * aimed at the slot the control has left is a suppression that suppresses nothing.
      */
     val suppressesClose: Boolean,
     /** What the spec says about this screen's derived inputs, by input name. */
@@ -451,12 +455,12 @@ data class Spec(
         /**
          * Whether this screen's header draws a close, defaulted from the flow it belongs to.
          *
-         * The default is the runtime's own rule stated at generation time: `Flow.leading`
-         * gives the root of a modal or a sheet a close and gives a pushed flow's root
-         * nothing, because a pushed flow's way out is the host app's back. A screen that is
-         * not its flow's root never has one — it has a back — so the key only means anything
-         * on a root, and it is read the same way everywhere rather than refused where it is
-         * moot.
+         * The default is the runtime's own rule stated at generation time: `Flow.wayOut`
+         * gives the root of a modal or a sheet a close and gives a pushed flow's root a back,
+         * because a pushed flow stands on the host's own stack and what is under its root is
+         * the host's screen. A screen that is not its flow's root never has a close — it has
+         * a back — so the key only means anything on a root, and it is read the same way
+         * everywhere rather than refused where it is moot.
          */
         /** Whether this screen is the root of a flow that was presented over something. */
         private fun isRoot(screen: String, flow: FlowDefinition?): Boolean =

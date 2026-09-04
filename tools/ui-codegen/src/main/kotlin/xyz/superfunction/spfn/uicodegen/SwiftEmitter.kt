@@ -972,7 +972,7 @@ class SwiftEmitter(target: Target)
         appendLine();
         appendLine("    public var body: some View");
         appendLine("    {");
-        appendLine("        Screen(title: ${quoted(screen.title)}${leadingArgument(screen)}, scroll: ${screen.scroll})");
+        appendLine("        Screen(title: ${quoted(screen.title)}${trailingArgument(screen)}, scroll: ${screen.scroll})");
         appendLine("        {");
         appendLine("            VStack(alignment: .leading, spacing: SPFNTokens.space4)");
         appendLine("            {");
@@ -1031,15 +1031,15 @@ class SwiftEmitter(target: Target)
     }
 
     /**
-     * The header's leading slot, emitted only where the spec suppresses the flow's own.
+     * The header's trailing slot, emitted only where the spec suppresses the flow's own.
      *
-     * `Flow.leading` gives a back to every route above the root and a close to the root of a
+     * `Flow.wayOut` gives a back to every route above the root and a close to the root of a
      * flow presented over something, so almost every screen wants the default. An empty slot
-     * passed everywhere would erase every back control in the app; it is passed exactly where
-     * a root that would have had a close said `header.close: false`.
+     * passed everywhere would erase every way out in the app; it is passed exactly where a
+     * root that would have had a close said `header.close: false`.
      */
-    private fun leadingArgument(screen: ScreenDefinition): String =
-        if (screen.suppressesClose) ", leading: AnyView(EmptyView())" else ""
+    private fun trailingArgument(screen: ScreenDefinition): String =
+        if (screen.suppressesClose) ", trailing: AnyView(EmptyView())" else ""
 
     /**
      * The read's four states, and the retry control inside the error one.

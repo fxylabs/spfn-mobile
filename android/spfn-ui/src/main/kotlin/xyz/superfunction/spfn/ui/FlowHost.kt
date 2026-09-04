@@ -111,8 +111,8 @@ public fun <R : FlowRoute> FlowHost(flow: Flow<R>, entry: FlowEntry, content: @C
     // recompose every screen in the flow for a chrome that did not change.
     val chrome = remember(flow, entry, routes.size) {
         ScreenChrome(
-            leading = flow.leading(entry),
-            onBack = { flow.pop() },
+            wayOut = flow.wayOut(entry),
+            onBack = { flow.back(entry) },
             onClose = { flow.close() }
         )
     };

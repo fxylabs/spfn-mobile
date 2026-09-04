@@ -94,11 +94,16 @@ public struct FlowHost<Route: FlowRoute, Content: View>: View
     /// Both actions go through the flow rather than through the presentation: a close is
     /// `Flow.close()` whatever drew the control, which is the same rule that makes
     /// `dismiss` refused here.
+    ///
+    /// The back is `Flow.back(entry:)` and not `Flow.pop()`, which is what makes the header
+    /// control and the system gesture one act rather than two that agree by coincidence. It
+    /// is also what a pushed flow's ROOT needs: its back is a close (decision N2), and only
+    /// the close table knows that.
     private var chrome: ScreenChrome
     {
         ScreenChrome(
-            leading: flow.leading(entry: entry),
-            onBack: { [flow] in flow.pop() },
+            wayOut: flow.wayOut(entry: entry),
+            onBack: { [flow, entry] in flow.back(entry: entry) },
             onClose: { [flow] in flow.close() }
         )
     }

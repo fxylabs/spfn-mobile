@@ -886,7 +886,7 @@ object Rules
     /**
      * s1–s2: the screen frame's own controls, on a device.
      *
-     * `Flow.leading` decides these and both platforms' unit suites already check the table it
+     * `Flow.wayOut` decides these and both platforms' unit suites already check the table it
      * holds. What no suite checks is that the control the table names is DRAWN, reachable and
      * wired: a chrome that resolved correctly and rendered nothing would pass every JVM cell
      * in this repository.

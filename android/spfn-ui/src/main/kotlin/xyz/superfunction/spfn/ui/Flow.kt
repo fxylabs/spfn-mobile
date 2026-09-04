@@ -24,8 +24,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * flow opens it; [close] is the only thing that closes one, and [pop] on the last route
  * is a no-op rather than a close — a screen's back gesture and a flow's dismissal are
  * different acts, and collapsing them would make every last-route back tear the flow down
- * whether the host asked for that or not. [FlowHost] is where that distinction is spent:
- * a `Modal` host turns the last back into [close], a `Push` host lets it fall through.
+ * whether the host asked for that or not. [back] is where the two are joined again for the
+ * one caller that means the flow's own way out.
  *
  * Nothing here is thread-confined by the type system, which is the one place this class
  * is weaker than its Swift counterpart: `SPFNUI.Flow` is `@MainActor` and the compiler
@@ -97,10 +97,16 @@ public class Flow<R : FlowRoute>(initial: List<R> = emptyList())
      * What a back gesture does here, and whether this flow did it.
      *
      * The one place the close table lives, so that the two hosts spend it rather than each
-     * restate it: a stack of two or more pops, a stack of one closes for [FlowEntry.Modal]
-     * and [FlowEntry.Sheet] and is refused for [FlowEntry.Push], and a closed flow is
-     * refused outright. `false` means the gesture was not this flow's — the host app's back
-     * applies — which is why the hosts ask [handlesBack] BEFORE they claim the gesture.
+     * restate it: a stack of two or more pops, a stack of one closes whatever it was
+     * entered as, and a closed flow is refused outright.
+     *
+     * [entry] no longer changes the answer, and that is decision N2 rather than an
+     * oversight. A pushed flow used to refuse the back on its root and let the host app's
+     * own apply; it now stands ON the host's navigation stack ([NavigationHost]), so the
+     * screen under its root is the host's and closing the flow is exactly what uncovers it.
+     * The parameter stays because the hosts ask this question per entry and because
+     * [wayOut] still answers differently for each — a pushed root draws a back and a
+     * presented root draws a close, for the same act.
      *
      * @return whether this flow consumed the back.
      */
@@ -125,45 +131,36 @@ public class Flow<R : FlowRoute>(initial: List<R> = emptyList())
      * A back handler has to be enabled or disabled ahead of the event on both platforms —
      * Android's `BackHandler` takes an `enabled` flag and a handler that consumed a back
      * cannot hand it on — so "would you handle this" is a separate question from "handle
-     * this", and both answer out of the same rule.
+     * this", and both answer out of the same rule. An OPEN flow always claims it now, for
+     * the reason [back] states; a closed one never does, and that is the only gesture this
+     * type hands on.
      */
-    public fun handlesBack(entry: FlowEntry): Boolean
+    public fun handlesBack(entry: FlowEntry): Boolean = mutableStack.value.isNotEmpty()
+
+    /**
+     * The way out the screen at the top of this flow should draw.
+     *
+     * Depth decides first: anything standing on a route above the root goes back, whatever
+     * it was entered as. On the root the ENTRY decides, and it decides the control rather
+     * than the act — a pushed flow's root draws a back, because the screen under it is the
+     * host's own, and a flow presented over something draws a close, because what is under
+     * it is the screen it covered. Both end in [back] and both close the flow.
+     *
+     * A host app that passes its own slot to `Screen` overrides this; this is what a screen
+     * shows when nobody said otherwise.
+     */
+    public fun wayOut(entry: FlowEntry): WayOut
     {
         val depth = mutableStack.value.size;
         if (depth == 0)
         {
-            return false;
+            return WayOut.None;
         }
-        if (depth > 1)
+        if (depth > 1 || entry == FlowEntry.Push)
         {
-            return true;
+            return WayOut.Back;
         }
-        return entry != FlowEntry.Push;
-    }
-
-    /**
-     * The leading control the screen at the top of this flow should show.
-     *
-     * Depth decides first: anything standing on a route above the root goes back, whatever
-     * it was entered as. On the root, a flow presented over something offers the way out it
-     * was given — a close — and a pushed flow offers nothing, because its way out is the
-     * host app's own back.
-     *
-     * A host app that passes its own leading slot to `Screen` overrides this; this is what
-     * a screen shows when nobody said otherwise.
-     */
-    public fun leading(entry: FlowEntry): ScreenLeading
-    {
-        val depth = mutableStack.value.size;
-        if (depth > 1)
-        {
-            return ScreenLeading.Back;
-        }
-        if (depth == 0 || entry == FlowEntry.Push)
-        {
-            return ScreenLeading.None;
-        }
-        return ScreenLeading.Close;
+        return WayOut.Close;
     }
 
     /**

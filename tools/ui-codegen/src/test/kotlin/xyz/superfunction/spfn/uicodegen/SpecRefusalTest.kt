@@ -292,9 +292,12 @@ class SpecRefusalTest
      *
      * Both halves matter and the second is the one that was wrong first. A screen that is not
      * its flow's root has `close: false` — it has a back, not a close — so an emitter that
-     * read that field as "pass an empty leading slot" erased the back control on every pushed
-     * route in the app while the spec said nothing at all. Nothing failed: the header drew, it
-     * simply had no way out on it, which is a screen a person is stuck on.
+     * read that field as "pass an empty slot" erased the way out on every pushed route in the
+     * app while the spec said nothing at all. Nothing failed: the header drew, it simply had
+     * no way out on it, which is a screen a person is stuck on.
+     *
+     * The slot it passes is the TRAILING one, because that is where the X is drawn
+     * (decision N3): an empty LEADING slot would now erase the back and leave the close.
      */
     @Test
     fun `header close suppresses the flow's close only on the root that would have had one`()
@@ -321,12 +324,12 @@ class SpecRefusalTest
         assertEmits(
             generated = suppressed,
             path = "${target.kotlinRoot}/views/EnterCodeScreen.kt",
-            expected = "Screen(title = \"Approve a device\", leading = {}, scroll = true)"
+            expected = "Screen(title = \"Approve a device\", trailing = {}, scroll = true)"
         );
         assertEmits(
             generated = suppressed,
             path = "${target.swiftRoot}/Views/EnterCodeView.swift",
-            expected = "Screen(title: \"Approve a device\", leading: AnyView(EmptyView()), scroll: true)"
+            expected = "Screen(title: \"Approve a device\", trailing: AnyView(EmptyView()), scroll: true)"
         );
         assertEmits(
             generated = suppressed,

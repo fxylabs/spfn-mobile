@@ -146,7 +146,7 @@ A flow is entered in one of three ways, and the difference is what it is drawn o
 
 | `FlowEntry` | iOS | Android |
 | --- | --- | --- |
-| `push` | the stack inline, in the host app's own `NavigationStack` | `NavDisplay` inline |
+| `push` | appended to the host's stack inside `NavigationHost`'s own `NavigationStack` | appended to the host's back stack inside `NavigationHost`'s own `NavDisplay` |
 | `modal` | `fullScreenCover` (`sheet` on macOS, which has no full-screen cover) | an opaque cover filling the parent |
 | `sheet(detent)` | `sheet` + `presentationDetents` | a sheet drawn out of `foundation` — scrim, drag handle, `AnchoredDraggableState` |
 
@@ -160,6 +160,18 @@ walking semantics parents, so a flow inside one would lose every selector it has
 of staying in one window is that the host's content remains in the accessibility tree
 behind the cover, where iOS's presentation removes it. A `Push` flow covers nothing: it
 was pushed into the host's own navigation and is part of it.
+
+A `Push` entry APPENDS. That is decision N1, and it replaced a host that drew its own
+navigation over the app's: a flow with a stack of its own has no route under its root and no
+transition into it, so its first screen appeared without moving and offered no way back to
+the screen that opened it (`docs/IMPLEMENTATION-PITFALLS.md` P31). The SDK gives the host
+app one container for that, spelled the same on both platforms — `NavigationHost { root }` —
+and a `FlowHost(.push)` inside one registers with it instead of building a navigator:
+`HostStack` is the single ordered list both navigators are driven from, every entry on it
+says which flow it belongs to, and a shortening the platform performed is turned back into
+one `Flow.back` per dropped route on the flow that owned it. A `FlowHost(.push)` with no
+`NavigationHost` above it keeps its own inline stack, which compiles and runs and has
+neither the transition nor the way back — the compatibility path, and its header says so.
 
 A `Sheet` entry stands at a height its `SheetDetent` names — `fit`, `half` or `full` — and
 keeps that height for the whole flow: pushing a route inside a sheet navigates WITHIN the
@@ -179,7 +191,7 @@ same hand-written vectors.
 #### What closes a flow, and what only moves inside it
 
 The table is stated once in code, in `Flow.back(entry:)`, `Flow.handlesBack(entry:)` and
-`Flow.leading(entry:)`, and both hosts spend it rather than restate it. Every dismissal —
+`Flow.wayOut(entry:)`, and both hosts spend it rather than restate it. Every dismissal —
 a system back, a swipe, an X, a scrim tap, a sheet dragged away — reaches the flow through
 `Flow.close()`; nothing calls a platform dismissal directly, which is the same rule that
 makes `@Environment(\.dismiss)` refused outright.
@@ -187,25 +199,35 @@ makes `@Environment(\.dismiss)` refused outright.
 | presentation | header back | system back / swipe back | X | drag the sheet down |
 | --- | --- | --- | --- | --- |
 | push, stack ≥ 2 | pop | pop | none | n/a |
-| push, root | none | the host app's | none | n/a |
+| push, root | close — back to the host | close | none | n/a |
 | modal, stack ≥ 2 | pop | pop | close | n/a |
 | modal, root | none | close | close | n/a |
 | sheet, stack ≥ 2 | pop | pop | close | close |
 | sheet, root | none | close | close | close |
 
-`Flow.handlesBack` is asked BEFORE the gesture is claimed, which is what the "the host
-app's" cell needs: a back handler has to be enabled or disabled ahead of the event on both
-platforms, and a handler that has already consumed a back cannot hand it on. Every cell of
-the table has a test of its own on both platforms, named after the cell
-(`sheet_root_systemBack_closes`).
+The push root row is decision N2, and it follows from N1 rather than standing beside it: a
+pushed flow's root stands ON the host's stack, so the screen under it is the host's own and
+closing the flow is exactly what uncovers it. The CONTROL still differs from a modal's —
+`Flow.wayOut` answers `back` for a pushed root and `close` for a presented one, so the
+person sees a chevron where there is a screen behind and an X where there is a presentation
+to dismiss — but the act is one act and one code path.
+
+`Flow.handlesBack` is asked BEFORE the gesture is claimed: a back handler has to be enabled
+or disabled ahead of the event on both platforms, and a handler that has already consumed a
+back cannot hand it on. An open flow now claims every back it is offered and a closed one
+claims none. Every cell of the table has a test of its own on both platforms, named after
+the cell (`sheet_root_systemBack_closes`, `push_root_headerBack_closes`).
 
 #### `Screen` owns the insets
 
 `Screen` is the frame a route is drawn in: a header carrying the title, a leading slot, a
-trailing slot, and a body that scrolls unless the caller says it does not. The leading slot
-is `Flow.leading`'s answer unless the host app passes one of its own, which is what makes a
-back appear at depth and an X appear on the root of a presented flow without any screen
-knowing which flow it is in.
+trailing slot, and a body that scrolls unless the caller says it does not. Both slots are
+`Flow.wayOut`'s answer unless the host app passes one of its own, which is what makes a back
+chevron appear on the LEFT at depth and an X appear on the RIGHT on the root of a presented
+flow without any screen knowing which flow it is in. The two marks are drawn 20pt/20dp
+inside the platform's own minimum touch target, out of SF Symbols on iOS and out of
+`foundation`'s `Canvas` on Android — this repository depends on no Material artifact — and
+the accessibility labels are the same two string keys the words used to be.
 
 It owns the insets, and that replaces the earlier rule that the host app owned them. The
 header consumes the status bar inset and nothing else does; the body consumes the bottom

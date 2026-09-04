@@ -28,5 +28,8 @@ enum Metrics
 
     /// How thick a field's or an outlined control's border is drawn.
     static let borderWidth: CGFloat = 1
+
+    /// How big a header's own mark is drawn, inside a ``touchTarget``-sized frame.
+    static let iconSize: CGFloat = 20
 }
 #endif

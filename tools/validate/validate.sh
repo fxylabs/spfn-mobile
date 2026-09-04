@@ -2152,7 +2152,7 @@ then
     # spells one with a payload as nested declarations and one without as enum entries.
     compare_ui_type FlowEntry case case
     compare_ui_type SheetDetent case entry
-    compare_ui_type ScreenLeading case entry
+    compare_ui_type WayOut case entry
     # The sheet's arithmetic is written twice and has to answer the same, which the two
     # suites check against the same hand-written vectors; this is what checks that they are
     # still the same three questions.

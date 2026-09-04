@@ -64,19 +64,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
-import xyz.superfunction.spfn.ui.ScreenLeading
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import xyz.superfunction.spfn.ui.SpfnStrings
+import xyz.superfunction.spfn.ui.WayOut
 import xyz.superfunction.spfn.ui.tokens.SpfnTokens
 
 /**
  * A screen inside a flow: a header, and a body under it.
  *
  * @param title what the header says.
- * @param leading the header's left slot. Left out, the flow decides — a back on a stack of
- *   two or more, a close on the root of a modal or a sheet, and nothing on the root of a
- *   pushed flow (`Flow.leading`). A host app that passes one overrides that entirely.
- * @param trailing the header's right slot. There is no default: nothing but the app knows
- *   what a screen's action is.
+ * @param leading the header's left slot. Left out, the flow decides — a back chevron on a
+ *   stack of two or more and on the root of a pushed flow, and nothing on the root of a flow
+ *   presented over something (`Flow.wayOut`). A host app that passes one overrides that
+ *   entirely.
+ * @param trailing the header's right slot. Left out, the flow decides — an X on the root of
+ *   a modal or a sheet, and nothing anywhere else. A host app that passes one overrides that
+ *   entirely, which is also how a screen suppresses the flow's own close.
  * @param scroll whether the body scrolls. A body that scrolls also gets out of the
  *   keyboard's way; a body that does not is the caller saying its content always fits,
  *   which is what a screen inside a sheet says (see `Sheet.kt`).
@@ -137,7 +141,7 @@ private fun Header(title: String, leading: (@Composable () -> Unit)?, trailing: 
     {
         Box(modifier = Modifier.sizeIn(minWidth = Metrics.TOUCH_TARGET), contentAlignment = Alignment.CenterStart)
         {
-            if (leading != null) leading() else FlowLeading();
+            if (leading != null) leading() else FlowBack();
         }
         SpfnText(
             text = title,
@@ -146,7 +150,7 @@ private fun Header(title: String, leading: (@Composable () -> Unit)?, trailing: 
         );
         Box(modifier = Modifier.sizeIn(minWidth = Metrics.TOUCH_TARGET), contentAlignment = Alignment.CenterEnd)
         {
-            trailing?.invoke();
+            if (trailing != null) trailing() else FlowClose();
         }
     }
 }
@@ -172,40 +176,67 @@ private fun ColumnScope.Body(scroll: Boolean, content: @Composable ColumnScope.(
 }
 
 /**
- * The leading control the flow asked for, or nothing.
+ * The header's LEFT slot when the app passed none: the flow's back, or nothing.
  *
  * The chrome arrives from `FlowHost`, which is the only thing that knows both how the flow
  * was entered and how deep it stands. A `Screen` composed outside a host reads the default
  * — no control at all — rather than inventing one.
  */
 @Composable
-private fun FlowLeading()
+private fun FlowBack()
 {
     val chrome = LocalScreenChrome.current;
-    when (chrome.leading)
+    if (chrome.wayOut == WayOut.Back)
     {
-        ScreenLeading.None -> Unit
-        ScreenLeading.Back -> HeaderControl(label = SpfnStrings.controlBack, id = "screen.back", onClick = chrome.onBack)
-        ScreenLeading.Close -> HeaderControl(label = SpfnStrings.controlClose, id = "screen.close", onClick = chrome.onClose)
+        HeaderControl(label = SpfnStrings.controlBack, id = "screen.back", onClick = chrome.onBack)
+        {
+            BackChevron();
+        }
     }
 }
 
 /**
- * One header control, sized to the minimum touch target in BOTH directions.
+ * The header's RIGHT slot when the app passed none: the flow's close, or nothing.
  *
- * The size constraints come before `clickable`, so the touch area is the 48dp box rather
- * than a 16dp line of text that Compose then expands past its neighbours
- * (docs/IMPLEMENTATION-PITFALLS.md P21).
+ * The X lives here and the back lives on the left, which is decision N3 and is what both
+ * platforms' users already reach for.
  */
 @Composable
-private fun HeaderControl(label: String, id: String, onClick: () -> Unit)
+private fun FlowClose()
 {
-    SpfnText(
-        text = label,
+    val chrome = LocalScreenChrome.current;
+    if (chrome.wayOut == WayOut.Close)
+    {
+        HeaderControl(label = SpfnStrings.controlClose, id = "screen.close", onClick = chrome.onClose)
+        {
+            CloseCross();
+        }
+    }
+}
+
+/**
+ * One header control: a mark inside the minimum touch target, in BOTH directions.
+ *
+ * The size constraints come before `clickable`, so the touch area is the 48dp box rather
+ * than the 20dp mark that Compose would then expand past its neighbours
+ * (docs/IMPLEMENTATION-PITFALLS.md P21).
+ *
+ * [label] is what a screen reader says and not what is drawn, which is what keeps the ten
+ * string keys the same ten they were while the words stopped being visible.
+ */
+@Composable
+private fun HeaderControl(label: String, id: String, onClick: () -> Unit, mark: @Composable () -> Unit)
+{
+    Box(
         modifier = Modifier
             .testTag(id)
+            .semantics { contentDescription = label }
             .sizeIn(minWidth = Metrics.TOUCH_TARGET, minHeight = Metrics.TOUCH_TARGET)
             .clickable(onClick = onClick)
-            .wrapContentSize(Alignment.Center)
-    );
+            .wrapContentSize(Alignment.Center),
+        contentAlignment = Alignment.Center
+    )
+    {
+        mark();
+    }
 }
