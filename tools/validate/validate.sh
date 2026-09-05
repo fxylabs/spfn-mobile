@@ -2110,6 +2110,52 @@ kotlin_ui_names()
     ' $(cat "$TMP/ui-kotlin-files.txt") | sort -u
 }
 
+# The host vocabulary, by NAME rather than by members.
+#
+# `HostEntry` is a pair of fields, and `NavigationHost` is a `View` on one platform and a
+# `@Composable fun` on the other, so neither has a case list or a public method set for
+# `compare_ui_type` to read. What both have is a name a host app and a generated flow write
+# down, and a name only one platform declares is a flow that can only be hosted on one of
+# them — the same divergence the comparisons above are for, one level coarser.
+#
+# `\b` is deliberately not used: it is a GNU extension and this script runs on a Mac too,
+# where it is not read as a word boundary at all (docs/IMPLEMENTATION-PITFALLS.md P28 is the
+# same class of defect one tool along). The boundary is spelled out instead.
+UI_HOST_NAMES='NavigationHost HostStack HostEntry WayOut'
+
+compare_ui_host_names()
+{
+    ONLY_SWIFT=''
+    ONLY_KOTLIN=''
+    FOUND=0
+    for NAME in $UI_HOST_NAMES
+    do
+        IN_SWIFT=$(grep -rlE "^(public )?(final )?(struct|class|enum|protocol) $NAME([^A-Za-z0-9_]|\$)" \
+            "$UI_SWIFT_DIR" 2>/dev/null | head -n 1)
+        IN_KOTLIN=$(grep -rlE "^(public )?(sealed |data |enum )*(class|interface|object|fun) $NAME([^A-Za-z0-9_]|\$)" \
+            "$UI_KOTLIN_DIR" 2>/dev/null | head -n 1)
+        if [ -n "$IN_SWIFT" ] && [ -n "$IN_KOTLIN" ]
+        then
+            FOUND=$((FOUND + 1))
+        elif [ -n "$IN_SWIFT" ]
+        then
+            ONLY_SWIFT="$ONLY_SWIFT $NAME"
+        elif [ -n "$IN_KOTLIN" ]
+        then
+            ONLY_KOTLIN="$ONLY_KOTLIN $NAME"
+        else
+            ONLY_SWIFT="$ONLY_SWIFT $NAME(neither)"
+        fi
+    done
+
+    if [ -z "$(printf '%s%s' "$ONLY_SWIFT" "$ONLY_KOTLIN" | tr -d ' ')" ]
+    then
+        pass "the host vocabulary is declared on both platforms ($FOUND names:$(printf ' %s' $UI_HOST_NAMES))"
+    else
+        fail "the host vocabulary differs between platforms — only in Swift:${ONLY_SWIFT:- none}| only in Kotlin:${ONLY_KOTLIN:- none}"
+    fi
+}
+
 # One type, both halves. Reads each side, refuses an empty read on either, and names the
 # extra and the missing separately — "they differ" is not enough to act on.
 compare_ui_type()
@@ -2152,11 +2198,16 @@ then
     # spells one with a payload as nested declarations and one without as enum entries.
     compare_ui_type FlowEntry case case
     compare_ui_type SheetDetent case entry
-    compare_ui_type ScreenLeading case entry
+    compare_ui_type WayOut case entry
     # The sheet's arithmetic is written twice and has to answer the same, which the two
     # suites check against the same hand-written vectors; this is what checks that they are
     # still the same three questions.
     compare_ui_type SheetGeometry func fun
+    # The host's stack is the third piece of arithmetic written twice, and the one a pushed
+    # flow's whole behaviour now rests on: an operation only one platform has is a
+    # reconciliation only one platform performs.
+    compare_ui_type HostStack func fun
+    compare_ui_host_names
 else
     fail "the ui module is incomplete: $UI_SWIFT_DIR or $UI_KOTLIN_DIR is missing"
 fi
@@ -2521,6 +2572,38 @@ then
     pass 'the iOS example app seeds every cell the case table declares'
 else
     fail "cells of the case table have no seeding in the iOS example app:$IOS_FIXTURE_PROBLEMS"
+fi
+
+# The Compose example app's `id:` selectors, and the one line order they depend on
+# (docs/IMPLEMENTATION-PITFALLS.md P33).
+#
+# `testTagsAsResourceId` is what turns a Compose test tag into the Android resource id a
+# Maestro `id:` selector matches, and it is resolved by walking semantics PARENTS. A pushed
+# flow's routes are drawn by `NavigationHost`'s own navigator, which makes them SIBLINGS of
+# the root it was handed rather than children of it — so the switch has to be set OUTSIDE
+# that host to reach them.
+#
+# Set inside, nothing fails to build and nothing warns: the text on a pushed screen still
+# matches and every control on it stops being findable. On 2026-09-04 that was five cells of
+# thirty-five, all three push flows at once, and the log said `Element not found`.
+#
+# Line numbers, because what is being checked is which encloses which and this file has one
+# of each.
+EXAMPLE_ANDROID_ROOT='examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/MainActivity.kt'
+TAGS_LINE=$(grep -n 'testTagsAsResourceId = true' "$ROOT/$EXAMPLE_ANDROID_ROOT" | head -1 | cut -d: -f1)
+HOST_LINE=$(grep -n 'NavigationHost {' "$ROOT/$EXAMPLE_ANDROID_ROOT" | head -1 | cut -d: -f1)
+
+if [ -n "$TAGS_LINE" ] && [ -n "$HOST_LINE" ]
+then
+    pass "the Compose example app sets testTagsAsResourceId (line $TAGS_LINE) and opens a NavigationHost (line $HOST_LINE)"
+    if [ "$TAGS_LINE" -lt "$HOST_LINE" ]
+    then
+        pass 'testTagsAsResourceId is set outside the NavigationHost, where a pushed flow inherits it'
+    else
+        fail "testTagsAsResourceId is set inside the NavigationHost (line $TAGS_LINE against line $HOST_LINE); every control of every pushed flow loses its resource id"
+    fi
+else
+    fail "$EXAMPLE_ANDROID_ROOT has no testTagsAsResourceId or no NavigationHost; this check did not run"
 fi
 
 # ---------------------------------------------------------------------------

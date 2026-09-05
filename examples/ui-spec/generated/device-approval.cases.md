@@ -65,6 +65,8 @@ proven on the JVM against the models and has no flow file.
 | `modalTour-close` | `modalTwo` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
 | `pushTour-reach` | `tourThree` | `idle` | `next` | maestro | `ready` | `stack=3`, `state=idle` | R5 — every push adds one route, so the stack is as deep as the tour is long |
 | `pushTour-close` | `tourThree` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
+| `pushTour-rootBack` | `tourOne` | `idle` | `headerBack` | maestro | `ready` | `stack=0` | N2 — the back on a pushed flow's root closes the flow, which is what hands the person back to the host's own screen |
+| `pushTour-rootSystemBack` | `tourOne` | `idle` | `systemBack` | maestro | `ready` | `stack=0` | N2 and R8 — the system back on a pushed flow's root is the same act as the header's, so the flow closes and the host is underneath |
 | `sheetFit-close` | `fitOne` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
 | `sheetFull-close` | `fullOne` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
 | `sheetHalf-close` | `halfOne` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
@@ -84,7 +86,7 @@ no cell opens the menu instead, on the same fake.
 
 ## What a person checks
 
-10 cells with no runner. Every one of them is a GESTURE or a resting
+11 cells with no runner. Every one of them is a GESTURE or a resting
 height, which is the class of thing a device runner reports success for whether or
 not the platform read it as the gesture it meant — cells u7b and u10b spent a Mac
 round on exactly that (`docs/IMPLEMENTATION-PITFALLS.md` P22). So these are checked
@@ -101,6 +103,7 @@ generated and anything written into it is lost on the next generation.
 | `keyboardForm-keyboard` | `keyboardForm` | `form` | tap the field, and read the screen with the keyboard up | K1 — the field stays visible and the control under it is still reachable; nothing jumps as the keyboard arrives and nothing is left scrolled out of place (`stack=1`) |  |  |
 | `longScroll-headerHolds` | `longScroll` | `long` | scroll the body from the top to the bottom and back | S2's other half — the header and its title stay exactly where they are while the body moves under them, so the way out of the flow never scrolls away (`stack=1`) |  |  |
 | `modalTour-predictiveBack` | `modalTour` | `modalOne` | on Android, use the system back gesture on the flow's FIRST screen | R8 — a flow presented over something is closed by a back on its last route, so the whole flow goes rather than one route (`stack=0`) |  |  |
+| `modalTour-closeOnRight` | `modalTour` | `modalOne` | look at the header of the flow's first screen, on both phones | N3 — the way out is an X drawn as an icon in the header's TOP RIGHT corner, the same size and shape on both platforms, and it is not a word on the left (`stack=1`) |  |  |
 | `pushTour-swipeBack` | `pushTour` | `tourTwo` | swipe in from the left edge on iPhone, or use the system back gesture on Android | S2 and R8 — the gesture is the flow's own pop, so one route drops and the screen under it is the one it was (`stack=1`) |  |  |
 | `pushTour-predictiveBack` | `pushTour` | `tourTwo` | on Android, press and HOLD the back gesture at the edge without releasing it | the screen underneath is drawn under the gesture while it is held, and releasing lands on it; letting go back at the edge cancels and changes nothing (`stack=1`) |  |  |
 | `sheetFit-detent` | `sheetFit` | `fitOne` | look at how tall the sheet stands, and compare the two platforms side by side | the sheet is as tall as its content and no taller, on both platforms, and it does not grow to a fraction of the window it did not need (`stack=1`) |  |  |

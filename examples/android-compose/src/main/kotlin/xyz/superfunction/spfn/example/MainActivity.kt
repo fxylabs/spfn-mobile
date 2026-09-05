@@ -53,6 +53,7 @@ import xyz.superfunction.spfn.example.generated.flows.SheetFullFlowHost
 import xyz.superfunction.spfn.example.generated.flows.SheetHalfFlowHost
 import xyz.superfunction.spfn.example.generated.flows.SheetNavFlowHost
 import xyz.superfunction.spfn.generated.SpfnGeneratedContract
+import xyz.superfunction.spfn.ui.NavigationHost
 import xyz.superfunction.spfn.ui.components.PrimaryButton
 import xyz.superfunction.spfn.ui.components.Screen
 import xyz.superfunction.spfn.ui.components.SecondaryButton
@@ -102,12 +103,27 @@ class MainActivity : ComponentActivity()
  * The receipt control lives here rather than on a screen because a cell that ends with the
  * flow closed has no screen left to press. Every generated flow unwinds itself before
  * reaching it, which is what makes the control reachable at all: a Modal flow covers this
- * view entirely while it is open, on Android as well as on iOS.
+ * view entirely while it is open, on Android as well as on iOS, and a pushed one stands on
+ * the host's back stack over it.
+ *
+ * `stack=` counts the FLOWS' own depths added up (`Flows.depth`) and not the host's back
+ * stack, which is what keeps every cell's expectation the same number it was: a pushed flow
+ * that now appends to the host has exactly the depth it had when it drew its own stack.
  *
  * A `Box` rather than a `Column`, and that is the whole reason the cover works. The flow
  * hosts are the last children, so they are drawn OVER the menu instead of below it; in a
  * Column they would be laid out beside it and cover nothing. That is the one thing
  * `FlowHost` asks of a host app that presents a flow modally — its own header states it.
+ *
+ * The `NavigationHost` around the Box is what a PUSHED flow appends to (decision N1).
+ * Without it `PushTourFlowHost` would draw a NavDisplay of its own over this Box, with no
+ * transition into it and no entry under its first screen to go back to
+ * (docs/IMPLEMENTATION-PITFALLS.md P31). A modal and a sheet need nothing from it.
+ *
+ * The insets stay on the Box and not on the host, which is right for both: the Box is what a
+ * cover fills, and a pushed screen is drawn by the host OUTSIDE the Box, where `Screen`
+ * spends the status bar inset on its own header because nothing above it has consumed one
+ * (docs/IMPLEMENTATION-PITFALLS.md P25).
  *
  * The system bars' insets are this root's job for the same reason. A cover fills its PARENT,
  * so whatever the parent is given is what the flow's own first row is given, and an app
@@ -128,37 +144,47 @@ private fun ExampleRoot(
     var receipt by remember { mutableStateOf("none") };
     val depth = Flows.depth(container);
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.systemBars)
-            .semantics { testTagsAsResourceId = true }
-    )
+    // OUTSIDE the host, and that is the whole of P33. `NavigationHost` draws a pushed
+    // flow's routes out of its own NavDisplay, which makes them SIBLINGS of the root below
+    // rather than children of it — so a switch set on that root is not above them, and
+    // `testTagsAsResourceId` resolves by walking semantics PARENTS. Set inside, every
+    // control in every pushed flow silently loses its resource id and every `tapOn: id:` in
+    // those cells stops matching.
+    Box(modifier = Modifier.fillMaxSize().semantics { testTagsAsResourceId = true })
     {
-        Menu(container = container, cell = cell, depth = depth, receipt = receipt)
-        {
-            receipt = receipts.write(
-                ExampleReceipt(
-                    cell = cell,
-                    fixture = fixture,
-                    stackDepth = depth,
-                    timestampMillis = System.currentTimeMillis(),
-                    sdkVersion = SpfnVersion.CURRENT,
-                    contractVersion = SpfnGeneratedContract.BINDING.importedVersion
-                )
-            );
-        };
+        NavigationHost {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.systemBars)
+            )
+            {
+                Menu(container = container, cell = cell, depth = depth, receipt = receipt)
+                {
+                    receipt = receipts.write(
+                        ExampleReceipt(
+                            cell = cell,
+                            fixture = fixture,
+                            stackDepth = depth,
+                            timestampMillis = System.currentTimeMillis(),
+                            sdkVersion = SpfnVersion.CURRENT,
+                            contractVersion = SpfnGeneratedContract.BINDING.importedVersion
+                        )
+                    );
+                };
 
-        ApproveDeviceFlowHost(container);
-        PushTourFlowHost(container);
-        ModalTourFlowHost(container);
-        SheetFitFlowHost(container);
-        SheetHalfFlowHost(container);
-        SheetFullFlowHost(container);
-        SheetNavFlowHost(container);
-        KeyboardFormFlowHost(container);
-        LongScrollFlowHost(container);
-    }
+                ApproveDeviceFlowHost(container);
+                PushTourFlowHost(container);
+                ModalTourFlowHost(container);
+                SheetFitFlowHost(container);
+                SheetHalfFlowHost(container);
+                SheetFullFlowHost(container);
+                SheetNavFlowHost(container);
+                KeyboardFormFlowHost(container);
+                LongScrollFlowHost(container);
+            }
+        };
+    };
 }
 
 /**

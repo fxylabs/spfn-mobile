@@ -63,10 +63,14 @@ package xyz.superfunction.spfn.ui
 
 import android.util.TypedValue
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -97,44 +101,152 @@ import xyz.superfunction.spfn.ui.components.ScreenChrome
 public fun <R : FlowRoute> FlowHost(flow: Flow<R>, entry: FlowEntry, content: @Composable (R) -> Unit)
 {
     val routes: List<R> = flow.stack.collectAsState().value;
-    if (routes.isEmpty())
-    {
-        return;
-    }
+    val host = LocalNavigationHost.current;
 
+    when
+    {
+        entry is FlowEntry.Push && host != null -> Appended(host, flow, routes, content)
+        entry is FlowEntry.Modal -> ModalCover(flow, routes, content)
+        routes.isEmpty() -> Unit
+        entry is FlowEntry.Sheet ->
+            Sheet(detent = entry.detent, onClose = { flow.close() })
+            {
+                InlineStack(flow, entry, routes, Modifier, content);
+            }
+        else -> InlineStack(flow, entry, routes, Modifier, content)
+    };
+}
+
+/**
+ * A pushed flow inside a [NavigationHost]: no navigator of its own, and nothing drawn here.
+ *
+ * What this composable leaves behind is a REGISTRATION — how the host draws this flow's
+ * routes, and what this flow's back does — and the host's own NavDisplay draws them. The
+ * registration is refreshed on every composition so that the closure below closes over what
+ * this flow now is; the host is what keeps following the stack once this composable is gone,
+ * which it will be as soon as one of these routes covers the host's root.
+ *
+ * `SideEffect` and not a bare call, because registering is a write to something outside the
+ * composition and a composition may be thrown away and run again. It runs after every
+ * successful one, which is exactly when the registration is worth having.
+ */
+@Composable
+private fun <R : FlowRoute> Appended(
+    host: HostStackStore,
+    flow: Flow<R>,
+    routes: List<R>,
+    content: @Composable (R) -> Unit
+)
+{
+    val screen: @Composable (Any) -> Unit = { route ->
+        @Suppress("UNCHECKED_CAST")
+        HostedScreen(flow, route as R, content);
+    };
+    val registration = HostRegistration(screen = screen, back = { flow.back(FlowEntry.Push) });
+    // No parentheses to put a brace after, so this one lambda opens on its own line's end:
+    // `SideEffect` followed by a newline is a reference to it rather than a call.
+    SideEffect {
+        host.register(flow, flow.stack, registration);
+        // The routes this composition SAW, so that a stack the host has not caught up with
+        // yet is corrected the moment it is drawn again. The collector inside the store is
+        // what carries every change; this is the first one.
+        host.sync(flow, routes);
+    };
+}
+
+/**
+ * One route of a hosted flow, drawn with its own flow's chrome.
+ *
+ * The depth is read HERE rather than closed over, because this composable is what the host
+ * draws and the header it draws has to be the one this flow's current depth asks for.
+ */
+@Composable
+private fun <R : FlowRoute> HostedScreen(flow: Flow<R>, route: R, content: @Composable (R) -> Unit)
+{
+    val depth = flow.stack.collectAsState().value.size;
+    CompositionLocalProvider(LocalScreenChrome provides rememberChrome(flow, FlowEntry.Push, depth))
+    {
+        content(route);
+    };
+}
+
+/**
+ * The flow's own NavDisplay: a sheet's stack, a modal's cover, and a pushed flow that found
+ * no host to append to.
+ */
+@Composable
+private fun <R : FlowRoute> InlineStack(
+    flow: Flow<R>,
+    entry: FlowEntry,
+    routes: List<R>,
+    modifier: Modifier,
+    content: @Composable (R) -> Unit
+)
+{
     // Only the root is this handler's: above it NavDisplay has its own, and two enabled
     // handlers over one gesture is one of them never running.
     BackHandler(enabled = routes.size == 1 && flow.handlesBack(entry)) { flow.back(entry) };
 
-    // Remembered on the three things it is made of, so that a static composition local is
-    // handed the same instance frame after frame: a new one every recomposition would
-    // recompose every screen in the flow for a chrome that did not change.
-    val chrome = remember(flow, entry, routes.size) {
-        ScreenChrome(
-            leading = flow.leading(entry),
-            onBack = { flow.pop() },
-            onClose = { flow.close() }
-        )
-    };
-
-    val stack: @Composable () -> Unit = {
-        CompositionLocalProvider(LocalScreenChrome provides chrome) {
-            NavDisplay(
-                backStack = routes,
-                modifier = if (entry == FlowEntry.Modal) cover() else Modifier,
-                onBack = { flow.back(entry) },
-                entryProvider = { route -> NavEntry(route) { content(it) } }
-            );
-        };
-    };
-
-    when (entry)
-    {
-        is FlowEntry.Push -> stack()
-        is FlowEntry.Modal -> stack()
-        is FlowEntry.Sheet -> Sheet(detent = entry.detent, onClose = { flow.close() }, content = stack)
+    CompositionLocalProvider(LocalScreenChrome provides rememberChrome(flow, entry, routes.size)) {
+        NavDisplay(
+            backStack = routes,
+            modifier = modifier,
+            onBack = { flow.back(entry) },
+            entryProvider = { route -> NavEntry(route) { content(it) } }
+        );
     };
 }
+
+/**
+ * The cover a modal flow is drawn as, and the slide it arrives and leaves on.
+ *
+ * Composed whether the flow is open or not, which is what an `AnimatedVisibility` needs to
+ * animate the arrival: a node that appears with `visible = true` already set has no state to
+ * move from and simply exists.
+ *
+ * `drawn` is what makes the exit possible. The flow's stack is empty the instant it closes
+ * and the cover has half a slide left to run, so the last stack it stood on is kept — a
+ * plain remembered list rather than snapshot state, because writing state during a
+ * composition is a composition asking for another one.
+ */
+@Composable
+private fun <R : FlowRoute> ModalCover(flow: Flow<R>, routes: List<R>, content: @Composable (R) -> Unit)
+{
+    val drawn = remember { mutableListOf<R>() };
+    if (routes.isNotEmpty())
+    {
+        drawn.clear();
+        drawn.addAll(routes);
+    }
+    AnimatedVisibility(
+        visible = routes.isNotEmpty(),
+        enter = slideInVertically { height -> height },
+        exit = slideOutVertically { height -> height }
+    )
+    {
+        if (drawn.isNotEmpty())
+        {
+            InlineStack(flow, FlowEntry.Modal, drawn.toList(), cover(), content);
+        }
+    };
+}
+
+/**
+ * What the screens inside a flow are told about their way out.
+ *
+ * Remembered on the three things it is made of, so that a static composition local is handed
+ * the same instance frame after frame: a new one every recomposition would recompose every
+ * screen in the flow for a chrome that did not change.
+ */
+@Composable
+private fun <R : FlowRoute> rememberChrome(flow: Flow<R>, entry: FlowEntry, depth: Int): ScreenChrome =
+    remember(flow, entry, depth) {
+        ScreenChrome(
+            wayOut = flow.wayOut(entry),
+            onBack = { flow.back(entry) },
+            onClose = { flow.close() }
+        )
+    }
 
 
 /**

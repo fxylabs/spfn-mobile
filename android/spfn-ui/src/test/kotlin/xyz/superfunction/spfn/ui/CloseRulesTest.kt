@@ -1,14 +1,15 @@
 // SPFN Mobile — the close and move table, one test per cell.
 //
 // Counterpart of Tests/SPFNUITests/CloseRulesTests.swift, cell for cell and name for name.
-// The table is the one approved with the sheet entry (work unit w-evwna 3a); it is written
-// out here from that approval rather than read off the implementation, and a combination
-// nobody wrote down is a combination neither platform has.
+// The table is the one approved with the sheet entry (work unit w-evwna 3a) and amended for
+// the host stack (3e, decision N2); it is written out here from that approval rather than
+// read off the implementation, and a combination nobody wrote down is a combination neither
+// platform has.
 //
 // | entry          | header back | system back / swipe | X            | drag down |
 // | -------------- | ----------- | ------------------- | ------------ | --------- |
 // | push, depth 2+ | pop         | pop                 | none         | n/a       |
-// | push, root     | none        | the host app's      | none         | n/a       |
+// | push, root     | close       | close               | none         | n/a       |
 // | modal, depth 2+| pop         | pop                 | close        | n/a       |
 // | modal, root    | none        | close               | close        | n/a       |
 // | sheet, depth 2+| pop         | pop                 | close        | close     |
@@ -16,12 +17,12 @@
 //
 // Each cell names the code that decides it:
 //
-//   header back  `Flow.leading` says which control is drawn, and `Flow.pop` is what a back
-//                control does. A cell reading "none" is `ScreenLeading.None`.
+//   header back  `Flow.wayOut` says which control is drawn and `Flow.back` is what it
+//                does. A cell reading "none" is `WayOut.None`.
 //   system back  `Flow.handlesBack` says whether this flow claims the gesture, and
-//                `Flow.back` performs it. "The host app's" is `handlesBack == false`.
-//   X            `Flow.close`, whichever slot drew the control. A cell reading "none" is
-//                `Flow.leading` never answering `Close` for that entry, at any depth.
+//                `Flow.back` performs it.
+//   X            `Flow.close`, drawn in the header's TRAILING slot. A cell reading "none"
+//                is `Flow.wayOut` never answering `Close` for that entry, at any depth.
 //   drag down    `SheetGeometry.closes` decides that a drag went far enough, and what a
 //                dismissed sheet does is `Flow.close` — which is why a drag past the
 //                threshold and a tap on the scrim are the same event to a flow.
@@ -53,7 +54,7 @@ class CloseRulesTest
     fun push_depth2_headerBack_pops()
     {
         val flow = Flow(listOf(first, second));
-        assertEquals(ScreenLeading.Back, flow.leading(PUSH));
+        assertEquals(WayOut.Back, flow.wayOut(PUSH));
         flow.pop();
         assertEquals(listOf(first), flow.stack.value);
         assertTrue(flow.isPresented.value);
@@ -73,35 +74,38 @@ class CloseRulesTest
     fun push_depth2_close_absent()
     {
         val flow = Flow(listOf(first, second));
-        assertFalse(ScreenLeading.Close == flow.leading(PUSH));
+        assertFalse(WayOut.Close == flow.wayOut(PUSH));
     }
 
     // --- push, root ---------------------------------------------------------
 
     @Test
-    fun push_root_headerBack_absent()
+    fun push_root_headerBack_closes()
     {
         val flow = Flow(listOf(first));
-        assertEquals(ScreenLeading.None, flow.leading(PUSH));
+        // A back and not a close CONTROL, because what is under this root is the host's own
+        // screen — and closing the flow is what uncovers it (decision N2).
+        assertEquals(WayOut.Back, flow.wayOut(PUSH));
+        assertTrue(flow.back(PUSH));
+        assertEquals(emptyList<Stop>(), flow.stack.value);
+        assertFalse(flow.isPresented.value);
     }
 
     @Test
-    fun push_root_systemBack_fallsThroughToTheHost()
+    fun push_root_systemBack_closes()
     {
         val flow = Flow(listOf(first));
-        assertFalse(flow.handlesBack(PUSH));
-        assertFalse(flow.back(PUSH));
-        // Refused means untouched: the host app's back applies, and it applies to a flow
-        // that is still standing on its root rather than to a flow that half-closed.
-        assertEquals(listOf(first), flow.stack.value);
-        assertTrue(flow.isPresented.value);
+        assertTrue(flow.handlesBack(PUSH));
+        assertTrue(flow.back(PUSH));
+        assertEquals(emptyList<Stop>(), flow.stack.value);
+        assertFalse(flow.isPresented.value);
     }
 
     @Test
     fun push_root_close_absent()
     {
         val flow = Flow(listOf(first));
-        assertFalse(ScreenLeading.Close == flow.leading(PUSH));
+        assertFalse(WayOut.Close == flow.wayOut(PUSH));
     }
 
     // --- modal, depth 2+ ----------------------------------------------------
@@ -110,7 +114,7 @@ class CloseRulesTest
     fun modal_depth2_headerBack_pops()
     {
         val flow = Flow(listOf(first, second));
-        assertEquals(ScreenLeading.Back, flow.leading(MODAL));
+        assertEquals(WayOut.Back, flow.wayOut(MODAL));
         flow.pop();
         assertEquals(listOf(first), flow.stack.value);
     }
@@ -139,8 +143,8 @@ class CloseRulesTest
     fun modal_root_headerBack_absent()
     {
         val flow = Flow(listOf(first));
-        assertEquals(ScreenLeading.Close, flow.leading(MODAL));
-        assertFalse(ScreenLeading.Back == flow.leading(MODAL));
+        assertEquals(WayOut.Close, flow.wayOut(MODAL));
+        assertFalse(WayOut.Back == flow.wayOut(MODAL));
     }
 
     @Test
@@ -157,7 +161,7 @@ class CloseRulesTest
     fun modal_root_close_closes()
     {
         val flow = Flow(listOf(first));
-        assertEquals(ScreenLeading.Close, flow.leading(MODAL));
+        assertEquals(WayOut.Close, flow.wayOut(MODAL));
         flow.close();
         assertEquals(emptyList<Stop>(), flow.stack.value);
         assertFalse(flow.isPresented.value);
@@ -169,7 +173,7 @@ class CloseRulesTest
     fun sheet_depth2_headerBack_pops()
     {
         val flow = Flow(listOf(first, second));
-        assertEquals(ScreenLeading.Back, flow.leading(SHEET));
+        assertEquals(WayOut.Back, flow.wayOut(SHEET));
         flow.pop();
         assertEquals(listOf(first), flow.stack.value);
     }
@@ -211,8 +215,8 @@ class CloseRulesTest
     fun sheet_root_headerBack_absent()
     {
         val flow = Flow(listOf(first));
-        assertEquals(ScreenLeading.Close, flow.leading(SHEET));
-        assertFalse(ScreenLeading.Back == flow.leading(SHEET));
+        assertEquals(WayOut.Close, flow.wayOut(SHEET));
+        assertFalse(WayOut.Back == flow.wayOut(SHEET));
     }
 
     @Test
@@ -229,7 +233,7 @@ class CloseRulesTest
     fun sheet_root_close_closes()
     {
         val flow = Flow(listOf(first));
-        assertEquals(ScreenLeading.Close, flow.leading(SHEET));
+        assertEquals(WayOut.Close, flow.wayOut(SHEET));
         flow.close();
         assertEquals(emptyList<Stop>(), flow.stack.value);
         assertFalse(flow.isPresented.value);
@@ -275,7 +279,7 @@ class CloseRulesTest
             val flow = Flow<Stop>();
             assertFalse(flow.handlesBack(entry));
             assertFalse(flow.back(entry));
-            assertEquals(ScreenLeading.None, flow.leading(entry));
+            assertEquals(WayOut.None, flow.wayOut(entry));
         };
     }
 }

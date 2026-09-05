@@ -44,6 +44,7 @@ a cell nobody looked at, and the difference matters.
 | `keyboardForm-keyboard` | | | |
 | `longScroll-headerHolds` | | | |
 | `modalTour-predictiveBack` | | | |
+| `modalTour-closeOnRight` | | | |
 | `pushTour-swipeBack` | | | |
 | `pushTour-predictiveBack` | | | |
 | `sheetFit-detent` | | | |

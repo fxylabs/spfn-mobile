@@ -49,12 +49,13 @@ import SwiftUI
 ///
 /// - Parameters:
 ///   - title: what the header says.
-///   - leading: the header's left slot. Left out, the flow decides — a back on a stack of
-///     two or more, a close on the root of a modal or a sheet, and nothing on the root of a
-///     pushed flow (``Flow/leading(entry:)``). A host app that passes one overrides that
-///     entirely.
-///   - trailing: the header's right slot. There is no default: nothing but the app knows
-///     what a screen's action is.
+///   - leading: the header's left slot. Left out, the flow decides — a back chevron on a
+///     stack of two or more and on the root of a pushed flow, and nothing on the root of a
+///     flow presented over something (``Flow/wayOut(entry:)``). A host app that passes one
+///     overrides that entirely.
+///   - trailing: the header's right slot. Left out, the flow decides — an X on the root of a
+///     modal or a sheet, and nothing anywhere else. A host app that passes one overrides
+///     that entirely, which is also how a screen suppresses the flow's own close.
 ///   - scroll: whether the body scrolls. A body that scrolls also gets out of the keyboard's
 ///     way; a body that does not is the caller saying its content always fits.
 ///
@@ -104,10 +105,15 @@ public struct Screen<Content: View>: View
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(palette.background)
         .modifier(HiddenNavigationBar())
-        // P29: the bar this hides is where the edge swipe back lived. `chrome.leading ==
-        // .back` is the same "this is not the root" test the header already uses to decide
-        // whether to draw a back control, so a root screen never has the gesture turned on.
-        .modifier(SwipeBackGesture(enabled: chrome.leading == .back))
+        // P29: the bar this hides is where the edge swipe back lived. `chrome.wayOut ==
+        // .back` is the same test the header uses to decide whether to draw a back control,
+        // so the gesture is on exactly where a back control is.
+        //
+        // That now includes the ROOT of a pushed flow, and it is right there for the same
+        // reason the control is: inside a `NavigationHost` the flow's root stands on the
+        // host's stack, so UIKit's own depth under it is two and there is something to pop
+        // back to. A `Screen` with no back control still has the gesture refused.
+        .modifier(SwipeBackGesture(enabled: chrome.wayOut == .back))
         // A tap that lands on the frame rather than on a control puts the keyboard away.
         //
         // `onTapGesture` on the ANCESTOR, which is neither of the two spellings that fail.
@@ -139,7 +145,7 @@ public struct Screen<Content: View>: View
             SpfnText(title, role: .title)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, SPFNTokens.space4)
-            (trailing ?? AnyView(EmptyView()))
+            trailingControl
                 .frame(minWidth: Metrics.touchTarget, alignment: .trailing)
         }
         .padding(.horizontal, SPFNTokens.space4)
@@ -193,7 +199,7 @@ public struct Screen<Content: View>: View
         }
     }
 
-    /// The leading control the flow asked for, or the one the host app passed, or nothing.
+    /// The header's LEFT slot: what the host app passed, or the flow's back, or nothing.
     ///
     /// The chrome arrives from ``FlowHost``, which is the only thing that knows both how the
     /// flow was entered and how deep it stands. A `Screen` composed outside a host reads the
@@ -205,35 +211,60 @@ public struct Screen<Content: View>: View
         {
             leading
         }
-        else
+        else if chrome.wayOut == .back
         {
-            switch chrome.leading
+            control(label: SPFNStrings.controlBack, identifier: "screen.back", action: chrome.onBack)
             {
-            case .none:
-                EmptyView()
-            case .back:
-                control(label: SPFNStrings.controlBack, identifier: "screen.back", action: chrome.onBack)
-            case .close:
-                control(label: SPFNStrings.controlClose, identifier: "screen.close", action: chrome.onClose)
+                BackChevron()
             }
         }
     }
 
-    /// One header control, sized to Apple's minimum touch target in both directions
+    /// The header's RIGHT slot: what the host app passed, or the flow's close, or nothing.
+    ///
+    /// The X lives here and the back lives on the left, which is decision N3 and is what
+    /// both platforms' users already reach for. An app that passes its own trailing slot
+    /// takes the whole slot, exactly as it does on the leading side.
+    @ViewBuilder
+    private var trailingControl: some View
+    {
+        if let trailing = trailing
+        {
+            trailing
+        }
+        else if chrome.wayOut == .close
+        {
+            control(label: SPFNStrings.controlClose, identifier: "screen.close", action: chrome.onClose)
+            {
+                CloseCross()
+            }
+        }
+    }
+
+    /// One header control: an icon inside Apple's minimum touch target, in both directions
     /// (docs/IMPLEMENTATION-PITFALLS.md P21).
-    private func control(
+    ///
+    /// The icon is 20pt and the FRAME is 44, which is the whole point of the split — a
+    /// control drawn at the icon's own size reports a rectangle its neighbour has already
+    /// eaten, and a device runner then taps the neighbour.
+    ///
+    /// `label` is the accessibility label rather than anything drawn, which is what keeps
+    /// the ten string keys the same ten they were while the words stopped being visible.
+    private func control<Icon: View>(
         label: String,
         identifier: String,
-        action: @escaping @MainActor @Sendable () -> Void
+        action: @escaping @MainActor @Sendable () -> Void,
+        @ViewBuilder icon: () -> Icon
     ) -> some View
     {
         Button(action: action)
         {
-            SpfnText(label)
+            icon()
                 .frame(minWidth: Metrics.touchTarget, minHeight: Metrics.touchTarget)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
+        .accessibilityLabel(label)
     }
 }
 
@@ -285,7 +316,7 @@ private struct HiddenNavigationBar: ViewModifier
 /// changes with the depth of the stack.
 struct ScreenChrome: Sendable
 {
-    var leading: ScreenLeading = .none
+    var wayOut: WayOut = .none
     var onBack: @MainActor @Sendable () -> Void = {}
     var onClose: @MainActor @Sendable () -> Void = {}
 }
@@ -293,7 +324,7 @@ struct ScreenChrome: Sendable
 private struct ScreenChromeKey: EnvironmentKey
 {
     /// A `Screen` outside any `FlowHost` — a preview, a host app's own screen — reads this
-    /// and draws no leading control, which is the honest answer: nothing there knows what
+    /// and draws no way out at all, which is the honest answer: nothing there knows what
     /// going back would mean.
     static let defaultValue = ScreenChrome()
 }

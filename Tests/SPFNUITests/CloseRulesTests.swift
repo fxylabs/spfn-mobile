@@ -3,13 +3,14 @@
 // Counterpart of
 // android/spfn-ui/src/test/kotlin/xyz/superfunction/spfn/ui/CloseRulesTest.kt, cell for cell
 // and name for name. The table is the one approved with the sheet entry (work unit w-evwna
-// 3a); it is written out here from that approval rather than read off the implementation,
-// and a combination nobody wrote down is a combination neither platform has.
+// 3a) and amended for the host stack (3e, decision N2); it is written out here from that
+// approval rather than read off the implementation, and a combination nobody wrote down is
+// a combination neither platform has.
 //
 // | entry          | header back | system back / swipe | X            | drag down |
 // | -------------- | ----------- | ------------------- | ------------ | --------- |
 // | push, depth 2+ | pop         | pop                 | none         | n/a       |
-// | push, root     | none        | the host app's      | none         | n/a       |
+// | push, root     | close       | close               | none         | n/a       |
 // | modal, depth 2+| pop         | pop                 | close        | n/a       |
 // | modal, root    | none        | close               | close        | n/a       |
 // | sheet, depth 2+| pop         | pop                 | close        | close     |
@@ -17,12 +18,12 @@
 //
 // Each cell names the code that decides it:
 //
-//   header back  `Flow.leading(entry:)` says which control is drawn, and `Flow.pop()` is
-//                what a back control does. A cell reading "none" is `ScreenLeading.none`.
+//   header back  `Flow.wayOut(entry:)` says which control is drawn and `Flow.back(entry:)`
+//                is what it does. A cell reading "none" is `WayOut.none`.
 //   system back  `Flow.handlesBack(entry:)` says whether this flow claims the gesture, and
-//                `Flow.back(entry:)` performs it. "The host app's" is `handlesBack == false`.
-//   X            `Flow.close()`, whichever slot drew the control. A cell reading "none" is
-//                `Flow.leading(entry:)` never answering `.close` for that entry, at any
+//                `Flow.back(entry:)` performs it.
+//   X            `Flow.close()`, drawn in the header's TRAILING slot. A cell reading "none"
+//                is `Flow.wayOut(entry:)` never answering `.close` for that entry, at any
 //                depth.
 //   drag down    `SheetGeometry.closes(offset:height:)` decides that a drag went far enough,
 //                and what a dismissed sheet does is `Flow.close()` — which is why a drag
@@ -67,7 +68,7 @@ final class CloseRulesTests: XCTestCase
         try await onMain
         {
             let flow = Flow(initial: [first, second])
-            XCTAssertEqual(flow.leading(entry: push), ScreenLeading.back)
+            XCTAssertEqual(flow.wayOut(entry: push), WayOut.back)
             flow.pop()
             XCTAssertEqual(flow.stack, [first])
             XCTAssertTrue(flow.isPresented)
@@ -91,32 +92,35 @@ final class CloseRulesTests: XCTestCase
         try await onMain
         {
             let flow = Flow(initial: [first, second])
-            XCTAssertNotEqual(flow.leading(entry: push), ScreenLeading.close)
+            XCTAssertNotEqual(flow.wayOut(entry: push), WayOut.close)
         }
     }
 
     // --- push, root ---------------------------------------------------------
 
-    func test_push_root_headerBack_absent() async throws
+    func test_push_root_headerBack_closes() async throws
     {
         try await onMain
         {
             let flow = Flow(initial: [first])
-            XCTAssertEqual(flow.leading(entry: push), ScreenLeading.none)
+            // A back and not a close CONTROL, because what is under this root is the host's
+            // own screen — and closing the flow is what uncovers it (decision N2).
+            XCTAssertEqual(flow.wayOut(entry: push), WayOut.back)
+            XCTAssertTrue(flow.back(entry: push))
+            XCTAssertEqual(flow.stack, [])
+            XCTAssertFalse(flow.isPresented)
         }
     }
 
-    func test_push_root_systemBack_fallsThroughToTheHost() async throws
+    func test_push_root_systemBack_closes() async throws
     {
         try await onMain
         {
             let flow = Flow(initial: [first])
-            XCTAssertFalse(flow.handlesBack(entry: push))
-            XCTAssertFalse(flow.back(entry: push))
-            // Refused means untouched: the host app's back applies, and it applies to a flow
-            // that is still standing on its root rather than to a flow that half-closed.
-            XCTAssertEqual(flow.stack, [first])
-            XCTAssertTrue(flow.isPresented)
+            XCTAssertTrue(flow.handlesBack(entry: push))
+            XCTAssertTrue(flow.back(entry: push))
+            XCTAssertEqual(flow.stack, [])
+            XCTAssertFalse(flow.isPresented)
         }
     }
 
@@ -125,7 +129,7 @@ final class CloseRulesTests: XCTestCase
         try await onMain
         {
             let flow = Flow(initial: [first])
-            XCTAssertNotEqual(flow.leading(entry: push), ScreenLeading.close)
+            XCTAssertNotEqual(flow.wayOut(entry: push), WayOut.close)
         }
     }
 
@@ -136,7 +140,7 @@ final class CloseRulesTests: XCTestCase
         try await onMain
         {
             let flow = Flow(initial: [first, second])
-            XCTAssertEqual(flow.leading(entry: modal), ScreenLeading.back)
+            XCTAssertEqual(flow.wayOut(entry: modal), WayOut.back)
             flow.pop()
             XCTAssertEqual(flow.stack, [first])
         }
@@ -171,8 +175,8 @@ final class CloseRulesTests: XCTestCase
         try await onMain
         {
             let flow = Flow(initial: [first])
-            XCTAssertEqual(flow.leading(entry: modal), ScreenLeading.close)
-            XCTAssertNotEqual(flow.leading(entry: modal), ScreenLeading.back)
+            XCTAssertEqual(flow.wayOut(entry: modal), WayOut.close)
+            XCTAssertNotEqual(flow.wayOut(entry: modal), WayOut.back)
         }
     }
 
@@ -193,7 +197,7 @@ final class CloseRulesTests: XCTestCase
         try await onMain
         {
             let flow = Flow(initial: [first])
-            XCTAssertEqual(flow.leading(entry: modal), ScreenLeading.close)
+            XCTAssertEqual(flow.wayOut(entry: modal), WayOut.close)
             flow.close()
             XCTAssertEqual(flow.stack, [])
             XCTAssertFalse(flow.isPresented)
@@ -207,7 +211,7 @@ final class CloseRulesTests: XCTestCase
         try await onMain
         {
             let flow = Flow(initial: [first, second])
-            XCTAssertEqual(flow.leading(entry: sheet), ScreenLeading.back)
+            XCTAssertEqual(flow.wayOut(entry: sheet), WayOut.back)
             flow.pop()
             XCTAssertEqual(flow.stack, [first])
         }
@@ -257,8 +261,8 @@ final class CloseRulesTests: XCTestCase
         try await onMain
         {
             let flow = Flow(initial: [first])
-            XCTAssertEqual(flow.leading(entry: sheet), ScreenLeading.close)
-            XCTAssertNotEqual(flow.leading(entry: sheet), ScreenLeading.back)
+            XCTAssertEqual(flow.wayOut(entry: sheet), WayOut.close)
+            XCTAssertNotEqual(flow.wayOut(entry: sheet), WayOut.back)
         }
     }
 
@@ -279,7 +283,7 @@ final class CloseRulesTests: XCTestCase
         try await onMain
         {
             let flow = Flow(initial: [first])
-            XCTAssertEqual(flow.leading(entry: sheet), ScreenLeading.close)
+            XCTAssertEqual(flow.wayOut(entry: sheet), WayOut.close)
             flow.close()
             XCTAssertEqual(flow.stack, [])
             XCTAssertFalse(flow.isPresented)
@@ -330,7 +334,7 @@ final class CloseRulesTests: XCTestCase
                 let flow = Flow<Stop>()
                 XCTAssertFalse(flow.handlesBack(entry: entry))
                 XCTAssertFalse(flow.back(entry: entry))
-                XCTAssertEqual(flow.leading(entry: entry), ScreenLeading.none)
+                XCTAssertEqual(flow.wayOut(entry: entry), WayOut.none)
             }
         }
     }

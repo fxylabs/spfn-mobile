@@ -18,13 +18,18 @@ public protocol FlowRoute: Hashable, Sendable {}
 
 /// How a flow's host presents its stack.
 ///
-/// The difference is what happens to a back on the flow's LAST route, and each of the three
+/// The difference is what a back on the flow's LAST route LOOKS like, and each of the three
 /// answers is a different act. A `modal` flow closes — it was presented over something, and
 /// dismissing it returns to what it covered. A `sheet` closes for the same reason and can
-/// also be dragged away. A `push` flow does not handle it at all, because it was pushed
-/// onto the host app's own stack and the host app's back is what should apply.
+/// also be dragged away. A `push` flow closes too, and closing it is what returns the person
+/// to the host's own screen: its stack was appended to the host's inside a
+/// ``NavigationHost``, so the route under its root is the host's own.
 ///
-/// The whole table is in ``Flow/back(entry:)`` and ``Flow/leading(entry:)`` rather than in
+/// What differs between them is therefore the CONTROL rather than the outcome: a pushed
+/// flow's root offers a back, because what is under it is the host's screen, and a presented
+/// flow's root offers a close, because what is under it is the screen it covered.
+///
+/// The whole table is in ``Flow/back(entry:)`` and ``Flow/wayOut(entry:)`` rather than in
 /// either host, which is what keeps the two platforms saying the same thing about the same
 /// gesture.
 public enum FlowEntry: Sendable, Equatable
@@ -60,16 +65,22 @@ public enum SheetDetent: Sendable, Equatable
     case full
 }
 
-/// What a screen's leading control is, decided by how the flow was entered and how deep it
-/// stands. See ``Flow/leading(entry:)``.
-public enum ScreenLeading: Sendable, Equatable
+/// What a screen's way out is, decided by how the flow was entered and how deep it stands.
+/// See ``Flow/wayOut(entry:)``.
+///
+/// Named for what it MEANS rather than for where it is drawn. It was `ScreenLeading` while
+/// both controls lived in the header's left slot; the close is now an X in the RIGHT one
+/// (decision N3), and a value called "leading" that decides what the trailing slot draws is
+/// a name that has to be unlearned at every call site.
+public enum WayOut: Sendable, Equatable
 {
-    /// No leading control: the root of a pushed flow has nothing of its own to do.
+    /// No way out of this screen's own: a closed flow, and nothing else.
     case none
 
-    /// A back control, which pops one route.
+    /// A back control in the header's leading slot, which pops one route — or, on the root
+    /// of a pushed flow, hands the person back to the host by closing it.
     case back
 
-    /// A close control, which closes the whole flow.
+    /// A close control in the header's trailing slot, which closes the whole flow.
     case close
 }

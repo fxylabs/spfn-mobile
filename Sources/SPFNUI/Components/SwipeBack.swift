@@ -28,10 +28,32 @@
 // So this walks every gesture recognizer sharing that container view instead of asking
 // UIKit for one by name (a name is Apple's, in a private class, and free to change), and
 // treats every one of them the way `interactivePopGestureRecognizer` is treated in every
-// public-API guide for this trick: `isEnabled` toggled by depth, `delegate` cleared only
-// while turning it on. `Parallax` is the one thread every recognizer in this pair's private
-// class name has had across the iOS versions this was checked on, so it is the filter that
-// widens the fewest other recognizers on that view.
+// public-API guide for this trick: `isEnabled` turned on, and the delegate replaced.
+// `Parallax` is the one thread every recognizer in this pair's private class name has had
+// across the iOS versions this was checked on, so it is the filter that widens the fewest
+// other recognizers on that view.
+//
+// ---------------------------------------------------------------------------
+// A screen with no back says NOTHING, and that is the whole of P32
+// ---------------------------------------------------------------------------
+//
+// This used to be a switch: a screen with a back turned the recognizers on, and a screen
+// without one turned them off. Both halves ran off `didMoveToWindow`, and the second half
+// is what broke the edge swipe on the root of a pushed flow inside a `NavigationHost`
+// (docs/IMPLEMENTATION-PITFALLS.md P32). A pop puts the screen UNDERNEATH back in the
+// window before the pop commits — that is what the person is sliding towards — so the host
+// app's own menu, a `Screen` with no back of its own, woke up mid-gesture and disabled the
+// recognizer driving that very gesture. The swipe was accepted, the menu appeared under the
+// moving screen, and then the pop was cancelled and the flow snapped back open. Cells u7b
+// and u10b never saw it because the screen under THEM is another screen of the same flow,
+// which has a back and so turned the gesture on again.
+//
+// So the switch is gone. Turning the gesture ON is the only thing a screen does here, and
+// the question the OFF half existed to answer — is there anything under this screen to pop
+// to — is answered at the moment of the gesture instead, by ``SwipeBackDelegate``, out of
+// the navigation controller's own depth. That is the one authority that cannot be stale: a
+// screen's opinion is formed when it is drawn and read when somebody swipes, and those are
+// two different stack depths.
 
 import SwiftUI
 
@@ -46,8 +68,9 @@ import UIKit
 /// call site that has to know which platform it is on.
 struct SwipeBackGesture: ViewModifier
 {
-    /// Whether the enclosing navigation controller's interactive pop gesture should work.
-    /// `false` on the root of a stack, where there is nothing under it to pop to.
+    /// Whether this screen has a back at all. `false` is silence rather than a refusal:
+    /// the refusal on a stack of one is ``SwipeBackDelegate``'s, taken at the moment of the
+    /// gesture (docs/IMPLEMENTATION-PITFALLS.md P32).
     let enabled: Bool
 
     func body(content: Content) -> some View
@@ -89,15 +112,19 @@ private struct SwipeBackGestureProbe: UIViewRepresentable
     }
 
     /// Walks its own responder chain for the navigation controller it lives inside, and
-    /// asks that controller's edge-swipe gesture — and every recognizer standing next to
-    /// it on the same view — to match `enabled`.
+    /// turns that controller's edge-swipe gesture — and every recognizer standing next to it
+    /// on the same view — back on.
     ///
     /// Reapplied on every `didMoveToWindow` and not only the first: a `NavigationStack`
     /// removes the previous top screen's view from the window on a push and returns it on a
-    /// pop, so a root screen's own probe sees its window go away and come back rather than
-    /// running once — and coming back is exactly when it needs to re-assert `isEnabled =
-    /// false`, because the gesture recognizers belong to the navigation controller and not
-    /// to either screen.
+    /// pop, so a screen's probe sees its window go away and come back rather than running
+    /// once, and the recognizers belong to the navigation controller rather than to any one
+    /// screen.
+    ///
+    /// A screen without a back does nothing at all here, which is P32
+    /// (docs/IMPLEMENTATION-PITFALLS.md): the screen underneath is put back in the window
+    /// BEFORE the pop that revealed it commits, so anything it turned off there would cancel
+    /// that pop.
     final class ProbeView: UIView
     {
         var enabled = false
@@ -113,7 +140,7 @@ private struct SwipeBackGestureProbe: UIViewRepresentable
 
         private func applyIfInWindow()
         {
-            guard window != nil
+            guard enabled, window != nil
             else
             {
                 return
@@ -124,19 +151,24 @@ private struct SwipeBackGestureProbe: UIViewRepresentable
                 if let viewController = current as? UIViewController,
                     let navigationController = viewController.navigationController
                 {
-                    apply(to: navigationController)
+                    enable(on: navigationController)
                     return
                 }
                 responder = current.next
             }
         }
 
-        /// Toggles every `Parallax`-named gesture recognizer sharing the container view
+        /// Turns on every `Parallax`-named gesture recognizer sharing the container view
         /// `interactivePopGestureRecognizer` sits on — the edge-swipe gesture and its
         /// full-width sibling both, since the edge gesture's `must-fail-for` relationship
         /// to the sibling means the sibling's own delegate refusing to begin holds the
         /// edge gesture back just as surely as the edge gesture's own delegate would.
-        private func apply(to navigationController: UINavigationController)
+        ///
+        /// The delegate goes to ``SwipeBackDelegate`` rather than to `nil`. A cleared
+        /// delegate begins the gesture on ANY stack, the root of the host's own navigation
+        /// included, and the recognizer stays on after the flow that turned it on has gone.
+        /// The shared delegate is what asks the only question that has to be asked late.
+        private func enable(on navigationController: UINavigationController)
         {
             guard let container = navigationController.interactivePopGestureRecognizer?.view
             else
@@ -146,18 +178,57 @@ private struct SwipeBackGestureProbe: UIViewRepresentable
             for recognizer in container.gestureRecognizers ?? []
                 where String(describing: type(of: recognizer)).contains("Parallax")
             {
-                recognizer.isEnabled = enabled
-                // Only take the delegate over when turning the gesture ON. UIKit's own
-                // delegate is what refuses it on the root in the first place, so leaving
-                // that delegate alone while `enabled` is false costs nothing —
-                // `isEnabled = false` already refuses the same gesture — and keeps every
-                // other screen's gesture owned by UIKit rather than by this file.
-                if enabled
-                {
-                    recognizer.delegate = nil
-                }
+                recognizer.isEnabled = true
+                recognizer.delegate = SwipeBackDelegate.shared
             }
         }
+    }
+}
+
+/// Answers, at the moment of the swipe, whether there is a screen under this one to pop to.
+///
+/// One shared object and never one per screen, for two reasons that are the same reason.
+/// `UIGestureRecognizer.delegate` is weak, so a delegate owned by the screen that installed
+/// it goes away with that screen and the recognizer falls back to beginning on any stack;
+/// and the question is about the navigation controller rather than about any screen, so the
+/// answer is read off the controller the recognizer is actually attached to.
+///
+/// This is the half of the old `isEnabled` switch that was worth keeping. A screen decided
+/// "root or not" when it was drawn, and the swipe it was deciding for happens later, at a
+/// depth that may have moved twice since (docs/IMPLEMENTATION-PITFALLS.md P32).
+private final class SwipeBackDelegate: NSObject, UIGestureRecognizerDelegate
+{
+    static let shared = SwipeBackDelegate()
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool
+    {
+        guard let navigationController = Self.navigationController(of: gestureRecognizer)
+        else
+        {
+            return false
+        }
+        return navigationController.viewControllers.count > 1
+    }
+
+    /// The controller the recognizer belongs to, found the way the probe finds its own: up
+    /// the responder chain from the view the recognizer is attached to.
+    private static func navigationController(of recognizer: UIGestureRecognizer) -> UINavigationController?
+    {
+        var responder: UIResponder? = recognizer.view
+        while let current = responder
+        {
+            if let navigationController = current as? UINavigationController
+            {
+                return navigationController
+            }
+            if let viewController = current as? UIViewController,
+                let navigationController = viewController.navigationController
+            {
+                return navigationController
+            }
+            responder = current.next
+        }
+        return nil
     }
 }
 #endif

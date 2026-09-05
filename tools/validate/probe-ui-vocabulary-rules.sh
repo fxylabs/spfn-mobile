@@ -21,7 +21,11 @@
 #   g. `@Environment(\.dismiss)` in an SPFNUI source fails;
 #   h. a dismiss scan that reads no source fails instead of reporting none;
 #   i. `import SwiftUI` outside a canImport guard fails — SPFNUI builds on Linux, so the
-#      guard on FlowHost.swift is the whole of what makes that true.
+#      guard on FlowHost.swift is the whole of what makes that true;
+#   m. a host vocabulary name declared on one platform only fails, naming it. `HostEntry`
+#      has no cases and no public methods, so `compare_ui_type` cannot see it at all — it is
+#      exactly the shape of type that goes quiet, and a `HostEntry` only iOS has is a stack
+#      only iOS can put two flows on.
 #
 # and the same two questions of section 15, which is section 13's shape applied to the
 # VISUAL vocabulary — the tokens, the strings and the component set:
@@ -69,6 +73,7 @@ SWIFT_FLOW=Sources/SPFNUI/Flow.swift
 SWIFT_HOST=Sources/SPFNUI/FlowHost.swift
 KOTLIN_LOADABLE=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/Loadable.kt
 KOTLIN_FLOW=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/Flow.kt
+KOTLIN_HOST_STACK=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/HostStack.kt
 KOTLIN_TOKENS=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/tokens/SpfnTokens.kt
 SWIFT_TOKENS=Sources/SPFNUI/Tokens/SPFNTokens.swift
 SWIFT_BUTTONS=Sources/SPFNUI/Components/Buttons.swift
@@ -78,6 +83,7 @@ cp "$SWIFT_FLOW" "$TMP/swift-flow.bak"
 cp "$SWIFT_HOST" "$TMP/swift-host.bak"
 cp "$KOTLIN_LOADABLE" "$TMP/kotlin-loadable.bak"
 cp "$KOTLIN_FLOW" "$TMP/kotlin-flow.bak"
+cp "$KOTLIN_HOST_STACK" "$TMP/kotlin-host-stack.bak"
 cp "$KOTLIN_TOKENS" "$TMP/kotlin-tokens.bak"
 cp "$SWIFT_TOKENS" "$TMP/swift-tokens.bak"
 cp "$SWIFT_BUTTONS" "$TMP/swift-buttons.bak"
@@ -89,6 +95,7 @@ restore_files()
     cp "$TMP/swift-host.bak" "$SWIFT_HOST"
     cp "$TMP/kotlin-loadable.bak" "$KOTLIN_LOADABLE"
     cp "$TMP/kotlin-flow.bak" "$KOTLIN_FLOW"
+    cp "$TMP/kotlin-host-stack.bak" "$KOTLIN_HOST_STACK"
     cp "$TMP/kotlin-tokens.bak" "$KOTLIN_TOKENS"
     cp "$TMP/swift-tokens.bak" "$SWIFT_TOKENS"
     cp "$TMP/swift-buttons.bak" "$SWIFT_BUTTONS"
@@ -274,6 +281,17 @@ expect_ui_fail 'the SwiftUI dismiss environment value in an SPFNUI source fails'
 expect_unrunnable 'a dismiss scan that reads no source fails instead of reporting none' \
     'it did not run' \
     's#^find "$UI_SWIFT_DIR" -name .\*\.swift. | sort > "$TMP/ui-dismiss-files.txt"#find "$UI_SWIFT_DIR" -name "*.no-such-suffix" | sort > "$TMP/ui-dismiss-files.txt"#'
+
+# --- m. a name only one platform declares -------------------------------------------
+# `HostEntry` renamed on the Kotlin half and left alone on the Swift one. It is the cheapest
+# real divergence for a type with no members: a merge that renamed one side, or a second
+# platform that never got the type at all. Neither half's `compare_ui_type` reads it — there
+# is nothing in it to read — so without the name check the section would report parity over
+# a vocabulary one platform does not have.
+sed 's/^public data class HostEntry(/public data class HostCell(/' \
+    "$TMP/kotlin-host-stack.bak" > "$KOTLIN_HOST_STACK"
+expect_ui_fail 'a host vocabulary name declared on one platform only fails, naming it' \
+    'only in Swift: HostEntry'
 
 # --- i. SwiftUI is Apple-only, and SPFNUI builds on Linux --------------------------
 sed 's/^#if canImport(SwiftUI)$//; s/^#endif$//' "$TMP/swift-host.bak" > "$SWIFT_HOST"
