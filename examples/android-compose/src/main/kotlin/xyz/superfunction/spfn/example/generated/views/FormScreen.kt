@@ -2,7 +2,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-dev
 // spec:            examples/ui-spec/device-approval.json
-// specSha256:      88e5159b5528860daa36d6ebae1f6a6940c8152eb8373bf4cb3656be70599153
+// specSha256:      5babeed3f41fa7c8eb049bc79d7719ff9f0d79ede06c4073015643be04668f7a
 // bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 // contractVersion: 0.10.0
 //
@@ -11,6 +11,7 @@
 
 package xyz.superfunction.spfn.example.generated.views
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -47,7 +48,7 @@ fun FormScreen(model: FormModel)
 
     Screen(title = "A form in a pushed flow", scroll = true)
     {
-        Column(modifier = Modifier.fillMaxWidth().padding(SpfnTokens.space4))
+        Column(modifier = Modifier.fillMaxWidth().padding(SpfnTokens.space4), verticalArrangement = Arrangement.spacedBy(SpfnTokens.space4))
         {
             SpfnText(text = "state=" + stateName(state), role = TextRole.Mono);
             SpfnText(text = "stack=" + stack.size, role = TextRole.Mono);

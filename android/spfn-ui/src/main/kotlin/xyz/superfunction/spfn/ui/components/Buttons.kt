@@ -31,6 +31,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -38,6 +39,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
@@ -119,6 +121,20 @@ public fun TextButton(
  * The modifier chain's ORDER is the P21 rule: the size constraints come before `clickable`,
  * so the touch area is the 48dp box rather than a line of text Compose then expands past its
  * neighbours.
+ *
+ * The label is CENTRED and drawn in the role's own foreground, which is the Swift twin's
+ * `HStack` inside a `.frame(maxWidth: .infinity)` under a `.foregroundStyle(foreground)`.
+ * Neither was true here until 3f, and both showed: the row filled the width with no
+ * arrangement, so every label sat against the left padding, and the label went through
+ * `SpfnText`, whose whole contract is that it draws in `palette.text` or
+ * `palette.textSecondary` and nothing else. A primary button is `palette.accent` under
+ * black text on Android and white text on iOS — the same screen, twice, disagreeing.
+ *
+ * `BasicText` with the role's type token rather than a colour argument on `SpfnText`. The
+ * component set is one vocabulary written twice (validate.sh section 15) and a `color:`
+ * parameter added on this side only would leave `SpfnText` spelled the same and meaning
+ * something different from its Swift twin. `styleOf` is the same token either way, and it
+ * is already this package's own.
  */
 @Composable
 private fun RoleButton(
@@ -153,6 +169,7 @@ private fun RoleButton(
             )
             .clickable(enabled = live, onClick = onTap)
             .padding(horizontal = SpfnTokens.space4),
+        horizontalArrangement = Arrangement.spacedBy(SpfnTokens.space2, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically
     )
     {
@@ -160,12 +177,7 @@ private fun RoleButton(
         {
             Spinner(colour = foreground);
         }
-        SpfnText(
-            text = title,
-            modifier = Modifier.padding(start = if (busy) SpfnTokens.space2 else 0.dp),
-            role = TextRole.Body,
-            secondary = !live
-        );
+        BasicText(text = title, style = styleOf(TextRole.Body).copy(color = foreground));
     }
 }
 

@@ -27,9 +27,13 @@ package xyz.superfunction.spfn.example
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
@@ -59,6 +63,7 @@ import xyz.superfunction.spfn.ui.components.Screen
 import xyz.superfunction.spfn.ui.components.SecondaryButton
 import xyz.superfunction.spfn.ui.components.SpfnText
 import xyz.superfunction.spfn.ui.components.TextRole
+import xyz.superfunction.spfn.ui.tokens.SpfnTokens
 
 class MainActivity : ComponentActivity()
 {
@@ -204,6 +209,23 @@ private fun ExampleRoot(
  * `fixture=` is the CELL this launch named, which is `none` on the menu even though a fake
  * is installed: the fake is what the menu runs on, and the receipt's own record is where its
  * name is written down.
+ *
+ * The padding and the spacing are `ExampleApp.swift`'s, value for value: that menu is a
+ * `VStack(spacing: SPFNTokens.space4)` under a `.padding(SPFNTokens.space4)` and this one had
+ * neither, so on the 3e screenshots the Android menu's readouts began at the screen's left
+ * edge and its ten controls made one unbroken column. Nothing else on either platform draws
+ * its own body: `Screen` is a frame, and what a screen puts inside it decides its own
+ * spacing — which is why the generated views emit this same pair (KotlinEmitter.kt) and this
+ * hand-written one has to say it for itself.
+ *
+ * P25 is what bounds the step, and it is arithmetic rather than taste. What every cell that
+ * ends with its flow closed reaches for is above the fold with room to spare: inside the
+ * root's system-bar padding a Pixel 3a leaves 714dp, `Screen`'s header takes 56 of them, and
+ * the four items a cell reads — three 13sp mono readouts and `example.receipt` at the 48dp
+ * minimum, with 16dp of top padding and three 16dp gaps — end about 160dp into the 658dp
+ * body. Of the nine flow buttons under them, at 64dp each with their gaps, eight are fully
+ * in the first viewport and `longScroll` is the one clipped; `menu.pushTour`, which is the
+ * only one any cell names (pushTour-rootBack, pushTour-rootSystemBack), is the second.
  */
 @Composable
 private fun Menu(
@@ -216,12 +238,18 @@ private fun Menu(
 {
     Screen(title = "SPFN showcase")
     {
-        SpfnText(text = "fixture=$cell", role = TextRole.Mono);
-        SpfnText(text = "stack=$depth", role = TextRole.Mono);
-        SpfnText(text = "receipt=$receipt", role = TextRole.Mono);
-        SecondaryButton(title = "write receipt", id = "example.receipt", onTap = onReceipt);
-        Flows.ALL.forEach { flow ->
-            PrimaryButton(title = flow, id = "menu.$flow", onTap = { Flows.open(container, flow) });
-        };
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(SpfnTokens.space4),
+            verticalArrangement = Arrangement.spacedBy(SpfnTokens.space4)
+        )
+        {
+            SpfnText(text = "fixture=$cell", role = TextRole.Mono);
+            SpfnText(text = "stack=$depth", role = TextRole.Mono);
+            SpfnText(text = "receipt=$receipt", role = TextRole.Mono);
+            SecondaryButton(title = "write receipt", id = "example.receipt", onTap = onReceipt);
+            Flows.ALL.forEach { flow ->
+                PrimaryButton(title = flow, id = "menu.$flow", onTap = { Flows.open(container, flow) });
+            };
+        }
     }
 }

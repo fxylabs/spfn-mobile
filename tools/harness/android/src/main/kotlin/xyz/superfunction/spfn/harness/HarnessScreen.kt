@@ -229,11 +229,19 @@ private fun ApprovalReadouts(screen: HarnessScreenState)
  *   inside its own control ([TouchTarget], P21).
  * - the column's own 16dp of top padding.
  *
- * That is 617dp to the bottom row. The emulator the flows run on — Pixel 3a API 34, 393
- * × 786dp — leaves 714dp between the status and navigation bars, so the block ends with
- * about 97dp to spare. A 360 × 640dp phone leaves 568dp behind a three-button bar and the
- * last row would sit below the fold; the lever there is a third column, which fits at
- * that width only if no title wraps (`note-revoked` is the longest, at about 100dp).
+ * That is 617dp to the bottom row. The budget it is measured against is one emulator's and
+ * is named as such: Pixel 3a API 34, 393 × 786dp, the device `run-harness.sh android` drives.
+ * It leaves 759dp between the status and navigation bars, so the block ends with about
+ * 143dp to spare, measured on that emulator rather than subtracted from the lines above.
+ *
+ * It was 714dp and about 97dp until the manifest named `NoActionBar`. Both apps had been
+ * inheriting the platform default theme, whose action bar was a second offset stacked under
+ * the `WindowInsets.systemBars` this screen's root already spends — so the figure this
+ * arithmetic was held against had never been the figure the block actually got.
+ *
+ * A 360 × 640dp phone leaves 568dp behind a three-button bar and the last row would sit
+ * below the fold; the lever there is a third column, which fits at that width only if no
+ * title wraps (`note-revoked` is the longest, at about 100dp).
  *
  * Whether it actually fits is not a thing a JVM can answer, and no test here claims to:
  * a device run does. `HarnessRunnerBlockTest` answers the other half — that the set of

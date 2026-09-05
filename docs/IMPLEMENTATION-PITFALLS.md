@@ -906,6 +906,13 @@ adb -s <serial> shell dumpsys window displays | grep -i cutout   # 컷아웃·�
   값이다. 남은 레버는 열 수와 간격뿐이다.
 - 러너가 탭하지 않는 것(제공자 시트를 사람이 눌러야 하는 소셜 로그인 같은 것)만 아래에
   둔다. "어떤 플로우도 이것을 몰 수 없다"가 아래에 둘 자격이다.
+- **접힘선이 시트의 것이면 콘텐츠를 줄인다.** 하프·fit 시트는 폰보다 훨씬 높은 곳에
+  자기 접힘선을 갖는 뷰포트이고, 그 아래로 밀린 컨트롤은 위와 똑같이 트리에서 빠진다.
+  다른 것은 **되돌릴 방법이 없다**는 점이다: Maestro의 `scrollUntilVisible`은 화면
+  중앙에서 스크롤을 시작하는데 하프 시트에서 그 지점은 시트의 손잡이라, 본문이 아니라
+  시트 자체가 끌린다. 그러니 여기서 레버는 배치가 아니라 **콘텐츠**다 — 하프·fit 시트에
+  올리는 화면의 본문은 시트에 맞게 짧게 쓰고, 긴 본문은 full 시트와 push·모달 화면이
+  보여 준다. 본문이 스크롤되는 것 자체는 그대로 둔다.
 - **양쪽 화면에 같이 적용한다.** 한쪽만 고치면 다른 쪽은 다음 기기 라운드까지 결함을
   들고 간다 — 아래 "일반화"가 그 값을 치른 자리다.
 
@@ -941,10 +948,13 @@ iOS는 재배치가 필요 없다"고 적혀 있었고, 그 문장 하나가 iOS
 | --- | --- | --- | --- |
 | ui/scaffold-2a | Pixel 3a API 34 에뮬레이터, 2026-09-03 | `run-harness.sh android`의 c1~c9 **전부**가 `Element not found: Id matching regex: btn_wipe`. 첫 뷰포트의 접근성 트리에 id가 7개뿐이었고(`btn_case_*` 5개, `btn_social_google`, `btn_device_sign_in`) 전부 **사람이 쓰는** 컨트롤이었다. 끝까지 내린 뒤의 덤프에 나머지 14개가 있었다 | ui/scaffold-2c에서 Android 순서를 readout → 러너 2열 그리드 → 사람 블록으로 |
 | ui/scaffold-2b | iPhone 17 Pro / iOS 26.3 시뮬레이터, 2026-09-03 | `run-harness.sh ios`의 c1~c9·d1~d3 **12개 전부**가 같은 줄에서 같은 메시지로. 화면 내용이 약 1500pt, 뷰포트가 874pt였다. 끝까지 내리면 버튼은 보이지만 readout이 전부 사라져 **어느 스크롤 위치도 플로우를 만족시키지 못한다** | ui/scaffold-2d에서 iOS 순서를 같은 순서로 |
+| ui/scaffold-3f | Pixel 3a API 34 에뮬레이터, 2026-09-05 | 예제 35셀 중 `sheetNav-reach`·`sheetNav-close`가 실패하고 `sheetHalf-close`는 `done`이 42px 잘린 채 중심점만 남아 겨우 통과했다. 간격 토큰 **하나**가 원인이다: 생성 뷰에 `spacedBy(space4)`가 들어가면서 자식이 6개인 `navTwo`가 80dp 길어졌고, 하프 시트 안에서 `navTwo.done`이 접힘선 아래로 밀려 접근성 트리에서 사라졌다. 러너로 되돌릴 수 없었다 — `scrollUntilVisible`이 시트 본문이 아니라 시트 손잡이를 끌었다. iOS는 같은 내용이 들어갔다(SF Pro가 Roboto보다 좁아 줄 수가 적다) | 화면이 아니라 **사양**에서: `fitOne`·`halfOne`·`navOne`·`navTwo`의 `body`를 시트에 맞는 `lorem.sheet`로 (`examples/ui-spec/device-approval.json`, `BodyText.kt`) |
 | ui/scaffold-2f | Galaxy Z Flip4 (SM-F721N), Android 15 / API 35, 2026-09-03 | `run-harness.sh android`의 c1~c9는 통과하고 **d1~d3만** `Assertion is false: "state=ready" is visible`로 실패(d3는 `state=error`). 스크롤이 아니라 인셋이 원인이다: 하네스는 인셋을 자기 `Column`에만 줬고 생성 화면을 그리는 `ApproveDeviceFlowHost`는 그 Column의 **형제**라 인셋을 받지 못했다. 첫 행 `state=`가 컷아웃(94px)·상태 표시줄(262px) 아래 y=0에 그려져 uiautomator에는 남고 maestro 계층에서는 사라졌다. id 탭은 계속 맞아 입력·제출은 성공했다 | ui/scaffold-2g에서 인셋을 루트 `Box`로 올리고(`HarnessScreen.kt`) 예제 앱 루트에도 같이 줬다(`MainActivity.kt`) |
 
-세 라운드 모두 화면은 켜져 있었고 옳았다. 플로우 13개와 `run-harness.sh`의 플로우
-목록은 어느 라운드에서도 손대지 않았다 — 고친 것은 화면뿐이다.
+네 라운드 모두 화면은 켜져 있었고 옳았다. 앞의 세 라운드에서 플로우 13개와
+`run-harness.sh`의 플로우 목록은 손대지 않았다 — 고친 것은 화면뿐이다. 3f는 고친 자리가
+한 칸 더 위라는 점만 다르다: 접힘선이 시트의 것일 때는 배치를 아무리 옮겨도 자리가 나지
+않으므로, 화면이 아니라 그 화면이 **무엇을 말하는지**가 레버다. SDK는 손대지 않았다.
 
 ## P26. 생성 코드의 catch는 SDK 예외 계층 전체를 알아야 한다 {#p26}
 

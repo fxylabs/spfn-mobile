@@ -1042,7 +1042,16 @@ class KotlinEmitter(target: Target)
         appendLine();
         appendLine("    Screen(title = ${quoted(screen.title)}${trailingArgument(screen)}, scroll = ${screen.scroll})");
         appendLine("    {");
-        appendLine("        Column(modifier = Modifier.fillMaxWidth().padding(SpfnTokens.space4))");
+        // `spacedBy` and not a padding on each child, because the Swift emitter's own body
+        // is `VStack(alignment: .leading, spacing: SPFNTokens.space4)` and the two halves of
+        // one screen are supposed to be the same screen. Without it every paragraph, readout
+        // and control on an Android screen touched the one above it while the iOS shot of the
+        // same cell had a step of air between them.
+        appendLine(
+            "        Column(" +
+                "modifier = Modifier.fillMaxWidth().padding(SpfnTokens.space4), " +
+                "verticalArrangement = Arrangement.spacedBy(SpfnTokens.space4))"
+        );
         appendLine("        {");
         // The readouts come FIRST, and that is a rule about reach rather than about layout.
         // A body long enough to need scrolling puts everything under it below the fold, and a
@@ -1138,6 +1147,7 @@ class KotlinEmitter(target: Target)
     ): List<String>
     {
         val imports = mutableListOf(
+            "androidx.compose.foundation.layout.Arrangement",
             "androidx.compose.foundation.layout.Column",
             "androidx.compose.foundation.layout.fillMaxWidth",
             "androidx.compose.foundation.layout.padding",

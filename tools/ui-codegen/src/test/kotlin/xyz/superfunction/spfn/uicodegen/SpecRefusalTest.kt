@@ -809,4 +809,49 @@ class SpecRefusalTest
                 "        catch (failure: Exception)\n"
         );
     }
+
+    /**
+     * Every generated Kotlin view's body is spaced, and by the step its Swift twin uses.
+     *
+     * The Swift emitter writes `VStack(alignment: .leading, spacing: SPFNTokens.space4)` and
+     * the Kotlin one wrote a bare `Column`, whose children touch. On the 3e emulator round
+     * that is the third of the four differences the Android screenshots carried against the
+     * iOS ones: two paragraphs and the readouts above them with no air between them, on a
+     * screen iOS drew with a step.
+     *
+     * Read off the emitted text, because it is a LAYOUT and this host has no device. Every
+     * view is read rather than one, since the Column is written once and a screen that lost
+     * it would be a screen the count catches; and the Swift half is asserted in the same
+     * breath, because "both platforms space their bodies by space4" is the claim, and a
+     * Kotlin-only reader would pass on the day the Swift emitter stopped (P7, P10).
+     */
+    @Test
+    fun `a generated Kotlin view's Column is spaced by space4, as its Swift twin's VStack is`()
+    {
+        val generated = generate(repoRoot, specPath);
+        val kotlin = generated.filterKeys { it.startsWith("${target.kotlinRoot}/views/") };
+        val swift = generated.filterKeys { it.startsWith("${target.swiftRoot}/Views/") };
+        assertEquals("the generator wrote no Kotlin views to read", 14, kotlin.size);
+        assertEquals("the generator wrote no Swift views to read", 14, swift.size);
+
+        kotlin.forEach { (path, content) ->
+            assertTrue(
+                "$path draws its body in a Column that does not space its children",
+                content.contains(
+                    "Column(modifier = Modifier.fillMaxWidth().padding(SpfnTokens.space4), " +
+                        "verticalArrangement = Arrangement.spacedBy(SpfnTokens.space4))"
+                )
+            );
+            assertTrue(
+                "$path uses Arrangement without importing it",
+                content.contains("import androidx.compose.foundation.layout.Arrangement")
+            );
+        };
+        swift.forEach { (path, content) ->
+            assertTrue(
+                "$path draws its body in a VStack that does not space its children",
+                content.contains("VStack(alignment: .leading, spacing: SPFNTokens.space4)")
+            );
+        };
+    }
 }
