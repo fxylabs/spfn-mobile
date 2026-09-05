@@ -11,6 +11,7 @@
 
 package xyz.superfunction.spfn.harness.generated.views
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -48,7 +49,7 @@ fun EnterCodeScreen(model: EnterCodeModel)
 
     Screen(title = "Approve a device", scroll = true)
     {
-        Column(modifier = Modifier.fillMaxWidth().padding(SpfnTokens.space4))
+        Column(modifier = Modifier.fillMaxWidth().padding(SpfnTokens.space4), verticalArrangement = Arrangement.spacedBy(SpfnTokens.space4))
         {
             SpfnText(text = "state=" + stateName(state), role = TextRole.Mono);
             SpfnText(text = "stack=" + stack.size, role = TextRole.Mono);
