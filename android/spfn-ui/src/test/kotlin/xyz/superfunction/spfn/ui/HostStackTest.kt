@@ -18,7 +18,7 @@ private data class Halt(val name: String)
 class HostStackTest
 {
     @Test
-    fun sync_twoFlowsPushingInTurn_keepsEachOwnersRoutesInOrder()
+    fun sync_twoFlowsPushingInTurn_interleavesThemInTheOrderTheyArrived()
     {
         val first = Any();
         val second = Any();
@@ -29,13 +29,83 @@ class HostStackTest
         stack = stack.sync(first, listOf(Halt("a1"), Halt("a2")));
         stack = stack.sync(second, listOf(Halt("b1"), Halt("b2")));
 
-        // Each owner's routes stand together and in order, and the owner that arrived first
-        // is still in front: a push is not a reason to jump the flow underneath.
+        // Four pushes in four turns, so four entries in those four turns: the stack is the
+        // order a person pushed, not the owners gathered into two blocks. Grouping them
+        // would have put a2 under b1 while a2 is what its own flow believes is on top.
         assertEquals(
-            listOf(Halt("a1"), Halt("a2"), Halt("b1"), Halt("b2")),
+            listOf(Halt("a1"), Halt("b1"), Halt("a2"), Halt("b2")),
             stack.entries.map { it.route }
         );
-        assertEquals(listOf(first, first, second, second), stack.entries.map { it.owner });
+        assertEquals(listOf(first, second, first, second), stack.entries.map { it.owner });
+    }
+
+    @Test
+    fun sync_pushFromACoveredFlow_landsOnTop()
+    {
+        val first = Any();
+        val second = Any();
+
+        var stack = HostStack();
+        stack = stack.sync(first, listOf(Halt("a1")));
+        stack = stack.sync(second, listOf(Halt("b1")));
+        // The first flow is covered by the second and pushes anyway. What the host draws has
+        // to be what that flow now believes is its top, or the two disagree about the screen
+        // in front of the person and a system back is spent on the wrong flow.
+        stack = stack.sync(first, listOf(Halt("a1"), Halt("a2")));
+
+        assertEquals(listOf(Halt("a1"), Halt("b1"), Halt("a2")), stack.entries.map { it.route });
+        assertEquals(first, stack.topOwner());
+    }
+
+    @Test
+    fun sync_popFromACoveredFlow_removesItInPlace()
+    {
+        val first = Any();
+        val second = Any();
+
+        var stack = HostStack();
+        stack = stack.sync(first, listOf(Halt("a1"), Halt("a2")));
+        stack = stack.sync(second, listOf(Halt("b1")));
+        stack = stack.sync(first, listOf(Halt("a1")));
+
+        // a2 left from under b1, and b1 did not move for it: nothing about the second flow
+        // changed, so nothing about where it stands does either.
+        assertEquals(listOf(Halt("a1"), Halt("b1")), stack.entries.map { it.route });
+        assertEquals(second, stack.topOwner());
+    }
+
+    @Test
+    fun sync_replacingATail_keepsThePrefixInPlace()
+    {
+        val first = Any();
+        val second = Any();
+
+        var stack = HostStack();
+        stack = stack.sync(first, listOf(Halt("a1"), Halt("a2")));
+        stack = stack.sync(second, listOf(Halt("b1")));
+        stack = stack.sync(first, listOf(Halt("a1"), Halt("a3")));
+
+        // a1 is shared with what was there and stays where it was; a2 is gone and a3 is new,
+        // so a3 goes on top — a route pushed now is above everything pushed before it.
+        assertEquals(listOf(Halt("a1"), Halt("b1"), Halt("a3")), stack.entries.map { it.route });
+        assertEquals(listOf(first, second, first), stack.entries.map { it.owner });
+    }
+
+    @Test
+    fun sync_emptyRoutes_removesEveryEntryOfThatOwner()
+    {
+        val first = Any();
+        val second = Any();
+
+        var stack = HostStack();
+        stack = stack.sync(first, listOf(Halt("a1")));
+        stack = stack.sync(second, listOf(Halt("b1")));
+        stack = stack.sync(first, listOf(Halt("a1"), Halt("a2")));
+        // Interleaved, so the closing flow's entries are not one run to cut out.
+        stack = stack.sync(first, emptyList());
+
+        assertEquals(listOf<Any>(Halt("b1")), stack.entries.map { it.route });
+        assertEquals(listOf(second), stack.entries.map { it.owner });
     }
 
     @Test

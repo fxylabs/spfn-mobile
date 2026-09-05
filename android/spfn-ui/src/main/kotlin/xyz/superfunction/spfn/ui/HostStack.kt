@@ -23,6 +23,13 @@
 //   `sync`        one flow's routes are replaced by its current stack, leaving every other
 //                 flow's entries where they were. This is how a flow's own state reaches
 //                 the host: the flow stays the single source of truth and the host follows.
+//
+// The list is CHRONOLOGICAL: an entry stands where it was pushed, and the two flows on it
+// interleave if that is the order a person put them in. A list grouped by owner instead —
+// each flow's routes gathered where its first one went — reads tidier and is wrong on a
+// device: with `[a1, b1]` on the stack, a push from the covered flow A would land a2 UNDER
+// b1, so A's own top and the host's top would be two different screens and the system back
+// would go to the flow the person was not looking at.
 //   `shortened`   the platform cut the tail off — a system back, a predictive back — and
 //                 each flow has to be told how many of ITS routes went.
 //   `topOwner`    whose `back` a system gesture is, asked before the gesture is claimed.
@@ -59,21 +66,32 @@ public data class HostStack(
 )
 {
     /**
-     * Replaces [owner]'s entries with [routes], leaving every other owner's alone.
+     * Replaces [owner]'s entries with [routes], leaving every other owner's alone and every
+     * entry that stays exactly where it stood.
      *
-     * The replacement goes back where the owner's FIRST entry was, so a flow that pushes a
-     * route does not jump over a flow that was standing under it; an owner with nothing on
-     * the stack yet is appended at the end, because it is arriving now. A flow that closed
-     * syncs an empty list, which is how its entries leave.
+     * Three rules, and they are the chronological order the header states:
+     *
+     * - what this owner already had and still has, from the front — the shared prefix —
+     *   does not move, because none of it was pushed or popped;
+     * - what it had past that prefix is gone, wherever on the list it was standing;
+     * - what is new past that prefix is APPENDED, in order, because a route pushed now goes
+     *   on top of everything pushed before it, including another flow's.
+     *
+     * A flow that closed syncs an empty list: nothing is shared, so every entry of its goes.
      */
     public fun sync(owner: Any, routes: List<Any>): HostStack
     {
-        val kept = entries.filterNot { it.owner == owner }.toMutableList();
-        // Every entry before this owner's first is somebody else's, so that index counts
-        // the kept entries standing in front of it exactly.
-        val first = entries.indexOfFirst { it.owner == owner };
-        val position = if (first < 0) kept.size else first;
-        kept.addAll(position, routes.map { HostEntry(owner, it) });
+        val shared = sharedPrefix(entries.filter { it.owner == owner }.map { it.route }, routes);
+
+        // `seen` counts this owner's entries only, so the nth of them survives exactly while
+        // n is still inside the shared prefix — which is what "does not move" comes to.
+        var seen = 0;
+        val kept = entries.filter { entry ->
+            if (entry.owner != owner) return@filter true;
+            seen++;
+            seen <= shared;
+        }.toMutableList();
+        kept.addAll(routes.drop(shared).map { HostEntry(owner, it) });
         return HostStack(kept.toList());
     }
 
@@ -104,4 +122,21 @@ public data class HostStack(
      * stack with nothing on it has handed the gesture back to the platform already.
      */
     public fun topOwner(): Any? = entries.lastOrNull()?.owner
+}
+
+/**
+ * How many routes [old] and [new] share from the front.
+ *
+ * The dividing line [HostStack.sync] is written around: everything before it is a route the
+ * flow has not touched, and everything at or after it on either side is what this sync pops
+ * or pushes.
+ */
+private fun sharedPrefix(old: List<Any>, new: List<Any>): Int
+{
+    var shared = 0;
+    while (shared < minOf(old.size, new.size) && old[shared] == new[shared])
+    {
+        shared++;
+    }
+    return shared;
 }

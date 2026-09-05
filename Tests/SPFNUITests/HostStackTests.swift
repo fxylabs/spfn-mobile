@@ -24,7 +24,7 @@ private struct Halt: Hashable
 
 final class HostStackTests: XCTestCase
 {
-    func test_sync_twoFlowsPushingInTurn_keepsEachOwnersRoutesInOrder()
+    func test_sync_twoFlowsPushingInTurn_interleavesThemInTheOrderTheyArrived()
     {
         let first = Owner()
         let second = Owner()
@@ -37,18 +37,101 @@ final class HostStackTests: XCTestCase
         stack = stack.sync(owner: firstId, routes: [Halt(name: "a1"), Halt(name: "a2")])
         stack = stack.sync(owner: secondId, routes: [Halt(name: "b1"), Halt(name: "b2")])
 
-        // Each owner's routes stand together and in order, and the owner that arrived first
-        // is still in front: a push is not a reason to jump the flow underneath.
+        // Four pushes in four turns, so four entries in those four turns: the stack is the
+        // order a person pushed, not the owners gathered into two blocks. Grouping them
+        // would have put a2 under b1 while a2 is what its own flow believes is on top.
         XCTAssertEqual(
             stack.entries.map { $0.route },
             [
                 AnyHashable(Halt(name: "a1")),
-                AnyHashable(Halt(name: "a2")),
                 AnyHashable(Halt(name: "b1")),
+                AnyHashable(Halt(name: "a2")),
                 AnyHashable(Halt(name: "b2"))
             ]
         )
-        XCTAssertEqual(stack.entries.map { $0.owner }, [firstId, firstId, secondId, secondId])
+        XCTAssertEqual(stack.entries.map { $0.owner }, [firstId, secondId, firstId, secondId])
+    }
+
+    func test_sync_pushFromACoveredFlow_landsOnTop()
+    {
+        let first = Owner()
+        let second = Owner()
+        let firstId = ObjectIdentifier(first)
+        let secondId = ObjectIdentifier(second)
+
+        var stack = HostStack()
+        stack = stack.sync(owner: firstId, routes: [Halt(name: "a1")])
+        stack = stack.sync(owner: secondId, routes: [Halt(name: "b1")])
+        // The first flow is covered by the second and pushes anyway. What the host draws has
+        // to be what that flow now believes is its top, or the two disagree about the screen
+        // in front of the person and a system back is spent on the wrong flow.
+        stack = stack.sync(owner: firstId, routes: [Halt(name: "a1"), Halt(name: "a2")])
+
+        XCTAssertEqual(
+            stack.entries.map { $0.route },
+            [AnyHashable(Halt(name: "a1")), AnyHashable(Halt(name: "b1")), AnyHashable(Halt(name: "a2"))]
+        )
+        XCTAssertEqual(stack.topOwner(), firstId)
+    }
+
+    func test_sync_popFromACoveredFlow_removesItInPlace()
+    {
+        let first = Owner()
+        let second = Owner()
+        let firstId = ObjectIdentifier(first)
+        let secondId = ObjectIdentifier(second)
+
+        var stack = HostStack()
+        stack = stack.sync(owner: firstId, routes: [Halt(name: "a1"), Halt(name: "a2")])
+        stack = stack.sync(owner: secondId, routes: [Halt(name: "b1")])
+        stack = stack.sync(owner: firstId, routes: [Halt(name: "a1")])
+
+        // a2 left from under b1, and b1 did not move for it: nothing about the second flow
+        // changed, so nothing about where it stands does either.
+        XCTAssertEqual(
+            stack.entries.map { $0.route },
+            [AnyHashable(Halt(name: "a1")), AnyHashable(Halt(name: "b1"))]
+        )
+        XCTAssertEqual(stack.topOwner(), secondId)
+    }
+
+    func test_sync_replacingATail_keepsThePrefixInPlace()
+    {
+        let first = Owner()
+        let second = Owner()
+        let firstId = ObjectIdentifier(first)
+        let secondId = ObjectIdentifier(second)
+
+        var stack = HostStack()
+        stack = stack.sync(owner: firstId, routes: [Halt(name: "a1"), Halt(name: "a2")])
+        stack = stack.sync(owner: secondId, routes: [Halt(name: "b1")])
+        stack = stack.sync(owner: firstId, routes: [Halt(name: "a1"), Halt(name: "a3")])
+
+        // a1 is shared with what was there and stays where it was; a2 is gone and a3 is new,
+        // so a3 goes on top — a route pushed now is above everything pushed before it.
+        XCTAssertEqual(
+            stack.entries.map { $0.route },
+            [AnyHashable(Halt(name: "a1")), AnyHashable(Halt(name: "b1")), AnyHashable(Halt(name: "a3"))]
+        )
+        XCTAssertEqual(stack.entries.map { $0.owner }, [firstId, secondId, firstId])
+    }
+
+    func test_sync_emptyRoutes_removesEveryEntryOfThatOwner()
+    {
+        let first = Owner()
+        let second = Owner()
+        let firstId = ObjectIdentifier(first)
+        let secondId = ObjectIdentifier(second)
+
+        var stack = HostStack()
+        stack = stack.sync(owner: firstId, routes: [Halt(name: "a1")])
+        stack = stack.sync(owner: secondId, routes: [Halt(name: "b1")])
+        stack = stack.sync(owner: firstId, routes: [Halt(name: "a1"), Halt(name: "a2")])
+        // Interleaved, so the closing flow's entries are not one run to cut out.
+        stack = stack.sync(owner: firstId, routes: [])
+
+        XCTAssertEqual(stack.entries.map { $0.route }, [AnyHashable(Halt(name: "b1"))])
+        XCTAssertEqual(stack.entries.map { $0.owner }, [secondId])
     }
 
     func test_sync_closingOneFlow_leavesTheOtherFlowsEntriesStanding()
