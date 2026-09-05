@@ -169,7 +169,10 @@ app one container for that, spelled the same on both platforms — `NavigationHo
 and a `FlowHost(.push)` inside one registers with it instead of building a navigator:
 `HostStack` is the single ordered list both navigators are driven from, every entry on it
 says which flow it belongs to, and a shortening the platform performed is turned back into
-one `Flow.back` per dropped route on the flow that owned it. A `FlowHost(.push)` with no
+one `Flow.back` per dropped route on the flow that owned it. That list is CHRONOLOGICAL —
+a route stands where it was pushed and two flows on the stack interleave — because a list
+grouped by owner would land a covered flow's new route underneath the flow covering it, and
+the host's top screen and that flow's own top would be two different screens. A `FlowHost(.push)` with no
 `NavigationHost` above it keeps its own inline stack, which compiles and runs and has
 neither the transition nor the way back — the compatibility path, and its header says so.
 
