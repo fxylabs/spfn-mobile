@@ -23,6 +23,26 @@
 
   A configuration is honoured from API 24, which is this repository's minSdk, so the
   attribute needs no per-version fallback.
+
+  The theme is a SYSTEM one with no action bar. Left unset, an app inherits the platform's
+  default, which draws a title bar of its own above the composition — a "SPFN Harness"
+  strip above this screen's own readouts, and the same strip over the SDK's header inside
+  the flow this app hosts. `android:label` still names the app in the launcher and in the
+  task switcher; what changed is that no window decoration draws it a second time.
+
+  It also gives the readout block back the rows the strip took. `HarnessScreen` already
+  spends `WindowInsets.systemBars` on its root, so the action bar was a second offset under
+  the first, and [RunnerBlock]'s arithmetic — 617dp of content against the 714dp a Pixel 3a
+  leaves between the bars — was being measured against about 56dp less than it assumed.
+
+  DeviceDefault and not Material or AppCompat, because this repository depends on no design
+  system it did not write (decision C2) and either of those would be a new artifact in
+  gradle/verification-metadata.xml for a window background. `Light` and not the
+  appearance-following variant, because this screen is drawn on `Paper` and `SpfnTokens`
+  resolves to the same white palette in both appearances: a theme that went dark on a
+  dark-mode device would paint `FlowHost.cover()` — which reads `android:colorBackground`
+  off the host's theme, and is the one attribute every Android theme defines — near-black
+  behind screens that are still white.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -31,7 +51,8 @@
     <application
         android:label="SPFN Harness"
         android:networkSecurityConfig="@xml/spfn_harness_network_security_config"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
 
         <activity
             android:name=".HarnessActivity"
