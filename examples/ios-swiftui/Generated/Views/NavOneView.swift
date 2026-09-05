@@ -40,7 +40,7 @@ public struct NavOneView: View
             VStack(alignment: .leading, spacing: SPFNTokens.space4)
             {
                 readouts
-                SpfnText("This sheet stands at half. What it shows fits without scrolling, so the way out is always in reach.")
+                SpfnText("This sheet holds what it shows. It fits without scrolling, so the way out is always in reach.")
                 PrimaryButton(
                     title: "next",
                     identifier: "navOne.next",

@@ -39,7 +39,7 @@ fun FitOneScreen(model: FitOneModel)
         {
             SpfnText(text = "state=" + stateName(state), role = TextRole.Mono);
             SpfnText(text = "stack=" + stack.size, role = TextRole.Mono);
-            SpfnText(text = "This sheet stands at half. What it shows fits without scrolling, so the way out is always in reach.");
+            SpfnText(text = "This sheet holds what it shows. It fits without scrolling, so the way out is always in reach.");
             PrimaryButton(
                 title = "done",
                 id = "fitOne.done",

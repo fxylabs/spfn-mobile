@@ -54,7 +54,7 @@ object BodyText
      * it is the body of a screen whose presentation has already decided how much there is.
      */
     private val SHEET: List<String> = listOf(
-        "This sheet stands at half. What it shows fits without scrolling, so the way out " +
+        "This sheet holds what it shows. It fits without scrolling, so the way out " +
             "is always in reach."
     )
 
