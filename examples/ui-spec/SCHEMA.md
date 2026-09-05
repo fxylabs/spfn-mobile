@@ -127,14 +127,22 @@ longest body here is thirty lines on its own. The words live in
 `tools/ui-codegen/.../BodyText.kt`, which is the same split `SPFNStrings` makes for the
 sentence a failed screen shows, and the emitters write one text component per paragraph.
 
-Two keys today, and the set is closed — a key the table does not carry is refused by name
+Three keys today, and the set is closed — a key the table does not carry is refused by name
 (refusal 7's family), because the failure it prevents is quiet: a screen that drew nothing
 looks like a screen somebody had not filled in yet.
 
 | Key | What it is for |
 | --- | --- |
+| `lorem.sheet` | one sentence pair. A screen presented in a sheet at `fit` or `half`, where the fold is the sheet's and not the phone's |
 | `lorem.short` | two paragraphs. A screen that needs something above its control |
 | `lorem.long` | eight paragraphs. Long enough to put the control at its foot below the fold on a phone, which is what makes a scrolling cell exercise anything |
+
+Which key a screen names is a fact about the presentation it is shown in. A sheet at `fit`
+or `half` is a viewport whose fold is far above the phone's, and a control below that fold
+is out of the accessibility tree the same way (P25) — with no way back, because a scroll
+started at the middle of a half sheet drags the sheet's grabber rather than its content.
+So the sheet screens take `lorem.sheet` and the long bodies stay where they can be read:
+`sheetFull`, and the pushed and modal flows.
 
 `body` is **refused** on a screen with a `source` (refusal 9). That screen's body is what
 it read; a static one written under it would be a second answer to the same question, and

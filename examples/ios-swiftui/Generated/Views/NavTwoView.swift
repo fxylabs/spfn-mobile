@@ -3,7 +3,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-dev
 // spec:            examples/ui-spec/device-approval.json
-// specSha256:      88e5159b5528860daa36d6ebae1f6a6940c8152eb8373bf4cb3656be70599153
+// specSha256:      5babeed3f41fa7c8eb049bc79d7719ff9f0d79ede06c4073015643be04668f7a
 // bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 // contractVersion: 0.10.0
 //
@@ -40,8 +40,7 @@ public struct NavTwoView: View
             VStack(alignment: .leading, spacing: SPFNTokens.space4)
             {
                 readouts
-                SpfnText("This screen reads nothing and writes nothing. It is here so the presentation around it can be looked at on its own: the frame, the way out it offers, and what the platform does to it when a person swipes.")
-                SpfnText("The control below moves the flow. Nothing on this screen reaches a server.")
+                SpfnText("This sheet stands at half. What it shows fits without scrolling, so the way out is always in reach.")
                 TextButton(
                     title: "back",
                     identifier: "navTwo.back",

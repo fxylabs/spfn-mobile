@@ -79,12 +79,12 @@
     },
 
     "fitOne": {
-      "flow": "sheetFit", "source": null, "body": "lorem.short",
+      "flow": "sheetFit", "source": null, "body": "lorem.sheet",
       "title": "A sheet that fits",
       "actions": { "done": { "then": "close", "role": "primary" } }
     },
     "halfOne": {
-      "flow": "sheetHalf", "source": null, "body": "lorem.short",
+      "flow": "sheetHalf", "source": null, "body": "lorem.sheet",
       "title": "A sheet at half",
       "actions": { "done": { "then": "close", "role": "primary" } }
     },
@@ -95,12 +95,12 @@
     },
 
     "navOne": {
-      "flow": "sheetNav", "source": null, "body": "lorem.short",
+      "flow": "sheetNav", "source": null, "body": "lorem.sheet",
       "title": "Inside a sheet",
       "actions": { "next": { "then": { "push": "navTwo" }, "role": "primary" } }
     },
     "navTwo": {
-      "flow": "sheetNav", "source": null, "body": "lorem.short",
+      "flow": "sheetNav", "source": null, "body": "lorem.sheet",
       "title": "Deeper inside a sheet",
       "actions": {
         "done": { "then": "close", "role": "primary" },

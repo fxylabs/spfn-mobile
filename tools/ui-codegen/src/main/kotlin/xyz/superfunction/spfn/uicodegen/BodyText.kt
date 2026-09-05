@@ -16,7 +16,9 @@
 //
 // The words are lorem-family filler on purpose. This table exists so the showcase has
 // something to scroll and something to measure a sheet against; prose that said anything
-// would have to be maintained as if it did.
+// would have to be maintained as if it did. `lorem.sheet` is the one exception and it
+// earns it: a body that has to stay inside a half sheet is a body whose LENGTH is the
+// requirement, and a sentence naming that is what stops the next person growing it back.
 
 package xyz.superfunction.spfn.uicodegen
 
@@ -37,6 +39,24 @@ object BodyText
      * body that grew past the fold would make that cell start scrolling by itself.
      */
     fun scrolls(key: String): Boolean = key in SCROLLING
+
+    /**
+     * Short enough to stand inside a sheet that is not full.
+     *
+     * A half sheet is a viewport with a fold of its own, and the fold is much higher than a
+     * screen's. What sits below it is out of the accessibility tree exactly as it is on a
+     * full screen (P25), so the control at the foot of a sheet body that overflows is a
+     * control no runner can tap — and the runner cannot scroll to it either, because a
+     * scroll gesture started at the middle of a half sheet lands on the sheet's grabber and
+     * drags the sheet rather than its content.
+     *
+     * So this is one paragraph and it stays one. It is not a shorter [SHORT] to save room;
+     * it is the body of a screen whose presentation has already decided how much there is.
+     */
+    private val SHEET: List<String> = listOf(
+        "This sheet stands at half. What it shows fits without scrolling, so the way out " +
+            "is always in reach."
+    )
 
     private val SHORT: List<String> = listOf(
         "This screen reads nothing and writes nothing. It is here so the presentation " +
@@ -81,6 +101,7 @@ object BodyText
     )
 
     private val TABLE: Map<String, List<String>> = mapOf(
+        "lorem.sheet" to SHEET,
         "lorem.short" to SHORT,
         "lorem.long" to LONG
     )
