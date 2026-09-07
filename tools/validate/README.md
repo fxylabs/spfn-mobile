@@ -28,6 +28,7 @@ check passed.
 | 14 | the apps that consume the scaffold hold the generated boundary: descriptors only in generated services, no `dismiss`, every cell covered, every cell seedable |
 | 15 | the visual vocabulary — tokens, strings, components and the minimum touch target — is the same set on both platforms |
 | 16 | both Android apps declare `android:enableOnBackInvokedCallback`, which is what gives the SDK's predictive-back transition any progress to animate |
+| 17 | no pointer input under `android/spfn-ui/src/main` consumes every change it is handed, which is what cancels a finger's press on the controls underneath it |
 
 ## What it does not check
 
@@ -160,6 +161,39 @@ sh tools/validate/probe-predictive-back-rules.sh   # prove each refusal bites
 The probe takes the declaration out of each manifest separately, turns one to `"false"`,
 leaves the attribute in a comment and nowhere else, takes the manifest list away, and strips
 the flag from the SDK's documentation. Seven cases, each scoped to section 16's own output.
+
+## Check 17 guards something only a person can see
+
+A Compose modifier that answers `pointerInput` by consuming **every** change takes the press
+out of the controls underneath it — but only for a finger. `clickable` does not decide a
+press on the down. `ClickableNode.onPointerEvent` handles down and up on the Main pass and
+calls `checkForCancellation` on the **Final** pass, which cancels the press the moment any
+change other than its own down reports `isConsumed`; Final runs parent before child, so a
+parent that consumed on Main arrives there as a cancel.
+
+What makes it a check rather than a review note is who can see it. A finger always produces
+MOVE events — a few pixels of tremor is a MOVE — and every runner here synthesises a DOWN
+and an UP with nothing between them. A modal cover that consumed everything was green in all
+35 device cells, green in Maestro, green under `adb shell input tap`, and dead under a thumb
+on a Galaxy Z Flip4 (`docs/IMPLEMENTATION-PITFALLS.md` P36).
+
+The rule is about **blanket** consumption. A gesture detector that claims the change it
+recognised is how Compose gestures work and is not this; what is refused is a loop that
+hands every change in an event to `consume` before anything about the change is known.
+
+Newlines become spaces before the match, because the spelling is not a line — written across
+three it is the same defect. The file is read as text, comments and all: a Kotlin
+comment-stripper that is wrong about nesting or string literals hides code, and the price of
+not writing one is that this module may not quote the forbidden line in its own prose
+either.
+
+```sh
+sh tools/validate/probe-pointer-consumption-rules.sh   # prove each refusal bites
+```
+
+The probe plants the block spelling in one file and the call spelling in another, spreads
+the block spelling over three lines, leaves it in a comment and nowhere else, and takes the
+source root away. Six cases, each scoped to section 17's own output.
 
 ## Check 2 replaced a Step 1 prohibition
 
