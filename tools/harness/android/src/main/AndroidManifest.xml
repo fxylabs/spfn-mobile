@@ -35,16 +35,26 @@
   the system's arrow drawn over it, and the screen underneath appeared on release
   (docs/IMPLEMENTATION-PITFALLS.md P35).
 
-  The theme is a SYSTEM one with no action bar. Left unset, an app inherits the platform's
-  default, which draws a title bar of its own above the composition — a "SPFN Harness"
-  strip above this screen's own readouts, and the same strip over the SDK's header inside
-  the flow this app hosts. `android:label` still names the app in the launcher and in the
-  task switcher; what changed is that no window decoration draws it a second time.
+  The theme is this app's OWN, over the system parent it used to name directly:
+  res/values/themes.xml, one attribute, no new dependency. It was a bare
+  Theme.DeviceDefault.Light.NoActionBar until a dark-mode Galaxy Z Flip4 drew the status
+  bar's clock and icons in a light foreground over this app's white. That is a property of
+  the WINDOW, so the app declares it: `android:windowLightStatusBar`, which the resource
+  file explains. It does not move a single row — a status bar FOREGROUND is a colour and not
+  an inset, so [RunnerBlock]'s arithmetic below is unchanged by it.
 
-  It also gives the readout block back the rows the strip took. `HarnessScreen` already
-  spends `WindowInsets.systemBars` on its root, so the action bar was a second offset under
-  the first, and [RunnerBlock]'s arithmetic — 617dp of content against the 714dp a Pixel 3a
-  leaves between the bars — was being measured against about 56dp less than it assumed.
+  Everything the parent decided, it still decides. No action bar, because left unset an app
+  inherits the platform's default and that draws a title bar of its own above the
+  composition — a "SPFN Harness" strip above this screen's own readouts, and the same strip
+  over the SDK's header inside the flow this app hosts. `android:label` still names the app
+  in the launcher and in the task switcher; what changed is that no window decoration draws
+  it a second time.
+
+  That is also what gives the readout block back the rows the strip took. `HarnessScreen`
+  already spends `WindowInsets.systemBars` on its root, so the action bar was a second
+  offset under the first, and [RunnerBlock]'s arithmetic — 617dp of content against the
+  714dp a Pixel 3a leaves between the bars — was being measured against about 56dp less than
+  it assumed.
 
   DeviceDefault and not Material or AppCompat, because this repository depends on no design
   system it did not write (decision C2) and either of those would be a new artifact in
@@ -64,7 +74,7 @@
         android:label="SPFN Harness"
         android:networkSecurityConfig="@xml/spfn_harness_network_security_config"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        android:theme="@style/Theme.SpfnHarness">
 
         <activity
             android:name=".HarnessActivity"

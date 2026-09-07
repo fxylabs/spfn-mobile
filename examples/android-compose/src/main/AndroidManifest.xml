@@ -20,21 +20,27 @@
   the system's arrow drawn over it, and the screen underneath appeared on release
   (docs/IMPLEMENTATION-PITFALLS.md P35).
 
-  The theme is a SYSTEM one with no action bar. Left unset, an app inherits the platform's
-  default, which draws a title bar of its own above the composition: on the 3e emulator
-  round every Android screenshot carried an "SPFN Example" strip over the SDK's own header
-  where iOS had one header and nothing else. `android:label` still names the app in the
-  launcher and in the task switcher; what changed is that no window decoration draws it a
-  second time.
+  The theme is this app's OWN, over the system parent it used to name directly:
+  res/values/themes.xml, one attribute, no new dependency. It was a bare
+  Theme.DeviceDefault.Light.NoActionBar until a dark-mode Galaxy Z Flip4 drew the status
+  bar's clock and icons in a light foreground over this app's white — barely legible on the
+  menu and the sheets, invisible over a pushed screen. That is a property of the WINDOW, so
+  the app declares it: `android:windowLightStatusBar`, which the resource file explains and
+  which nothing in the SDK can or should reach.
 
-  DeviceDefault and not Material or AppCompat, because this repository depends on no design
-  system it did not write (decision C2) and either of those would be a new artifact in
-  gradle/verification-metadata.xml for a window background. `Light` and not the
-  appearance-following variant, because `SpfnTokens` resolves to the same white palette in
-  both appearances: a theme that went dark on a dark-mode device would paint
-  `FlowHost.cover()` — which reads `android:colorBackground` off the host's theme, and is
-  the one attribute every Android theme defines — near-black behind screens that are still
-  white.
+  Everything the parent decided, it still decides. No action bar, because left unset an app
+  inherits the platform's default and that draws a title bar of its own above the
+  composition: on the 3e emulator round every Android screenshot carried an "SPFN Example"
+  strip over the SDK's own header where iOS had one header and nothing else. `android:label`
+  still names the app in the launcher and in the task switcher; what changed is that no
+  window decoration draws it a second time. DeviceDefault and not Material or AppCompat,
+  because this repository depends on no design system it did not write (decision C2) and
+  either of those would be a new artifact in gradle/verification-metadata.xml for a window
+  background. `Light` and not the appearance-following variant, because `SpfnTokens`
+  resolves to the same white palette in both appearances: a theme that went dark on a
+  dark-mode device would paint `FlowHost.cover()` — which reads `android:colorBackground`
+  off the host's theme, and is the one attribute every Android theme defines — near-black
+  behind screens that are still white.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -42,7 +48,7 @@
         android:enableOnBackInvokedCallback="true"
         android:label="SPFN Example"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        android:theme="@style/Theme.SpfnExample">
 
         <activity
             android:name=".MainActivity"

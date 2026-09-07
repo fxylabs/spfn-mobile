@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPFN Mobile — the Compose example app's window theme.
+
+  One attribute over a system parent, and both halves of that are the decision.
+
+  The PARENT is the theme this app already named in its manifest, unchanged:
+  Theme.DeviceDefault.Light.NoActionBar. DeviceDefault and not Material or AppCompat,
+  because this repository depends on no design system it did not write (decision C2) and
+  either of those would be a new artifact in gradle/verification-metadata.xml for a window
+  background. Light and not the appearance-following variant, because `SpfnTokens` resolves
+  to the same white palette in both appearances: a theme that went dark on a dark-mode
+  device would paint `FlowHost.cover()` — which reads `android:colorBackground` off this
+  theme, and is the one attribute every Android theme defines — near-black behind screens
+  that are still white. Declaring the parent here rather than in the manifest changes
+  nothing about what that attribute resolves to.
+
+  The ATTRIBUTE is `android:windowLightStatusBar`, and it says what the palette above has
+  already decided: this app's background is white in both appearances, so the status bar's
+  clock and icons have to be drawn dark. Left unset they follow the system's appearance, and
+  on a dark-mode Galaxy Z Flip4 that meant a light foreground on this app's white — the
+  clock and the battery legible only at an angle on the menu and the sheets, and invisible
+  over a pushed screen.
+
+  It is declared and not set in code. `WindowInsetsControllerCompat` would do the same job
+  from the activity, at the cost of a rule that only holds once a composition has run and of
+  a second place the appearance is decided. The window is the app's, and this is the app
+  saying what its window is.
+
+  `android:windowLightNavigationBar` is deliberately ABSENT. It is API 27 and this
+  repository's minSdk is 24, so it would need a values-v27 split or a lint suppression to
+  say something that is already true: a three-button navigation bar is drawn on the system's
+  own grey with dark icons, and the gesture pill takes its colour from the content behind
+  it. There is nothing here for it to fix.
+-->
+<resources>
+
+    <style name="Theme.SpfnExample" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+</resources>
