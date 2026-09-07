@@ -29,6 +29,7 @@ check passed.
 | 15 | the visual vocabulary — tokens, strings, components and the minimum touch target — is the same set on both platforms |
 | 16 | both Android apps declare `android:enableOnBackInvokedCallback`, which is what gives the SDK's predictive-back transition any progress to animate |
 | 17 | no pointer input under `android/spfn-ui/src/main` consumes every change it is handed, which is what cancels a finger's press on the controls underneath it |
+| 18 | every `NavDisplay` under `android/spfn-ui/src/main` states its three transitions from `FlowTransitions`, so a modal flow and a pushed flow move the same way |
 
 ## What it does not check
 
@@ -194,6 +195,40 @@ sh tools/validate/probe-pointer-consumption-rules.sh   # prove each refusal bite
 The probe plants the block spelling in one file and the call spelling in another, spreads
 the block spelling over three lines, leaves it in a comment and nowhere else, and takes the
 source root away. Six cases, each scoped to section 17's own output.
+
+## Check 18 keeps one app from holding two opinions
+
+`NavDisplay` takes a forward, a pop and a predictive-pop transition spec and defaults all
+three when they are not given. Read out of navigation3-ui 1.1.7 with javap, the defaults are
+`fadeIn(tween(700)) togetherWith fadeOut(tween(700))` forward, the same again for the pop, and
+`fadeIn(spring(1f, 1600f)) togetherWith scaleOut(0.7f)` for the predictive pop. Each is
+reasonable for a navigator that does not know what it is drawing, and none is what a stack of
+screens does on either platform this SDK ships to.
+
+So a module that states them at one call site and not at the others ships two apps. It did:
+`NavigationHost` stated its three and the flow's own inline stack — a sheet's stack, a modal's
+cover, a pushed flow that found no host — did not, and on a phone `next` inside a modal faded
+in where the same tap in a pushed flow slid in from the right, and a back inside that modal
+shrank the screen away where a back in a push slid it off to the right
+(`docs/IMPLEMENTATION-PITFALLS.md` P37).
+
+No assertion in this repository reads it. A runner asserts what a screen says, never how it
+arrived, so all 35 device cells pass either way; and `NavDisplay`'s arguments are not readable
+from outside a composition, so the JVM suite can hold `FlowTransitions` to having three values
+of which two are one value (`FlowTransitionsTest`) and cannot hold any stack to being handed
+them. This check reads the call sites, which is the other half.
+
+Each call's arguments are taken to run from its own `NavDisplay(` to the next one in the same
+file, or to that file's end. The reader is `index`/`substr` and no regex at all, which is one
+fewer BSD-versus-GNU spelling to get wrong (`docs/IMPLEMENTATION-PITFALLS.md` P28).
+
+```sh
+sh tools/validate/probe-flow-transitions-rules.sh   # prove each refusal bites
+```
+
+The probe plants a `NavDisplay` call that states nothing — before the module's real call, so
+it cannot borrow that call's arguments — and takes the source root away. Three cases, each
+scoped to section 18's own output.
 
 ## Check 2 replaced a Step 1 prohibition
 

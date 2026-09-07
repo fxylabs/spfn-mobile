@@ -2933,6 +2933,84 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+section '18. every navigator in the UI module is handed the same three transitions'
+# ---------------------------------------------------------------------------
+# `NavDisplay` takes a forward, a pop and a predictive-pop transition spec, and defaults all
+# three when they are not given. The defaults are reasonable and they are not this platform's:
+# read out of navigation3-ui 1.1.7 with javap, the forward step and the pop are both
+# `fadeIn(tween(700)) togetherWith fadeOut(tween(700))` and the predictive pop is
+# `fadeIn(spring(1f, 1600f)) togetherWith scaleOut(0.7f)`.
+#
+# So a module that states them at one call site and not at the others ships one app with two
+# opinions about what a screen arriving means. That is what happened: `NavigationHost` stated
+# its three and `InlineStack` — a sheet's stack, a modal's cover, a pushed flow with no host —
+# did not, and on a phone `next` inside a modal FADED while the same tap in a pushed flow slid
+# in from the right, and a back inside that modal SHRANK the screen away where a back in a push
+# slid it off to the right (docs/IMPLEMENTATION-PITFALLS.md P37).
+#
+# Nothing automatic could see it. `NavDisplay` is a composable and its arguments are not
+# readable from outside a composition, so the JVM suite can check that `FlowTransitions` holds
+# three values and that two of them are one value (`FlowTransitionsTest`) and cannot check that
+# any stack was HANDED them. This is the half that reads the call sites.
+#
+# There is nothing to compare on the other platform, which is why this is not part of section
+# 15: a `.fullScreenCover` and a `NavigationStack` inside a sheet push and pop on the system's
+# own slide, so SwiftUI states no spec and has no name for one.
+#
+# Each call's ARGUMENTS are taken to run from its own `NavDisplay(` to the next one in the same
+# file, or to the end of that file. No regex is involved — the reader is `index`/`substr`, which
+# has no BSD-versus-GNU spelling to get wrong (docs/IMPLEMENTATION-PITFALLS.md P28) — and
+# newlines become spaces first, because an argument list is not a line. The file is read as
+# text, comments and all, for section 17's reason: a Kotlin comment-stripper that is wrong
+# about nesting hides code.
+TRANSITION_SOURCE_ROOT=android/spfn-ui/src/main
+
+# The module builds two today: the host app's own navigation and the flow's own inline stack.
+# The floor is what tells a reader that read nothing from a module that is clean (P7).
+TRANSITION_CALL_FLOOR=2
+
+TRANSITION_REPORT="$TMP/nav-display-calls.txt"
+: > "$TRANSITION_REPORT"
+
+for source in $(find "$TRANSITION_SOURCE_ROOT" -name '*.kt' 2>/dev/null | sort)
+do
+    tr '\n' ' ' < "$source" > "$TMP/transitions-joined.txt"
+    awk -v source="$source" '
+        {
+            rest = $0;
+            while ((start = index(rest, "NavDisplay(")) > 0)
+            {
+                rest = substr(rest, start + 11);
+                next_call = index(rest, "NavDisplay(");
+                arguments = (next_call > 0) ? substr(rest, 1, next_call - 1) : rest;
+                complete = index(arguments, "FlowTransitions") > 0 &&
+                           index(arguments, "transitionSpec") > 0 &&
+                           index(arguments, "popTransitionSpec") > 0 &&
+                           index(arguments, "predictivePopTransitionSpec") > 0;
+                printf "%s %s\n", (complete ? "ok" : "bare"), source;
+            }
+        }
+    ' "$TMP/transitions-joined.txt" >> "$TRANSITION_REPORT"
+done
+
+TRANSITION_CALLS=$(wc -l < "$TRANSITION_REPORT" | tr -d ' ')
+TRANSITION_OFFENDERS=$(awk '$1 == "bare" { printf " %s", $2 }' "$TRANSITION_REPORT")
+
+if [ "$TRANSITION_CALLS" -ge "$TRANSITION_CALL_FLOOR" ]
+then
+    pass "the transition reader found $TRANSITION_CALLS NavDisplay calls under $TRANSITION_SOURCE_ROOT"
+else
+    fail "the transition reader found $TRANSITION_CALLS NavDisplay calls under $TRANSITION_SOURCE_ROOT, fewer than the $TRANSITION_CALL_FLOOR that module builds; it did not run"
+fi
+
+if [ -z "$TRANSITION_OFFENDERS" ]
+then
+    pass "every NavDisplay under $TRANSITION_SOURCE_ROOT states its three transitions from FlowTransitions, so a modal and a push move the same way"
+else
+    fail "NavDisplay calls that leave a transition to the library's default:$TRANSITION_OFFENDERS; the default pop SCALES the screen away where a push slides it, and one app cannot mean both"
+fi
+
+# ---------------------------------------------------------------------------
 printf '\n'
 note "swift build / swift test, ./gradlew build,"
 note "./gradlew :contract-codegen:spfnCodegenVerify and pod ipc spec are separate"
