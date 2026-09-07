@@ -50,6 +50,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,6 +68,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
+import xyz.superfunction.spfn.ui.components.LocalFitsContent
 import xyz.superfunction.spfn.ui.components.spfnPalette
 import xyz.superfunction.spfn.ui.tokens.SpfnTokens
 
@@ -137,7 +139,14 @@ internal fun Sheet(detent: SheetDetent, onClose: () -> Unit, content: @Composabl
         )
         {
             Handle(state = state);
-            content();
+            // The one thing the content has to be told, and only `Fit` makes it true: this
+            // sheet is as tall as what is inside it, so what is inside it may not fill.
+            // Everything else here fixes a height, and a screen that fills a fixed height is
+            // what a half sheet is (docs/IMPLEMENTATION-PITFALLS.md P34).
+            CompositionLocalProvider(LocalFitsContent provides (detent == SheetDetent.Fit))
+            {
+                content();
+            };
         }
     }
 }
@@ -153,6 +162,12 @@ internal fun Sheet(detent: SheetDetent, onClose: () -> Unit, content: @Composabl
  * express it as layout, because SwiftUI resolves a detent before laying the sheet out, so it
  * calls the arithmetic with a header and a measurement of its own; that is the version both
  * platforms test.
+ *
+ * The ceiling being FINITE is why the `Fit` case needs the composition local above as well
+ * as this modifier. A wrap measures what its content came to, and content written to fill
+ * what it is offered comes to the ceiling: without a `Screen` that wraps in turn, this line
+ * resolves to `full` every time and a Fit sheet is a Full sheet
+ * (docs/IMPLEMENTATION-PITFALLS.md P34).
  */
 private fun SheetDetent.heightModifier(container: Float, full: Float, density: Density): Modifier
 {

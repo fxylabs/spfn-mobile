@@ -28,6 +28,21 @@
 // neither is a value a design flow gets to move (decision S10).
 //
 // ---------------------------------------------------------------------------
+// A screen fills what it was offered, EXCEPT inside a sheet that fits
+// ---------------------------------------------------------------------------
+//
+// The root fills and the body takes what the header left, which is what paints the
+// background to the foot of the window and keeps the header still while the body scrolls
+// under it. Inside a `SheetDetent.Fit` sheet both of those are wrong, and wrong in a way
+// that looks like a sheet bug rather than a screen one: the sheet caps its height at the
+// Full height and measures its content, the content fills the cap, and the Fit sheet stands
+// exactly where a Full one would (docs/IMPLEMENTATION-PITFALLS.md P34).
+//
+// So `Sheet` says which detent it is drawing through `LocalFitsContent` and `ScreenLayout`
+// turns that into the two extents this file applies. Everything that is not a Fit sheet
+// reads the default and lays out exactly as it always did.
+
+// ---------------------------------------------------------------------------
 // Screen owns two of the seven keyboard clauses, and only two
 // ---------------------------------------------------------------------------
 //
@@ -45,7 +60,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
@@ -55,6 +70,7 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -102,9 +118,11 @@ public fun Screen(
 {
     val palette = spfnPalette();
     val focus = LocalFocusManager.current;
+    val layout = ScreenLayout.forDetent(LocalFitsContent.current);
     Column(
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxWidth()
+            .then(layout.root.asHeight())
             .background(palette.background)
             // A tap that lands on the frame rather than on a control puts the keyboard away.
             // `detectTapGestures` in a `pointerInput` does not consume a press a child
@@ -115,9 +133,16 @@ public fun Screen(
     )
     {
         Header(title = title, leading = leading, trailing = trailing);
-        Body(scroll = scroll, content = content);
+        Body(extent = layout.body, scroll = scroll, content = content);
     }
 }
+
+/** This extent as a height of its own: all that was offered, or all the content asked for. */
+private fun Extent.asHeight(): Modifier = when (this)
+{
+    Extent.Fill -> Modifier.fillMaxHeight()
+    Extent.Wrap -> Modifier.wrapContentHeight()
+};
 
 /**
  * The header, and the only place the status bar inset is spent.
@@ -163,17 +188,33 @@ private fun Header(title: String, leading: (@Composable () -> Unit)?, trailing: 
  * one under every screen with a text field on it.
  */
 @Composable
-private fun ColumnScope.Body(scroll: Boolean, content: @Composable ColumnScope.() -> Unit)
+private fun ColumnScope.Body(extent: Extent, scroll: Boolean, content: @Composable ColumnScope.() -> Unit)
 {
     val room = Modifier
         .fillMaxWidth()
-        .weight(1f)
+        .then(share(extent))
         .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars));
     Column(modifier = if (scroll) room.verticalScroll(rememberScrollState()) else room)
     {
         content();
     }
 }
+
+/**
+ * The body's share of its column: everything the header left, or its own content's height.
+ *
+ * The size constraint comes BEFORE `verticalScroll` in the chain above, and that order is
+ * what makes a wrapped body scroll rather than overflow: the scroll node measures its child
+ * against an infinite height and then takes the smaller of that child and the height it was
+ * itself offered, so a body longer than the sheet's ceiling is capped there and scrolls
+ * inside the cap. Chained the other way the scroll would be the thing being sized and the
+ * cap would apply to nothing.
+ */
+private fun ColumnScope.share(extent: Extent): Modifier = when (extent)
+{
+    Extent.Fill -> Modifier.weight(1f)
+    Extent.Wrap -> Modifier.wrapContentHeight()
+};
 
 /**
  * The header's LEFT slot when the app passed none: the flow's back, or nothing.
