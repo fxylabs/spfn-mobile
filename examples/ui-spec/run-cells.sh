@@ -119,7 +119,8 @@ APP_ID=xyz.superfunction.spfn.example
 # that lost its entries cannot lower its own bar. It was 14 until the keyboard contract and
 # the screen frame added nine device-only cells (k1–k7, s1–s2), and 23 until the showcase
 # flows added ten more. The `manual` cells are NOT in it: they have no flow file and no
-# receipt, because the thing they check is a gesture and the runner for one is a person
+# receipt, because the thing they check is a gesture — or, for `modalTour-fingerTap`, a
+# real finger — and the runner for either is a person
 # (`examples/ui-spec/receipts/manual/`). It went to 35 when a pushed flow's root gained a
 # way out worth asserting (decision N2): `pushTour-rootBack` and `pushTour-rootSystemBack`.
 EXPECTED_FLOOR=35
