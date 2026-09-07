@@ -496,6 +496,16 @@ object Rules
      * gesture, a presentation over something has a predictive back that closes it, a sheet
      * has a height and a drag, a screen that collects has a keyboard, and a body that does
      * not fit has a header that must not go with it.
+     *
+     * One of them is here for a different reason. `<flow>-fingerTap` is not a gesture at
+     * all — it is an ordinary tap on an ordinary control — and it is a person's cell because
+     * of what the RUNNERS are. Maestro and `adb shell input tap` synthesise a DOWN and an UP
+     * with nothing in between, while a finger produces MOVE events all the way through a
+     * tap, and a parent that consumes those MOVEs cancels the child's press on the Final
+     * pass. That is a screen no control on which can be touched, reported green by every
+     * automatic cell standing on it (docs/IMPLEMENTATION-PITFALLS.md P36). A runner cannot
+     * be asked to imitate a finger here: Maestro has no element-relative micro-swipe, so a
+     * cell written that way would assert coordinates rather than a control.
      */
     private fun byHandCells(tour: Tour, bundle: Bundle): List<Cell>
     {
@@ -538,6 +548,23 @@ object Rules
                 "N3 — the way out is an X drawn as an icon in the header's TOP RIGHT corner, " +
                     "the same size and shape on both platforms, and it is not a word on the left",
                 listOf("stack=1")
+            );
+            // The one cell here whose subject is the INPUT rather than the gesture, and the
+            // only kind of cell that can see P36. A modal flow is drawn under a cover, and
+            // a cover that consumed pointer changes cancelled the press of every control
+            // beneath it — on the FINAL pass, which is where `clickable` re-reads a press it
+            // has not finished. A finger produces MOVE events throughout a tap and a runner
+            // produces none, so every automatic cell on that screen stayed green while
+            // nothing on it could be tapped by hand. There is no runner tap to write here,
+            // which is the whole point of the row.
+            val moving = if (tour.chain.size > 1) tour.pushing(1) else tour.closing;
+            cells += byHand(
+                tour, "fingerTap", start.name, emptyList(),
+                "tap `${start.name}.${moving.name}` on the flow's first screen WITH A FINGER " +
+                    "— a real thumb on the glass, not a runner tap and not `adb shell input tap`",
+                "P36 — the control responds and the stack moves, because nothing drawn over " +
+                    "or around the screen consumed the small movements a finger makes inside a tap",
+                listOf("stack=${after(moving.then, 1)}")
             );
         }
         // A sheet that stands alone is here to be LOOKED at — one row per height — and the

@@ -451,6 +451,18 @@
       "flow": null
     },
     {
+      "id": "modalTour-fingerTap",
+      "screen": "modalOne",
+      "state": "idle",
+      "action": "fingerTap",
+      "rule": "P36 \u2014 the control responds and the stack moves, because nothing drawn over or around the screen consumed the small movements a finger makes inside a tap",
+      "runner": "manual",
+      "fixture": "ready",
+      "steps": ["byHand tap `modalOne.next` on the flow's first screen WITH A FINGER \u2014 a real thumb on the glass, not a runner tap and not `adb shell input tap`"],
+      "expect": ["stack=2"],
+      "flow": null
+    },
+    {
       "id": "pushTour-reach",
       "screen": "tourThree",
       "state": "idle",

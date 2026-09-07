@@ -86,11 +86,14 @@ no cell opens the menu instead, on the same fake.
 
 ## What a person checks
 
-11 cells with no runner. Every one of them is a GESTURE or a resting
-height, which is the class of thing a device runner reports success for whether or
-not the platform read it as the gesture it meant — cells u7b and u10b spent a Mac
-round on exactly that (`docs/IMPLEMENTATION-PITFALLS.md` P22). So these are checked
-by a person on a real phone, and the answers are written down.
+12 cells with no runner, for one of two reasons. Most are a GESTURE or a
+resting height, which is the class of thing a device runner reports success for
+whether or not the platform read it as the gesture it meant — cells u7b and u10b
+spent a Mac round on exactly that (`docs/IMPLEMENTATION-PITFALLS.md` P22). The rest
+are here because a runner's TAP is not a finger: it is a down and an up with no
+movement between them, and a press that only a moving finger can cancel is one no
+runner can be pointed at (P36). So these are checked by a person on a real phone,
+and the answers are written down.
 
 Launch the app with `SPFN_UI_FIXTURE=<cell>` to arrive on the right flow, do what the
 **Do** column says, and record what happened. Copy
@@ -104,6 +107,7 @@ generated and anything written into it is lost on the next generation.
 | `longScroll-headerHolds` | `longScroll` | `long` | scroll the body from the top to the bottom and back | S2's other half — the header and its title stay exactly where they are while the body moves under them, so the way out of the flow never scrolls away (`stack=1`) |  |  |
 | `modalTour-predictiveBack` | `modalTour` | `modalOne` | on Android, use the system back gesture on the flow's FIRST screen | R8 — a flow presented over something is closed by a back on its last route, so the whole flow goes rather than one route (`stack=0`) |  |  |
 | `modalTour-closeOnRight` | `modalTour` | `modalOne` | look at the header of the flow's first screen, on both phones | N3 — the way out is an X drawn as an icon in the header's TOP RIGHT corner, the same size and shape on both platforms, and it is not a word on the left (`stack=1`) |  |  |
+| `modalTour-fingerTap` | `modalTour` | `modalOne` | tap `modalOne.next` on the flow's first screen WITH A FINGER — a real thumb on the glass, not a runner tap and not `adb shell input tap` | P36 — the control responds and the stack moves, because nothing drawn over or around the screen consumed the small movements a finger makes inside a tap (`stack=2`) |  |  |
 | `pushTour-swipeBack` | `pushTour` | `tourTwo` | swipe in from the left edge on iPhone, or use the system back gesture on Android | S2 and R8 — the gesture is the flow's own pop, so one route drops and the screen under it is the one it was (`stack=1`) |  |  |
 | `pushTour-predictiveBack` | `pushTour` | `tourTwo` | on Android, press and HOLD the back gesture at the edge without releasing it | the screen underneath is drawn under the gesture while it is held, and releasing lands on it; letting go back at the edge cancels and changes nothing (`stack=1`) |  |  |
 | `sheetFit-detent` | `sheetFit` | `fitOne` | look at how tall the sheet stands, and compare the two platforms side by side | the sheet is as tall as its content and no taller, on both platforms, and it does not grow to a fraction of the window it did not need (`stack=1`) |  |  |

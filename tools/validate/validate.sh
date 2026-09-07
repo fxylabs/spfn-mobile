@@ -2853,6 +2853,86 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+section '17. no pointer input in the UI module consumes every change it is handed'
+# ---------------------------------------------------------------------------
+# A Compose modifier that answers `pointerInput` by consuming EVERY change it sees takes
+# the press out of the controls underneath it — but only for a person. `clickable` does not
+# decide a press on the down: androidx.compose.foundation 1.11.4's
+# `ClickableNode.onPointerEvent` handles down and up on the Main pass and calls
+# `checkForCancellation` on the FINAL pass, which cancels the press the moment any change
+# other than its own down reports `isConsumed` (checked with javap). Final runs parent
+# before child, so a parent that consumed on Main arrives at that check as a cancel.
+#
+# What makes it worth a check rather than a review note is WHO can see it. A finger always
+# produces MOVE events — a few pixels of tremor is a MOVE — and every runner this
+# repository owns synthesises a DOWN and an UP with nothing between them. So a modal flow
+# whose cover consumed everything was green in all 35 device cells, green in Maestro, green
+# under `adb shell input tap`, and dead under a thumb on a Galaxy Z Flip4
+# (docs/IMPLEMENTATION-PITFALLS.md P36). Nothing automatic in this repository can fail on
+# it, which is exactly the shape section 16 guards and the same reason it is guarded here:
+# a rule no test can reach is worth what its static check is worth.
+#
+# The rule is about BLANKET consumption and not about consumption. A gesture detector that
+# claims the change it recognised is how Compose gestures work and is not this. What is
+# refused is a loop that hands every change in an event to `consume`, which is a decision
+# taken before anything is known about the change.
+#
+# The file is read as TEXT, comments and all. A comment-stripper for Kotlin would have to
+# be right about nesting and about string literals, and one that is wrong hides code — the
+# opposite mistake to section 16's, where prose about a manifest flag could be read as a
+# declaration. The cost of reading everything is that this module may not quote the
+# forbidden spelling in its own prose either. That cost is paid deliberately and is stated
+# here so a reader who trips it knows why: describe the mechanism, do not print the line.
+#
+# Newlines become spaces before the match, because the spelling is not a line. Written
+# across three lines it is the same defect, and a line-based reader would report the module
+# clean.
+POINTER_SOURCE_ROOT=android/spfn-ui/src/main
+
+# Each entry is a NAME and an extended regex, one pair per line, so the failure says which
+# spelling was found. `*` and never `?` or `+`: BSD grep -E takes all three, but this
+# repository has been bitten by the GNU-only spellings once already
+# (docs/IMPLEMENTATION-PITFALLS.md P28).
+POINTER_BLANKET_BLOCK='changes[[:space:]]*\.(forEach|fastForEach|onEach|map|fastMap)[[:space:]]*\{[^}]*consume\(\)'
+POINTER_BLANKET_CALL='changes[[:space:]]*\.(forEach|fastForEach|onEach|map|fastMap)[[:space:]]*\([^)]*consume'
+
+# The module holds 22 Kotlin sources today. The floor sits just under that so a file being
+# renamed or retired is not a false failure, while a reader that resolved to nothing — a
+# moved module, a typo in the path above — is caught rather than reported as a clean module
+# (docs/IMPLEMENTATION-PITFALLS.md P7).
+POINTER_SOURCE_FLOOR=20
+
+POINTER_READ=0
+POINTER_OFFENDERS=''
+for source in $(find "$POINTER_SOURCE_ROOT" -name '*.kt' 2>/dev/null | sort)
+do
+    POINTER_READ=$((POINTER_READ + 1))
+    tr '\n' ' ' < "$source" > "$TMP/pointer-joined.txt"
+    if grep -qE "$POINTER_BLANKET_BLOCK" "$TMP/pointer-joined.txt"
+    then
+        POINTER_OFFENDERS="$POINTER_OFFENDERS $source:blanket-block"
+    fi
+    if grep -qE "$POINTER_BLANKET_CALL" "$TMP/pointer-joined.txt"
+    then
+        POINTER_OFFENDERS="$POINTER_OFFENDERS $source:blanket-call"
+    fi
+done
+
+if [ "$POINTER_READ" -ge "$POINTER_SOURCE_FLOOR" ]
+then
+    pass "the pointer consumption reader read $POINTER_READ Kotlin sources under $POINTER_SOURCE_ROOT"
+else
+    fail "the pointer consumption reader read $POINTER_READ Kotlin sources under $POINTER_SOURCE_ROOT, fewer than the $POINTER_SOURCE_FLOOR that module holds; it did not run"
+fi
+
+if [ -z "$POINTER_OFFENDERS" ]
+then
+    pass "no pointer input under $POINTER_SOURCE_ROOT consumes every change it is handed, so a control inside a cover still receives a finger's press"
+else
+    fail "pointer input that consumes every change it is handed:$POINTER_OFFENDERS; the Final pass reads that as a cancel and only a FINGER can see it — every injected tap is a DOWN and an UP with no MOVE between them"
+fi
+
+# ---------------------------------------------------------------------------
 printf '\n'
 note "swift build / swift test, ./gradlew build,"
 note "./gradlew :contract-codegen:spfnCodegenVerify and pod ipc spec are separate"

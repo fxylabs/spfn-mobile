@@ -61,6 +61,7 @@
 | readout을 기다린 다음 바로 back·swipe·pop 제스처를 보내는 셀 작성 | [P30](#p30) [P15](#p15) |
 | `Screen`·시트 detent의 높이 수정, 유한한 최대 제약 안에 `fillMaxSize`·`weight`를 두는 자리 | [P34](#p34) [P25](#p25) [P21](#p21) |
 | Android 앱 매니페스트 수정, 뒤로가기 처리·예측 뒤로가기 전환 | [P35](#p35) [P30](#p30) [P32](#p32) |
+| Compose `pointerInput`으로 이벤트 consume, 덮개·스크림 추가 | [P36](#p36) [P27](#p27) [P22](#p22) [P21](#p21) |
 
 ---
 
@@ -1398,6 +1399,95 @@ KDoc.
 셀이 지정하는 것은 스택 깊이(놓으면 1, 가장자리에서 놓으면 2)이고 둘 다 맞았다. 사람이 홀드해 보고
 잡았다.
 
+## P36. 부모의 `pointerInput`이 Main 패스에서 consume하면 자식의 누름은 손가락에서만 취소된다 {#p36}
+
+**증상.** 러너는 전부 초록인데 **사람 손가락으로는 아무 컨트롤도 눌리지 않는다.** 화면은 제대로
+그려지고, 탭해도 눌린 표시조차 나지 않으며, 같은 셀을 Maestro로 돌리면 통과한다. `adb shell input
+tap`도 통과한다. 자동 검사 중 무엇도 이 화면이 죽었다는 것을 모른다.
+
+원인은 그 화면 **위나 둘레**에 있는 `pointerInput`이다. 덮개·스크림처럼 "여기 아래로는 안 넘긴다"를
+표현하려고 아래처럼 쓴 자리가 있으면 이 항목이다.
+
+```kotlin
+.pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true)
+        {
+            awaitPointerEvent().changes.forEach { it.consume() };   // ← 이것
+        }
+    }
+}
+```
+
+**왜.** Compose의 세 패스 방향이 다르다. Initial은 부모 → 자식, **Main은 자식 → 부모**, **Final은
+다시 부모 → 자식**이다. "자식이 Main을 먼저 보니 자식이 잡은 탭은 안전하다"는 추론은 **DOWN에만**
+참이다. 누름은 DOWN에서 끝나지 않는다.
+
+androidx.compose.foundation 1.11.4의 `ClickableNode.onPointerEvent`를 javap으로 읽으면
+`pass == Main`에서 down·up을 처리하고 `pass == Final`에서 `checkForCancellation`을 부른다. 그
+함수는 **자기 자신의 down이 아닌 변경이 하나라도 `isConsumed`이면 누름을 취소한다.** Final은 부모가
+먼저이므로, 부모가 Main에서 먹은 MOVE는 자식의 Final 검사에 정확히 "누가 이 제스처를 가져갔다"로
+도착한다. (같은 파일의 `waitForUpOrCancellation`도 자기 패스에서 up을 본 뒤 `PointerEventPass.Final`을
+한 번 더 기다려 `isConsumed`를 검사한다 — 스펠링이 달라도 규칙은 하나다.)
+
+그래서 **누가 보느냐로 갈린다.**
+
+| 입력 | DOWN | MOVE | UP | 결과 |
+| --- | --- | --- | --- | --- |
+| 사람 손가락 | 있음 | **있음** (손떨림 몇 px도 MOVE다) | 있음 | Final에서 취소 — 반응 없음 |
+| `adb shell input tap` | 있음 | 없음 | 있음 | Main에서 up 처리 — 정상 |
+| Maestro `tapOn` | 있음 | 없음 | 있음 | 정상 |
+| `adb shell input swipe x y x+3 y+3 120` | 있음 | **있음** | 있음 | 취소 — 손가락과 같다 |
+
+**덮개가 아래를 가리는 데 consume은 필요 없다.** Compose 히트 테스트는 형제들을 뒤에서 앞으로 훑어
+**포인터 입력 노드를 가진 가장 위 형제에서 멈춘다.** 노드가 있기만 하면 그 아래 형제는 이벤트를 아예
+받지 않는다. `awaitPointerEvent()`만 도는 빈 루프도 노드다 — 아무것도 claim하지 않아도 히트 테스트는
+이긴다. 즉 consume은 처음부터 그 일을 하고 있지 않았다.
+
+**부모냐 형제냐도 갈린다.** 스크림은 시트의 **형제**이지 부모가 아니므로 `Sheet.kt`의
+`detectTapGestures { onTap() }`은 이 항목이 아니다. 시트 안 컨트롤은 스크림보다 위에 있고, 스크림의
+노드는 시트가 덮지 않은 자리에서만 히트 테스트를 이긴다. 반대로 `Screen.kt`가 자기 루트 `Column`에
+거는 `detectTapGestures { focus.clearFocus() }`는 컨트롤의 **부모**이지만 안전하다 —
+`awaitFirstDown(requireUnconsumed = true)`이 기본이라 자식이 down을 먹은 탭에서는 아예 깨어나지 않고,
+깨어나도 MOVE를 consume하지 않는다. 위험한 것은 **조건 없이 모든 변경을 먹는 루프**다.
+
+**탐지.**
+
+1. **러너 초록 + 손가락 무반응**이면 먼저 이 항목을 의심한다. 자동 셀이 전부 통과하는 죽은 화면은
+   이 결함의 서명이다.
+2. `adb shell input swipe <x> <y> <x+3> <y+3> 120`으로 재현한다. 3px 움직이는 120ms 누름은
+   손가락이 만드는 것을 만들고 주입 탭이 만들지 않는 것을 만든다. 이것이 실패하고
+   `adb shell input tap <x> <y>`가 성공하면 확정이다.
+3. 코드에서는 `android/spfn-ui/src/main`에 `changes.forEach { it.consume() }` 계열이 있는지 본다.
+   validate.sh 17절이 이것을 자동으로 거부하고, `tools/validate/probe-pointer-consumption-rules.sh`가
+   그 거부가 무는지를 증명한다.
+
+**처방.** 덮개는 **노드만 유지하고 consume하지 않는다.**
+
+```kotlin
+.pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true)
+        {
+            awaitPointerEvent();
+        }
+    }
+}
+```
+
+제스처 검출기가 **자기가 인식한 변경**을 claim하는 것은 이 항목이 아니다 — 그것이 Compose 제스처가
+동작하는 방식이다. 금지되는 것은 변경에 대해 아무것도 알기 전에 전부를 먹는 루프다.
+
+그리고 **자동 셀로 손가락을 흉내내려 하지 않는다.** Maestro는 요소 기준 미세 스와이프를 표현하지
+못하므로, 그렇게 쓴 셀은 컨트롤이 아니라 좌표를 단언하게 된다([P22](#p22)). 정직한 러너는 사람이고
+정직한 산출물은 체크리스트다 — `modalTour-fingerTap`이 그 자리다.
+
+**나온 곳.** ui/scaffold-3h, Galaxy Z Flip4 (SM-F721N) / Android 15, 2026-09-07.
+`FlowHost.kt`의 `cover()`였다. modal 플로우(`modalTour`)의 next·X가 손가락에 반응하지 않았고 push
+플로우(`pushTour`)는 멀쩡했다 — 덮개는 modal에만 붙기 때문이다. 예제 35셀과 Maestro는 전부 통과한
+상태였다. `cover()`의 주석은 이 배치가 안전한 이유를 "자식이 Main을 먼저 본다"로 적어 두고 있었고,
+그 문장은 DOWN에 대해서만 참이었다.
+
 ## 원장
 
 change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서 나온 finding 수**를 적는다.
@@ -1418,6 +1508,7 @@ change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서
 | ui/scaffold-3d (내비게이션 바 숨김의 스와이프 back, 전환 애니메이션 중 소실되는 back) | 2 (기기) | 2 | 0 |
 | ui/scaffold-3e (호스트 스택 위의 push, 그 위에서 나온 제스처·상속 속성) | 3 (기기) | 3 | 0 |
 | ui/scaffold-3g (Fit 시트가 상한으로 서는 것, 예측 뒤로가기 선언, 상태 표시줄 전경 — Z Flip4 원격 라운드) | 1 (기기) | 3 | 0 |
+| ui/scaffold-3h (modal 덮개의 Main 패스 consume이 손가락 누름을 취소 — 사람이 Z Flip4에서 잡음, 러너 35셀은 통과) | 1 (기기) | 1 | 0 |
 
 **ui/scaffold-3e 읽는 법.** finding 셋 다 novel이고 뒤 칸은 0이다. 첫 라운드가 [P31](#p31)
 (사람이 아이폰에서 잡았다), 그 처방을 넣고 돌린 시뮬레이터 라운드가 [P32](#p32), 같은

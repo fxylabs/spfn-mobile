@@ -45,6 +45,7 @@ a cell nobody looked at, and the difference matters.
 | `longScroll-headerHolds` | | | |
 | `modalTour-predictiveBack` | | | |
 | `modalTour-closeOnRight` | | | |
+| `modalTour-fingerTap` | | | |
 | `pushTour-swipeBack` | | | |
 | `pushTour-predictiveBack` | | | |
 | `sheetFit-detent` | | | |

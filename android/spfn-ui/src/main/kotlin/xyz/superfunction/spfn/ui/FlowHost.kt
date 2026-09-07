@@ -23,12 +23,12 @@
 // ---------------------------------------------------------------------------
 //
 // `Modal` means presented over something, so its stack is drawn as an opaque cover that
-// fills everything the host gave this composable and takes the touches inside it. A
-// `Push` flow is drawn plain, because it was pushed into the host's own navigation and is
-// a part of it. Before this rule existed the two entry styles rendered identically on
-// Android and only the back handler told them apart, so a modal flow appeared INLINE
-// under the host's own content while the same flow covered the host on iOS — the two
-// halves of one vocabulary disagreeing about what the word means.
+// fills everything the host gave this composable and stands in the hit test for every
+// touch inside it. A `Push` flow is drawn plain, because it was pushed into the host's own
+// navigation and is a part of it. Before this rule existed the two entry styles rendered
+// identically on Android and only the back handler told them apart, so a modal flow
+// appeared INLINE under the host's own content while the same flow covered the host on
+// iOS — the two halves of one vocabulary disagreeing about what the word means.
 //
 // A cover fills its PARENT, which makes one demand of the host app: a host that wants a
 // modal flow to cover the whole screen puts this composable last in a container that
@@ -250,17 +250,33 @@ private fun <R : FlowRoute> rememberChrome(flow: Flow<R>, entry: FlowEntry, dept
 
 
 /**
- * What makes a modal flow a cover: the whole parent, opaque, and touch-tight.
+ * What makes a modal flow a cover: the whole parent, opaque, and a hit-test node.
  *
  * All three are load-bearing. A cover that does not FILL leaves the host visible beside
- * it; one that is not OPAQUE leaves the host legible through it; and one that does not
- * take the touches is a picture of a cover — Compose hit-tests the topmost sibling that
- * holds a pointer input node, so without this an unclaimed tap inside the cover would
- * reach the host's own controls underneath it.
+ * it; one that is not OPAQUE leaves the host legible through it; and one that holds no
+ * POINTER INPUT NODE is a picture of a cover — Compose hit-tests siblings back to front
+ * and stops at the topmost one that holds such a node, so without this modifier an
+ * unclaimed tap inside the cover would reach the host's own controls underneath it.
  *
- * The consumption runs on the Main pass, which children see FIRST. A control inside the
- * flow claims its own tap and this sees an already-consumed change; only what no control
- * claimed is stopped here.
+ * Existing is the whole job. This loop reads every event and consumes NOTHING, and that
+ * emptiness is the fix rather than an oversight: a node that never claims a change still
+ * wins the hit test, because hit testing asks which node is THERE and not what it did
+ * with what it got.
+ *
+ * The version that consumed every change on the Main pass cancelled a real finger's press
+ * on the controls inside the flow. The reasoning it carried — children see Main first, so
+ * a tap a control claimed is already consumed by the time this sees it — is true of the
+ * DOWN and false of every event after it. A press is not decided on the down: `clickable`
+ * keeps it open and re-reads it on the FINAL pass, which runs the other way, parent before
+ * child (androidx.compose.foundation 1.11.4's ClickableNode.onPointerEvent, checked with
+ * javap: `pass == Main` handles down and up, `pass == Final` calls `checkForCancellation`,
+ * which cancels the press when any change other than its own down reports `isConsumed`).
+ * A parent that consumed on Main is precisely what that Final check reads as a cancel.
+ *
+ * A finger always produces MOVE events — a few pixels of tremor is a MOVE — so nothing
+ * inside a modal flow could be tapped by hand, while `adb shell input tap` and Maestro,
+ * which synthesise a DOWN and an UP and no MOVE between them, drove the same screen green
+ * (docs/IMPLEMENTATION-PITFALLS.md P36).
  */
 @Composable
 private fun cover(): Modifier = Modifier
@@ -270,7 +286,7 @@ private fun cover(): Modifier = Modifier
         awaitPointerEventScope {
             while (true)
             {
-                awaitPointerEvent().changes.forEach { it.consume() };
+                awaitPointerEvent();
             }
         }
     }
