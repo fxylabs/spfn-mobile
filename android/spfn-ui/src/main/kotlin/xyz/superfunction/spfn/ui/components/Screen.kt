@@ -41,7 +41,7 @@
 // So `Sheet` says which detent it is drawing through `LocalFitsContent` and `ScreenLayout`
 // turns that into the two extents this file applies. Everything that is not a Fit sheet
 // reads the default and lays out exactly as it always did.
-
+//
 // ---------------------------------------------------------------------------
 // Screen owns two of the seven keyboard clauses, and only two
 // ---------------------------------------------------------------------------
