@@ -192,6 +192,11 @@ private fun <R : FlowRoute> InlineStack(
             backStack = routes,
             modifier = modifier,
             onBack = { flow.back(entry) },
+            // The same three a pushed flow travels on, from the same place: a screen inside
+            // a modal or a sheet is a screen on a stack, and moves like one.
+            transitionSpec = { FlowTransitions.forward },
+            popTransitionSpec = { FlowTransitions.pop },
+            predictivePopTransitionSpec = { _ -> FlowTransitions.predictivePop },
             entryProvider = { route -> NavEntry(route) { content(it) } }
         );
     };

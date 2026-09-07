@@ -87,9 +87,6 @@
 
 package xyz.superfunction.spfn.ui
 
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ProvidableCompositionLocal
@@ -149,34 +146,17 @@ public fun NavigationHost(root: @Composable () -> Unit)
             // the activity is what the system back closes — which is what a back on an app's
             // first screen has always meant.
             onBack = { host.back() },
-            // Stated rather than left to the navigator's default, because the default is the
-            // library's opinion and this one is the platform's: a push comes in from the
-            // right and leaves to the right, on both platforms, and a person who does not
-            // see it move does not know a screen arrived.
-            transitionSpec = {
-                slideInHorizontally { width -> width } togetherWith slideOutHorizontally { width -> -width / SHIFT }
-            },
-            popTransitionSpec = {
-                slideInHorizontally { width -> -width / SHIFT } togetherWith slideOutHorizontally { width -> width }
-            },
-            predictivePopTransitionSpec = { _ ->
-                slideInHorizontally { width -> -width / SHIFT } togetherWith slideOutHorizontally { width -> width }
-            },
+            // The three [FlowTransitions] states, which is where the reason for them is
+            // written and where every other stack in this module reads them from.
+            transitionSpec = { FlowTransitions.forward },
+            popTransitionSpec = { FlowTransitions.pop },
+            predictivePopTransitionSpec = { _ -> FlowTransitions.predictivePop },
             entryProvider = { key ->
                 if (key is HostEntry) NavEntry(key) { host.Screen(key) } else NavEntry(key) { root() }
             }
         );
     };
 }
-
-/**
- * How far the screen underneath moves while the one over it comes in.
- *
- * A fraction and not a full width: the platform's own push slides the outgoing screen a
- * short way and parallaxes it, and a screen that left at the same speed as the one arriving
- * reads as two screens passing rather than as one covering another.
- */
-private const val SHIFT: Int = 4;
 
 /**
  * The host's own root, as one key on the back stack it can never be popped past.
