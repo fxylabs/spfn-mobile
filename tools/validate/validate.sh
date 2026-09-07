@@ -2767,6 +2767,92 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+section '16. the Android apps declare the back gesture the SDK animates'
+# ---------------------------------------------------------------------------
+# `NavigationHost` states a `predictivePopTransitionSpec` — what is drawn while a back
+# gesture is being HELD, before the person has decided to finish it — and that spec can only
+# run if the system hands the process the gesture's PROGRESS. Whether it does is a property
+# of the window, and the window belongs to the host app: it is turned on by
+# `android:enableOnBackInvokedCallback="true"` on `<application>` and by nothing the SDK can
+# do from inside.
+#
+# It is off by default on Android 13, 14 and 15 whatever the app targets — the target-SDK
+# default only flips at Android 16 — and undeclared it fails in the one way nothing catches.
+# The back still works: androidx's OnBackPressedDispatcher receives the completed gesture,
+# the flow pops, every cell that asserts a stack depth is green. What is missing is the
+# animation, which no assertion in this repository reads. On a Galaxy Z Flip4 the screen
+# being popped sat still under the held gesture with only the system's arrow over it
+# (docs/IMPLEMENTATION-PITFALLS.md P35).
+#
+# So both Android apps are held to it by NAME rather than by a glob. Two apps consume this
+# SDK's navigation and a rule that read whichever manifests a find happened to return would
+# stop covering an app the day one was added somewhere this pattern did not reach — and it
+# would say nothing about it. The count is checked against the same list for the reason every
+# reader in this file states what it read: a list that resolved to nothing agrees with a
+# clean tree (docs/IMPLEMENTATION-PITFALLS.md P7).
+#
+# One path per line, and the blank first line is deliberate, exactly as
+# DESCRIPTOR_EXEMPT_FILES above: every entry sits on a line of its own, which is what lets a
+# probe take one entry away without touching the quoting around it.
+PREDICTIVE_BACK_MANIFESTS='
+examples/android-compose/src/main/AndroidManifest.xml
+tools/harness/android/src/main/AndroidManifest.xml
+'
+
+PREDICTIVE_READ=0
+PREDICTIVE_MISSING=''
+for manifest in $PREDICTIVE_BACK_MANIFESTS
+do
+    if [ ! -f "$manifest" ]
+    then
+        PREDICTIVE_MISSING="$PREDICTIVE_MISSING $manifest:absent"
+        continue
+    fi
+    PREDICTIVE_READ=$((PREDICTIVE_READ + 1))
+    # The DECLARATION and not merely the word: a manifest that named the attribute in its
+    # own comment — and both of these explain themselves at length — would otherwise satisfy
+    # a check that only grepped for it. So the comments come out first, in awk rather than in
+    # a sed range, because a range needs the two delimiters on lines of their own and an
+    # `s///` that inserted them would need a `\n` in its replacement, which GNU sed accepts
+    # and BSD sed does not (docs/IMPLEMENTATION-PITFALLS.md P28).
+    awk '
+        /<!--/ { comment = 1 }
+        comment == 0 { print }
+        /-->/ { comment = 0 }
+    ' "$manifest" > "$TMP/manifest-code.txt"
+    if grep -qE 'android:enableOnBackInvokedCallback[[:space:]]*=[[:space:]]*"true"' "$TMP/manifest-code.txt"
+    then
+        continue
+    fi
+    PREDICTIVE_MISSING="$PREDICTIVE_MISSING $manifest:undeclared"
+done
+
+if [ "$PREDICTIVE_READ" -ge 2 ]
+then
+    pass "the predictive-back reader read $PREDICTIVE_READ Android manifests"
+else
+    fail "the predictive-back reader read $PREDICTIVE_READ Android manifests, fewer than the 2 apps that consume this SDK; it did not run"
+fi
+
+if [ -z "$PREDICTIVE_MISSING" ]
+then
+    pass 'both Android apps declare android:enableOnBackInvokedCallback, so the SDK predictive-back transition receives progress'
+else
+    fail "Android manifests without android:enableOnBackInvokedCallback=\"true\" on <application>:$PREDICTIVE_MISSING; the pop still works and NavigationHost's predictivePopTransitionSpec never animates"
+fi
+
+# The other half of the same sentence: the SDK has to SAY this, because nothing an app does
+# wrong here fails a build or a cell. A spec with no consumer documentation is a rule that
+# exists only in the two manifests that already happen to obey it.
+PREDICTIVE_HOST=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/NavigationHost.kt
+if grep -q 'enableOnBackInvokedCallback' "$PREDICTIVE_HOST"
+then
+    pass "$PREDICTIVE_HOST tells a host app to declare the flag its predictive back depends on"
+else
+    fail "$PREDICTIVE_HOST asks for a predictive back transition without telling a host app what its manifest has to declare"
+fi
+
+# ---------------------------------------------------------------------------
 printf '\n'
 note "swift build / swift test, ./gradlew build,"
 note "./gradlew :contract-codegen:spfnCodegenVerify and pod ipc spec are separate"

@@ -25,6 +25,9 @@ check passed.
 | 11 | ownership, license, resolved decisions and every compatibility support row are represented honestly |
 | 12 | the repository declares its own status, in docs and in both built libraries |
 | 13 | the `ui` module's `Loadable`, `Busy` and `Flow` names are the same on both platforms, and `SPFNUI` never reaches the SwiftUI dismiss environment value |
+| 14 | the apps that consume the scaffold hold the generated boundary: descriptors only in generated services, no `dismiss`, every cell covered, every cell seedable |
+| 15 | the visual vocabulary — tokens, strings, components and the minimum touch target — is the same set on both platforms |
+| 16 | both Android apps declare `android:enableOnBackInvokedCallback`, which is what gives the SDK's predictive-back transition any progress to animate |
 
 ## What it does not check
 
@@ -125,6 +128,38 @@ The probe renames a case on each side, removes a `Flow` method from each side, w
 Swift cases on one line and then renames one inside that line, takes each extraction's
 input away, plants a `dismiss`, and drops the `canImport(SwiftUI)` guard. Twelve cases,
 each scoped to section 13's own output.
+
+## Check 16 guards something no assertion in this repository reads
+
+`NavigationHost` states a `predictivePopTransitionSpec`: what is drawn while a back gesture
+is being **held**, before the person has decided to finish it. It runs only if the system
+hands this process the gesture's progress, and whether it does is a property of the
+**window** — so it is declared by whoever owns the window, which is the host app:
+
+```xml
+<application android:enableOnBackInvokedCallback="true">
+```
+
+On Android 13, 14 and 15 the flag is off unless a manifest says otherwise, whatever the app
+targets; the target-SDK default only flips at Android 16. Undeclared, the gesture goes down
+the legacy back path, `OnBackPressedDispatcher` receives the completed back, and the flow
+pops correctly — every cell that asserts a stack depth stays green. What is missing is the
+progress, so the transition never runs. Nothing here asserts an animation, which is why this
+is a check rather than a cell.
+
+Both Android apps are named rather than globbed, and the count is checked against that same
+list: a pattern that stopped matching an app would say nothing, and a list that resolved to
+nothing would agree with a clean tree. The SDK's own file is held to the other half of the
+sentence — `NavigationHost.kt` has to tell a host app what to declare, or the rule lives
+only in the two manifests that already obey it.
+
+```sh
+sh tools/validate/probe-predictive-back-rules.sh   # prove each refusal bites
+```
+
+The probe takes the declaration out of each manifest separately, turns one to `"false"`,
+leaves the attribute in a comment and nowhere else, takes the manifest list away, and strips
+the flag from the SDK's documentation. Seven cases, each scoped to section 16's own output.
 
 ## Check 2 replaced a Step 1 prohibition
 
