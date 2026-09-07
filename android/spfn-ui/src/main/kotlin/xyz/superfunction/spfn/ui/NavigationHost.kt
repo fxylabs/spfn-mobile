@@ -39,6 +39,32 @@
 // the SwiftUI half either.
 //
 // ---------------------------------------------------------------------------
+// The host app declares predictive back, because the window is the app's
+// ---------------------------------------------------------------------------
+//
+// `predictivePopTransitionSpec` below is what draws the screen underneath while a back
+// gesture is being HELD, and it only ever runs if the system hands this process the
+// gesture's progress. That is a property of the window, so it is declared by whoever owns
+// the window — the host app, in its manifest:
+//
+//     <application android:enableOnBackInvokedCallback="true">
+//
+// It is not optional on Android 13 to 15 and it is not implied by `targetSdk`. The
+// target-SDK default only flips at Android 16; below that the flag is off unless the
+// manifest says otherwise, the gesture goes down the legacy KEYCODE_BACK path, and
+// androidx's `OnBackPressedDispatcher` gets the COMPLETED back and no progress before it.
+// Nothing fails: the pop happens, the flow is correct, and the animation this file asks for
+// simply never has any progress to animate (docs/IMPLEMENTATION-PITFALLS.md P35).
+//
+// The `BackHandler` in `FlowHost` means the same thing either way, which is why this is a
+// declaration and not a code path. `androidx.activity.compose.BackHandler` registers an
+// `OnBackPressedCallback`, `OnBackPressedDispatcher.setOnBackInvokedDispatcher` is what
+// ComponentActivity wires up on API 33 and above, and an enabled callback claims the gesture
+// under both routes identically. What the callback path adds is `onBackStarted` and
+// `onBackProgressed`, which that handler does not implement — a `BackHandler` still acts on
+// release and on nothing before it.
+
+// ---------------------------------------------------------------------------
 // What a host app puts on its own root does NOT reach a pushed flow
 // ---------------------------------------------------------------------------
 //
@@ -97,6 +123,11 @@ import kotlinx.coroutines.launch
  *
  * A `FlowHost` for a modal or a sheet needs nothing from this and behaves the same inside it
  * or outside it: both are presentations OVER the navigation rather than entries in it.
+ *
+ * One thing is asked of the host app's MANIFEST rather than of its composition:
+ * `<application android:enableOnBackInvokedCallback="true">`. Without it the pop out of a
+ * pushed flow is correct and the predictive-back animation never runs, on every Android from
+ * 13 to 15 whatever this app targets. The file header says why.
  *
  * `@JvmSynthetic` for the reason [FlowHost] carries it: a `@Composable` function is a rule
  * the Compose compiler enforces for Kotlin callers and for nobody else

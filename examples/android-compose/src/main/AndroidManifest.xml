@@ -9,28 +9,46 @@
   app now cannot send whichever way it was launched — which is a stronger statement than
   the one the permission used to sit beside.
 
-  The theme is a SYSTEM one with no action bar. Left unset, an app inherits the platform's
-  default, which draws a title bar of its own above the composition: on the 3e emulator
-  round every Android screenshot carried an "SPFN Example" strip over the SDK's own header
-  where iOS had one header and nothing else. `android:label` still names the app in the
-  launcher and in the task switcher; what changed is that no window decoration draws it a
-  second time.
+  Predictive back is DECLARED here, and it has to be. `android:enableOnBackInvokedCallback`
+  is what makes the system deliver a back gesture to the window's OnBackInvokedDispatcher
+  instead of down the legacy KEYCODE_BACK path, and on Android 13 to 15 it is off by default
+  whatever the target SDK — the target-SDK default only flips at Android 16. Undeclared,
+  androidx's OnBackPressedDispatcher still receives the completed back and everything still
+  navigates, so nothing looks broken; what never arrives is the PROGRESS, so
+  `NavigationHost`'s `predictivePopTransitionSpec` has nothing to animate. On a Galaxy Z
+  Flip4 running Android 15 the screen being popped sat still under the held gesture with only
+  the system's arrow drawn over it, and the screen underneath appeared on release
+  (docs/IMPLEMENTATION-PITFALLS.md P35).
 
-  DeviceDefault and not Material or AppCompat, because this repository depends on no design
-  system it did not write (decision C2) and either of those would be a new artifact in
-  gradle/verification-metadata.xml for a window background. `Light` and not the
-  appearance-following variant, because `SpfnTokens` resolves to the same white palette in
-  both appearances: a theme that went dark on a dark-mode device would paint
-  `FlowHost.cover()` — which reads `android:colorBackground` off the host's theme, and is
-  the one attribute every Android theme defines — near-black behind screens that are still
-  white.
+  The theme is this app's OWN, over the system parent it used to name directly:
+  res/values/themes.xml, one attribute, no new dependency. It was a bare
+  Theme.DeviceDefault.Light.NoActionBar until a dark-mode Galaxy Z Flip4 drew the status
+  bar's clock and icons in a light foreground over this app's white — barely legible on the
+  menu and the sheets, invisible over a pushed screen. That is a property of the WINDOW, so
+  the app declares it: `android:windowLightStatusBar`, which the resource file explains and
+  which nothing in the SDK can or should reach.
+
+  Everything the parent decided, it still decides. No action bar, because left unset an app
+  inherits the platform's default and that draws a title bar of its own above the
+  composition: on the 3e emulator round every Android screenshot carried an "SPFN Example"
+  strip over the SDK's own header where iOS had one header and nothing else. `android:label`
+  still names the app in the launcher and in the task switcher; what changed is that no
+  window decoration draws it a second time. DeviceDefault and not Material or AppCompat,
+  because this repository depends on no design system it did not write (decision C2) and
+  either of those would be a new artifact in gradle/verification-metadata.xml for a window
+  background. `Light` and not the appearance-following variant, because `SpfnTokens`
+  resolves to the same white palette in both appearances: a theme that went dark on a
+  dark-mode device would paint `FlowHost.cover()` — which reads `android:colorBackground`
+  off the host's theme, and is the one attribute every Android theme defines — near-black
+  behind screens that are still white.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
+        android:enableOnBackInvokedCallback="true"
         android:label="SPFN Example"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        android:theme="@style/Theme.SpfnExample">
 
         <activity
             android:name=".MainActivity"

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPFN Mobile — the Android harness's window theme.
+
+  The twin of examples/android-compose/src/main/res/values/themes.xml, for the same reason
+  and with the same one attribute. Both apps' windows are white in both appearances, so both
+  need the status bar's foreground drawn dark, and neither may reach a design system to say
+  it (decision C2).
+
+  The PARENT is the theme this app already named in its manifest, unchanged:
+  Theme.DeviceDefault.Light.NoActionBar. NoActionBar because a title strip would draw "SPFN
+  Harness" over this screen's own readouts and over the SDK's header inside the flow it
+  hosts, and it would take back the rows [RunnerBlock]'s arithmetic assumes. Light because
+  this screen is drawn on `Paper` and `SpfnTokens` resolves to the same white palette in
+  both appearances: a theme that went dark would paint `FlowHost.cover()` — which reads
+  `android:colorBackground` off this theme — near-black behind screens that are still white.
+  Declaring the parent here rather than in the manifest changes nothing about what that
+  attribute resolves to, and it changes nothing about the layout either: a status bar
+  FOREGROUND is a colour, not an inset, so `HarnessScreen`'s `WindowInsets.systemBars`
+  padding and the 617dp-against-714dp reading in [RunnerBlock] are the numbers they were.
+
+  The ATTRIBUTE is `android:windowLightStatusBar`. Left unset the clock and the icons follow
+  the system's appearance, and on a dark-mode Galaxy Z Flip4 that put a light foreground on
+  this app's white: the readouts a runner reads were unaffected, but the person watching the
+  run could not see the clock.
+
+  It is declared and not set in code. `WindowInsetsControllerCompat` would do the same job
+  from the activity, at the cost of a rule that only holds once a composition has run and of
+  a second place the appearance is decided. The window is the app's, and this is the app
+  saying what its window is.
+
+  `android:windowLightNavigationBar` is deliberately ABSENT. It is API 27 and this
+  repository's minSdk is 24, so it would need a values-v27 split or a lint suppression to
+  say something that is already true: a three-button navigation bar is drawn on the system's
+  own grey with dark icons, and the gesture pill takes its colour from the content behind
+  it. There is nothing here for it to fix.
+-->
+<resources>
+
+    <style name="Theme.SpfnHarness" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+</resources>
