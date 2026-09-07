@@ -24,6 +24,17 @@
   A configuration is honoured from API 24, which is this repository's minSdk, so the
   attribute needs no per-version fallback.
 
+  Predictive back is DECLARED here, and it has to be. `android:enableOnBackInvokedCallback`
+  is what makes the system deliver a back gesture to the window's OnBackInvokedDispatcher
+  instead of down the legacy KEYCODE_BACK path, and on Android 13 to 15 it is off by default
+  whatever the target SDK — the target-SDK default only flips at Android 16. Undeclared,
+  androidx's OnBackPressedDispatcher still receives the completed back and everything still
+  navigates, so nothing looks broken; what never arrives is the PROGRESS, so
+  `NavigationHost`'s `predictivePopTransitionSpec` has nothing to animate. On a Galaxy Z
+  Flip4 running Android 15 the screen being popped sat still under the held gesture with only
+  the system's arrow drawn over it, and the screen underneath appeared on release
+  (docs/IMPLEMENTATION-PITFALLS.md P35).
+
   The theme is a SYSTEM one with no action bar. Left unset, an app inherits the platform's
   default, which draws a title bar of its own above the composition — a "SPFN Harness"
   strip above this screen's own readouts, and the same strip over the SDK's header inside
@@ -49,6 +60,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
+        android:enableOnBackInvokedCallback="true"
         android:label="SPFN Harness"
         android:networkSecurityConfig="@xml/spfn_harness_network_security_config"
         android:supportsRtl="true"
