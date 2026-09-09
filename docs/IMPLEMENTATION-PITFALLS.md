@@ -62,6 +62,7 @@
 | `Screen`·시트 detent의 높이 수정, 유한한 최대 제약 안에 `fillMaxSize`·`weight`를 두는 자리 | [P34](#p34) [P25](#p25) [P21](#p21) |
 | Android 앱 매니페스트 수정, 뒤로가기 처리·예측 뒤로가기 전환 | [P35](#p35) [P30](#p30) [P32](#p32) |
 | Compose `pointerInput`으로 이벤트 consume, 덮개·스크림 추가 | [P36](#p36) [P27](#p27) [P22](#p22) [P21](#p21) |
+| `NavDisplay` 호출 추가 (플로우·시트·모달의 스택을 그리는 자리) | [P37](#p37) [P30](#p30) [P35](#p35) |
 
 ---
 
@@ -1488,6 +1489,78 @@ androidx.compose.foundation 1.11.4의 `ClickableNode.onPointerEvent`를 javap으
 상태였다. `cover()`의 주석은 이 배치가 안전한 이유를 "자식이 Main을 먼저 본다"로 적어 두고 있었고,
 그 문장은 DOWN에 대해서만 참이었다.
 
+## P37. `NavDisplay`의 전환 기본값은 라이브러리의 의견이다 {#p37}
+
+**증상.** 한 앱 안에서 **push와 modal이 다르게 움직인다.** push 플로우는 다음 화면이 오른쪽에서
+슬라이드해 들어오고 뒤로가기에 오른쪽으로 밀려나가는데, 같은 화면을 modal 덮개나 시트 안에서 열면
+next가 **페이드**로 들어오고 시스템 뒤로가기에 화면이 **축소되며 사라진다**(scale + fade). 어느
+쪽도 깨지지 않았고 스택도 정확하다 — 두 화면 더미가 서로 다른 물건처럼 보일 뿐이다.
+
+**왜.** `NavDisplay`는 `transitionSpec`·`popTransitionSpec`·`predictivePopTransitionSpec`
+셋을 받고, **주지 않으면 셋 다 자기 기본값을 쓴다.** navigation3-ui 1.1.7의
+`NavDisplayKt__NavDisplay_androidKt`를 javap으로 읽으면 그 기본값이 이렇다.
+
+| spec | 기본값 |
+| --- | --- |
+| `transitionSpec` (전진) | `fadeIn(tween(700))` + `fadeOut(tween(700))` |
+| `popTransitionSpec` (pop) | 같음 — `fadeIn(tween(700))` + `fadeOut(tween(700))` |
+| `predictivePopTransitionSpec` (예측 pop) | `fadeIn(spring(dampingRatio = 1f, stiffness = 1600f))` + `scaleOut(targetScale = 0.7f)` |
+
+전진과 pop이 **같은 페이드**라 사람이 움직임만 보고 스택이 어느 쪽으로 갔는지 알 수 없고, 예측
+pop의 `scaleOut(0.7f)`이 기기에서 본 그 축소다. 셋 다 "무엇을 그리는지 모르는 내비게이터"에게는
+합리적인 기본값이고, 셋 다 이 SDK가 나가는 두 플랫폼의 화면 스택이 하는 움직임이 아니다.
+
+한 호출에만 spec을 적으면 **적은 자리만** 플랫폼 어휘를 쓰고 나머지는 라이브러리 어휘를 쓴다.
+`spfn-ui`가 정확히 그랬다: `NavigationHost`는 셋을 적었고 `FlowHost`의 `InlineStack`은 적지
+않았는데, 그 하나가 시트 안 스택·modal 덮개·호스트를 못 찾은 push **셋 모두**를 그린다.
+
+**자동 검사가 못 본다.** 러너는 화면이 **무엇을 말하는지**를 단언하지 화면이 **어떻게 도착했는지**를
+단언하지 않는다 — 전환이 무엇이든 35셀은 전부 초록이다. `NavDisplay`는 컴포저블이라 그 인자를
+컴포지션 밖에서 읽을 수도 없으니 JVM 테스트가 "이 스택이 그 spec을 받았다"를 확인할 방법도 없다.
+남는 것은 호출 자리를 **글로 읽는** 검사와, 기기를 보는 사람뿐이다.
+
+**탐지.**
+
+1. **뒤로가기가 축소인가 슬라이드인가.** 같은 제스처를 push 플로우와 modal 플로우에서 한 번씩 하고
+   비교한다. 한쪽이 오른쪽으로 밀려나가고 다른 쪽이 제자리에서 작아지면 이 항목이다. 축소는
+   예측 pop 기본값의 서명이다.
+2. **전진이 페이드인가 슬라이드인가.** modal 안에서 next를 눌렀을 때 다음 화면이 제자리에 나타나면
+   (움직이지 않으면) 그 호출은 기본값을 쓰고 있다.
+3. 코드에서는 `android/spfn-ui/src/main`의 `NavDisplay(` 호출을 **전부** 세고, 각각이 세 spec을
+   넘기는지 본다. validate.sh 18절이 이것을 자동으로 거부하고,
+   `tools/validate/probe-flow-transitions-rules.sh`가 그 거부가 무는지를 증명한다.
+
+**처방.** 세 spec을 **한 자리에** 두고 모든 호출이 그것을 넘긴다. `spfn-ui`에서는
+`FlowTransitions`가 그 자리이고, 값이 하나뿐인 것 자체가 요점이다 — 두 벌이 있으면 언젠가 갈린다.
+
+```kotlin
+NavDisplay(
+    backStack = routes,
+    onBack = { flow.back(entry) },
+    transitionSpec = { FlowTransitions.forward },
+    popTransitionSpec = { FlowTransitions.pop },
+    predictivePopTransitionSpec = { _ -> FlowTransitions.predictivePop },
+    entryProvider = { route -> NavEntry(route) { content(it) } }
+);
+```
+
+예측 pop은 pop과 **같은 값**이다. 결정 중인 back과 결정된 back은 같은 움직임이고 다른 것은 시계뿐
+이다 — 예측 spec은 애니메이션으로 도는 대신 제스처 진행률로 **seek**되므로, 반쯤 쥐고 있으면 그
+움직임이 반쯤 그려지고 놓으면 거기서 이어 끝난다. 그 람다가 받는 인자(제스처가 시작된 edge)는
+무시한다: 왼쪽에서 온 back과 오른쪽에서 온 back은 같은 back이고, 잡은 손 모양을 지시로 읽는 SDK는
+곤란하다.
+
+**반대 플랫폼에는 맞춰볼 이름이 없다.** iOS는 `.fullScreenCover`와 시트 안 `NavigationStack`이
+시스템 슬라이드로 push/pop하므로 SwiftUI 쪽은 아무 spec도 적지 않는다. 그래서 이 규칙은 15절(양
+플랫폼 시각 어휘)이 아니라 Android 단독 검사다.
+
+**나온 곳.** ui/scaffold-3i, Galaxy Z Flip4 (SM-F721N) / Android 15, 2026-09-07.
+`FlowHost.kt`의 `InlineStack`이었다. `modalTour`에서 next를 누르면 페이드로 들어왔고 시스템
+뒤로가기에 `modalTwo`가 축소되며 사라지며 `modalOne`이 드러났다 — 같은 순서를 `pushTour`에서
+하면 왼쪽→오른쪽 슬라이드였다. `NavigationHost.kt`의 주석은 그 셋을 적은 이유를 "the default is
+the library's opinion and this one is the platform's"로 정확히 써 두고 있었고, 그 문장이 적용되지
+않은 호출이 같은 모듈에 하나 더 있었다.
+
 ## 원장
 
 change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서 나온 finding 수**를 적는다.
@@ -1509,6 +1582,7 @@ change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서
 | ui/scaffold-3e (호스트 스택 위의 push, 그 위에서 나온 제스처·상속 속성) | 3 (기기) | 3 | 0 |
 | ui/scaffold-3g (Fit 시트가 상한으로 서는 것, 예측 뒤로가기 선언, 상태 표시줄 전경 — Z Flip4 원격 라운드) | 1 (기기) | 3 | 0 |
 | ui/scaffold-3h (modal 덮개의 Main 패스 consume이 손가락 누름을 취소 — 사람이 Z Flip4에서 잡음, 러너 35셀은 통과) | 1 (기기) | 1 | 0 |
+| ui/scaffold-3i (modal·sheet 안 NavDisplay가 nav3 기본 전환을 쓰던 것 — 사람이 Z Flip4에서 잡음) | 1 (기기) | 1 | 0 |
 
 **ui/scaffold-3e 읽는 법.** finding 셋 다 novel이고 뒤 칸은 0이다. 첫 라운드가 [P31](#p31)
 (사람이 아이폰에서 잡았다), 그 처방을 넣고 돌린 시뮬레이터 라운드가 [P32](#p32), 같은
