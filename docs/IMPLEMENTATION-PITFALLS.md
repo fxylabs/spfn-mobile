@@ -1708,6 +1708,7 @@ change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서
 | ui/scaffold-3g (Fit 시트가 상한으로 서는 것, 예측 뒤로가기 선언, 상태 표시줄 전경 — Z Flip4 원격 라운드) | 1 (기기) | 3 | 0 |
 | ui/scaffold-3h (modal 덮개의 Main 패스 consume이 손가락 누름을 취소 — 사람이 Z Flip4에서 잡음, 러너 35셀은 통과) | 1 (기기) | 1 | 0 |
 | ui/scaffold-3i (modal·sheet 안 NavDisplay가 nav3 기본 전환을 쓰던 것 — 사람이 Z Flip4에서 잡음) | 1 (기기) | 1 | 0 |
+| ui/scaffold-3j (시트가 등장·퇴장 없이 나타나고 사라지던 것 — updateAnchors 스냅과 스택이 빈 즉시 제거; 사람이 Z Flip4에서 잡음) | 1 (기기) | 1 | 0 |
 
 **ui/scaffold-3e 읽는 법.** finding 셋 다 novel이고 뒤 칸은 0이다. 첫 라운드가 [P31](#p31)
 (사람이 아이폰에서 잡았다), 그 처방을 넣고 돌린 시뮬레이터 라운드가 [P32](#p32), 같은
