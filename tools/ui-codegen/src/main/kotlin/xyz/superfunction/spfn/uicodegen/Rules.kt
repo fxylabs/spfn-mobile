@@ -506,6 +506,15 @@ object Rules
      * automatic cell standing on it (docs/IMPLEMENTATION-PITFALLS.md P36). A runner cannot
      * be asked to imitate a finger here: Maestro has no element-relative micro-swipe, so a
      * cell written that way would assert coordinates rather than a control.
+     *
+     * `<flow>-buttonEdge` is the second of those, and it is here for the WHERE rather than
+     * the how. A runner's `tapOn` presses the CENTRE of the element it resolved, and the
+     * centre of a button is its label — which on a plain-styled SwiftUI button is the one
+     * part that was ever tappable, because the tap goes to the label's drawn pixels and the
+     * fill around them was attached outside the `Button`
+     * (docs/IMPLEMENTATION-PITFALLS.md P39). So a runner presses the working part of a
+     * broken button and reports green, and the only tap that can tell the two apart is one
+     * aimed AWAY from the words, which is a person's aim and not a runner's.
      */
     private fun byHandCells(tour: Tour, bundle: Bundle): List<Cell>
     {
@@ -528,6 +537,19 @@ object Rules
                 "the screen underneath is drawn under the gesture while it is held, and " +
                     "releasing lands on it; letting go back at the edge cancels and changes nothing",
                 listOf("stack=1")
+            );
+            // The one row here whose subject is WHERE the tap lands. A runner presses the
+            // centre of the element it resolved, and the centre of a button is its label, so
+            // a button whose fill takes no press is green in every automatic cell standing
+            // on it. This asks for the other place.
+            val opening = tour.pushing(1);
+            cells += byHand(
+                tour, "buttonEdge", start.name, emptyList(),
+                "tap `${start.name}.${opening.name}` on the flow's first screen at the far " +
+                    "EDGE of the button — the coloured part well away from the words — with a finger",
+                "P39 — the stack moves, because the whole button is the tap target and not " +
+                    "only the pixels its label happened to draw",
+                listOf("stack=${after(opening.then, 1)}")
             );
         }
         if (flow.entry == "modal")

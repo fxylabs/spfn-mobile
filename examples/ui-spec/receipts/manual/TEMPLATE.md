@@ -48,6 +48,7 @@ a cell nobody looked at, and the difference matters.
 | `modalTour-fingerTap` | | | |
 | `pushTour-swipeBack` | | | |
 | `pushTour-predictiveBack` | | | |
+| `pushTour-buttonEdge` | | | |
 | `sheetFit-detent` | | | |
 | `sheetFull-detent` | | | |
 | `sheetHalf-detent` | | | |

@@ -535,6 +535,18 @@
       "flow": null
     },
     {
+      "id": "pushTour-buttonEdge",
+      "screen": "tourOne",
+      "state": "idle",
+      "action": "buttonEdge",
+      "rule": "P39 \u2014 the stack moves, because the whole button is the tap target and not only the pixels its label happened to draw",
+      "runner": "manual",
+      "fixture": "ready",
+      "steps": ["byHand tap `tourOne.next` on the flow's first screen at the far EDGE of the button \u2014 the coloured part well away from the words \u2014 with a finger"],
+      "expect": ["stack=2"],
+      "flow": null
+    },
+    {
       "id": "sheetFit-close",
       "screen": "fitOne",
       "state": "idle",

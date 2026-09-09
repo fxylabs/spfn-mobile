@@ -64,6 +64,7 @@
 | Compose `pointerInput`으로 이벤트 consume, 덮개·스크림 추가 | [P36](#p36) [P27](#p27) [P22](#p22) [P21](#p21) |
 | `NavDisplay` 호출 추가 (플로우·시트·모달의 스택을 그리는 자리) | [P37](#p37) [P30](#p30) [P35](#p35) |
 | `AnchoredDraggable`로 등장·퇴장하는 표면 추가 (시트·서랍·바텀 시트), 플로우가 닫힐 때 컴포지션에서 빠지는 자리 | [P38](#p38) [P34](#p34) [P37](#p37) [P30](#p30) |
+| SwiftUI `Button` 추가, 특히 `.buttonStyle(.plain)` | [P39](#p39) [P21](#p21) |
 
 ---
 
@@ -1686,6 +1687,103 @@ LaunchedEffect(phase)
 `Sheet.kt`의 첫 `updateAnchors`와 `FlowHost.kt`의 분기 순서, 둘 다. iOS는 `.sheet`가 시스템 시트라
 같은 자리에 코드가 없고, 그래서 두 플랫폼이 갈린 것을 러너 35셀이 전부 초록인 채로 놓쳤다.
 
+## P39. `.buttonStyle(.plain)`의 탭 영역은 라벨이 그린 만큼이다 — 배경을 Button 바깥에 두면 색칠된 곳이 죽는다 {#p39}
+
+**증상.** 버튼의 **글자 위만 반응한다.** 채워진 색, 둥근 모서리, 테두리는 그대로 그려져 있는데
+그 색칠된 자리를 누르면 아무 일도 없고, 라벨의 글자를 정확히 누르면 동작한다. 헤더의 X·뒤로
+아이콘도 같다 — 44pt 자리를 차지하고 있지만 20pt 글리프의 **획 위**만 반응한다. 깨진 것은
+없다. 러너는 전부 초록이고 Android는 멀쩡하다.
+
+**왜.** SwiftUI `Button`은 `.buttonStyle(.plain)`이면 **라벨 뷰의 히트 테스트 모양**으로 탭을
+받는다. 그리고 뷰의 기본 히트 모양은 **그 뷰가 그린 부분**이다 — `Text`는 글자가 놓인 자리,
+`Image`는 불투명 픽셀, 아무것도 그리지 않은 `HStack`·`Spacer`·투명 `frame`은 **없는 것과
+같다.** `.frame(maxWidth: .infinity, minHeight: 44)`는 자리를 잡을 뿐 아무것도 그리지 않으므로
+히트 모양에 한 점도 보태지 않는다.
+
+배경을 어디에 붙였는지가 여기서 갈린다.
+
+```swift
+Button(action: onTap)
+{
+    HStack { Text(title) }
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .padding(.horizontal, 16)
+}
+.buttonStyle(.plain)
+.background(fill)                 // Button 바깥 — 그려지지만 히트 테스트가 보지 않는다
+.clipShape(RoundedRectangle(cornerRadius: 8))
+```
+
+`.background`가 `Button` **바깥**에 있으면 색칠은 버튼을 감싼 뷰가 하고, 눌림을 판정하는 것은
+안쪽 라벨이다. 사람 눈에 보이는 것과 손가락이 닿는 것이 서로 다른 뷰가 되고, 그 둘의 넓이가
+"색칠된 사각형" 대 "글자 몇 개"만큼 다르다. 같은 자리에 `.contentShape`를 붙여도 소용없다 —
+그것은 스타일이 적용된 바깥 뷰의 모양이고, 누름을 받는 라벨은 그 모양을 묻지 않는다.
+
+**Android가 멀쩡한 이유가 이 항목의 경계다.** `Box.clickable`은 **박스 전체**를 누름 영역으로
+잡으므로 배경을 어디에 두든 상관이 없다. 그래서 P21은 컨트롤의 **크기**에 대한 항목이고 이
+항목은 **모양**에 대한 항목이다 — 44pt를 확보했는지와 그 44pt가 탭을 받는지는 다른 질문이고,
+P21을 통과한 헤더 아이콘이 정확히 이 항목으로 죽었다.
+
+**러너가 못 잡는다.** Maestro의 `tapOn`은 찾아낸 요소의 **중심**을 누른다. 버튼의 중심은
+라벨이고, 라벨은 이 결함에서 **유일하게 살아 있는 부분**이다. 즉 러너는 망가진 버튼의 멀쩡한
+한 점을 정확히 눌러 초록을 보고한다 — P36과 같은 종류의 실명이되 원인은 반대다(P36은 러너가
+사람보다 **덜** 하는 것, 이것은 러너가 사람보다 **정확한** 것). 접근성 트리도 못 잡는다:
+`Button`의 frame은 44pt로 보고되고, 보고된 그 사각형이 탭을 받는지는 트리에 없는 사실이다.
+
+**탐지.**
+
+1. **글자를 피해서 누른다.** 버튼의 색칠된 끝, 라벨에서 가장 먼 곳을 손가락으로 누른다. 반응이
+   없고 글자 위는 반응하면 확정이다. 러너로는 재현되지 않으므로 사람이 한다 —
+   `pushTour-buttonEdge` 셀이 그것이다.
+2. 코드에서는 `.buttonStyle(.plain)`을 쓰는 자리마다 라벨 클로저 **안에**
+   `.contentShape(Rectangle())`이 있는지 본다. `.buttonStyle` 다음 줄에 있는 것은 다른 뷰에
+   붙은 것이고, 세어서는 그 둘을 구별할 수 없으므로 **자리를 눈으로** 본다.
+
+   ```sh
+   grep -rn 'buttonStyle(.plain)' Sources/SPFNUI
+   grep -rn 'contentShape(Rectangle())' Sources/SPFNUI
+   ```
+3. 파일 단위 개수는 validate.sh 20절이 자동으로 거부하고(`.plain` 수 ≤ 사각형 수),
+   `tools/validate/probe-button-hit-shape-rules.sh`가 그 거부가 무는지를 증명한다.
+
+   ```sh
+   sh tools/validate/validate.sh                        # 20절
+   sh tools/validate/probe-button-hit-shape-rules.sh
+   ```
+
+**처방.** `.contentShape(Rectangle())`을 **라벨 체인 안에**, 크기를 정하는 `.frame`·`.padding`
+**뒤에** 둔다. 그러면 라벨은 자기가 차지한 사각형 전체로 히트 테스트에 답하고, 그것이 `.plain`이
+읽는 바로 그 모양이다.
+
+```swift
+Button(action: onTap)
+{
+    HStack(spacing: SPFNTokens.space2)
+    {
+        Text(title)
+    }
+    .frame(maxWidth: .infinity, minHeight: Metrics.touchTarget)
+    .padding(.horizontal, SPFNTokens.space4)
+    .contentShape(Rectangle())        // 라벨 안에 — .plain은 이 모양을 읽는다
+}
+.buttonStyle(.plain)
+.background(fill)
+```
+
+배경을 라벨 안으로 옮기는 것도 같은 결과를 낸다(그린 픽셀이 곧 히트 모양이 되므로). 이
+저장소는 옮기지 않았다 — `.clipShape`·`.overlay`가 배경과 한 덩어리로 `Button` 바깥에 붙어
+있어 구조를 바꾸면 시각 스타일까지 다시 증명해야 하고, 한 줄이 같은 일을 한다.
+
+**시각 변화는 0이다.** `.plain`은 눌림 효과를 그리지 않으므로 넓어진 탭 영역이 새로 칠하는 것은
+없고, `.disabled(!live)`도 `Button` 바깥에 그대로 있어 비활성 버튼은 넓어진 영역에서도 탭을
+계속 무시한다. `.text` 역할처럼 배경이 투명한 버튼은 이제 **보이는 것보다 넓게** 눌린다 —
+44pt 높이에 가로 무한이 그 버튼이 원래 차지하던 자리이고, 최소 터치 타깃을 실제로 받게 된
+것이므로 P21이 요구하던 상태다.
+
+**나온 곳.** ui/scaffold-3k, iPhone 14 Pro / iOS 26.5.2, 2026-09-09. 사람이 봤다.
+`Buttons.swift`의 `RoleButton`과 `Screen.swift`의 헤더 아이콘 버튼, 둘 다. Android는 같은
+화면이 정상이었고(`Box.clickable`), 예제 35셀은 전부 초록이었다.
+
 ## 원장
 
 change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서 나온 finding 수**를 적는다.
@@ -1709,6 +1807,7 @@ change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서
 | ui/scaffold-3h (modal 덮개의 Main 패스 consume이 손가락 누름을 취소 — 사람이 Z Flip4에서 잡음, 러너 35셀은 통과) | 1 (기기) | 1 | 0 |
 | ui/scaffold-3i (modal·sheet 안 NavDisplay가 nav3 기본 전환을 쓰던 것 — 사람이 Z Flip4에서 잡음) | 1 (기기) | 1 | 0 |
 | ui/scaffold-3j (시트가 등장·퇴장 없이 나타나고 사라지던 것 — updateAnchors 스냅과 스택이 빈 즉시 제거; 사람이 Z Flip4에서 잡음) | 1 (기기) | 1 | 0 |
+| ui/scaffold-3k (iOS 버튼·헤더 아이콘의 탭 영역이 라벨 픽셀뿐이던 것 — plain 스타일에 배경이 Button 바깥; 사람이 iPhone 14 Pro에서 잡음) | 1 (기기) | 1 | 0 |
 
 **ui/scaffold-3e 읽는 법.** finding 셋 다 novel이고 뒤 칸은 0이다. 첫 라운드가 [P31](#p31)
 (사람이 아이폰에서 잡았다), 그 처방을 넣고 돌린 시뮬레이터 라운드가 [P32](#p32), 같은

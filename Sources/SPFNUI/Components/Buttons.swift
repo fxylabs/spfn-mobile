@@ -206,6 +206,10 @@ private struct RoleButton: View
             }
             .frame(maxWidth: .infinity, minHeight: Metrics.touchTarget)
             .padding(.horizontal, SPFNTokens.space4)
+            // Inside the LABEL, because `.plain` takes the tap on the label's own hit shape and
+            // an HStack that drew nothing but text answers only over the letters; the fill below
+            // is outside the Button, so a `contentShape` there is never asked (P39).
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(foreground(palette, live: live))

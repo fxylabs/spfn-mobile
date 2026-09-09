@@ -3058,6 +3058,85 @@ then
     fail "$SHEET_ORDER_SOURCE reads the empty-stack branch (line $EMPTY_BRANCH_LINE) before the sheet branch (line $SHEET_BRANCH_LINE); a closing sheet leaves the composition on the frame its stack empties and vanishes instead of sliding away"
 fi
 
+section '20. every plain-styled Button in SPFNUI gives its label a hit shape'
+# ---------------------------------------------------------------------------
+# `.buttonStyle(.plain)` hands the tap to the LABEL, and a view's default hit shape is the
+# part of it that DREW something. So a plain button whose label is transparent — an `HStack`
+# holding text, an icon inside a frame — answers only over its letters or its glyph pixels,
+# and every point of the fill around them is dead.
+#
+# That is what shipped. `RoleButton`'s fill, radius and border are attached OUTSIDE its
+# `Button`, which is where they belong for the style they draw and exactly where a hit test
+# never looks: on an iPhone 14 Pro a person had to hit the words to press a primary button,
+# and the coloured rectangle around them did nothing. The header's X and back are the same
+# shape one step smaller — a 20pt glyph inside the 44pt frame section 15 requires — so the
+# frame reported a target its own label refused (docs/IMPLEMENTATION-PITFALLS.md P39).
+#
+# The fix is one modifier and its POSITION is the whole rule: `.contentShape(Rectangle())`
+# inside the label chain. The same modifier written after `.buttonStyle(.plain)` applies to
+# the styled view, which nothing hit-tests for the press, and reads as a fix while changing
+# nothing. A per-file count cannot tell those two apart by position, and it does not have to:
+# a file that spends a `.plain` and buys no rectangle has not paid for one anywhere.
+#
+# Nothing else in this repository sees it. Android is not affected — `Box.clickable` takes
+# the whole box, which is why P21 is about size rather than shape — so the cross-platform
+# section 15 has nothing to compare. And a runner cannot see it either: Maestro's `tapOn`
+# presses the CENTRE of the element it resolved, the centre of these buttons is the label,
+# and the label is the one part that worked. The 35 device cells are green either way, which
+# is the same blindness P36 has and the reason `pushTour-buttonEdge` is a person's cell.
+#
+# Counted per file with `grep -cE`, so a file may not spend more `.plain` than it buys
+# rectangles. Screen.swift buys two and spends one: its other rectangle is the ancestor that
+# puts the keyboard away (P27), and a check that demanded equality would have to know which
+# rectangle was which. Neither expression uses `?` or `+`, because this script runs under BSD
+# grep as well as GNU (docs/IMPLEMENTATION-PITFALLS.md P28).
+HIT_SHAPE_SOURCE_ROOT=Sources/SPFNUI
+
+# The module styles two buttons this way today — the role button and the header control — and
+# they sit in two files. Both floors are stated, because either one alone goes quiet in a way
+# the other catches: a root that resolved to nothing reads as zero files AND zero occurrences,
+# and a file that lost its `.plain` to a refactor keeps the file count while dropping the
+# occurrence count. A reader that read nothing must say so rather than agree with a clean tree
+# (docs/IMPLEMENTATION-PITFALLS.md P7).
+HIT_SHAPE_FILE_FLOOR=2
+HIT_SHAPE_STYLE_FLOOR=2
+
+HIT_SHAPE_FILES=0
+HIT_SHAPE_STYLES=0
+HIT_SHAPE_OFFENDERS=''
+
+for source in $(find "$HIT_SHAPE_SOURCE_ROOT" -name '*.swift' 2> /dev/null | sort)
+do
+    # `|| true` on both: grep exits nonzero when it counted nothing, and `set -e` would take
+    # the script down on the first Swift file that styles no button at all.
+    PLAIN_COUNT=$(grep -cE '\.buttonStyle\(\.plain\)' "$source" || true)
+    SHAPE_COUNT=$(grep -cE '\.contentShape\(Rectangle\(\)\)' "$source" || true)
+    if [ "$PLAIN_COUNT" -eq 0 ]
+    then
+        continue
+    fi
+    HIT_SHAPE_FILES=$((HIT_SHAPE_FILES + 1))
+    HIT_SHAPE_STYLES=$((HIT_SHAPE_STYLES + PLAIN_COUNT))
+    if [ "$PLAIN_COUNT" -gt "$SHAPE_COUNT" ]
+    then
+        HIT_SHAPE_OFFENDERS="$HIT_SHAPE_OFFENDERS $source:$PLAIN_COUNT-plain-$SHAPE_COUNT-rectangle"
+    fi
+done
+
+if [ "$HIT_SHAPE_FILES" -ge "$HIT_SHAPE_FILE_FLOOR" ] && [ "$HIT_SHAPE_STYLES" -ge "$HIT_SHAPE_STYLE_FLOOR" ]
+then
+    pass "the hit-shape reader found $HIT_SHAPE_STYLES plain button styles in $HIT_SHAPE_FILES files under $HIT_SHAPE_SOURCE_ROOT"
+else
+    fail "the hit-shape reader found $HIT_SHAPE_STYLES plain button styles in $HIT_SHAPE_FILES files under $HIT_SHAPE_SOURCE_ROOT, under the floor of $HIT_SHAPE_STYLE_FLOOR styles in $HIT_SHAPE_FILE_FLOOR files that module writes; it did not run"
+fi
+
+if [ -z "$HIT_SHAPE_OFFENDERS" ]
+then
+    pass "every file under $HIT_SHAPE_SOURCE_ROOT that styles a Button plain states at least as many contentShape rectangles, so the coloured part of a button is part of the button"
+else
+    fail "files that style a Button plain without a contentShape rectangle to match:$HIT_SHAPE_OFFENDERS; a plain button is tapped on its LABEL's drawn pixels, so the fill around the words takes no press"
+fi
+
 # ---------------------------------------------------------------------------
 printf '\n'
 note "swift build / swift test, ./gradlew build,"

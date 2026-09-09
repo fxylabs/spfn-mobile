@@ -261,6 +261,10 @@ public struct Screen<Content: View>: View
         {
             icon()
                 .frame(minWidth: Metrics.touchTarget, minHeight: Metrics.touchTarget)
+                // Inside the LABEL, because `.plain` takes the tap on the label's own hit shape
+                // and a glyph answers only over the pixels it drew; the 44 above would report a
+                // rectangle nothing could tap without this line (P39).
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
