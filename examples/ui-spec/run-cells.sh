@@ -927,7 +927,7 @@ then
     exit 0
 fi
 
-case $PROBE_STALL_KIND in
+case "$PROBE_STALL_KIND" in
     driver)
         # No report at all: maestro's driver never came up, so no flow ran to report on.
         cat > "$3/maestro-$1.log" <<'LOG'
