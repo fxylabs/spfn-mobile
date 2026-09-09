@@ -1288,6 +1288,18 @@ printf '\n2. the warm-up\n'
 # fake every cell runs on, with every flow closed. `stack=0` is what its readout says, and
 # that readout is what this waits for. It reaches nothing either way: the example app has no
 # real-server path at all.
+#
+# `fixture=none` is the second wait, and it is a claim about the LAUNCH rather than about
+# the menu. `SPFN_UI_FIXTURE` reaches the Android app as an intent extra on the activity
+# that starts it, and `Intent.filterEquals` — which is what decides whether a start reuses
+# an existing task — does not compare extras. So a launch that names no cell can be handed
+# a task an earlier cell rooted, and the app draws the CELL THAT LAUNCH NEVER ASKED FOR: on
+# 2026-09-02 an Android run opened with no fixture and read `fixture=u5`. This wait is where
+# that shows up, once per run and before any cell is driven, rather than as a cell asserting
+# somebody else's depth twenty minutes later. What keeps it true is `clearState: true` above
+# — `pm clear` on Android, which takes the task with the store — and this is the assertion
+# that the wipe did what it says. `install-device.sh` clears the task for the same reason on
+# the path a person opens the app by hand.
 WARM_UP_LOG="$RUN_DIRECTORY/warm-up.log"
 cat > "$WORK/warm-up.yaml" <<WARMUP
 appId: \${APP_ID}
@@ -1300,6 +1312,11 @@ name: warm-up
     visible:
       text: "stack=.*"
     timeout: 120000
+
+- extendedWaitUntil:
+    visible:
+      text: "fixture=none"
+    timeout: 20000
 WARMUP
 
 if [ -n "$FLOW_RUNNER" ]
@@ -1310,8 +1327,9 @@ elif maestro --device "$TARGET" test "$WORK/warm-up.yaml" -e APP_ID="$APP_ID" \
 then
     pass 'the app launched and drew its root readout'
 else
-    fail 'the app never drew a root readout, so no cell can be driven'
+    fail 'the app never drew a fixture-less root readout, so no cell can be driven'
     fail "is $APP_ID installed? this script installs nothing — see this file's header"
+    fail 'or it drew a fixture this launch never named, which is an earlier task reused'
     # Three lines, not the whole trace. A maestro failure prints its own stack, and the
     # hundred lines of that buried the two lines above — which are the ones that say what
     # to do — the last time this fired.
