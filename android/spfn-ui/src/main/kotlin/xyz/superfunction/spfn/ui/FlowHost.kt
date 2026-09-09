@@ -72,7 +72,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -85,9 +88,14 @@ import xyz.superfunction.spfn.ui.components.ScreenChrome
 /**
  * Renders [flow]'s top route and follows the stack as it changes.
  *
- * Renders nothing at all while the flow is closed, which is not a special case bolted on:
- * NavDisplay requires a non-empty back stack and refuses an empty one, so a closed flow
- * has nothing to show by the navigator's own rule as well as by this module's.
+ * Renders nothing at all once the flow is closed AND whatever it was drawn as has finished
+ * leaving. The two are not the same instant. `Flow.close` empties the stack in one step and a
+ * cover or a sheet still has a slide to run, so [ModalCover] and [SheetCover] each keep the
+ * last stack they stood on and stop when their own exit says so — which is why the branch that
+ * reaches them is read BEFORE the one that answers an empty stack with nothing. Everything
+ * else here does render nothing, and that is not a special case bolted on either: NavDisplay
+ * requires a non-empty back stack and refuses an empty one, so a closed flow has nothing to
+ * show by the navigator's own rule as well as by this module's.
  *
  * `@JvmSynthetic` is not decoration either. A `@Composable` function may only be called
  * from a composition, and the Compose compiler enforces that for Kotlin callers and for
@@ -107,12 +115,11 @@ public fun <R : FlowRoute> FlowHost(flow: Flow<R>, entry: FlowEntry, content: @C
     {
         entry is FlowEntry.Push && host != null -> Appended(host, flow, routes, content)
         entry is FlowEntry.Modal -> ModalCover(flow, routes, content)
+        // Before the empty-stack line, and that order is the rule rather than a preference: a
+        // sheet's stack is empty for the whole of its exit, and a branch reached by an empty
+        // stack draws nothing. validate.sh section 19 refuses the other order.
+        entry is FlowEntry.Sheet -> SheetCover(flow, entry, routes, content)
         routes.isEmpty() -> Unit
-        entry is FlowEntry.Sheet ->
-            Sheet(detent = entry.detent, onClose = { flow.close() })
-            {
-                InlineStack(flow, entry, routes, Modifier, content);
-            }
         else -> InlineStack(flow, entry, routes, Modifier, content)
     };
 }
@@ -234,6 +241,58 @@ private fun <R : FlowRoute> ModalCover(flow: Flow<R>, routes: List<R>, content: 
             InlineStack(flow, FlowEntry.Modal, drawn.toList(), cover(), content);
         }
     };
+}
+
+/**
+ * The sheet a sheet flow is drawn as, and the slide it arrives and leaves on.
+ *
+ * The same shape as [ModalCover] and for the same reason: the flow's stack is empty the instant
+ * it closes, the sheet has a slide left to run, and a host that stopped drawing at that instant
+ * would make a sheet VANISH where iOS's `.sheet` slides it away. So the last stack it stood on
+ * is kept in `drawn` and the sheet is told, separately, whether it is still [open].
+ *
+ * Where this differs from [ModalCover] is who ends the exit. `AnimatedVisibility` runs the
+ * modal's on its own clock and removes the content itself; a sheet is moved by
+ * `AnchoredDraggableState`, which the host cannot see, so the sheet says when it has settled
+ * out of sight and `hidden` is that word written down.
+ *
+ * The two pieces of memory are deliberately different kinds. `drawn` is a plain remembered
+ * list, as in [ModalCover] — it is only ever written while the stack is non-empty, which is
+ * exactly when this composable is recomposing anyway, so making it snapshot state would buy an
+ * invalidation for a frame that is already being drawn. `hidden` IS snapshot state, because the
+ * one thing it does is arrive from outside a composition — a callback off the sheet's own
+ * animation — and ask for the recomposition that stops drawing the sheet. Writing `false` back
+ * into it during composition costs nothing after the first open: `mutableStateOf` compares
+ * before it invalidates, so the same value written every frame invalidates nothing.
+ */
+@Composable
+private fun <R : FlowRoute> SheetCover(
+    flow: Flow<R>,
+    entry: FlowEntry.Sheet,
+    routes: List<R>,
+    content: @Composable (R) -> Unit
+)
+{
+    val drawn = remember { mutableListOf<R>() };
+    var hidden by remember { mutableStateOf(true) };
+    if (routes.isNotEmpty())
+    {
+        drawn.clear();
+        drawn.addAll(routes);
+        hidden = false;
+    }
+    if (!hidden && drawn.isNotEmpty())
+    {
+        Sheet(
+            detent = entry.detent,
+            open = routes.isNotEmpty(),
+            onClose = { flow.close() },
+            onHidden = { hidden = true }
+        )
+        {
+            InlineStack(flow, entry, drawn.toList(), Modifier, content);
+        };
+    }
 }
 
 /**

@@ -3010,6 +3010,54 @@ else
     fail "NavDisplay calls that leave a transition to the library's default:$TRANSITION_OFFENDERS; the default pop SCALES the screen away where a push slides it, and one app cannot mean both"
 fi
 
+section '19. a sheet that is closing is still drawn'
+# ---------------------------------------------------------------------------
+# `FlowHost`'s `when` decides what a flow is drawn as, and it is a `when` with no subject, so
+# the branches are read TOP TO BOTTOM and the first true one wins. Two of its lines can both be
+# true at once — `entry is FlowEntry.Sheet` and `routes.isEmpty()` — and that pair is exactly
+# what a closing sheet looks like: `Flow.close` empties the stack in one step, and the sheet it
+# was drawn as still has a slide to run.
+#
+# With the empty-stack line first, the sheet drops out of the composition on the frame the
+# stack empties and the sheet DISAPPEARS where iOS's `.sheet` slides it away. That is what a
+# person saw on a Galaxy Z Flip4 (docs/IMPLEMENTATION-PITFALLS.md P38): the X, the system back
+# and the scrim all removed the sheet instantly, and only the handle — which is settled at
+# Hidden before the flow is told anything — animated.
+#
+# Nothing else in this repository can see it. The order of two branches is not a value any test
+# can read, the JVM suite has no Compose runtime to compose the host in, and a Maestro cell
+# waits for an element to become visible or to stop being visible and never asks how it got
+# there — the 35 example cells are green under either order. What is left is reading the file,
+# which is this check, and a person watching a phone.
+#
+# Line numbers, compared. `grep -nE` only, and no `?` or `+` in the expressions, because this
+# script runs under BSD grep as well as GNU (docs/IMPLEMENTATION-PITFALLS.md P28).
+SHEET_ORDER_SOURCE=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/FlowHost.kt
+
+SHEET_BRANCH_LINE=$(grep -nE '^ *entry is FlowEntry\.Sheet ->' "$SHEET_ORDER_SOURCE" 2> /dev/null | head -1 | cut -d: -f1)
+EMPTY_BRANCH_LINE=$(grep -nE '^ *routes\.isEmpty\(\) -> Unit' "$SHEET_ORDER_SOURCE" 2> /dev/null | head -1 | cut -d: -f1)
+
+if [ -n "$SHEET_BRANCH_LINE" ] && [ -n "$EMPTY_BRANCH_LINE" ]
+then
+    pass "both branches were found in $SHEET_ORDER_SOURCE, the sheet at line $SHEET_BRANCH_LINE and the empty stack at line $EMPTY_BRANCH_LINE"
+elif [ -z "$SHEET_BRANCH_LINE" ] && [ -z "$EMPTY_BRANCH_LINE" ]
+then
+    fail "neither the sheet branch nor the empty-stack branch was found in $SHEET_ORDER_SOURCE; the order reader has nothing to compare and it did not run"
+elif [ -z "$SHEET_BRANCH_LINE" ]
+then
+    fail "the sheet branch was not found in $SHEET_ORDER_SOURCE; the order reader has nothing to compare and it did not run"
+else
+    fail "the empty-stack branch was not found in $SHEET_ORDER_SOURCE; the order reader has nothing to compare and it did not run"
+fi
+
+if [ -n "$SHEET_BRANCH_LINE" ] && [ -n "$EMPTY_BRANCH_LINE" ] && [ "$SHEET_BRANCH_LINE" -lt "$EMPTY_BRANCH_LINE" ]
+then
+    pass "the sheet branch is read before the empty-stack branch, so a sheet whose flow has closed is still drawn while it slides away"
+elif [ -n "$SHEET_BRANCH_LINE" ] && [ -n "$EMPTY_BRANCH_LINE" ]
+then
+    fail "$SHEET_ORDER_SOURCE reads the empty-stack branch (line $EMPTY_BRANCH_LINE) before the sheet branch (line $SHEET_BRANCH_LINE); a closing sheet leaves the composition on the frame its stack empties and vanishes instead of sliding away"
+fi
+
 # ---------------------------------------------------------------------------
 printf '\n'
 note "swift build / swift test, ./gradlew build,"

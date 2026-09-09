@@ -63,6 +63,7 @@
 | Android 앱 매니페스트 수정, 뒤로가기 처리·예측 뒤로가기 전환 | [P35](#p35) [P30](#p30) [P32](#p32) |
 | Compose `pointerInput`으로 이벤트 consume, 덮개·스크림 추가 | [P36](#p36) [P27](#p27) [P22](#p22) [P21](#p21) |
 | `NavDisplay` 호출 추가 (플로우·시트·모달의 스택을 그리는 자리) | [P37](#p37) [P30](#p30) [P35](#p35) |
+| `AnchoredDraggable`로 등장·퇴장하는 표면 추가 (시트·서랍·바텀 시트), 플로우가 닫힐 때 컴포지션에서 빠지는 자리 | [P38](#p38) [P34](#p34) [P37](#p37) [P30](#p30) |
 
 ---
 
@@ -1561,6 +1562,130 @@ NavDisplay(
 the library's opinion and this one is the platform's"로 정확히 써 두고 있었고, 그 문장이 적용되지
 않은 호출이 같은 모듈에 하나 더 있었다.
 
+## P38. `updateAnchors`의 newTarget은 스냅이다 — 등장은 `animateTo`로, 퇴장은 컴포지션에서 빼기 전에 {#p38}
+
+**증상.** 시트가 **툭 나타나고 툭 사라진다.** 손잡이를 끌면 손가락을 따라오고 놓으면 애니메이션되는데,
+같은 시트가 열릴 때는 스크림까지 통째로 즉시 그려지고, X·시스템 뒤로가기·스크림 탭에는 즉시 없어진다.
+아래에서 올라오지도, 아래로 내려가지도 않는다. 깨진 것은 없다 — 끌기만 애니메이션이고 나머지 셋은
+아니다.
+
+**왜 — 등장.** `AnchoredDraggableState.updateAnchors(anchors, newTarget)`의 두 번째 인자는 **이동
+목표가 아니라 스냅이다.** androidx.compose.foundation 1.11.4의 바이트코드를 javap으로 읽으면
+`updateAnchors`는 앵커를 갈아끼운 뒤 `trySnapTo(newTarget)`를 부르고, `trySnapTo`는 드래그 뮤텍스를
+`tryLock`한 다음 `dragTo(anchors.positionOf(newTarget))`를 **한 번에** 실행하고 `currentValue`를
+그 값으로 세운다.
+
+```
+$ cd <foundation-android-1.11.4.aar 압축 해제>/classes
+$ javap -p -c androidx/compose/foundation/gestures/AnchoredDraggableState.class
+  public final void updateAnchors(DraggableAnchors<T>, T);
+       13: invokespecial setAnchors
+       18: invokespecial trySnapTo        <- 애니메이션이 아니다
+  private final boolean trySnapTo(T);
+        8: invokevirtual MutatorMutex.tryLock
+       61: invokestatic  AnchoredDragScope.dragTo$default
+       71: invokespecial setCurrentValue
+```
+
+시트는 `onSizeChanged`에서 처음 측정될 때 `updateAnchors(..., newTarget = Open)`를 부르고 있었다.
+그래서 **측정된 그 프레임에 이미 서 있다.** 초기값이 `Hidden`인 것은 아무 의미가 없다 — 그 값이
+화면에 보인 프레임이 없기 때문이다.
+
+**왜 — 퇴장.** 다른 쪽 절반은 `FlowHost`의 **분기 순서**다. 대상 없는 `when`은 위에서 아래로 읽고
+먼저 참인 행이 이긴다. 시트가 닫히는 순간 두 행이 **동시에** 참이다.
+
+```kotlin
+when
+{
+    ...
+    routes.isEmpty() -> Unit                    // 이 행이 위에 있으면
+    entry is FlowEntry.Sheet -> Sheet(...)      // 이 행은 영영 안 읽힌다
+}
+```
+
+`Flow.close`는 스택을 한 번에 비우고, 그 스택으로 그리던 시트에는 아직 내려갈 거리가 남아 있다.
+`routes.isEmpty() -> Unit`이 먼저면 시트는 스택이 비는 **그 프레임에** 컴포지션에서 빠진다. 같은
+모듈의 `ModalCover`는 정확히 이 이유로 마지막 스택을 `drawn`에 남기고 `AnimatedVisibility`로
+퇴장시키고 있었고, 시트에는 그 처리가 없었다.
+
+**두 Hidden은 다른 Hidden이다.** 등장을 애니메이션으로 바꾸면 새 함정이 하나 생긴다. 시트는 `Hidden`
+앵커에 **두 번** 앉는다 — 서기 전과 끌려 나간 뒤. 앵커도 오프셋도 같은 값이라
+"`settledValue == Hidden`이면 사용자가 닫았다"는 컴포즈되자마자 참이 되고, **아무도 보지 못한 시트가
+스스로 플로우를 닫는다.** 스냅 시절에는 `Hidden`이 한 프레임도 유지되지 않아 이 읽기가 우연히
+맞았다. 위상(등장 완료 여부)을 따로 기억하는 것 말고 이 둘을 가를 방법은 없다.
+
+**러너는 못 잡는다.** 애니메이션은 러너가 보는 종류의 사실이 아니다. Maestro는 요소가 보이게 되기를,
+또는 보이지 않게 되기를 기다릴 뿐 **어떻게 도착했는지**를 묻지 않으므로, 스냅이든 슬라이드든 예제
+35셀은 전부 초록이다. 안착만 보기 때문에 즉시 안착하는 쪽이 오히려 빠르게 통과한다. 분기 순서는 어떤
+테스트도 읽을 수 있는 값이 아니고, JVM 스위트에는 호스트를 컴포즈할 Compose 런타임이 없다. 남는 것은
+파일을 **글로 읽는** 검사와 기기를 보는 사람뿐이다.
+
+**탐지.**
+
+1. **끌기만 애니메이션인가.** 손잡이로 끌어내리면 부드럽게 사라지는데 X·뒤로가기·스크림 탭은 즉시
+   사라진다면 퇴장 쪽이다. 열 때 스크림이 페이드 없이 한 번에 어두워지면 등장 쪽이다.
+2. 코드에서 `updateAnchors(` 호출을 전부 찾고, 두 번째 인자가 **현재 값이 아닌** 값인지 본다.
+   현재 값이 아니면 그 호출은 애니메이션이 아니라 순간이동이다.
+
+   ```sh
+   grep -rn 'updateAnchors(' android/spfn-ui/src/main
+   ```
+3. 플로우 스택이 비면 사라지는 표면은, 그 표면의 분기가 `routes.isEmpty()` 분기보다 **위**에 있는지
+   본다. validate.sh 19절이 이것을 자동으로 거부하고,
+   `tools/validate/probe-sheet-exit-rules.sh`가 그 거부가 무는지를 증명한다.
+
+   ```sh
+   sh tools/validate/validate.sh                    # 19절
+   sh tools/validate/probe-sheet-exit-rules.sh
+   ```
+
+**처방.** 이동 경로를 **드래그 상태 하나**로 모은다. 첫 측정의 `updateAnchors`는 현재 값을 그대로
+두고(`newTarget = Hidden`), 이동은 전부 `animateTo`가 한다 — 손잡이가 이미 오가는 그 앵커 위를 걷는
+같은 움직임이다. 스펙은 적지 않는다: 인자 없는 `animateTo`는
+`AnchoredDraggableDefaults.snapAnimationSpec`으로 떨어지고, 그것이 손잡이의 fling이 안착하는 바로 그
+스펙이다. 시트가 어떻게 움직이는지에 대한 **두 번째 의견**을 만들지 않는 것이 요점이다.
+
+```kotlin
+.onSizeChanged { size ->
+    state.updateAnchors(
+        DraggableAnchors { Open at 0f; Hidden at size.height.toFloat() },
+        if (measured) state.targetValue else SheetAnchor.Hidden   // 스냅하지 않는다
+    );
+    measured = true;
+}
+```
+
+```kotlin
+LaunchedEffect(phase)
+{
+    val destination = phase.destination;   // Rising -> Open, Falling -> Hidden, 그 밖엔 null
+    if (destination != null)
+    {
+        state.animateTo(destination);
+        phase = phase.arrived();           // 취소된 이동은 이 줄에 닿지 못한다
+    }
+}
+```
+
+퇴장은 **컴포지션에서 빼기 전에** 끝낸다. 호스트는 마지막 스택을 남겨 두고 표면에 `open: Boolean`을
+주며, 표면은 안착한 뒤 `onHidden()`으로 "이제 지워도 된다"고 답한다. 그리기를 멈추는 자리는 스택이
+비는 순간이 아니라 그 답이다. 그리고 그 표면의 분기를 `routes.isEmpty()`보다 **위에** 둔다.
+
+세 가지가 따라온다.
+
+- **위상은 순수하게 뺀다.** `SheetPhase`(Unmeasured→Rising→Standing→Falling→Gone)는 enum 위의
+  산술이라 Compose 런타임 없이 JVM에서 검사된다(`SheetPhaseTest`, 4셀). 이 파일이 없으면 등장·퇴장
+  규칙 중 기기 밖에서 확인 가능한 것이 하나도 없다.
+- **스크림은 따로 할 일이 없다.** 불투명도가 위치의 함수면(`SheetGeometry.scrim(offset, hidden)`)
+  애니메이션되는 위치는 그대로 페이드이고, 끌리는 위치는 그대로 손가락을 따라온다.
+- **이동 중에는 손잡이를 잠근다.** 드래그는 애니메이션보다 높은 우선순위로 같은 mutator mutex를
+  가져가므로, 이동 중에 손가락이 닿으면 위상이 기다리던 `animateTo`가 취소되고 시트는 자기를 더 이상
+  설명하지 못하는 위상에 남는다. `anchoredDraggable(enabled = phase == Standing)` 한 줄이다.
+
+**나온 곳.** ui/scaffold-3j, Galaxy Z Flip4 (SM-F721N) / Android 15, 2026-09-09. 사람이 봤다.
+`Sheet.kt`의 첫 `updateAnchors`와 `FlowHost.kt`의 분기 순서, 둘 다. iOS는 `.sheet`가 시스템 시트라
+같은 자리에 코드가 없고, 그래서 두 플랫폼이 갈린 것을 러너 35셀이 전부 초록인 채로 놓쳤다.
+
 ## 원장
 
 change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서 나온 finding 수**를 적는다.
@@ -1583,6 +1708,7 @@ change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서
 | ui/scaffold-3g (Fit 시트가 상한으로 서는 것, 예측 뒤로가기 선언, 상태 표시줄 전경 — Z Flip4 원격 라운드) | 1 (기기) | 3 | 0 |
 | ui/scaffold-3h (modal 덮개의 Main 패스 consume이 손가락 누름을 취소 — 사람이 Z Flip4에서 잡음, 러너 35셀은 통과) | 1 (기기) | 1 | 0 |
 | ui/scaffold-3i (modal·sheet 안 NavDisplay가 nav3 기본 전환을 쓰던 것 — 사람이 Z Flip4에서 잡음) | 1 (기기) | 1 | 0 |
+| ui/scaffold-3j (시트가 등장·퇴장 없이 나타나고 사라지던 것 — updateAnchors 스냅과 스택이 빈 즉시 제거; 사람이 Z Flip4에서 잡음) | 1 (기기) | 1 | 0 |
 
 **ui/scaffold-3e 읽는 법.** finding 셋 다 novel이고 뒤 칸은 0이다. 첫 라운드가 [P31](#p31)
 (사람이 아이폰에서 잡았다), 그 처방을 넣고 돌린 시뮬레이터 라운드가 [P32](#p32), 같은
