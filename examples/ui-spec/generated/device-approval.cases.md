@@ -86,7 +86,7 @@ no cell opens the menu instead, on the same fake.
 
 ## What a person checks
 
-12 cells with no runner, for one of two reasons. Most are a GESTURE or a
+13 cells with no runner, for one of two reasons. Most are a GESTURE or a
 resting height, which is the class of thing a device runner reports success for
 whether or not the platform read it as the gesture it meant — cells u7b and u10b
 spent a Mac round on exactly that (`docs/IMPLEMENTATION-PITFALLS.md` P22). The rest
@@ -110,6 +110,7 @@ generated and anything written into it is lost on the next generation.
 | `modalTour-fingerTap` | `modalTour` | `modalOne` | tap `modalOne.next` on the flow's first screen WITH A FINGER — a real thumb on the glass, not a runner tap and not `adb shell input tap` | P36 — the control responds and the stack moves, because nothing drawn over or around the screen consumed the small movements a finger makes inside a tap (`stack=2`) |  |  |
 | `pushTour-swipeBack` | `pushTour` | `tourTwo` | swipe in from the left edge on iPhone, or use the system back gesture on Android | S2 and R8 — the gesture is the flow's own pop, so one route drops and the screen under it is the one it was (`stack=1`) |  |  |
 | `pushTour-predictiveBack` | `pushTour` | `tourTwo` | on Android, press and HOLD the back gesture at the edge without releasing it | the screen underneath is drawn under the gesture while it is held, and releasing lands on it; letting go back at the edge cancels and changes nothing (`stack=1`) |  |  |
+| `pushTour-buttonEdge` | `pushTour` | `tourOne` | tap `tourOne.next` on the flow's first screen at the far EDGE of the button — the coloured part well away from the words — with a finger | P39 — the stack moves, because the whole button is the tap target and not only the pixels its label happened to draw (`stack=2`) |  |  |
 | `sheetFit-detent` | `sheetFit` | `fitOne` | look at how tall the sheet stands, and compare the two platforms side by side | the sheet is as tall as its content and no taller, on both platforms, and it does not grow to a fraction of the window it did not need (`stack=1`) |  |  |
 | `sheetFull-detent` | `sheetFull` | `fullOne` | look at how tall the sheet stands, and compare the two platforms side by side | the sheet stands nearly full height and stops short of the top, leaving the screen under it visible above (`stack=1`) |  |  |
 | `sheetHalf-detent` | `sheetHalf` | `halfOne` | look at how tall the sheet stands, and compare the two platforms side by side | the sheet stands at about half the window on both platforms (`stack=1`) |  |  |

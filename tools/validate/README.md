@@ -257,6 +257,44 @@ The probe MOVES the empty-stack line above the sheet branch with awk — a delet
 because a sed replacement carrying a newline is the spelling that differs between GNU and BSD —
 and takes the source file away. Three cases, each scoped to section 19's own output.
 
+## Check 20 makes the coloured part of a button part of the button
+
+`.buttonStyle(.plain)` hands the tap to the LABEL, and a view's default hit shape is the part
+of it that drew something. So a plain button whose label is transparent answers over its
+letters and nowhere else, and every point of the fill around them is dead. That is what
+shipped: `RoleButton` attaches its fill, its radius and its border OUTSIDE the `Button`, which
+is where they belong for the style they draw and exactly where a hit test never looks, and a
+person on an iPhone 14 Pro had to hit the words to press a primary button
+(`docs/IMPLEMENTATION-PITFALLS.md` P39). The header's X and back are the same shape one step
+smaller — a 20pt glyph inside the 44pt frame check 15 requires — so the frame reported a
+target its own label refused.
+
+No assertion in this repository reads it. Android is not affected, because `Box.clickable`
+takes the whole box — which is why P21 is about a control's size rather than its shape — so
+the cross-platform section has nothing to compare. And a runner cannot see it: Maestro's
+`tapOn` presses the CENTRE of the element it resolved, the centre of these buttons is the
+label, and the label is the one part that worked. The 35 device cells are green either way,
+which is why `pushTour-buttonEdge` is a person's cell.
+
+The check counts per file with `grep -cE`: a file may not spend more `.buttonStyle(.plain)`
+than it buys `.contentShape(Rectangle())`. Position is what actually matters — the modifier
+has to be inside the label chain, because after `.buttonStyle(.plain)` it applies to the
+styled view nothing hit-tests — and a count cannot read position. It does not have to: a file
+that spends a `.plain` and buys no rectangle has not paid for one anywhere. `Screen.swift`
+buys two and spends one; its other rectangle is the ancestor that puts the keyboard away
+(P27), and a check demanding equality would have to know which rectangle was which. Neither
+expression uses `?` or `+` (`docs/IMPLEMENTATION-PITFALLS.md` P28). Two floors are stated —
+two files, two occurrences — because a root that resolved to nothing reads as zero of both,
+and a file that lost its `.plain` to a refactor keeps the file count while dropping the other.
+
+```sh
+sh tools/validate/probe-button-hit-shape-rules.sh   # prove each refusal bites
+```
+
+The probe REMOVES the rectangle line from `Buttons.swift` with `grep -v` — the shape the
+defect actually took, since the fill was always outside the `Button` — and takes the source
+root away. Three cases, each scoped to section 20's own output.
+
 ## Check 2 replaced a Step 1 prohibition
 
 Step 1 failed if a Gradle wrapper existed at all, because the baseline was undecided and
