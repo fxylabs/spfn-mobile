@@ -62,6 +62,20 @@ next flow starts, because every flow opens with `clearState: true` — which on 
 cell's line carries both facts, its flow's exit status and whether its receipt arrived, so
 a cell that asserted everything and still left nothing is reported as that. Receipts and
 the per-cell Maestro reports land in `examples/ui-spec/receipts/android/<date>/`.
+A cell that failed is driven a **second time, once**, when the evidence it left says the
+LAUNCH stalled — the cold start outrunning the first wait, as cell u14's did on a wiped
+Pixel 3a on 2026-09-02 — and never for anything else, so a false assertion is reported the
+first time rather than run again until it passes. A retried cell says `launch stall,
+retried` on its line, the summary counts them, and the first attempt's log and report stay
+beside the second as `<cell>.attempt1.log` and `<cell>.attempt1.xml`.
+
+The warm-up waits for `fixture=none` as well as `stack=`, and that is a claim about the
+launch rather than about the menu. `SPFN_UI_FIXTURE` is an intent extra and
+`Intent.filterEquals` does not compare extras, so a start on this component can be handed
+the task an earlier one rooted and go on drawing that launch's cell — a run on 2026-09-02
+opened with no fixture and read `fixture=u5`. `clearState: true` is a `pm clear` and takes
+the task with the store, and the warm-up is where that is proven, once a run and before any
+cell is driven.
 `sh examples/ui-spec/run-cells.sh --probe` proves the receipt gate bites and needs no
 device.
 
@@ -77,6 +91,11 @@ installs it with `adb -s … install -r` and starts the activity. With `--fixtur
 start carries `--es SPFN_UI_FIXTURE <cell>` and the app opens straight onto that cell's flow,
 which is how the `manual` rows of the case table are reached — record the answers in a copy of
 `examples/ui-spec/receipts/manual/TEMPLATE.md`.
+
+Every start from here carries `--activity-clear-task --activity-new-task`, so each one
+begins with the extras it was given and not with the ones the start before it carried. A
+task is matched by component and not by extras, so without those flags the second run of
+this command shows you the first run's cell.
 
 A wireless serial is `host:port` and goes in the same variable; nothing in the script parses
 the value. There is no default: an unset variable stops the run naming the variable and
