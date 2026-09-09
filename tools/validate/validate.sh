@@ -246,6 +246,7 @@ for path in \
     tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
     tools/rc-verify/probe-trap-exit.sh tools/rc-verify/local-signed-run.sh \
     tools/device-receipts/receipt-gate.sh tools/device-receipts/probe-receipt-gate.sh \
+    tools/harness/run-harness.sh tools/harness/probe-preflight.sh \
     tools/cocoapods-compat/generate-podspec.sh \
     tools/verify-server/run.sh tools/verify-server/probe-refusals.sh \
     tools/verify-server/README.md tools/verify-server/spfn-versions.sh \
@@ -276,6 +277,23 @@ do
         fail "missing dir $path"
     fi
 done
+
+# The harness preflight, which is a section of one script and a probe beside it.
+#
+# Both halves or neither. The section is what refuses a device run in thirty seconds
+# instead of thirty minutes, and the probe is the only thing that says it still refuses —
+# a probe that cannot be run is an unrun check, and an unrun check must never read as a
+# passed one (docs/IMPLEMENTATION-PITFALLS.md P7). What the preflight actually decides is
+# proved by the probe itself; this is only that neither half went missing.
+contains tools/harness/run-harness.sh 'preflight' \
+    'run-harness.sh reads the screen before it spends a run on it (section 3b)'
+
+if [ -x tools/harness/probe-preflight.sh ]
+then
+    pass 'tools/harness/probe-preflight.sh is executable'
+else
+    fail 'tools/harness/probe-preflight.sh is not executable, so nothing proves the preflight refuses'
+fi
 
 # ---------------------------------------------------------------------------
 section '2. build toolchain is pinned to published checksums'
