@@ -354,6 +354,235 @@ cleartext_permits()
     cleartext_hosts "$1" | grep -qxF "$WANTED_HOST"
 }
 
+# ---------------------------------------------------------------------------
+# preflight: the three ways every flow fails at once, read before any is spent
+# ---------------------------------------------------------------------------
+# On 2026-09-02 four device runs died 15 to 30 minutes in, all four on the same message —
+# `Element not found: Id matching regex: btn_wipe` — and none of the four was about the
+# flow that reported it. tools/harness/README.md "Picking a target" names all three
+# causes: something of the system's is drawn over the app, a control is below the fold and
+# therefore not in the accessibility tree at all (docs/IMPLEMENTATION-PITFALLS.md P25), or
+# an ANR dialog is up. The tree says which, and reading it once costs seconds.
+#
+# So the four functions below are the preflight's judgments, and each one takes FILES
+# rather than a device. That is what lets tools/harness/probe-preflight.sh drive them on a
+# machine with no emulator, no simulator and no maestro: the dump is the input, and every
+# named refusal is reproducible from a fixture.
+
+# Every id a flow may tap on the app's FIRST screen, one per line, sorted and unique.
+#
+# Read out of $1/*.yaml rather than written down here, because a list written down here
+# would be a second copy of the flows and would go on agreeing with itself after they
+# changed. `HarnessRunnerBlockTest` reads the same directory for the same reason.
+#
+# Up to and including each file's FIRST `tapOn`, and no further. Everything a flow taps
+# after that is on a screen this dump cannot show — `enterCode.submit` and
+# `reviewDevice.approve` belong to the generated approval screens, which open over this
+# one — and a preflight that demanded them would refuse a run that was about to pass. What
+# the cut leaves is the harness's own runner grid, which the README's screen table and
+# `RunnerBlockTags` both place inside the first viewport.
+#
+# A file whose first tap sits behind `runFlow: prelude-clean.yaml` still contributes that
+# tap: the prelude taps `btn_wipe` on this same screen and returns to it, so both ids are
+# first-viewport ids and the union is what the preflight has to find.
+preflight_first_viewport_ids()
+{
+    awk '
+        FNR == 1 { seen = 0; stop = 0 }
+        stop { next }
+        /^[[:space:]]*-[[:space:]]*tapOn:/ { seen = 1; next }
+        seen && /^-/ { stop = 1; next }
+        {
+            # `id:` with a word in front of it is somebody else`s key — `appId:` is the
+            # one this file really holds — so the character before it is checked.
+            if (match($0, /(^|[^A-Za-z_])id:[[:space:]]*"[^"]+"/))
+            {
+                value = substr($0, RSTART, RLENGTH);
+                sub(/^[^"]*"/, "", value);
+                sub(/"$/, "", value);
+                print value;
+            }
+        }
+    ' "$1"/*.yaml | sort -u
+}
+
+# Whether the listing at $1 says the app $2 is installed on the target.
+#
+# Two spellings, one per platform, and both are whole-value matches. `pm list packages`
+# takes its argument as a FILTER and answers every package the string is a substring of,
+# so a `<id>.test` left behind by an instrumentation run would answer this question yes
+# for an app that is not there. iOS lists a plist, where the bundle id is a quoted value.
+#
+# A listing that could not be read answers no. An unrun check must never read as a passed
+# one (docs/IMPLEMENTATION-PITFALLS.md P7), and here that is the whole point: the run is
+# about to spend twenty minutes on the answer.
+preflight_installed()
+{
+    if [ ! -f "$1" ]
+    then
+        return 1
+    fi
+    if grep -qxF "package:$2" "$1"
+    then
+        return 0
+    fi
+    grep -qF "CFBundleIdentifier = \"$2\"" "$1"
+}
+
+# Whether the state at $1 says the app $2 is the process the target is showing.
+#
+# Three spellings, because two platforms answer this three ways and none of them is a bare
+# pid: Android names the package on the `topResumedActivity` line of
+# `dumpsys activity activities`, and iOS names it either as a `launchctl` job with a real
+# pid or as `simctl launch`'s own `<bundle>: <pid>` answer.
+#
+# Installed and running are different failures with different fixes — one is a build that
+# never landed, the other an app that crashed on launch — so they are checked apart and
+# named apart.
+preflight_running()
+{
+    if [ ! -f "$1" ]
+    then
+        return 1
+    fi
+    if grep -F topResumedActivity "$1" | grep -qF "$2"
+    then
+        return 0
+    fi
+    if grep -qF "UIKitApplication:$2" "$1"
+    then
+        return 0
+    fi
+    grep -qE "^$2: [0-9]+$" "$1"
+}
+
+# Whether the tree at $1 holds an ANR dialog.
+#
+# `android:id/aerr_wait`, `android:id/aerr_close`: the dialog is the system's, it is drawn
+# over everything including the harness, and a dump that holds it holds nothing of the app
+# at all. The substring is deliberately shorter than the full resource id — nothing this
+# repository draws, generates or names contains `aerr_`, and a false positive costs one
+# re-run while a false negative costs the twenty minutes this whole section exists to save.
+#
+# iOS has no equivalent and this is never called there; the preflight reports that as `not
+# applicable` rather than as a pass, because an unrun check is not a passed one.
+#
+# A tree that could not be read answers no here, and is refused by `preflight_ids_present`
+# below, which is the one place an unreadable tree gets a name.
+preflight_anr_present()
+{
+    if [ ! -f "$1" ]
+    then
+        return 1
+    fi
+    grep -qF 'aerr_' "$1"
+}
+
+# Whether every id in the file $2 is in the accessibility tree dumped to $1, and which
+# ones are not.
+#
+#   exit 0   all of them, nothing printed
+#   exit 1   some are missing, and the missing ones are printed one per line
+#   exit 2   the tree or the id list could not be read, and the reason is printed
+#
+# Both dumps go through here, because both spell an id the same way. Android's
+# `uiautomator dump` writes XML whose nodes carry `resource-id`, and `maestro hierarchy`
+# writes JSON whose nodes carry `"resource-id"` — the two commands
+# docs/IMPLEMENTATION-PITFALLS.md P25 names for exactly this question. The other three
+# keys are what an iOS hierarchy has been seen to spell the same field as; a key that is
+# never there costs nothing, and a run on a Mac is what settles which one it is.
+#
+# The suffix after a `/` counts as the id too. A Compose test tag published through
+# `testTagsAsResourceId` arrives bare, and a View's arrives as `<package>:id/<name>`, and
+# a preflight that knew only one of those would refuse a screen that is perfectly correct.
+#
+# python3 rather than grep for the same reason `case_status` is python: the two answers
+# that matter — "the tree does not have it" and "the tree could not be parsed" — are one
+# quiet mistake apart, and this is the check that has to tell them apart.
+preflight_ids_present()
+{
+    python3 - "$1" "$2" <<'PRESENT'
+import json
+import sys
+import xml.etree.ElementTree as ET
+
+tree_path, ids_path = sys.argv[1], sys.argv[2]
+
+# What each dump calls the field a Maestro `id:` selector matches on.
+KEYS = ("resource-id", "resourceId", "accessibilityIdentifier", "identifier")
+
+
+def from_xml(text):
+    found = set()
+    for node in ET.fromstring(text).iter():
+        for key in KEYS:
+            value = node.get(key)
+            if value:
+                found.add(value)
+    return found
+
+
+def from_json(text):
+    found = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in KEYS and isinstance(value, str) and value:
+                    found.add(value)
+                else:
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(json.loads(text))
+    return found
+
+
+def refuse(reason):
+    print(reason)
+    sys.exit(2)
+
+
+try:
+    with open(tree_path, encoding="utf-8", errors="replace") as handle:
+        text = handle.read().strip()
+except OSError:
+    refuse("the tree at %s could not be read" % tree_path)
+
+if not text:
+    refuse("the tree at %s is empty" % tree_path)
+
+# A dump is XML or it is JSON, and maestro has been known to print a line of its own
+# before the JSON, so the JSON is looked for from its first brace rather than at offset 0.
+try:
+    if text.startswith("<"):
+        found = from_xml(text)
+    else:
+        at = min(x for x in (text.find("{"), text.find("[")) if x >= 0)
+        found = from_json(text[at:])
+except (ET.ParseError, ValueError, json.JSONDecodeError):
+    refuse("the tree at %s is neither readable XML nor readable JSON" % tree_path)
+
+found |= {value.rsplit("/", 1)[-1] for value in found}
+
+try:
+    with open(ids_path, encoding="utf-8") as handle:
+        wanted = [line.strip() for line in handle if line.strip()]
+except OSError:
+    refuse("the id list at %s could not be read" % ids_path)
+
+if not wanted:
+    refuse("the id list at %s is empty, so nothing was checked" % ids_path)
+
+missing = [name for name in wanted if name not in found]
+for name in missing:
+    print(name)
+sys.exit(1 if missing else 0)
+PRESENT
+}
+
 # Parks a device request with the target and answers `<userCode> <deviceCode>`.
 #
 # The body carries a freshly generated P-256 key, because the server checks that
@@ -732,7 +961,7 @@ CASES="$BATCH_CASES
 $APPROVAL_CASES"
 
 # ---------------------------------------------------------------------------
-printf '\n3. building and installing the harness\n'
+printf '\n3a. building and installing the harness\n'
 # ---------------------------------------------------------------------------
 if [ "$PLATFORM" = ios ]
 then
@@ -788,6 +1017,162 @@ else
     fi
     pass "the build permits cleartext to $PERMITTED_HOSTS, which is where the app is pointed"
 fi
+
+# ---------------------------------------------------------------------------
+printf '\n3b. preflight\n'
+# ---------------------------------------------------------------------------
+# One tree, read before the first flow is spent.
+#
+# Every failure this refuses looks identical from the other end: `Element not found: Id
+# matching regex: btn_wipe`, on every cell, fifteen to thirty minutes in. Four device runs
+# went that way on 2026-09-02 and none of them was about `btn_wipe`. The three causes are
+# in tools/harness/README.md "Picking a target", and one dump separates all three — so
+# this section names which one it is in seconds instead of leaving a run to discover it
+# in minutes and misattribute it.
+#
+# The budget is thirty seconds, measured and printed. The dump is taken once and retried
+# at most twice, because the one thing a retry buys is a screen that was still being drawn
+# — nothing here gets better by being asked a fourth time. Everything else is refused on
+# the first answer: an app that is not installed will not install itself, and an ANR
+# dialog does not go away while a script watches it.
+#
+# The app is launched here because nothing before this point launches it. Section 3a
+# installs, and the first thing the prelude does is `launchApp` with `clearState`, so this
+# launch costs the run nothing and is thrown away by the flow that follows it.
+PREFLIGHT_BUDGET=30
+PREFLIGHT_STARTED=$(date +%s)
+PREFLIGHT_IDS="$WORK/first-viewport-ids.txt"
+PREFLIGHT_TREE="$WORK/preflight-tree"
+PREFLIGHT_STATE="$WORK/preflight-state"
+PREFLIGHT_APPS="$WORK/preflight-apps"
+
+preflight_elapsed()
+{
+    printf '%s' "$(( $(date +%s) - PREFLIGHT_STARTED ))"
+}
+
+# The named refusal, with the elapsed time on it: a preflight that ran out of budget and
+# one that read a real answer are different events and the seconds say which.
+preflight_refuse()
+{
+    fail "preflight: $1 ($(preflight_elapsed)s of ${PREFLIGHT_BUDGET}s)"
+    shift
+    for LINE in "$@"
+    do
+        printf '      %s\n' "$LINE"
+    done
+    exit 1
+}
+
+preflight_first_viewport_ids "$FLOWS" > "$PREFLIGHT_IDS"
+PREFLIGHT_ID_COUNT=$(grep -c . "$PREFLIGHT_IDS" || true)
+if [ "$PREFLIGHT_ID_COUNT" -eq 0 ]
+then
+    preflight_refuse 'no id could be read out of the flows, so nothing would be checked' \
+        "the ids are read from $FLOWS/*.yaml, up to each file's first tapOn" \
+        'a preflight that checked nothing would pass every screen, including a blank one'
+fi
+
+# 1. installed, and running.
+if [ "$PLATFORM" = ios ]
+then
+    xcrun simctl listapps "$TARGET" > "$PREFLIGHT_APPS" 2> /dev/null || true
+else
+    adb -s "$TARGET" shell pm list packages "$APP_ID" 2> /dev/null | tr -d '\r' > "$PREFLIGHT_APPS" || true
+fi
+
+if ! preflight_installed "$PREFLIGHT_APPS" "$APP_ID"
+then
+    preflight_refuse "not installed — the target does not list $APP_ID" \
+        'section 3a reported an install, so the target lost it or installed it for another user' \
+        'nothing below this line can be true of an app that is not there'
+fi
+
+if [ "$PLATFORM" = ios ]
+then
+    xcrun simctl launch "$TARGET" "$APP_ID" > "$WORK/preflight-launch" 2>&1 || true
+else
+    adb -s "$TARGET" shell monkey -p "$APP_ID" -c android.intent.category.LAUNCHER 1 \
+        > /dev/null 2>&1 || true
+fi
+
+# 2. and 3., against one tree per attempt. Three attempts at most and thirty seconds at
+# most, whichever runs out first.
+PREFLIGHT_ATTEMPT=0
+PREFLIGHT_MISSING=''
+PREFLIGHT_READY=0
+while [ "$PREFLIGHT_ATTEMPT" -lt 3 ]
+do
+    PREFLIGHT_ATTEMPT=$((PREFLIGHT_ATTEMPT + 1))
+
+    if [ "$PLATFORM" = ios ]
+    then
+        # Two answers concatenated: `simctl launch` printed `<bundle>: <pid>` above, and
+        # launchctl names the job. `preflight_running` reads either spelling.
+        cat "$WORK/preflight-launch" > "$PREFLIGHT_STATE" 2> /dev/null || true
+        xcrun simctl spawn "$TARGET" launchctl list >> "$PREFLIGHT_STATE" 2> /dev/null || true
+        maestro --device "$TARGET" hierarchy > "$PREFLIGHT_TREE" 2> /dev/null || true
+    else
+        adb -s "$TARGET" shell dumpsys activity activities 2> /dev/null | tr -d '\r' \
+            > "$PREFLIGHT_STATE" || true
+        adb -s "$TARGET" shell uiautomator dump /sdcard/spfn-preflight.xml > /dev/null 2>&1 || true
+        adb -s "$TARGET" shell cat /sdcard/spfn-preflight.xml 2> /dev/null | tr -d '\r' \
+            > "$PREFLIGHT_TREE" || true
+    fi
+
+    # An ANR dialog is refused on the first sight of it. Retrying is for an app that is
+    # still drawing, and this is not that: the dialog is the system's, it is over
+    # everything, and it stays until somebody dismisses it.
+    if [ "$PLATFORM" = android ] && preflight_anr_present "$PREFLIGHT_TREE"
+    then
+        preflight_refuse 'anr dialog — the tree holds android:id/aerr_ nodes and nothing of the app' \
+            'a system dialog is drawn over the harness, so every tap by id misses' \
+            'dismiss it for one run; cold-boot the target (emulator -avd <name> -no-snapshot-load)' \
+            'to stop it coming back — tools/harness/README.md "Picking a target"'
+    fi
+
+    PREFLIGHT_MISSING=''
+    if preflight_running "$PREFLIGHT_STATE" "$APP_ID"
+    then
+        PREFLIGHT_MISSING=$(preflight_ids_present "$PREFLIGHT_TREE" "$PREFLIGHT_IDS" || true)
+        if [ -z "$PREFLIGHT_MISSING" ]
+        then
+            PREFLIGHT_READY=1
+            break
+        fi
+    fi
+
+    if [ "$PREFLIGHT_ATTEMPT" -ge 3 ] || [ "$(preflight_elapsed)" -ge "$PREFLIGHT_BUDGET" ]
+    then
+        break
+    fi
+    sleep 2
+done
+
+if [ "$PREFLIGHT_READY" -ne 1 ]
+then
+    if ! preflight_running "$PREFLIGHT_STATE" "$APP_ID"
+    then
+        preflight_refuse "not running — $APP_ID is installed and is not the app on top" \
+            'it was launched here and did not come up, or it came up and died' \
+            'a crash on launch reads from a flow exactly as a missing button does'
+    fi
+    # Named, one per line. Which id is missing is the whole answer: `btn_wipe` alone is a
+    # control below the fold (P25), and every id at once is something drawn over the app.
+    preflight_refuse "ids missing from first viewport — $(printf '%s' "$PREFLIGHT_MISSING" | tr '\n' ' ')" \
+        'the runner taps these on the first screen and the accessibility tree does not have them' \
+        'a scroll container publishes only what overlaps the viewport, so a control below the' \
+        'fold is absent rather than dim (docs/IMPLEMENTATION-PITFALLS.md P25); a system alert' \
+        'over the app removes all of them at once'
+fi
+
+if [ "$PLATFORM" = ios ]
+then
+    PREFLIGHT_ANR='anr not applicable'
+else
+    PREFLIGHT_ANR='anr none'
+fi
+pass "preflight: installed ok · $PREFLIGHT_ANR · ids $PREFLIGHT_ID_COUNT/$PREFLIGHT_ID_COUNT present ($(preflight_elapsed)s)"
 
 # ---------------------------------------------------------------------------
 printf '\n4a. the lifecycle flows\n'
