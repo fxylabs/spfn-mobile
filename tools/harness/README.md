@@ -28,6 +28,7 @@ sh tools/harness/run-harness.sh android
 | `probe-receipts.sh` | proves a receipt cannot be earned by a case that did not pass |
 | `probe-target-refusal.sh` | proves a physical iPhone cannot be mistaken for a simulator |
 | `probe-cleartext-host.sh` | proves the run refuses to start against a host the app may not reach |
+| `probe-preflight.sh` | proves the preflight names each of the three failures instead of surviving them |
 
 ## The case table
 
@@ -647,6 +648,42 @@ including the harness, and the dump gives it away immediately: it holds `android
 nodes and nothing of the app at all. Dismissing the dialog gets one run through; a cold
 boot (`emulator -avd <name> -no-snapshot-load`, or Cold Boot Now from the device manager)
 is what stops it coming back.
+
+**The runner now asks all three questions before the first flow, and the answer has a
+name.** Section 3b of `run-harness.sh` is a preflight: it takes ONE accessibility tree
+between installing the app and running anything, and refuses with the failure's own name
+rather than leaving a run to report `btn_wipe` about something else fifteen minutes later.
+
+| what it checks | how | what it says when it is wrong |
+| --- | --- | --- |
+| the app is installed and is the app on top | Android `adb shell pm list packages <id>` and the `topResumedActivity` line of `dumpsys activity activities`; iOS `xcrun simctl listapps <udid>`, then `simctl launch` and `simctl spawn <udid> launchctl list` | `not installed`, or `not running` |
+| no ANR dialog is over it | the dump holds `android:id/aerr_` nodes. iOS has no equivalent, and reports `anr not applicable` rather than a pass | `anr dialog` |
+| every id the first flow taps is in the first viewport | the ids the flows tap, held against the dump — `adb shell uiautomator dump /sdcard/ui.xml` on Android, `maestro --device <udid> hierarchy` on iOS | `ids missing from first viewport`, and which ones |
+
+The id set is DERIVED and never written down. `preflight_first_viewport_ids` reads
+`flows/*.yaml` up to each file's first `tapOn` and takes the union, which today is
+`btn_enroll`, `btn_open_approve`, `btn_resume`, `btn_revoke`, `btn_rotate` and `btn_wipe`
+— six of the eleven controls the screen table above places in the runner grid. The cut at
+the first tap is what keeps `enterCode.submit` and `reviewDevice.approve` out of it: those
+belong to the generated approval screens, which open OVER this one, so a dump taken before
+the first tap cannot hold them and a preflight that demanded them would refuse a run that
+was about to pass.
+
+The budget is thirty seconds, measured and printed on the line it passes with —
+`preflight: installed ok · anr none · ids 6/6 present (12s)`. One dump, retried at most
+twice for a screen that may still be drawing; everything else is refused on the first
+answer, because an app that is not installed will not install itself and an ANR dialog
+does not leave while a script watches it.
+
+`sh tools/harness/probe-preflight.sh` proves each refusal from a fixture rather than from a
+device — every judgment takes a file — so a machine with no emulator, no simulator and no
+maestro can hold this. What it cannot answer is what `maestro hierarchy` really prints on a
+Mac: the iOS fixture is the shape `docs/IMPLEMENTATION-PITFALLS.md` P25 records,
+`"resource-id" : "<id>"`, and the reader also accepts `resourceId`,
+`accessibilityIdentifier` and `identifier` in case that shape is not the one. **The first
+iOS run on a Mac is what settles which key it is** — if the preflight refuses a simulator
+whose screen is plainly correct, dump `maestro --device <udid> hierarchy` and look at what
+the nodes call their id.
 
 ## On a real Android phone
 
