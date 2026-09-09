@@ -25,6 +25,30 @@
 // whatever the window reports and has not been consumed yet. Without this, every `Screen`
 // inside a sheet would carry a status bar's worth of empty space above its title
 // (docs/IMPLEMENTATION-PITFALLS.md P25).
+//
+// ---------------------------------------------------------------------------
+// Arriving and leaving are the DRAG's path, walked by something other than a finger
+// ---------------------------------------------------------------------------
+//
+// A sheet that appears at its detent and vanishes from it is not a sheet on either platform,
+// and it is what this file used to draw: the first `updateAnchors` was handed
+// `newTarget = Open`, and that argument is a SNAP — `AnchoredDraggableState.updateAnchors`
+// calls `trySnapTo`, which takes the drag mutex and calls `dragTo` with the new anchor's
+// position in one step (androidx.compose.foundation 1.11.4, read with javap). So the sheet was
+// already standing on the frame it was measured on.
+//
+// There is exactly one path a sheet moves along and `AnchoredDraggableState` owns it, so the
+// arrival and the departure are `animateTo` over the same anchors the handle drags between.
+// Nothing here states an animation spec: `animateTo` with none falls through to
+// `AnchoredDraggableDefaults.snapAnimationSpec`, which is the same spec the handle's own fling
+// settles on, and a second opinion about how a sheet moves is the defect this avoids.
+//
+// The scrim needs no part of this. `SheetGeometry.scrim` is a function of the sheet's OFFSET,
+// so a position that animates is a scrim that fades, and a position that a finger drags is a
+// scrim that follows the finger — the same arithmetic answering both.
+//
+// What moves when is [SheetPhase], and it is a file of its own because it is the only half of
+// this a JVM test can drive (docs/IMPLEMENTATION-PITFALLS.md P38).
 
 package xyz.superfunction.spfn.ui
 
@@ -34,6 +58,7 @@ import androidx.compose.foundation.gestures.AnchoredDraggableState
 import androidx.compose.foundation.gestures.DraggableAnchors
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.anchoredDraggable
+import androidx.compose.foundation.gestures.animateTo
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -80,25 +105,69 @@ internal enum class SheetAnchor
 }
 
 /**
- * Draws [content] as a sheet standing at [detent], and calls [onClose] when the sheet is
- * dismissed by the scrim or by a drag.
+ * Draws [content] as a sheet standing at [detent] for as long as [open], and reports what it
+ * did about it: [onClose] when the user asked the sheet to go, [onHidden] once it has gone.
  *
- * Dismissal is reported rather than performed: this composable never closes anything
- * itself, it says that the user asked, and `FlowHost` spends that on `Flow.back` so that a
- * drag and a system back reach the flow through the same door.
+ * The two callbacks are two different sentences and a caller needs both.
+ *
+ * [onClose] is a REQUEST, and this composable never grants it: the scrim was tapped, or the
+ * handle was dragged past `SheetGeometry.closes`, and `FlowHost` spends that on `Flow.close`
+ * so that a drag, a scrim and a system back reach the flow through the same door. Nothing
+ * moves because of it — [open] going false is what moves the sheet.
+ *
+ * [onHidden] is a RECEIPT, and it arrives once, after the sheet has settled out of sight. A
+ * flow's stack empties the instant it closes and this sheet still has its slide to run, so the
+ * host has to be told when it may stop drawing; a host that stops at [open] going false is a
+ * sheet that disappears instead of leaving.
+ *
+ * A dismissal by drag produces both, in that order and one flow round trip apart: the drag
+ * settles at [SheetAnchor.Hidden], [onClose] reports it, the flow closes, [open] goes false,
+ * and the fall it asks for has nowhere left to go — so it completes at once and [onHidden]
+ * follows.
  */
 @Composable
-internal fun Sheet(detent: SheetDetent, onClose: () -> Unit, content: @Composable () -> Unit)
+internal fun Sheet(
+    detent: SheetDetent,
+    open: Boolean,
+    onClose: () -> Unit,
+    onHidden: () -> Unit,
+    content: @Composable () -> Unit
+)
 {
     val density = LocalDensity.current;
     val state = remember { AnchoredDraggableState(initialValue = SheetAnchor.Hidden) };
     var measured by remember { mutableStateOf(false) };
+    var phase by remember { mutableStateOf(SheetPhase.Unmeasured) };
 
-    // Reported once the sheet has actually stood up, so that the Hidden the state starts in
-    // is not read as a dismissal of a sheet nobody has seen yet.
+    LaunchedEffect(measured, open)
+    {
+        phase = phase.asked(measured = measured, open = open);
+    }
+
+    // The only place a sheet moves on its own, and both directions are here. The phase that
+    // FOLLOWS is the one the travel earned: `animateTo` runs under the state's drag mutex, so
+    // the next phase's travel cancels this coroutine where it stands and the line below it
+    // never runs — an interrupted rise does not get to claim it is standing.
+    LaunchedEffect(phase)
+    {
+        val destination = phase.destination;
+        if (destination != null)
+        {
+            state.animateTo(destination);
+            phase = phase.arrived();
+        }
+        else if (phase == SheetPhase.Gone)
+        {
+            onHidden();
+        }
+    }
+
+    // Reported once the sheet has actually stood up, so that the Hidden the state starts in —
+    // and the Hidden it is still settled at all the way up — is not read as a dismissal of a
+    // sheet nobody has seen yet.
     LaunchedEffect(state.settledValue)
     {
-        if (measured && state.settledValue == SheetAnchor.Hidden)
+        if (phase.dismisses(state.settledValue))
         {
             onClose();
         }
@@ -127,18 +196,21 @@ internal fun Sheet(detent: SheetDetent, onClose: () -> Unit, content: @Composabl
                             SheetAnchor.Open at 0f;
                             SheetAnchor.Hidden at size.height.toFloat();
                         },
-                        if (measured) state.targetValue else SheetAnchor.Open
+                        if (measured) state.targetValue else SheetAnchor.Hidden
                     );
                     measured = true;
                 }
-                .offset { IntOffset(x = 0, y = state.offset.let { if (it.isNaN()) 0 else it.roundToInt() }) }
+                // Off the bottom until there is an offset to believe, rather than at the
+                // detent: the fallback is what a reader sees if a measurement is ever late,
+                // and a sheet flashing at full height is the exact defect above.
+                .offset { IntOffset(x = 0, y = sheetY(state.offset, container)) }
                 .clip(RoundedCornerShape(topStart = SpfnTokens.radiusLarge, topEnd = SpfnTokens.radiusLarge))
                 .background(spfnPalette().background)
                 .consumeWindowInsets(WindowInsets.statusBars)
                 .testTag("sheet")
         )
         {
-            Handle(state = state);
+            Handle(state = state, enabled = phase.draggable);
             // The one thing the content has to be told, and only `Fit` makes it true: this
             // sheet is as tall as what is inside it, so what is inside it may not fill.
             // Everything else here fixes a height, and a screen that fills a fixed height is
@@ -181,6 +253,19 @@ private fun SheetDetent.heightModifier(container: Float, full: Float, density: D
 }
 
 /**
+ * How far down the sheet is drawn, in whole pixels.
+ *
+ * [offset] is NaN until the first `updateAnchors`, which happens inside the measure pass of
+ * the sheet's own first frame — so placement, which runs after that pass, has always read a
+ * real number. [container] is what is drawn if that ever stops being true: the sheet's own
+ * container is at least as tall as the sheet, so it puts the sheet off the bottom edge, which
+ * is where an unmeasured sheet belongs. Zero — the detent, the top of the travel — would put a
+ * sheet nobody has measured at full height for a frame and then drop it.
+ */
+private fun sheetY(offset: Float, container: Float): Int =
+    if (offset.isNaN()) container.roundToInt() else offset.roundToInt();
+
+/**
  * The dimmed surface behind the sheet. Tapping it asks to close, which is the one
  * affordance a sheet has that a full-screen modal does not.
  */
@@ -203,9 +288,16 @@ private fun Scrim(opacity: Float, onTap: () -> Unit)
  *
  * The row is a whole touch target tall (docs/IMPLEMENTATION-PITFALLS.md P21) even though the
  * bar drawn inside it is a few pixels: what a person grabs is the row.
+ *
+ * [enabled] is `SheetPhase.draggable`, and it is false for as long as the sheet is travelling
+ * on its own. A drag takes the state's mutator mutex at a higher priority than an animation
+ * does, so a finger on the handle mid-travel cancels the `animateTo` that the phase was
+ * waiting on — and the sheet is left where the finger dropped it, in a phase that no longer
+ * describes it. There is nothing to arbitrate: a sheet that is not standing is not yet the
+ * user's to move.
  */
 @Composable
-private fun Handle(state: AnchoredDraggableState<SheetAnchor>)
+private fun Handle(state: AnchoredDraggableState<SheetAnchor>, enabled: Boolean)
 {
     Box(
         modifier = Modifier
@@ -215,6 +307,7 @@ private fun Handle(state: AnchoredDraggableState<SheetAnchor>)
             .anchoredDraggable(
                 state = state,
                 orientation = Orientation.Vertical,
+                enabled = enabled,
                 flingBehavior = AnchoredDraggableDefaults.flingBehavior(
                     state = state,
                     positionalThreshold = { distance -> distance * SheetGeometry.DISMISS_FRACTION }
