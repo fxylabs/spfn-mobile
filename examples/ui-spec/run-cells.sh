@@ -31,6 +31,34 @@
 #                examples/android-compose/build/outputs/apk/debug/example-compose-debug.apk
 #
 # ---------------------------------------------------------------------------
+# A stalled launch is driven again, once, and says so
+# ---------------------------------------------------------------------------
+#
+# Two runs paid for this. On a loaded Mac on 2026-09-09 two of thirty-five iOS cells failed
+# with `iOS driver not ready in time` — maestro's own driver never came up, so neither flow
+# ran at all — and all thirty-five passed on a rerun. On a wiped Pixel 3a emulator on
+# 2026-09-02 the cold start outran cell u14's first wait and the warm second run passed.
+# Neither is a fact about the app, and a red cell that claims it is costs the reader an
+# afternoon looking at a screen that works.
+#
+# So a failed cell is driven a SECOND time when, and only when, the evidence it left says
+# the LAUNCH stalled. `launch_stalled` below is that whitelist and it is deliberately a
+# short one: everything outside it — an assertion that was false, an element that was not
+# there, a flow that reached its end and wrote no receipt — is reported the first time and
+# never driven again, because rerunning a real defect spends the time twice and then hides
+# it behind a second roll of the dice. The retry is once per cell and no more, the SECOND
+# attempt is the verdict, and the first attempt's log and report are kept beside it as
+# `<cell>.attempt1.log` and `<cell>.attempt1.xml`. Every retried cell says so on its own
+# line and in the summary's count: a run that hid how many attempts it took would be a run
+# whose flakiness nobody could read.
+#
+# None of this is a substitute for the driver's own startup timeout, which belongs to
+# whoever runs this and not to this script. On a Mac doing anything else at the same time —
+# the 2026-09-09 run shared it with a validate, an xcodebuild and a swift test — export
+# MAESTRO_DRIVER_STARTUP_TIMEOUT=120000 before the run. This script never sets it: an
+# environment variable a runner overwrote is one the person could not choose.
+#
+# ---------------------------------------------------------------------------
 # One flow at a time, and why it is worth the driver restarts
 # ---------------------------------------------------------------------------
 #
@@ -372,10 +400,87 @@ drive_flow()
     return "$FLOW_OUTCOME"
 }
 
+# The failure and error text of JUnit report $1, one message per line. Nothing at all when
+# the file is absent or unreadable, which is a real answer here: maestro writes no report
+# when its driver never came up, and the caller reads that as "this report says nothing".
+#
+# Read with python rather than sed for the reason run-harness.sh's own reader states: a
+# `<failure>` carries its message on an attribute or in its text, and a line-oriented reader
+# that guessed which would be confident about a failure it never saw.
+failure_text()
+{
+    python3 - "$1" <<'FAILURES'
+import sys
+import xml.etree.ElementTree as ET
+
+try:
+    root = ET.parse(sys.argv[1]).getroot()
+except Exception:
+    sys.exit(0)
+
+for node in root.iter():
+    if node.tag in ("failure", "error"):
+        print(" ".join((node.get("message") or "", node.text or "")).replace("\n", " "))
+FAILURES
+}
+
+# Whether maestro log $1 and JUnit report $2 say the LAUNCH stalled, rather than the app
+# having failed at something the cell asserts. The one input to the retry above, and a
+# whitelist of exactly two shapes because a wrong yes here reruns a defect until it hides:
+#
+#   1. maestro's own driver never came up. `IOSDriverTimeoutException` / `iOS driver not
+#      ready in time`, the two spellings of the line a loaded Mac printed on 2026-09-09.
+#      No flow ran, so there is usually no report at all — this half reads the log alone,
+#      and an ABSENT report is not an obstacle to it.
+#
+#   2. the app never drew its first readout. The flow's first `extendedWaitUntil` is the
+#      launch wait and its matcher is `stack=.*`, which is the one step in all 35 generated
+#      flows that uses it — every assertion names an exact depth (`stack=2`), so a report
+#      that names the regex names the launch wait and nothing else. It needs the report:
+#      the log holds every step the run got through, and reading the failure point out of
+#      it by proximity is how a later wait would be read as the first one. That a tap has
+#      not happened is required as well, in the shape the table states it — no cell taps
+#      before its launch wait, so a log carrying a tap is a log whose flow got past it.
+#
+# Anything else is false, the cell's first result stands, and nothing is driven twice.
+#
+# `grep -E` and `grep -F` only, never a BRE `\?` or `\+`: this decides a rerun on a Mac and
+# the two sed dialects differ exactly there (docs/IMPLEMENTATION-PITFALLS.md P28). The
+# launch wait's matcher is asked for with `-F` because `stack=.*` is a literal here — it is
+# text inside a message, not a pattern this script is applying.
+launch_stalled()
+{
+    if grep -E 'IOSDriverTimeoutException|iOS driver not ready in time' "$1" > /dev/null 2>&1
+    then
+        return 0
+    fi
+    if [ ! -f "$2" ] || grep -E 'Tap on|tapOn' "$1" > /dev/null 2>&1
+    then
+        return 1
+    fi
+    failure_text "$2" | grep -F 'stack=.*' > /dev/null 2>&1
+}
+
+# Cell $1's first attempt in directory $2, moved aside so the retry cannot overwrite it.
+#
+# The evidence for the retry IS the first attempt's log, so a rerun that dropped it would
+# leave the reader the line "launch stall, retried" and nothing to check it against. Silent
+# when there is nothing to move: `--flow-runner` writes whatever it likes, including neither.
+keep_first_attempt()
+{
+    mv "$2/maestro-$1.log" "$2/$1.attempt1.log" 2> /dev/null || true
+    mv "$2/$1.xml" "$2/$1.attempt1.xml" 2> /dev/null || true
+}
+
 # One line per cell carrying both facts. The verdict stays the receipt — the reason the
 # earlier run chose it stands, since a skipped flow is a passed flow to an exit code — and
 # the flow's status rides beside it so a cell that asserted everything and left nothing is
 # reported as exactly that rather than as a bare missing receipt.
+#
+# $4 is the note the retry leaves, empty on a cell that ran once. It rides on the END of
+# every one of these four lines rather than on one of them, because which line a retried
+# cell reaches is not known before it runs and a cell driven twice has to say so on all
+# four of them.
 report_cell()
 {
     if pulled_receipt "$1" "$3" "$MANIFEST"
@@ -383,20 +488,49 @@ report_cell()
         RECEIPTS_PULLED=$((RECEIPTS_PULLED + 1))
         if [ "$2" -eq 0 ]
         then
-            pass "$1 — flow passed, receipt pulled"
+            pass "$1 — flow passed, receipt pulled$4"
         else
-            pass "$1 — receipt pulled, but the flow itself failed; see $3/maestro-$1.log"
+            pass "$1 — receipt pulled, but the flow itself failed; see $3/maestro-$1.log$4"
         fi
         return 0
     fi
 
     if [ "$2" -eq 0 ]
     then
-        fail "$1 — flow passed and left NO receipt: it never reached its last step, or wrote another cell's name"
+        fail "$1 — flow passed and left NO receipt: it never reached its last step, or wrote another cell's name$4"
     else
-        fail "$1 — flow failed and left no receipt; see $3/maestro-$1.log"
+        fail "$1 — flow failed and left no receipt; see $3/maestro-$1.log$4"
     fi
     return 1
+}
+
+# Cell $1's flow $2 driven into $3, and driven a second time if the first attempt's own
+# evidence says the launch stalled. Answers with the LAST attempt's status, and leaves the
+# note for the report line in $RETRY_NOTE.
+#
+# One retry and no loop: a cell that stalls twice is a cell whose launch is broken, and a
+# runner that kept trying would turn a broken launch into a run that never ends.
+drive_with_retry()
+{
+    RETRY_NOTE=''
+    DRIVE_STATE=0
+    drive_flow "$1" "$2" "$3" || DRIVE_STATE=1
+    if [ "$DRIVE_STATE" -eq 0 ] || ! launch_stalled "$3/maestro-$1.log" "$3/$1.xml"
+    then
+        return "$DRIVE_STATE"
+    fi
+
+    keep_first_attempt "$1" "$3"
+    RETRIES=$((RETRIES + 1))
+    DRIVE_STATE=0
+    drive_flow "$1" "$2" "$3" || DRIVE_STATE=1
+    if [ "$DRIVE_STATE" -eq 0 ]
+    then
+        RETRY_NOTE=' (launch stall, retried)'
+    else
+        RETRY_NOTE=' (launch stall, retried, failed again)'
+    fi
+    return "$DRIVE_STATE"
 }
 
 # Section 3's loop: every flow driven and pulled on its own, receipts into $1 and their
@@ -404,11 +538,21 @@ report_cell()
 #
 # Answers non-zero when any flow failed. The receipts are judged by the gate afterwards and
 # not here, so that one loop cannot both collect the evidence and decide about it.
+#
+# The snapshot is taken once before the FIRST attempt and the manifest written once after
+# the LAST, which is what keeps the manifest rule intact across a retry: `record_pulled`
+# records what ARRIVED, by difference against that snapshot, so a receipt from either
+# attempt is recorded and one from neither is not. A first attempt that got far enough to
+# leave a receipt keeps it — the two carry different millis in their names, so the second
+# attempt's `cp` adds a file rather than replacing one, and the gate asks only that the cell
+# left one this run. What the second attempt decides is the STATUS, and that is read from
+# its own exit alone.
 collect_cells()
 {
     CELLS_RUN=0
     FLOWS_PASSED=0
     RECEIPTS_PULLED=0
+    RETRIES=0
     COLLECT_STATUS=0
 
     for FLOW in $FLOW_FILES
@@ -417,7 +561,7 @@ collect_cells()
         CELLS_RUN=$((CELLS_RUN + 1))
         FLOW_STATE=0
         snapshot_receipts "$1"
-        drive_flow "$CELL" "$FLOW" "$1" || FLOW_STATE=1
+        drive_with_retry "$CELL" "$FLOW" "$1" || FLOW_STATE=1
         record_pulled "$CELL" "$1" "$MANIFEST"
         if [ "$FLOW_STATE" -eq 0 ]
         then
@@ -425,11 +569,11 @@ collect_cells()
         else
             COLLECT_STATUS=1
         fi
-        report_cell "$CELL" "$FLOW_STATE" "$1" || true
+        report_cell "$CELL" "$FLOW_STATE" "$1" "$RETRY_NOTE" || true
     done
 
-    printf '      %s flows run, %s passed, %s receipts pulled\n' \
-        "$CELLS_RUN" "$FLOWS_PASSED" "$RECEIPTS_PULLED"
+    printf '      %s flows run, %s passed, %s receipts pulled, %s retried after a launch stall\n' \
+        "$CELLS_RUN" "$FLOWS_PASSED" "$RECEIPTS_PULLED" "$RETRIES"
     return "$COLLECT_STATUS"
 }
 
@@ -761,6 +905,150 @@ SILENT
     fi
 }
 
+# The fake runner the retry cases drive. Cell $PROBE_STALL_CELL fails its FIRST attempt and
+# leaves the evidence kind $PROBE_STALL_KIND behind; every other cell, and that cell's
+# second attempt, writes its receipt and exits 0.
+#
+# It writes its log and its report to the paths `drive_flow` gives maestro — `maestro-<cell>.log`
+# and `<cell>.xml` in the destination — because those are the two files `launch_stalled` is
+# handed, and a fixture that wrote them anywhere else would prove the retry against evidence
+# the real run never sees. The four bodies are the real ones: the Mac's driver timeout of
+# 2026-09-09, a launch wait that ran out, a false assertion after a tap, and a failure that
+# says nothing at all.
+write_stall_runner()
+{
+    cat > "$WORK/stall-runner.sh" <<'STALL'
+#!/bin/sh
+set -eu
+printf '%s\n' "$1" >> "$PROBE_ATTEMPTS"
+if [ "$1" != "$PROBE_STALL_CELL" ] || [ "$(grep -c "^$1\$" "$PROBE_ATTEMPTS")" -gt 1 ]
+then
+    printf '{"cell": "%s"}\n' "$1" > "$3/receipt-$1-1756800000000.json"
+    exit 0
+fi
+
+case $PROBE_STALL_KIND in
+    driver)
+        # No report at all: maestro's driver never came up, so no flow ran to report on.
+        cat > "$3/maestro-$1.log" <<'LOG'
+Running on iPhone 17 Pro
+xcuitest.installer.LocalXCTestInstaller$IOSDriverTimeoutException: iOS driver not ready in time, consider increasing timeout by configuring MAESTRO_DRIVER_STARTUP_TIMEOUT env variable
+LOG
+        ;;
+    wait)
+        printf 'Running on emulator-5554\nLaunch app "xyz.superfunction.spfn.example" with clear state\n' \
+            > "$3/maestro-$1.log"
+        printf '<testsuites><testsuite name="%s"><testcase name="%s"><failure>Element not found: Text matching regex: stack=.*</failure></testcase></testsuite></testsuites>\n' \
+            "$1" "$1" > "$3/$1.xml"
+        ;;
+    assert)
+        printf 'Running on emulator-5554\nLaunch app "xyz.superfunction.spfn.example" with clear state\nTap on id: "reviewDevice.back"\n' \
+            > "$3/maestro-$1.log"
+        printf '<testsuites><testsuite name="%s"><testcase name="%s"><failure>Assertion is false: "stack=2" is visible</failure></testcase></testsuite></testsuites>\n' \
+            "$1" "$1" > "$3/$1.xml"
+        ;;
+    early)
+        # A false assertion with no tap before it — the shape closest to a launch stall,
+        # and the one a rule that only asked "had anything been tapped?" would rerun. What
+        # tells them apart is the matcher: the launch wait's is the regex, an assertion's
+        # is a depth.
+        printf 'Running on emulator-5554\nLaunch app "xyz.superfunction.spfn.example" with clear state\n' \
+            > "$3/maestro-$1.log"
+        printf '<testsuites><testsuite name="%s"><testcase name="%s"><failure>Assertion is false: "stack=0" is visible</failure></testcase></testsuite></testsuites>\n' \
+            "$1" "$1" > "$3/$1.xml"
+        ;;
+    *)
+        printf 'Running on emulator-5554\nFlow failed\n' > "$3/maestro-$1.log"
+        ;;
+esac
+exit 1
+STALL
+    chmod +x "$WORK/stall-runner.sh"
+}
+
+# One whole table driven through that runner with evidence kind $1, receipts into $2.
+#
+# Leaves the run's output in $WORK/stall-collect.log and its exit status in $STALL_STATUS,
+# which is the status the RUN would exit on — the thing a cell that passed on its second
+# attempt must not leave at 1.
+run_stall_fixture()
+{
+    mkdir -p "$2"
+    PROBE_STALL_KIND=$1
+    : > "$PROBE_ATTEMPTS"
+    MANIFEST=$WORK/stall-manifest.txt
+    : > "$MANIFEST"
+    FLOW_RUNNER=$WORK/stall-runner.sh
+    STALL_STATUS=0
+    collect_cells "$2" > "$WORK/stall-collect.log" 2>&1 || STALL_STATUS=1
+    FLOW_RUNNER=''
+}
+
+# How many times the fixture was asked to drive the cell that fails first time.
+stall_attempts()
+{
+    grep -c "^$PROBE_STALL_CELL\$" "$PROBE_ATTEMPTS" || true
+}
+
+# Evidence kind $1, described as $2, IS a launch stall: driven twice, passing on the second,
+# saying so on its line and in the count, and leaving the first attempt's log where a reader
+# can check the claim.
+assert_retried()
+{
+    run_stall_fixture "$1" "$WORK/stall-$1"
+    if [ "$STALL_STATUS" -eq 0 ] \
+        && [ "$(stall_attempts)" -eq 2 ] \
+        && grep -F "ok    $PROBE_STALL_CELL — flow passed, receipt pulled (launch stall, retried)" \
+            "$WORK/stall-collect.log" > /dev/null \
+        && grep -F '1 retried after a launch stall' "$WORK/stall-collect.log" > /dev/null \
+        && [ -f "$WORK/stall-$1/$PROBE_STALL_CELL.attempt1.log" ]
+    then
+        pass "$2 is driven a second time, and the pass says it took two"
+    else
+        fail "$2 was not retried, or the retry went unreported"
+        printf '      attempts: %s, status: %s\n' "$(stall_attempts)" "$STALL_STATUS"
+        sed 's/^/      /' "$WORK/stall-collect.log"
+        PROBE_STATUS=1
+    fi
+}
+
+# Evidence kind $1, described as $2, is NOT: reported the first time, never driven again,
+# and the counter left at zero. The half of the pair that matters most — a rerun here would
+# spend the time twice and then report the second roll of the dice as the cell's answer.
+assert_not_retried()
+{
+    run_stall_fixture "$1" "$WORK/stall-$1"
+    if [ "$STALL_STATUS" -eq 1 ] \
+        && [ "$(stall_attempts)" -eq 1 ] \
+        && grep -F "FAIL  $PROBE_STALL_CELL — flow failed and left no receipt" \
+            "$WORK/stall-collect.log" > /dev/null \
+        && grep -F '0 retried after a launch stall' "$WORK/stall-collect.log" > /dev/null \
+        && ! grep -F 'launch stall, retried' "$WORK/stall-collect.log" > /dev/null
+    then
+        pass "$2 is reported the first time and never driven again"
+    else
+        fail "$2 was driven again, or its first failure was not reported"
+        printf '      attempts: %s, status: %s\n' "$(stall_attempts)" "$STALL_STATUS"
+        sed 's/^/      /' "$WORK/stall-collect.log"
+        PROBE_STATUS=1
+    fi
+}
+
+# The case the retry was added for, and the case it must not become. Both halves are driven
+# through the same collect_cells the run uses, because what is being checked is not
+# `launch_stalled` on its own but what a RUN does with its answer: the report line, the
+# summary count, the kept first attempt, and the exit status a cell that passed second
+# leaves behind.
+probe_retry_case()
+{
+    write_stall_runner
+    assert_retried driver "maestro's own driver never coming up"
+    assert_retried wait 'a launch wait that ran out before the first readout'
+    assert_not_retried assert 'an assertion that was false after a tap'
+    assert_not_retried early 'an assertion that was false before any tap'
+    assert_not_retried none 'a flow failure whose log says nothing about a launch'
+}
+
 # Runs this script again for platform $1 with `--flow-runner $2`, and requires its LAST line
 # to be exactly $3.
 #
@@ -844,12 +1132,22 @@ probe()
     PROBE_LAUNCH=$WORK/launch.sh
     PROBE_SILENT_CELL=$(basename "$(printf '%s' "$FLOW_FILES" | awk '{print $NF}')" .yaml)
     WROTE=$(( $(printf '%s' "$FLOW_FILES" | wc -w) - 1 ))
+
+    # The retry cases' own cell, and the FIRST flow rather than the last: the cell that
+    # writes nothing is the last one, and one cell carrying both faults would be a case
+    # about neither.
+    PROBE_STALL_CELL=$(basename "$(printf '%s' "$FLOW_FILES" | awk '{print $1}')" .yaml)
+    PROBE_STALL_KIND=none
+    PROBE_ATTEMPTS=$WORK/stall-attempts.txt
+    : > "$PROBE_ATTEMPTS"
     export PROBE_CONTAINERS PROBE_POINTER PROBE_SERIAL PROBE_LAUNCH PROBE_SILENT_CELL
+    export PROBE_STALL_CELL PROBE_STALL_KIND PROBE_ATTEMPTS
     write_probe_device
 
     probe_gate_cases
     probe_stale_case
     probe_pull_case
+    probe_retry_case
     probe_container_case
     probe_label_case
 
