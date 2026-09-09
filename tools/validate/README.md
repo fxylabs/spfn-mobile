@@ -230,6 +230,33 @@ The probe plants a `NavDisplay` call that states nothing — before the module's
 it cannot borrow that call's arguments — and takes the source root away. Three cases, each
 scoped to section 18's own output.
 
+## Check 19 keeps a closing sheet on screen while it leaves
+
+`FlowHost`'s `when` has no subject, so its branches are read top to bottom and the first true
+one wins. Two of them are true at once for a sheet whose flow has just closed:
+`entry is FlowEntry.Sheet` and `routes.isEmpty()`. `Flow.close` empties the stack in one step
+and the sheet drawn from it still has a slide to run, so the order of those two lines is the
+difference between a sheet that slides away and a sheet that vanishes
+(`docs/IMPLEMENTATION-PITFALLS.md` P38). It vanished: a person on a Galaxy Z Flip4 saw the X,
+the system back and the scrim each remove the sheet instantly.
+
+No assertion in this repository reads it either. Branch order is not a value a test can read,
+the JVM suite has no Compose runtime to compose the host in, and a Maestro cell waits for an
+element to appear or to go and never asks how it moved — the 35 device cells are green under
+either order.
+
+The check compares two line numbers with `grep -nE`, and neither expression uses `?` or `+`
+(`docs/IMPLEMENTATION-PITFALLS.md` P28). Finding neither branch, or only one, is a failure
+rather than a clean read.
+
+```sh
+sh tools/validate/probe-sheet-exit-rules.sh   # prove each refusal bites
+```
+
+The probe MOVES the empty-stack line above the sheet branch with awk — a delete and an insert,
+because a sed replacement carrying a newline is the spelling that differs between GNU and BSD —
+and takes the source file away. Three cases, each scoped to section 19's own output.
+
 ## Check 2 replaced a Step 1 prohibition
 
 Step 1 failed if a Gradle wrapper existed at all, because the baseline was undecided and
