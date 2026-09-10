@@ -65,12 +65,25 @@ Two lists.
 
 The last section. One fenced code block, tagged `json spfn-ui`, holding the flow's
 part of the spec in the shape `SCHEMA.md` states: `specVersion`, `contract`, the
-`services` it uses, its one entry under `flows`, and its `screens`. Until the generator
-reads Markdown (N5), `device-approval.json` stays the generator's input and this block
-must be equal to that file's part for the flow — `tools/ui-codegen` compares them when
-N5 lands, and until then the sample's block was checked by hand against the file.
+`services` it uses, its one entry under `flows`, and its `screens`. `tools/ui-codegen`
+READS it: the spec it is given is the directory, and this document is the source for
+this flow — nothing else in the repository declares it, and a flow declared here and in
+`device-approval.json` too is a refusal naming both files.
 
-Two blocks, or none, is a refusal: a document that carries two truths carries none.
+The block is read whole, by the same reader a spec file is read by, so it has to be a
+spec on its own: the version, the pinned digest, every service method its screens call,
+its own entry under `flows` and its own screens. Overlap with another piece is expected
+where two flows call one method and refused where they disagree about it.
+
+`flows.<name>.views` is the key that belongs to a document rather than to the JSON. Its
+default, `reference`, means the generator writes this flow's views; `authored` means a
+person has written them from THIS page, and the generator then neither writes those
+files nor deletes them (`SCHEMA.md`, section 21 of `tools/validate/validate.sh`). A flow
+in `device-approval.json` cannot claim it, because it is a claim about a document.
+
+Two blocks, or none, is a refusal: a document that carries two truths carries none. The
+fence is read line by line — a ``` inside the JSON's own text is not the end of the
+block, CRLF endings read the same as LF, and spaces after the tag are still the tag.
 
 ## Writing rules
 

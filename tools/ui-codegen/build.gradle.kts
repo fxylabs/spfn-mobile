@@ -7,9 +7,10 @@
 //
 // Zero external dependencies and zero network access at generation time. Its inputs are
 // all on disk: the vendored contract bundle, read through :contract-codegen's own reader
-// rather than through a second copy of it, the screen spec, the spec's repository-relative
-// path — which every generated header prints — and the lock's contract block, which
-// chooses the bundle file and refuses a run whose digest disagrees with it.
+// rather than through a second copy of it, the screen spec — one JSON file, or the
+// directory holding it beside the contract documents that carry a flow each — the spec's
+// repository-relative path, which every generated header prints, and the lock's contract
+// block, which chooses the bundle file and refuses a run whose digest disagrees with it.
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -80,7 +81,11 @@ val harnessTarget = listOf(
     "--verify-task=:ui-codegen:spfnHarnessUiVerify"
 )
 
-val screenSpec = "examples/ui-spec/device-approval.json"
+/// The spec is a DIRECTORY: `device-approval.json` holds the showcase flows and each
+/// `contracts/*.md` holds one flow's, in the `json spfn-ui` block at its end. The generator
+/// reads every piece with one reader and merges them, refusing a name two pieces both
+/// declare — one flow lives in one place (examples/ui-spec/SCHEMA.md).
+val screenSpec = "examples/ui-spec"
 
 /// Regenerates both example apps' scaffolds, the case table and the Maestro flows from
 /// the one spec. Deterministic: running it twice produces byte-identical files, which

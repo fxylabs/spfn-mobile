@@ -5,6 +5,10 @@
 //   ./gradlew :ui-codegen:spfnGenerateHarnessUi  # the harness apps' scaffolds
 //   ./gradlew :ui-codegen:spfnUiVerify           # fail if either is not up to date
 //
+// A flow whose `views` are `authored` is the one thing a run leaves alone: its view files
+// are written by hand from a contract document, so they are neither emitted nor deleted as
+// stale, and `verify` has nothing to compare them against (`Generated.authoredViews`).
+//
 // One spec, one or more CONSUMERS. Which app a run writes into is a `Target` the caller
 // supplies — output roots, Kotlin package and application id — so this generator names no
 // app of its own and a second consumer costs a task rather than an edit here.
@@ -14,6 +18,16 @@
 //   - Deterministic. Output is a pure function of the SPEC BYTES, the BUNDLE BYTES, the
 //     spec's repository-relative PATH and the lock's CONTRACT BLOCK: no timestamp, no
 //     host name, no absolute path, no unordered iteration.
+//
+// The spec is a PLACE rather than a file. `<specPath>` is either one JSON file or a
+// directory holding the JSON beside the contract documents whose machine blocks carry the
+// rest, and `SpecInput` is where the pieces are read, refused and merged. "The spec bytes"
+// above is therefore the digest of the pieces, which `SpecInput.digest` states exactly.
+//
+// And of a contract document, THE PROSE IS NOT AN INPUT TO THE GENERATOR; THE BLOCK IS. A
+// document's `json spfn-ui` block is what is read and what is digested; the prose around it
+// is what a person rewrites while the screens stay what they were, so rewording a sentence
+// leaves every generated header where it stood (`SpecInput.digestInput`).
 //
 // The last two of those four are named because they are real and easy to miss. The path
 // is in every generated header and in the case table's `spec` field, which is what makes
@@ -46,7 +60,7 @@ fun main(args: Array<String>)
     if (args.size < 3)
     {
         System.err.println(
-            "usage: ui-codegen <repoRoot> <specPath> <write|verify> --target=<name> " +
+            "usage: ui-codegen <repoRoot> <specFileOrDirectory> <write|verify> --target=<name> " +
                 "--swift-root=<dir> --kotlin-root=<dir> --kotlin-package=<pkg> --app-id=<id> " +
                 "[--table-root=<dir>]"
         );
@@ -76,6 +90,17 @@ fun main(args: Array<String>)
 }
 
 /**
+ * What one run produced: the files it owns, and the ones it must not touch.
+ *
+ * [authoredViews] is the second half because "a generated directory holds nothing but
+ * generated files" is otherwise a rule that eats a person's work. A flow whose `views` are
+ * `authored` has its screens written by hand from a contract document, so this run neither
+ * writes those files nor counts them stale — and `verify` has nothing to compare them
+ * against, which is the whole point of the switch.
+ */
+data class Generated(val files: Map<String, String>, val authoredViews: Set<String>)
+
+/**
  * Every file this generator owns for [target], by repository-relative path.
  *
  * The target decides WHERE the scaffold lands and which app id the table prints; it
@@ -83,16 +108,11 @@ fun main(args: Array<String>)
  * differ in their paths, their Kotlin package and — for a target that emits the table at
  * all — that one printed id, and in nothing else.
  */
-fun generate(repoRoot: File, specPath: String, target: Target): Map<String, String>
+fun generate(repoRoot: File, specPath: String, target: Target): Generated
 {
-    val specFile = File(repoRoot, specPath);
-    if (!specFile.isFile)
-    {
-        throw GenerationFailure("missing $specPath");
-    }
-    val specBytes = specFile.readBytes();
     val bundle = loadBundle(repoRoot);
-    val whole = Spec.read(String(specBytes, Charsets.UTF_8), bundle);
+    val source = SpecInput.read(repoRoot, specPath, bundle);
+    val whole = source.spec;
     // Read whole and narrowed after, so a flow this target does not want is still checked
     // before it is dropped: a target cannot hide a broken flow by not asking for it.
     val spec = whole.narrowedTo(target.flows);
@@ -113,23 +133,28 @@ fun generate(repoRoot: File, specPath: String, target: Target): Map<String, Stri
 
     val inputs = Inputs(
         specPath = specPath,
-        specSha256 = sha256Hex(specBytes),
+        specSha256 = source.sha256,
         bundleSha256 = bundle.sha256,
         contractVersion = bundle.contractVersion,
         generateTask = target.generateTask,
         verifyTask = target.verifyTask
     );
-    val scaffolds = KotlinEmitter(target).emit(spec, bundle, inputs) +
-        SwiftEmitter(target).emit(spec, bundle, inputs);
+    val kotlin = KotlinEmitter(target);
+    val swift = SwiftEmitter(target);
+    val scaffolds = kotlin.emit(spec, bundle, inputs) + swift.emit(spec, bundle, inputs);
 
     // The table and the flows are the SPEC's artefacts and belong to the one app that
     // installs the fixtures their cells name, so a target that declares no table root
     // gets the scaffolds and nothing else (decision E6).
-    if (target.tableRoot == null)
+    val files = if (target.tableRoot == null)
     {
-        return scaffolds;
+        scaffolds
     }
-    return scaffolds + CaseTable(target).emit(spec, Rules.cells(spec, bundle), inputs);
+    else
+    {
+        scaffolds + CaseTable(target).emit(spec, Rules.cells(spec, bundle), inputs)
+    };
+    return Generated(files, kotlin.authoredViews(spec) + swift.authoredViews(spec));
 }
 
 /**
@@ -181,14 +206,14 @@ private fun loadBundle(repoRoot: File): Bundle
     );
 }
 
-private fun write(repoRoot: File, generated: Map<String, String>)
+private fun write(repoRoot: File, generated: Generated)
 {
-    staleOutputs(repoRoot, generated.keys).forEach { relative ->
+    staleOutputs(repoRoot, generated).forEach { relative ->
         File(repoRoot, relative).delete();
         println("removed  $relative");
     };
 
-    generated.toSortedMap().forEach { (path, content) ->
+    generated.files.toSortedMap().forEach { (path, content) ->
         val target = File(repoRoot, path);
         target.parentFile?.mkdirs();
         val existing = if (target.isFile) target.readText() else null;
@@ -204,11 +229,11 @@ private fun write(repoRoot: File, generated: Map<String, String>)
     };
 }
 
-private fun verify(repoRoot: File, target: Target, generated: Map<String, String>)
+private fun verify(repoRoot: File, target: Target, generated: Generated)
 {
     val problems = mutableListOf<String>();
 
-    generated.toSortedMap().forEach { (path, content) ->
+    generated.files.toSortedMap().forEach { (path, content) ->
         val checked = File(repoRoot, path);
         if (!checked.isFile)
         {
@@ -221,7 +246,7 @@ private fun verify(repoRoot: File, target: Target, generated: Map<String, String
         }
     };
 
-    staleOutputs(repoRoot, generated.keys).forEach { problems += "$it is a stale generated file" };
+    staleOutputs(repoRoot, generated).forEach { problems += "$it is a stale generated file" };
 
     if (problems.isNotEmpty())
     {
@@ -232,7 +257,7 @@ private fun verify(repoRoot: File, target: Target, generated: Map<String, String
         );
     }
     println(
-        "ui-codegen: ${generated.size} generated files for the ${target.name} target " +
+        "ui-codegen: ${generated.files.size} generated files for the ${target.name} target " +
             "match the pinned bundle and the spec"
     );
 }
@@ -241,9 +266,21 @@ private fun verify(repoRoot: File, target: Target, generated: Map<String, String
  * Generated directories hold nothing but generated files, so a leftover from an earlier
  * spec has to disappear rather than linger as a compiling ghost — the rule
  * tools/contract-codegen already applies to its own output.
+ *
+ * The one exception is an AUTHORED flow's views. Those files sit in a directory this
+ * generator owns and are written by a person, so the rule above would delete them on the
+ * next run and `verify` would report them as leftovers from a spec nobody has. They are
+ * named by the emitters rather than recognised by their contents: a file exempted because
+ * it lacks a generated header would exempt a generated file somebody had edited the header
+ * out of, which is the drift this whole gate exists to catch.
+ *
+ * Not-writable rather than not-written: a screen of an authored flow whose file is MISSING
+ * is not a problem this generator can see, and section 21 of tools/validate/validate.sh is
+ * where it is caught.
  */
-private fun staleOutputs(repoRoot: File, expected: Set<String>): List<String>
+internal fun staleOutputs(repoRoot: File, generated: Generated): List<String>
 {
+    val expected = generated.files.keys;
     val directories = expected.map { it.substringBeforeLast('/') }.toSortedSet();
     val stale = mutableListOf<String>();
 
@@ -255,7 +292,7 @@ private fun staleOutputs(repoRoot: File, expected: Set<String>): List<String>
         }
         dir.listFiles()?.sortedBy { it.name }?.forEach { file ->
             val relative = "$directory/${file.name}";
-            if (file.isFile && relative !in expected)
+            if (file.isFile && relative !in expected && relative !in generated.authoredViews)
             {
                 stale += relative;
             }
