@@ -14,6 +14,11 @@
 // sibling with one line dropped — so the assertion is "every public composable in the
 // components package is erased", not "these nine are".
 //
+// `SlotsKt` holds INTERNAL composables and is in the list for the same reason: internal is a
+// Kotlin visibility and not a JVM one, so an internal composable compiles to a public method
+// under a mangled name that Java can still call. `@JvmSynthetic` is what actually removes it,
+// and this is where that is checked.
+//
 // Everything else in this module is API on purpose and stays reachable from Java, which
 // this suite also pins: a future `internal` member would compile to a name-mangled public
 // method that Java can still call, and the count below is what would move.
@@ -58,7 +63,8 @@ class JavaVisibilityTest
     fun `every component is erased from Java's view`()
     {
         val files = listOf(
-            "SpfnTextKt", "StatusTextKt", "ButtonsKt", "SpfnTextFieldKt", "LoadableViewKt"
+            "SpfnTextKt", "StatusTextKt", "ButtonsKt", "SpfnTextFieldKt", "LoadableViewKt",
+            "PagedViewKt", "SlotsKt"
         );
         var checked = 0;
         files.forEach { file ->

@@ -13,18 +13,20 @@
 // and a screen that had to write them would write them differently every time. The words
 // come from `SpfnStrings` and the failure is classified into a KEY rather than drawn from the
 // envelope, because the envelope's `message` is text a server chose (decision C7).
+//
+// Two of the three defaults are drawn by `LoadingLine` and `FailureLine` rather than here,
+// because `PagedView`'s footer draws the same two lines for the page after the first one and
+// a second copy of them would drift (see `Slots.kt`).
 
 package xyz.superfunction.spfn.ui.components
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import xyz.superfunction.spfn.core.SpfnErrorEnvelope
 import xyz.superfunction.spfn.ui.Loadable
 import xyz.superfunction.spfn.ui.SpfnStrings
-import xyz.superfunction.spfn.ui.tokens.SpfnTokens
 
 /**
  * Draws whichever of a read's four states it is in.
@@ -55,22 +57,16 @@ public fun <V> LoadableView(
     {
         when (state)
         {
-            is Loadable.Loading -> SpfnText(text = SpfnStrings.stateLoading, secondary = true)
+            is Loadable.Loading -> LoadingLine()
             is Loadable.Ready -> ready(state.value)
             is Loadable.Empty -> SpfnText(text = SpfnStrings.stateEmpty, secondary = true)
-            is Loadable.Error ->
-            {
-                StatusText(kind = StatusKind.Error, text = message(state.error));
-                if (onRetry != null)
-                {
-                    SecondaryButton(
-                        title = SpfnStrings.actionRetry,
-                        id = retryId,
-                        modifier = Modifier.padding(top = SpfnTokens.space3),
-                        onTap = onRetry
-                    );
-                }
-            }
+            // The sentence is the caller's classifier's, chosen from the envelope's CODE. The
+            // server's own `message` is never drawn — see this file's header and decision C7.
+            is Loadable.Error -> FailureLine(
+                text = message(state.error),
+                retryId = retryId,
+                onRetry = onRetry
+            )
         }
     }
 }
