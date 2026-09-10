@@ -1966,11 +1966,17 @@ contains android/spfn-core/src/main/kotlin/xyz/superfunction/spfn/core/SpfnCore.
 # ---------------------------------------------------------------------------
 section '13. the ui vocabulary is one vocabulary on both platforms'
 # ---------------------------------------------------------------------------
-# `Loadable`, `Busy` and `Flow` are written twice, once per platform, and the only thing
-# that keeps the two copies the same vocabulary is that somebody compares them. A screen
-# built against `Loadable.empty` on one platform and a `Loadable` that has no empty on the
-# other is not a portable app; the two would compile, both suites would pass, and the
-# divergence would surface as a missing branch in somebody's product.
+# `Loadable`, `Busy`, `Flow`, `Paged` and `Form` are written twice, once per platform, and
+# the only thing that keeps the two copies the same vocabulary is that somebody compares
+# them. A screen built against `Loadable.empty` on one platform and a `Loadable` that has no
+# empty on the other is not a portable app; the two would compile, both suites would pass,
+# and the divergence would surface as a missing branch in somebody's product.
+#
+# A type is compared over whichever of three grammars it is MADE of, and over more than one
+# where it is made of more than one: an enum's cases, a type's public methods, and — since
+# `Paged` and `Form` arrived — a type's public properties. `Paged` holds `page`, `more` and
+# `hasMore` and performs five transitions on them, and neither half of that is visible to
+# the grammar that reads the other.
 #
 # So the names are read out of both trees and compared per type. Extraction is
 # TYPE-SCOPED, not file-scoped: `Flow.swift` also declares `SPFNUIError`, whose
@@ -2051,6 +2057,18 @@ swift_ui_names()
             sub(/[^A-Za-z0-9_].*$/, "", name)
             if (name != "") { print tolower(name) }
         }
+        # A `property` is what `Paged` and `Form` are MADE of — `page`, `more`, `hasMore`,
+        # `fields`, `submit` — and neither a case list nor a method set reaches them. Stored
+        # and computed alike, and `public static let`/`public static var` too, because the
+        # initial value a model starts at is one of the names both platforms have to spell
+        # the same way. Visibility is the anchor here as everywhere else in this reader: a
+        # `private var` is an implementation detail and is read by neither half.
+        current == want && kind == "property" && /^[[:space:]]+public (static )?(let|var) / {
+            name = $0
+            sub(/^[[:space:]]+public (static )?(let|var) /, "", name)
+            sub(/[^A-Za-z0-9_].*$/, "", name)
+            if (name != "") { print tolower(name) }
+        }
     ' $(cat "$TMP/ui-swift-files.txt") | sort -u
 }
 
@@ -2107,6 +2125,20 @@ kotlin_ui_names()
             sub(/[^A-Za-z0-9_].*$/, "", name)
             if (name != "") { print tolower(name) }
         }
+        # The Kotlin spelling of the Swift `property` above. One grammar reaches all three
+        # places a name can be declared, because all three are the same line: a constructor
+        # parameter of a data class, a computed `val` in the body, and a `val` on the
+        # companion object, which is how this language spells `public static let`.
+        #
+        # No apostrophe appears in this comment or the one above it, and that is not a style
+        # choice: the awk program is a single-quoted shell word, so one apostrophe ends it
+        # and the rest of the reader is parsed as shell.
+        current == want && kind == "val" && /^[[:space:]]+public val / {
+            name = $0
+            sub(/^[[:space:]]+public val /, "", name)
+            sub(/[^A-Za-z0-9_].*$/, "", name)
+            if (name != "") { print tolower(name) }
+        }
     ' $(cat "$TMP/ui-kotlin-files.txt") | sort -u
 }
 
@@ -2123,16 +2155,34 @@ kotlin_ui_names()
 # same class of defect one tool along). The boundary is spelled out instead.
 UI_HOST_NAMES='NavigationHost HostStack HostEntry WayOut'
 
-compare_ui_host_names()
+# The same, for the two names the paged and form vocabulary adds that have no member set to
+# compare. `FieldValidator` is one method on each platform, which is below `compare_ui_type`'s
+# floor of two and would report "the extraction did not run" rather than a divergence;
+# `PagedView` is a `View` on one platform and a `@Composable fun` on the other, exactly as
+# `NavigationHost` is. Both are named by generated screens, so a name only one platform has is
+# a screen only one platform can be written for.
+UI_FORM_NAMES='FieldValidator PagedView'
+
+# One list of names, both halves.
+#
+# The Kotlin grammar admits `fun` twice — once as a modifier and once as the keyword — because
+# `public fun interface FieldValidator` spells it both ways in one line, and it admits a
+# generic parameter list between the keyword and the name, because `public fun <V> PagedView(`
+# is how this platform writes a generic composable. A grammar blind to either would not report
+# the name as missing, it would not see it at all, which is the reader-that-read-nothing
+# failure this whole section is built around (docs/IMPLEMENTATION-PITFALLS.md P7).
+compare_ui_declared_names()
 {
+    LABEL=$1
+    NAMES=$2
     ONLY_SWIFT=''
     ONLY_KOTLIN=''
     FOUND=0
-    for NAME in $UI_HOST_NAMES
+    for NAME in $NAMES
     do
         IN_SWIFT=$(grep -rlE "^(public )?(final )?(struct|class|enum|protocol) $NAME([^A-Za-z0-9_]|\$)" \
             "$UI_SWIFT_DIR" 2>/dev/null | head -n 1)
-        IN_KOTLIN=$(grep -rlE "^(public )?(sealed |data |enum )*(class|interface|object|fun) $NAME([^A-Za-z0-9_]|\$)" \
+        IN_KOTLIN=$(grep -rlE "^(public )?(sealed |data |enum |fun )*(class|interface|object|fun) (<[A-Za-z0-9_,: ?]*> )?$NAME([^A-Za-z0-9_]|\$)" \
             "$UI_KOTLIN_DIR" 2>/dev/null | head -n 1)
         if [ -n "$IN_SWIFT" ] && [ -n "$IN_KOTLIN" ]
         then
@@ -2150,21 +2200,25 @@ compare_ui_host_names()
 
     if [ -z "$(printf '%s%s' "$ONLY_SWIFT" "$ONLY_KOTLIN" | tr -d ' ')" ]
     then
-        pass "the host vocabulary is declared on both platforms ($FOUND names:$(printf ' %s' $UI_HOST_NAMES))"
+        pass "$LABEL is declared on both platforms ($FOUND names:$(printf ' %s' $NAMES))"
     else
-        fail "the host vocabulary differs between platforms — only in Swift:${ONLY_SWIFT:- none}| only in Kotlin:${ONLY_KOTLIN:- none}"
+        fail "$LABEL differs between platforms — only in Swift:${ONLY_SWIFT:- none}| only in Kotlin:${ONLY_KOTLIN:- none}"
     fi
 }
 
 # One type, both halves. Reads each side, refuses an empty read on either, and names the
 # extra and the missing separately — "they differ" is not enough to act on.
+# The scratch files are named for the type AND the kind, because `Paged` and `Form` are each
+# compared twice — once over their properties and once over their methods — and one name per
+# type would have the second read overwrite the first's evidence.
 compare_ui_type()
 {
     TYPE=$1
-    swift_ui_names "$TYPE" "$2" > "$TMP/ui-swift-$TYPE.txt"
-    kotlin_ui_names "$TYPE" "$3" > "$TMP/ui-kotlin-$TYPE.txt"
-    SWIFT_COUNT=$(grep -c . "$TMP/ui-swift-$TYPE.txt" || true)
-    KOTLIN_COUNT=$(grep -c . "$TMP/ui-kotlin-$TYPE.txt" || true)
+    SCRATCH="$TYPE-$2"
+    swift_ui_names "$TYPE" "$2" > "$TMP/ui-swift-$SCRATCH.txt"
+    kotlin_ui_names "$TYPE" "$3" > "$TMP/ui-kotlin-$SCRATCH.txt"
+    SWIFT_COUNT=$(grep -c . "$TMP/ui-swift-$SCRATCH.txt" || true)
+    KOTLIN_COUNT=$(grep -c . "$TMP/ui-kotlin-$SCRATCH.txt" || true)
 
     if [ "$SWIFT_COUNT" -ge 2 ] && [ "$KOTLIN_COUNT" -ge 2 ]
     then
@@ -2174,11 +2228,11 @@ compare_ui_type()
         return 0
     fi
 
-    ONLY_SWIFT=$(comm -23 "$TMP/ui-swift-$TYPE.txt" "$TMP/ui-kotlin-$TYPE.txt" | tr '\n' ' ')
-    ONLY_KOTLIN=$(comm -13 "$TMP/ui-swift-$TYPE.txt" "$TMP/ui-kotlin-$TYPE.txt" | tr '\n' ' ')
+    ONLY_SWIFT=$(comm -23 "$TMP/ui-swift-$SCRATCH.txt" "$TMP/ui-kotlin-$SCRATCH.txt" | tr '\n' ' ')
+    ONLY_KOTLIN=$(comm -13 "$TMP/ui-swift-$SCRATCH.txt" "$TMP/ui-kotlin-$SCRATCH.txt" | tr '\n' ' ')
     if [ -z "$(printf '%s%s' "$ONLY_SWIFT" "$ONLY_KOTLIN" | tr -d ' ')" ]
     then
-        pass "$TYPE names match on both platforms ($(tr '\n' ' ' < "$TMP/ui-swift-$TYPE.txt"))"
+        pass "$TYPE names match on both platforms ($(tr '\n' ' ' < "$TMP/ui-swift-$SCRATCH.txt"))"
     else
         fail "$TYPE differs between platforms — only in Swift: ${ONLY_SWIFT:-none}| only in Kotlin: ${ONLY_KOTLIN:-none}"
     fi
@@ -2207,7 +2261,24 @@ then
     # flow's whole behaviour now rests on: an operation only one platform has is a
     # reconciliation only one platform performs.
     compare_ui_type HostStack func fun
-    compare_ui_host_names
+    # The paged and form vocabulary (UI D1, D2). `Paged` and `Form` are each read twice —
+    # what they HOLD and what they DO — because a screen model names both and the two
+    # grammars cannot see each other's names: a `hasMore` that became `hasNext` on one
+    # platform is invisible to the method comparison, and an `appended` that only one
+    # platform grew is invisible to the property one.
+    compare_ui_type Paged property val
+    compare_ui_type Paged func fun
+    compare_ui_type Form property val
+    compare_ui_type Form func fun
+    compare_ui_type FieldError case case
+    compare_ui_type FieldRules property val
+    # `FieldKind` is older than these two and was never compared, which was safe while its
+    # only reader was a keyboard type. `FieldRules.kind` and `FieldError.kind` now carry it
+    # into a generated model and into a test's expectations, so a case only one platform has
+    # is a rule only one platform can state.
+    compare_ui_type FieldKind case entry
+    compare_ui_declared_names 'the host vocabulary' "$UI_HOST_NAMES"
+    compare_ui_declared_names 'the paged and form vocabulary' "$UI_FORM_NAMES"
 else
     fail "the ui module is incomplete: $UI_SWIFT_DIR or $UI_KOTLIN_DIR is missing"
 fi
