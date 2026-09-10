@@ -37,10 +37,13 @@ class SpecRefusalTest
      */
     private val specPath = "examples/ui-spec"
 
+    /** The one contract document of the example spec, which is the ninth flow. */
+    private val contractDocument = "contracts/approveDevice.md"
+
     /** Every piece of the spec, by its name inside the directory. */
     private val specPieces: Map<String, String> = listOf(
         "device-approval.json",
-        "contracts/approveDevice.md"
+        contractDocument
     ).associateWith { File(repoRoot, "$specPath/$it").readText(Charsets.UTF_8) }
 
     /**
@@ -542,6 +545,117 @@ class SpecRefusalTest
             setOf("kt", "swift", "json", "md", "yaml"),
             languages
         );
+    }
+
+    /**
+     * A document's PROSE is not an input to the generator; its BLOCK is.
+     *
+     * The prose is the half a contract document exists to have rewritten — it is where what
+     * the screens must do is argued, and nothing downstream reads it. While the digest was
+     * taken over the whole file, rewording one sentence of `contracts/approveDevice.md`
+     * rewrote the `specSha256:` line of all 137 generated files, so the document was
+     * expensive to edit for its own purpose.
+     *
+     * The prose is REPLACED here rather than nudged, because the claim is about the whole
+     * half and a probe that changed one word would pass just as well against a digest that
+     * happened to ignore that word. And the whole output is compared rather than the digest
+     * alone: the digest not moving is the mechanism, generated files not moving is the
+     * property, and the second is the one anybody notices.
+     */
+    @Test
+    fun `rewriting a document's prose leaves the digest and the generated files alone`()
+    {
+        val rewritten = "# approveDevice\n\nNot one word of this prose is the one it replaced.\n\n" +
+            machineBlockOf(contractDocument);
+
+        // Both runs from ONE spec path, rewritten in place between them. The path is itself
+        // an input and is printed on every header, so two fixture directories would differ
+        // on the `spec:` line and the comparison below would be about the wrong thing.
+        val directory = withSpec("prose", specPieces);
+        val here = generate(repoRoot, directory);
+        withSpec("prose", specPieces + (contractDocument to rewritten));
+        val there = generate(repoRoot, directory);
+
+        assertEquals("the two runs wrote different files", here.keys, there.keys);
+        assertEquals("a reworded document moved the spec digest", specDigestOf(here), specDigestOf(there));
+        here.forEach { (path, content) ->
+            assertEquals("$path moved when only the document's prose did", content, there.getValue(path));
+        };
+    }
+
+    /**
+     * One character inside the block moves the digest, and moves nothing else.
+     *
+     * The character is a SPACE added inside the block's JSON, which is the case a digest
+     * taken over anything other than the block's own bytes would get wrong: parse the block
+     * and hash the result and this edit disappears; trim or collapse the block's whitespace
+     * and it disappears too. Neither happens — the digest is the block's bytes, so an edit
+     * to the spec is an edit whatever it looks like.
+     *
+     * That the rest of the output holds still is the other half. The block is unchanged as
+     * JSON, so every generated file must be its old self on every line but the one that
+     * names the digest — which is what makes this the twin of the case above rather than a
+     * second copy of it.
+     */
+    @Test
+    fun `one character inside the block moves the digest and only the digest line`()
+    {
+        val spaced = specPieces.getValue(contractDocument)
+            .replaceFirst("\"specVersion\": 1", "\"specVersion\":  1");
+        assertNotEquals("the block was not edited", specPieces.getValue(contractDocument), spaced);
+
+        // One spec path, rewritten in place between the runs, for the reason above.
+        val directory = withSpec("block", specPieces);
+        val here = generate(repoRoot, directory);
+        withSpec("block", specPieces + (contractDocument to spaced));
+        val there = generate(repoRoot, directory);
+
+        assertNotEquals(
+            "a byte changed inside the block left the digest where it was",
+            specDigestOf(here),
+            specDigestOf(there)
+        );
+        here.forEach { (path, content) ->
+            val moved = content.lines().zip(there.getValue(path).lines())
+                .filter { (ours, theirs) -> ours != theirs };
+            assertEquals(
+                "$path should differ from its spaced-block twin on the digest line alone, and differs on $moved",
+                1,
+                moved.size
+            );
+            assertTrue(
+                "$path moved on a line that is not the digest: ${moved.single()}",
+                moved.single().first.contains("specSha256")
+            );
+        };
+    }
+
+    /** The named piece's machine block, fences and all, as a document would carry it. */
+    private fun machineBlockOf(piece: String): String
+    {
+        val document = specPieces.getValue(piece);
+        val fence = document.indexOf("```json spfn-ui");
+        assertTrue("$piece holds no machine block to take", fence > 0);
+        return document.substring(fence);
+    }
+
+    /**
+     * The spec digest a run printed, which is one value across its files or a failure.
+     *
+     * Read off the OUTPUT rather than asked of `SpecInput`, because the digest is only
+     * interesting where it lands: every header's `specSha256:` line and the case table's
+     * `specSha256` field. Taking it from both is also what keeps this an assertion — two
+     * artefacts naming two digests would be a generator disagreeing with itself.
+     */
+    private fun specDigestOf(generated: Map<String, String>): String
+    {
+        val printed = generated.values
+            .flatMap { it.lines() }
+            .filter { it.contains("specSha256") }
+            .mapNotNull { Regex("[0-9a-f]{64}").find(it)?.value }
+            .toSet();
+        assertEquals("the run did not print exactly one spec digest, but $printed", 1, printed.size);
+        return printed.first();
     }
 
     /**

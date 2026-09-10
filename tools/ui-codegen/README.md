@@ -78,8 +78,10 @@ would drift, and the drift would arrive as a compile error in a file nobody wrot
 repository-relative path and the lock's contract block: sorted iteration, no timestamp, no
 host name, no absolute path. For a directory the spec bytes are the pieces, in name order,
 each framed with its own name inside the directory — a walk in the filesystem's order would
-hash differently on a Mac than on the CI runner. `SpecRefusalTest` generates twice and
-compares.
+hash differently on a Mac than on the CI runner. A document contributes its `json spfn-ui`
+block and not its prose: the prose is not an input to the generator, the block is, so
+rewording a sentence leaves every generated header where it stood. `SpecRefusalTest`
+generates twice and compares.
 
 **Where the expectations come from.** The case table is derived from the rule table in
 `src/main/kotlin/xyz/superfunction/spfn/uicodegen/Rules.kt` and the spec's shape; the

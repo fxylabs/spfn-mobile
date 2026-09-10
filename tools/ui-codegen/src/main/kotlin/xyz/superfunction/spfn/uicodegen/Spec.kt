@@ -11,6 +11,11 @@
 // missed by its absence, so `useCase: true` written beside the `usecase` this file reads is
 // a spec whose use-case layer was requested and silently not emitted.
 //
+// What is read is JSON, and from a contract document that means its `json spfn-ui` block and
+// only that: THE PROSE IS NOT AN INPUT TO THE GENERATOR; THE BLOCK IS. `SpecInput` hands the
+// block over, and digests the same bytes it hands over, so a document whose prose is reworded
+// parses to the spec it already was and every generated header stays where it stood.
+//
 // examples/ui-spec/SCHEMA.md is this file in prose, written for whoever authors the next
 // spec. The two are meant to be read together; the refusals below are numbered there.
 

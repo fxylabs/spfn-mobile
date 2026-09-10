@@ -3,7 +3,7 @@ GENERATED FILE — DO NOT EDIT.
 
 generator:       spfn-ui-codegen 0.1.0-dev
 spec:            examples/ui-spec
-specSha256:      9b8c13ec14a6641526cf7b821ea45c561d4343a2d9392b36aeeda6004baa86ae
+specSha256:      b38692ad8d0c5d15f156188561a68042de8ac80f22eb4491a7f84f91c2c3f830
 bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 contractVersion: 0.10.0
 

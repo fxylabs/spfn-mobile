@@ -24,6 +24,11 @@
 // rest, and `SpecInput` is where the pieces are read, refused and merged. "The spec bytes"
 // above is therefore the digest of the pieces, which `SpecInput.digest` states exactly.
 //
+// And of a contract document, THE PROSE IS NOT AN INPUT TO THE GENERATOR; THE BLOCK IS. A
+// document's `json spfn-ui` block is what is read and what is digested; the prose around it
+// is what a person rewrites while the screens stay what they were, so rewording a sentence
+// leaves every generated header where it stood (`SpecInput.digestInput`).
+//
 // The last two of those four are named because they are real and easy to miss. The path
 // is in every generated header and in the case table's `spec` field, which is what makes
 // it an input rather than an invocation detail — so it is kept repository-relative, and

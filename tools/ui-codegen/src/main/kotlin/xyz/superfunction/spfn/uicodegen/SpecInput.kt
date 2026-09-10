@@ -15,6 +15,11 @@
 // The digest is the third: everything a generated header prints has to be a pure function of
 // what was read, and a directory walked in the OS's order is not one. The pieces are sorted
 // by name and framed with it, so the same files hash the same on every host.
+//
+// And what it is taken over is the fourth: a document's PROSE IS NOT AN INPUT TO THE
+// GENERATOR; ITS BLOCK IS. The prose exists to be rewritten — it is how a person says what
+// the screens must do — so digesting the whole file would put 137 generated headers behind
+// every reworded sentence. See `digestInput`.
 
 package xyz.superfunction.spfn.uicodegen
 
@@ -35,6 +40,10 @@ private class Piece(
 
     val bytes: ByteArray
 )
+{
+    /** A contract document, whose JSON is one fenced block surrounded by prose. */
+    val isDocument: Boolean get() = name.endsWith(".md");
+}
 
 /** One piece as the reader understood it, kept beside the path it was read from. */
 private class ReadPiece(val path: String, val spec: Spec)
@@ -99,7 +108,7 @@ object SpecInput
     private fun text(piece: Piece): String
     {
         val content = String(piece.bytes, Charsets.UTF_8);
-        return if (piece.name.endsWith(".md")) machineBlock(content, piece.path) else content;
+        return if (piece.isDocument) machineBlock(content, piece.path) else content;
     }
 
     /**
@@ -151,7 +160,7 @@ object SpecInput
      */
     private fun checkViewSource(read: ReadPiece, piece: Piece)
     {
-        if (piece.name.endsWith(".md"))
+        if (piece.isDocument)
         {
             return;
         }
@@ -269,15 +278,37 @@ object SpecInput
     }
 
     /**
-     * The digest of the pieces: sha256 over each one's NAME, a newline, its bytes and a
-     * newline, in name order.
+     * What a piece contributes to the digest: a document's BLOCK, a JSON file's whole bytes.
+     *
+     * The rule this states is that A DOCUMENT'S PROSE IS NOT AN INPUT TO THE GENERATOR; ITS
+     * BLOCK IS. The prose is the half a person is meant to keep rewriting — it is where what
+     * the screens must do is argued — and a digest taken over the whole file put every one of
+     * the 137 generated headers behind a reworded sentence. Nothing downstream had read that
+     * prose, so the churn was cost without a claim behind it.
+     *
+     * The bytes are the block exactly as [machineBlock] hands it over: the fence lines
+     * dropped, a `\r` removed from the end of each line, and NOTHING trimmed or collapsed
+     * inside it. So the digest still moves on a space added inside the JSON — an edit to the
+     * spec is an edit whatever it looks like — and a document with no valid block never
+     * reaches here at all, because `read` has already refused it by name.
+     *
+     * A `.json` piece is its file bytes, as it always was: that file is block and nothing
+     * else, so there is no prose in it to leave out.
+     */
+    private fun digestInput(piece: Piece): ByteArray =
+        if (piece.isDocument) text(piece).toByteArray(Charsets.UTF_8) else piece.bytes
+
+    /**
+     * The digest of the pieces: sha256 over each one's NAME, a newline, its [digestInput] and
+     * a newline, in name order.
      *
      * The names are the ones inside the spec directory rather than the repository-relative
      * ones, and that is deliberate. The directory's own path is already an input, printed on
      * every header's `spec:` line, and an input that reached the output through two lines at
      * once would be one no reader could ever watch move alone. What this digest states is a
-     * fact about the PIECES: the same documents under another directory hash the same, and a
-     * byte changed in any of them — or a piece added, removed or renamed — moves it.
+     * fact about the SPEC THE PIECES CARRY: the same documents under another directory hash
+     * the same, a piece added, removed or renamed moves it, and a byte changed inside any
+     * piece's block moves it — while a byte changed in a document's prose does not.
      */
     private fun digest(pieces: List<Piece>): String
     {
@@ -285,7 +316,7 @@ object SpecInput
         pieces.forEach { piece ->
             digest.update(piece.name.toByteArray(Charsets.UTF_8));
             digest.update('\n'.code.toByte());
-            digest.update(piece.bytes);
+            digest.update(digestInput(piece));
             digest.update('\n'.code.toByte());
         };
 

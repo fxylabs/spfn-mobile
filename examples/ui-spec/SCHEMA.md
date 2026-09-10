@@ -55,6 +55,20 @@ the repository-relative one, because the directory's own path is already an inpu
 the `spec:` line — and an input that reached the output through two lines at once would be
 one no reader could watch move alone.
 
+"Its bytes" means something different for the two kinds of piece, and the difference is the
+point. **A document's prose is not an input to the generator; its block is.** A `.json`
+piece is digested as its whole file, because that file is block and nothing else. A `.md`
+document is digested as its `json spfn-ui` block ALONE — the fence lines dropped, a `\r`
+removed from the end of each line, and nothing trimmed or collapsed inside it — because the
+prose is the half you are meant to keep rewriting. It is where you argue what the screens
+must do, and nothing downstream reads it. Digesting the whole document moved the header of
+every one of the 137 generated files each time a sentence was reworded, which is a bill for
+editing the document as intended.
+
+What still moves the digest is any edit to the spec itself: one character changed inside a
+block, a space added inside its JSON, or a piece added, removed or renamed. And a document
+holding no valid block never reaches the digest at all — it is refused by name first.
+
 ### What stays in the JSON file, and why
 
 `device-approval.json` keeps the eight showcase flows. They exist so that the three
