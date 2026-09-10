@@ -1,6 +1,6 @@
 # `ui-codegen` — the screen scaffold generator
 
-One JSON spec in, one app scaffold out per **target**.
+One screen spec in, one app scaffold out per **target**.
 
     ./gradlew :ui-codegen:spfnGenerateUi          # the example apps, the case table and the flows
     ./gradlew :ui-codegen:spfnGenerateHarnessUi   # the harness apps
@@ -10,12 +10,17 @@ One JSON spec in, one app scaffold out per **target**.
 Both verify tasks are wired into `check`, and they are two tasks rather than one so a
 failure names WHICH app's scaffold drifted.
 
-Inputs — two files, the repository-relative path of one of them, and the lock that
-chooses the other:
+Inputs — a place, the bundle, the repository-relative path of the place, and the lock
+that chooses the bundle:
 
-- `examples/ui-spec/device-approval.json` — the screens, written by a person. Its fields
-  and its six refusals are `examples/ui-spec/SCHEMA.md`. Its PATH is an input too: every
-  generated header prints it.
+- `examples/ui-spec` — the screens, written by a person. A DIRECTORY: `device-approval.json`
+  inside it holds the eight showcase flows, and each `contracts/*.md` holds one flow's part
+  of the spec in the `json spfn-ui` block at its end. Every piece is read whole by the one
+  reader and the pieces are merged, refusing any name two of them declare — one flow lives
+  in one place. The fields and the refusals are `examples/ui-spec/SCHEMA.md`; what a
+  document's other sections say is `examples/ui-spec/CONTRACT.md`. A single `.json` file is
+  still a legal argument and is read as it always was. The PATH is an input too: every
+  generated header prints it, and `specSha256` is the digest of the pieces.
 - `Contracts/spfn-mobile-contract.json` — the pinned bundle, read through
   `:contract-codegen`'s own reader rather than a second copy of it.
 - `Contracts/upstream.lock.json`'s `contract` block — it names the bundle file and the
@@ -37,6 +42,13 @@ lists in `build.gradle.kts` and a third would be a third task there.
 Each target gets the same nine files per platform: the service protocol and its default
 implementation, the route enum with its flow and flow host, one model per screen plus any
 use case, the shared screen failure, one view skeleton per screen, and the container.
+
+The view skeleton is the one file a flow can take back. A flow whose `views` are
+`authored` has its screens written by hand from its contract document, and this generator
+then neither writes those files nor deletes them as stale — the deletion rule below would
+otherwise eat the work on the next run. Section 21 of `tools/validate/validate.sh` is what
+holds an authored view to being written and a reference view to being generated; nothing
+here can, because an authored path is not a file this generator emits.
 
 The case table and the Maestro flows go to the ONE target that declares a table root. They
 name cells, fixtures and expectations, and `examples/` holds the only app that installs
@@ -64,7 +76,10 @@ would drift, and the drift would arrive as a compile error in a file nobody wrot
 
 **Determinism.** Output is a pure function of the spec bytes, the bundle bytes, the spec's
 repository-relative path and the lock's contract block: sorted iteration, no timestamp, no
-host name, no absolute path. `SpecRefusalTest` generates twice and compares.
+host name, no absolute path. For a directory the spec bytes are the pieces, in name order,
+each framed with its own name inside the directory — a walk in the filesystem's order would
+hash differently on a Mac than on the CI runner. `SpecRefusalTest` generates twice and
+compares.
 
 **Where the expectations come from.** The case table is derived from the rule table in
 `src/main/kotlin/xyz/superfunction/spfn/uicodegen/Rules.kt` and the spec's shape; the
@@ -74,7 +89,10 @@ checks would prove only that the code equals itself (P10).
 
 **Stale files.** A generated directory holds generated files and nothing else. `write`
 deletes what is no longer generated and says so; `verify` fails on it. The same rule
-`:contract-codegen` applies to its own output.
+`:contract-codegen` applies to its own output. The one exemption is an authored flow's
+views, which are named by the emitters rather than recognised by their contents: a file
+exempted for lacking a generated header would exempt a generated file somebody had edited
+the header out of, which is the drift this gate exists to catch.
 
 ## What it is not
 

@@ -15,6 +15,11 @@
 //     spec's repository-relative PATH and the lock's CONTRACT BLOCK: no timestamp, no
 //     host name, no absolute path, no unordered iteration.
 //
+// The spec is a PLACE rather than a file. `<specPath>` is either one JSON file or a
+// directory holding the JSON beside the contract documents whose machine blocks carry the
+// rest, and `SpecInput` is where the pieces are read, refused and merged. "The spec bytes"
+// above is therefore the digest of the pieces, which `SpecInput.digest` states exactly.
+//
 // The last two of those four are named because they are real and easy to miss. The path
 // is in every generated header and in the case table's `spec` field, which is what makes
 // it an input rather than an invocation detail — so it is kept repository-relative, and
@@ -46,7 +51,7 @@ fun main(args: Array<String>)
     if (args.size < 3)
     {
         System.err.println(
-            "usage: ui-codegen <repoRoot> <specPath> <write|verify> --target=<name> " +
+            "usage: ui-codegen <repoRoot> <specFileOrDirectory> <write|verify> --target=<name> " +
                 "--swift-root=<dir> --kotlin-root=<dir> --kotlin-package=<pkg> --app-id=<id> " +
                 "[--table-root=<dir>]"
         );
@@ -85,14 +90,9 @@ fun main(args: Array<String>)
  */
 fun generate(repoRoot: File, specPath: String, target: Target): Map<String, String>
 {
-    val specFile = File(repoRoot, specPath);
-    if (!specFile.isFile)
-    {
-        throw GenerationFailure("missing $specPath");
-    }
-    val specBytes = specFile.readBytes();
     val bundle = loadBundle(repoRoot);
-    val whole = Spec.read(String(specBytes, Charsets.UTF_8), bundle);
+    val source = SpecInput.read(repoRoot, specPath, bundle);
+    val whole = source.spec;
     // Read whole and narrowed after, so a flow this target does not want is still checked
     // before it is dropped: a target cannot hide a broken flow by not asking for it.
     val spec = whole.narrowedTo(target.flows);
@@ -113,7 +113,7 @@ fun generate(repoRoot: File, specPath: String, target: Target): Map<String, Stri
 
     val inputs = Inputs(
         specPath = specPath,
-        specSha256 = sha256Hex(specBytes),
+        specSha256 = source.sha256,
         bundleSha256 = bundle.sha256,
         contractVersion = bundle.contractVersion,
         generateTask = target.generateTask,

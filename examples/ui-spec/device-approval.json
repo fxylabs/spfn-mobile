@@ -3,13 +3,10 @@
   "contract": { "manifestSha256": "29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c" },
   "services": {
     "deviceApproval": {
-      "lookup":  { "operation": "authDeviceInfo" },
-      "approve": { "operation": "authDeviceApprove" },
-      "deny":    { "operation": "authDeviceDeny" }
+      "lookup": { "operation": "authDeviceInfo" }
     }
   },
   "flows": {
-    "approveDevice": { "entry": "modal", "start": "enterCode" },
     "pushTour":      { "entry": "push",  "start": "tourOne" },
     "modalTour":     { "entry": "modal", "start": "modalOne" },
     "sheetFit":      { "entry": "sheet", "sheet": { "detent": "fit" },  "start": "fitOne" },
@@ -20,28 +17,6 @@
     "longScroll":    { "entry": "push",  "start": "long" }
   },
   "screens": {
-    "enterCode": {
-      "flow": "approveDevice", "source": null,
-      "title": "Approve a device",
-      "inputs": {
-        "userCode": { "kind": "code", "label": "Code from the device", "submitOnReturn": true, "autofocus": true }
-      },
-      "actions": {
-        "submit": { "call": "deviceApproval.lookup", "then": { "push": "reviewDevice" }, "role": "primary" },
-        "cancel": { "then": "close", "role": "text" }
-      }
-    },
-    "reviewDevice": {
-      "flow": "approveDevice", "source": "deviceApproval.lookup", "usecase": true,
-      "title": "Review the device",
-      "actions": {
-        "approve": { "call": "deviceApproval.approve", "then": "close", "role": "primary" },
-        "deny":    { "call": "deviceApproval.deny",    "then": "close", "role": "destructive" },
-        "retry":   { "call": "deviceApproval.lookup" },
-        "back":    { "then": "pop", "role": "text" }
-      }
-    },
-
     "tourOne": {
       "flow": "pushTour", "source": null, "body": "lorem.short",
       "title": "Pushed, one of three",

@@ -2,8 +2,8 @@
 GENERATED FILE — DO NOT EDIT.
 
 generator:       spfn-ui-codegen 0.1.0-dev
-spec:            examples/ui-spec/device-approval.json
-specSha256:      5babeed3f41fa7c8eb049bc79d7719ff9f0d79ede06c4073015643be04668f7a
+spec:            examples/ui-spec
+specSha256:      9b8c13ec14a6641526cf7b821ea45c561d4343a2d9392b36aeeda6004baa86ae
 bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
 contractVersion: 0.10.0
 

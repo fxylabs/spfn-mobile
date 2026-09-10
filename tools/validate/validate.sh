@@ -233,6 +233,7 @@ for path in \
     tools/ui-codegen/README.md \
     tools/ui-codegen/build.gradle.kts \
     examples/ui-spec/device-approval.json examples/ui-spec/SCHEMA.md \
+    examples/ui-spec/CONTRACT.md examples/ui-spec/contracts/approveDevice.md \
     examples/ui-spec/generated/device-approval.cases.json \
     examples/ui-spec/generated/device-approval.cases.md \
     examples/android-compose/README.md examples/ios-swiftui/README.md \
@@ -264,7 +265,8 @@ done
 
 for path in \
     Sources Tests android Contracts/fixtures tools examples/ios-swiftui \
-    examples/android-compose examples/ui-spec examples/ui-spec/generated/flows \
+    examples/android-compose examples/ui-spec examples/ui-spec/contracts \
+    examples/ui-spec/generated/flows \
     examples/ios-swiftui/Generated docs/architecture docs/migration docs/security \
     tools/device-receipts tools/device-receipts/runs \
     Tests/SPFNConformanceTests "$SWIFT_GENERATED" "$KOTLIN_GENERATED"
