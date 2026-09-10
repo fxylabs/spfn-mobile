@@ -62,7 +62,8 @@ that reports coverage it did not have — into decoration.
 ## The second consuming app
 
 This harness is not only a screen of buttons any more. `tools/ui-codegen` emits the
-device-approval screens from `examples/ui-spec/device-approval.json` into two apps: the
+device-approval screens from `examples/ui-spec` — the flow's part of that spec is the
+machine block of `examples/ui-spec/contracts/approveDevice.md` — into two apps: the
 example apps under `examples/`, and this one. Same spec, same generator, two targets —
 `:ui-codegen:spfnGenerateHarnessUi` writes this half and `:ui-codegen:spfnHarnessUiVerify`
 fails when it has drifted.

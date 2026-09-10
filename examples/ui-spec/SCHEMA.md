@@ -1,9 +1,13 @@
 # The screen spec, field by field
 
-One JSON file describes one feature's screens, and `tools/ui-codegen` turns it into the
+One feature's screens are described in JSON, and `tools/ui-codegen` turns that into the
 Swift and Kotlin scaffolds for both example apps, the case table and one Maestro flow per
-cell. `device-approval.json` beside this file is the worked example; this page is the rule
-book, written for whoever — person or model — authors the next one in a consumer app.
+cell. The JSON is not all in one file: this directory is the spec, `device-approval.json`
+beside this page is the worked example of the file half, and `contracts/approveDevice.md`
+is the worked example of the other — a flow whose part of the spec lives in the machine
+block of the document its screens were written from. This page is the rule book for the
+fields, written for whoever — person or model — authors the next one in a consumer app;
+`CONTRACT.md` is the rule book for the documents.
 
 The generator is the only reader. It refuses a spec it does not fully understand rather
 than emitting a plausible app from one: every rule below that says *fails* is a hard stop
@@ -19,6 +23,51 @@ generated header prints it, so it is an input to the output rather than a detail
 run was invoked; the lock's contract block is on it because it names the bundle file and
 the digest its bytes must have, which decides which bytes are read and whether the run
 happens at all.
+
+## Where the spec lives
+
+The generator is given a PLACE, and it is either one JSON file or a directory:
+
+    ./gradlew ...   # tools/ui-codegen/build.gradle.kts passes `examples/ui-spec`
+
+A directory spec is every `.json` file directly inside it and every `.md` document under
+its `contracts/`, and the spec is their **union**. Each piece is read whole, by the one
+reader, with every rule on this page applied to it — a document with a broken block fails
+exactly as a broken spec file fails, and names its own path. Only then are the pieces put
+together, under four rules, all of which are refusals:
+
+| Rule | Why it is a refusal and not a merge |
+| --- | --- |
+| `specVersion` and `contract.manifestSha256` are the same in every piece | Both are properties of the whole spec. Pieces that disagree were written for different generators, or against different contract bundles, and there is no version of the answer that is right for both. |
+| A service method two pieces both declare names the same operation | A piece is read whole, so a document whose screen calls `deviceApproval.approve` has to declare that method — overlap is expected and disagreement is the one case a merge would have to choose in. |
+| A flow name is declared in exactly one piece | One flow lives in one place. Two documents describing one flow is two truths about what is on the phone. |
+| A screen name is declared in exactly one piece | A screen belongs to the flow it names, and its flow is in one document, so it is too. |
+
+Every one of those refusals names both paths, because a collision is a fact about two files
+and a message naming one of them sends the reader to the wrong document.
+
+The `spec:` line a generated header prints is then the DIRECTORY, and `specSha256:` is the
+sha256 of the pieces: for each piece in name order, its name inside the spec directory, a
+newline, its bytes, a newline. Sorted, because a directory walked in the order the
+filesystem happens to hold would hash differently on a Mac than on the CI runner and make
+every header a fact about the host. Framed with the name inside the directory rather than
+the repository-relative one, because the directory's own path is already an input — it is
+the `spec:` line — and an input that reached the output through two lines at once would be
+one no reader could watch move alone.
+
+### What stays in the JSON file, and why
+
+`device-approval.json` keeps the eight showcase flows. They exist so that the three
+presentations, a stack inside a sheet, a keyboard and a body that does not fit can be
+looked at and driven by a runner — and a contract document is written for an implementer
+who is about to draw a screen against it. Nobody is going to draw `sheetHalf`: it is a
+sheet with two paragraphs in it, its screens ARE the generated skeleton, and a document
+saying so for each of the eight would be eight pages no reader is the reader of. `approveDevice`
+is the flow with a person on the other side of it, so it is the flow with a document.
+
+The split is therefore not a migration that stopped half way. A flow gets a document when
+somebody is going to write its screens; until then its part of the spec is a JSON entry,
+and moving it later is moving one object between two files.
 
 ## Top level
 
@@ -66,6 +115,22 @@ returns `Void`/`Unit` rather than a value nothing can decode.
 | `entry` | `"modal"`, `"push"`, `"sheet"` | Maps to `FlowEntry.modal` / `FlowEntry.Modal` and its two siblings. It decides what a system back on the flow's LAST route does: `modal` and `sheet` close the flow, `push` lets the host app's back apply. |
 | `sheet.detent` | `"fit"`, `"half"`, `"full"` | How tall the sheet stands. **Required** when `entry` is `sheet` and **refused** otherwise. |
 | `start` | a screen name | The route the flow opens on. |
+| `views` | `"reference"`, `"authored"` | Who writes this flow's views. Default `"reference"`. |
+
+`views` says who draws the screens. `reference` — the default — is the generator, which
+emits one view per screen out of SPFNUI's components; `authored` is a person, writing from
+the flow's contract document, and for such a flow the generator neither writes those files
+nor deletes them as stale. That second half is the load-bearing one: a generated directory
+holds nothing but generated files, and without the exemption the next run would delete the
+work. It is only writable in a contract document — a flow in a `.json` piece that claims
+`authored` is refused, because `authored` says a person wrote these screens against a
+document that states what they must do, show and not differ in, and a JSON file states none
+of that. A word outside the pair is refused under refusal 7.
+
+Section 21 of `tools/validate/validate.sh` is the other end of it: an authored flow's view
+files must exist and must NOT carry the generated header, and a reference flow's must. The
+generator cannot see either failure — it does not emit an authored path, so there is nothing
+for `spfnUiVerify` to miss.
 
 `sheet` is required-and-refused in both directions on purpose. A sheet with no detent has no
 height to resolve, and a modal with one carries a number nothing reads — which is the state
@@ -73,9 +138,10 @@ height to resolve, and a modal with one carries a number nothing reads — which
 never exceeds `full`; `half` and `full` are fractions of the space the host gave the flow, and
 `SheetGeometry` resolves all three identically on both platforms.
 
-A spec carries as many flows as it has, and `device-approval.json` beside this file carries
-nine. One of them reads and writes; the other eight exist so the three presentations, a stack
-inside a sheet, a keyboard and a body that does not fit can be looked at. Nothing in this page
+A spec carries as many flows as it has, and this directory carries nine: `approveDevice`,
+which reads and writes and has a contract document of its own, and the eight in
+`device-approval.json` that exist so the three presentations, a stack inside a sheet, a
+keyboard and a body that does not fit can be looked at. Nothing in this page
 is per-flow — the generator emits a route enum, a factory and a host for each — but two things
 downstream are, and both are named where they live: `Rules.kt` covers exactly one flow that
 reads and derives a much shorter list for the rest, and a target may narrow to a subset with
@@ -226,9 +292,9 @@ The generator fails, and generates nothing at all, when:
    refusal that makes the promise at the top of this page true for OPTIONAL keys. A required
    key misspelled is already a missing-key refusal; a misspelled `usecase` is not, and without
    this rule it would emit a screen whose use-case layer was asked for and quietly left out.
-7. **A value outside a closed set.** `entry`, `sheet.detent`, `role` and `inputs.<i>.kind` each
-   admit a fixed list, and every one of those values becomes a component name or an enum case
-   on both platforms. A word outside the list would not fail here — it would reach an emitter
+7. **A value outside a closed set.** `entry`, `sheet.detent`, `views`, `role` and
+   `inputs.<i>.kind` each admit a fixed list, and every one of those values becomes a
+   component name, an enum case or a decision about which files this run owns. A word outside the list would not fail here — it would reach an emitter
    that writes `FieldKind.Otp`, and the first evidence would be a compile error in a file
    nobody wrote. A `sheet` on a flow that is not one, and a sheet flow with no `sheet`, are
    refused under the same rule.
