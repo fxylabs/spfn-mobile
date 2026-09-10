@@ -54,7 +54,9 @@ object SpecInput
     fun read(repoRoot: File, specPath: String, bundle: Bundle): SpecSource
     {
         val pieces = pieces(repoRoot, specPath);
-        val read = pieces.map { piece -> ReadPiece(piece.path, Spec.read(text(piece), bundle)) };
+        val read = pieces.map { piece ->
+            ReadPiece(piece.path, Spec.read(text(piece), bundle)).also { checkViewSource(it, piece) }
+        };
         return SpecSource(merge(read), digest(pieces));
     }
 
@@ -137,6 +139,28 @@ object SpecInput
             throw SpecException("$path holds $blocks spfn-ui blocks; one flow is one block");
         }
         return body.joinToString("\n");
+    }
+
+    /**
+     * Refusal: a flow in a `.json` piece may not claim its views are authored.
+     *
+     * `authored` says a person wrote these screens from a document that states what they
+     * must do, show and not differ in. A JSON file states none of that, so a flow that
+     * claimed it there would be asking the generator to leave files alone that nothing in
+     * the repository describes.
+     */
+    private fun checkViewSource(read: ReadPiece, piece: Piece)
+    {
+        if (piece.name.endsWith(".md"))
+        {
+            return;
+        }
+        read.spec.flows.filter { it.authored }.forEach { flow ->
+            throw SpecException(
+                "flows.${flow.name}.views is '${FlowDefinition.AUTHORED}' in ${read.path}; a view written by " +
+                    "hand is written from a contract document, so a flow whose views are authored lives in one"
+            );
+        };
     }
 
     /**

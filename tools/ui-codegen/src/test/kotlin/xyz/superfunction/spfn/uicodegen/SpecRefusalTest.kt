@@ -68,7 +68,7 @@ class SpecRefusalTest
     )
 
     private fun generate(repoRoot: File, specPath: String): Map<String, String> =
-        generate(repoRoot, specPath, target)
+        generate(repoRoot, specPath, target).files
 
     /** Writes a mutated spec as a directory under the module's build directory. */
     private fun withSpec(name: String, pieces: Map<String, String>): String
@@ -694,15 +694,15 @@ class SpecRefusalTest
     fun `a target that asks for no readouts gets none`()
     {
         val quiet = target.copy(name = "quiet", runnerReadouts = false, tableRoot = null);
-        val loud = generate(repoRoot, specPath, target).getValue("${target.kotlinRoot}/views/EnterCodeScreen.kt");
-        val silent = generate(repoRoot, specPath, quiet).getValue("${quiet.kotlinRoot}/views/EnterCodeScreen.kt");
+        val loud = generate(repoRoot, specPath, target).files.getValue("${target.kotlinRoot}/views/EnterCodeScreen.kt");
+        val silent = generate(repoRoot, specPath, quiet).files.getValue("${quiet.kotlinRoot}/views/EnterCodeScreen.kt");
 
         assertTrue("the readout target emitted no state readout", loud.contains("\"state=\" + stateName(state)"));
         assertTrue("the quiet target emitted a state readout", !silent.contains("state="));
         assertTrue("the quiet target emitted a stack readout", !silent.contains("stack="));
         assertTrue("the quiet target dropped a control", silent.contains("id = \"enterCode.submit\""));
 
-        val swift = generate(repoRoot, specPath, quiet).getValue("${quiet.swiftRoot}/Views/EnterCodeView.swift");
+        val swift = generate(repoRoot, specPath, quiet).files.getValue("${quiet.swiftRoot}/Views/EnterCodeView.swift");
         assertTrue("the quiet Swift target emitted a readout", !swift.contains("state="));
         assertTrue("the quiet Swift target dropped a control", swift.contains("identifier: \"enterCode.submit\""));
     }
@@ -780,7 +780,7 @@ class SpecRefusalTest
     @Test
     fun `a narrowed target emits the screens of its own flows and no others`()
     {
-        val narrowed = generate(repoRoot, specPath, target.copy(flows = setOf("approveDevice")));
+        val narrowed = generate(repoRoot, specPath, target.copy(flows = setOf("approveDevice"))).files;
         val views = narrowed.keys.filter { it.startsWith("${target.swiftRoot}/Views/") }.sorted();
         assertEquals(
             listOf("${target.swiftRoot}/Views/EnterCodeView.swift", "${target.swiftRoot}/Views/ReviewDeviceView.swift"),
@@ -1010,6 +1010,105 @@ class SpecRefusalTest
                 .replaceFirst("\"lookup\": { \"operation\": \"authDeviceInfo\" }",
                     "\"lookup\": { \"operation\": \"authDeviceApprove\" }")),
             "a method two pieces both declare is one method"
+        );
+    }
+
+    // ---- who writes the views (N5, D2) --------------------------------------
+
+    @Test
+    fun `a views value outside the pair is refused, and a json flow may not claim authored`()
+    {
+        assertRefused(
+            "views-word",
+            replaceOnce(
+                "\"approveDevice\": { \"entry\": \"modal\", \"start\": \"enterCode\" }",
+                "\"approveDevice\": { \"entry\": \"modal\", \"start\": \"enterCode\", \"views\": \"manual\" }"
+            ),
+            "flows.approveDevice.views is 'manual'"
+        );
+
+        assertRefused(
+            "views-in-json",
+            replaceOnce(
+                "\"pushTour\":      { \"entry\": \"push\",  \"start\": \"tourOne\" }",
+                "\"pushTour\":      { \"entry\": \"push\",  \"start\": \"tourOne\", \"views\": \"authored\" }"
+            ),
+            "a view written by hand is written from a contract document"
+        );
+    }
+
+    /**
+     * The switch, in the only place this suite can see it: what the run says it produced.
+     *
+     * An authored flow's views are absent from the files — so `write` writes nothing there
+     * and `verify` has nothing to compare — and present in `authoredViews`, which is what
+     * keeps `staleOutputs` from deleting them. Everything else about the flow is still
+     * generated: the model, the route, the flow and the container are the generator's
+     * whatever draws the screen.
+     */
+    @Test
+    fun `an authored flow's views are not written, and the rest of it still is`()
+    {
+        val authored = withSpec(
+            "authored-views",
+            replaceOnce(
+                "\"approveDevice\": { \"entry\": \"modal\", \"start\": \"enterCode\" }",
+                "\"approveDevice\": { \"entry\": \"modal\", \"start\": \"enterCode\", \"views\": \"authored\" }"
+            )
+        );
+        val generated = generate(repoRoot, authored, target);
+
+        assertEquals(
+            "the authored flow's two screens are not the four view files this run must leave alone",
+            setOf(
+                "${target.kotlinRoot}/views/EnterCodeScreen.kt",
+                "${target.kotlinRoot}/views/ReviewDeviceScreen.kt",
+                "${target.swiftRoot}/Views/EnterCodeView.swift",
+                "${target.swiftRoot}/Views/ReviewDeviceView.swift"
+            ),
+            generated.authoredViews
+        );
+        generated.authoredViews.forEach { view ->
+            assertTrue("$view was generated over a person's own file", view !in generated.files.keys);
+        };
+
+        listOf(
+            "${target.kotlinRoot}/screens/EnterCodeModel.kt",
+            "${target.kotlinRoot}/flows/ApproveDeviceFlow.kt",
+            "${target.swiftRoot}/Screens/ReviewDeviceModel.swift",
+            // And a reference flow in the same run keeps its view: the switch is per flow.
+            "${target.kotlinRoot}/views/LongScreen.kt"
+        ).forEach { path ->
+            assertTrue("$path stopped being generated when one flow's views became a person's", generated.files.containsKey(path));
+        };
+    }
+
+    /**
+     * The other half of the switch: the deletion rule that owns these directories.
+     *
+     * `write` deletes what it did not emit and `verify` reports it, which is what keeps a
+     * generated directory honest — and is exactly what would eat a hand-written view. So the
+     * exemption is read here against a tree holding one of each: a view this run declared
+     * authored, and a leftover from a spec nobody has any more.
+     */
+    @Test
+    fun `an authored view is not stale, and a leftover beside it still is`()
+    {
+        val root = File(repoRoot, "tools/ui-codegen/build/authored-tree");
+        root.deleteRecursively();
+        val views = "${target.kotlinRoot}/views";
+        File(root, views).mkdirs();
+        File(root, "$views/EnterCodeScreen.kt").writeText("// written by hand from contracts/approveDevice.md\n");
+        File(root, "$views/GhostScreen.kt").writeText("// left behind by a spec that no longer declares it\n");
+
+        val generated = Generated(
+            files = mapOf("$views/LongScreen.kt" to "// generated\n"),
+            authoredViews = setOf("$views/EnterCodeScreen.kt")
+        );
+        assertEquals(
+            "the stale reader did not answer with the one file nothing declares",
+            listOf("$views/GhostScreen.kt"),
+            staleOutputs(root, generated)
         );
     }
 }

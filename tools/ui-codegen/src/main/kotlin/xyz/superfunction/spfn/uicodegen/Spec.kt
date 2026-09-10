@@ -201,11 +201,32 @@ data class FlowDefinition(
      * once more one layer up.
      */
     val detent: String?,
-    val start: String
+    val start: String,
+
+    /**
+     * Who writes this flow's views: `reference` — the generator — or `authored` — a person.
+     *
+     * A generated view is a skeleton built out of SPFNUI's components, and it is the right
+     * answer for a flow nobody has drawn yet. A flow whose screens have been written from a
+     * contract document by hand is the other case, and for it the generator has to keep its
+     * hands off entirely: it neither writes those files nor deletes them as stale, because
+     * "a generated directory holds only generated files" would otherwise eat the work.
+     */
+    val views: String
 )
 {
     /** Whether this flow is presented over something and therefore has a way out of its own. */
     val presentedOver: Boolean get() = entry != "push";
+
+    /** Whether this flow's views are a person's, and therefore not this generator's to touch. */
+    val authored: Boolean get() = views == AUTHORED;
+
+    companion object
+    {
+        const val AUTHORED: String = "authored";
+
+        const val REFERENCE: String = "reference";
+    }
 }
 
 data class Spec(
@@ -221,6 +242,16 @@ data class Spec(
 
     fun screensOf(flow: FlowDefinition): List<ScreenDefinition> =
         screens.filter { it.flow == flow.name }
+
+    /**
+     * Whether [screen]'s view is written by hand rather than generated.
+     *
+     * A fact about the FLOW and never about the screen: a flow whose screens were written
+     * from a contract document was written whole, and half a flow drawn by a person under
+     * half a flow drawn from a grammar is two vocabularies inside one stack.
+     */
+    fun viewIsAuthored(screen: ScreenDefinition): Boolean =
+        flows.first { it.name == screen.flow }.authored
 
     /**
      * This spec with only [wanted] left of it, or this spec when [wanted] is null.
@@ -358,7 +389,7 @@ data class Spec(
         private fun readFlows(members: Map<String, JsonValue>): List<FlowDefinition> =
             members.keys.sorted().map { flow ->
                 val entry = members.getValue(flow).obj();
-                checkKeys(entry, setOf("entry", "sheet", "start"), "flows.$flow.");
+                checkKeys(entry, setOf("entry", "sheet", "start", "views"), "flows.$flow.");
                 val style = entry.required("entry").text();
                 if (style !in ENTRIES)
                 {
@@ -370,9 +401,31 @@ data class Spec(
                     name = flow,
                     entry = style,
                     detent = readDetent(entry["sheet"], style, flow),
-                    start = entry.required("start").text()
+                    start = entry.required("start").text(),
+                    views = readViews(entry["views"], flow)
                 );
             }
+
+        /**
+         * Who writes this flow's views, defaulting to the generator.
+         *
+         * The default is `reference` because that is the state every flow starts in: a
+         * screen nobody has drawn yet is a skeleton, and a spec that had to say so on every
+         * flow would make the common case the noisy one. A word outside the pair is refused
+         * for refusal 7's reason — `views: "manual"` that fell through to the default would
+         * generate over the very files it was written to protect.
+         */
+        private fun readViews(value: JsonValue?, flow: String): String
+        {
+            val views = (value ?: return FlowDefinition.REFERENCE).text();
+            if (views !in VIEW_SOURCES)
+            {
+                throw SpecException(
+                    "flows.$flow.views is '$views'; it must be one of ${VIEW_SOURCES.joinToString(", ")}"
+                );
+            }
+            return views;
+        }
 
         /**
          * The height a sheet stands at, required for a sheet and refused for anything else.
@@ -684,6 +737,9 @@ data class Spec(
         private val ENTRIES: List<String> = listOf("modal", "push", "sheet");
 
         private val DETENTS: List<String> = listOf("fit", "half", "full");
+
+        private val VIEW_SOURCES: List<String> =
+            listOf(FlowDefinition.AUTHORED, FlowDefinition.REFERENCE);
 
         private val FIELD_KINDS: List<String> = listOf("code", "text", "email", "number");
 
