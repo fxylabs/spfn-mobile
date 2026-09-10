@@ -25,12 +25,20 @@ generator, not by hand.
 | --- | --- | --- |
 | Read state | `Loadable` — `.loading` `.ready(v)` `.empty` `.error(e)` | `Loadable.Loading` `Ready(v)` `Empty` `Error(e)` |
 | Write state | `Busy` — `.idle` `.busy` `.error(e)` | `Busy.Idle` `Busy` `Error(e)` |
+| Paged read state | `Paged` — `page` (a `Loadable` of the rows), `more` (a `Busy`), `hasMore`; `canLoadMore`, and the five transitions `firstPage` `firstPageFailed` `appending` `appended` `appendFailed` | same names |
+| Form state | `Form` — `fields` (one `FieldError?` per field), `submit` (a `Busy`); `isValid`, `canSubmit`, and `check` `edited` `submitting` `submitted` `submitFailed` | same names |
+| Field rules | `FieldError` — `.required` `.minLength(n)` `.maxLength(n)` `.kind(k)` `.custom(message:)`; `FieldRules`; `FieldValidator`; `FieldKind` — `.code` `.text` `.email` `.number` | same names |
 | Flow | `Flow`, `FlowRoute`, `FlowHost`, `NavigationHost` | same names |
-| Components | `Screen`, `PrimaryButton` `SecondaryButton` `DestructiveButton` `TextButton`, `SpfnText`, `SpfnTextField`, `StatusText`, `LoadableView`, header icons | same names |
+| Components | `Screen`, `PrimaryButton` `SecondaryButton` `DestructiveButton` `TextButton`, `SpfnText`, `SpfnTextField`, `StatusText`, `LoadableView`, `PagedView`, header icons — 11 | same names |
 | Tokens, strings | `SPFNTokens` (20 keys), `SPFNStrings` (10 keys) | `SpfnTokens`, `SpfnStrings` |
 
 validate section 13 compares the two sets. A screen that needs a component the SDK does
 not have is a request to add one to the SDK on both platforms, not a one-off in the app.
+
+A cursor is not in the table because it is not in `Paged`: `firstPage` and `appended` are
+told what the next cursor is and keep only whether there WAS one. The value itself is the
+model's, held privately next to the service it will be handed back to — this vocabulary is
+what a screen SHOWS, and a screen never shows a cursor.
 
 ## 3. Identifiers and readouts (UI E10)
 
@@ -46,7 +54,7 @@ pitfall that recorded how it was once broken. A contract references rules by id.
 | Id | Rule | Given by | Broken once as |
 | --- | --- | --- | --- |
 | S1 | The vocabulary and identifiers above, verbatim | validate 13 | — |
-| S2 | The header stays fixed; the body scrolls under it; the way out never scrolls away | `Screen(scroll: true)` | `longScroll-headerHolds` |
+| S2 | The header stays fixed; the body scrolls under it; the way out never scrolls away | `Screen(scroll: true)` — except under a `PagedView`, where the two toolkits differ: `LazyColumn` brings its own scroll, so an Android paged screen says `Screen(scroll = false)`, while the iOS half draws a bare `LazyVStack` and the `Screen` keeps the scroll | `longScroll-headerHolds` |
 | S3 | A modal flow arrives from the bottom and leaves to the bottom; a sheet stands at its detent (fit / half / full = 92 %) and rises and falls; its scrim darkens with it | `FlowHost`, `Sheet`, `SheetGeometry` | P34 (fit sheet stood full), P38 (sheet snapped instead of moving) |
 | S4 | A pushed screen shows a back control leading in the header; it pops to the screen beneath, which is in the state it was left in | `Screen` header, `Flow.back` | — |
 | S5 | A modal or sheet flow shows a close control trailing in the header on every screen; close empties the whole flow | `Screen` header, `Flow.close` | `modalTour-closeOnRight` |
