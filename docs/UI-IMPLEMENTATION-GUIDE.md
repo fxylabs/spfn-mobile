@@ -46,6 +46,30 @@ what a screen SHOWS, and a screen never shows a cursor.
 - Every readout the contract lists is a `SpfnText` in the mono role with the text `<name>=<value>` — `stack=2`, `state=ready`, `fixture=none`. Runners wait on these; they are part of the contract.
 - Nothing else carries an identifier. An identifier a runner does not read is noise a reviewer has to explain.
 
+A `Paged` and a `Form` model **publish their readouts as strings** — `model.readouts` — and
+your view draws one `SpfnText` per entry, in that order. The model computes them because there
+is no generated view for either screen to compute them in, and a readout each implementer
+spelled for themselves would be a case table asserting on text two apps write differently.
+`Loadable` and `Busy` models do not have the property: their views are generated, and adding
+it would rewrite every generated model in the repository for no claim.
+
+| Readout | On | Values |
+| --- | --- | --- |
+| `more=` | `Paged` | `idle`, `busy`, `error` — what a FURTHER page is doing. Never the first page's state, which is `state=` |
+| `count=` | `Paged` | how many rows are on screen, appended pages included. `0` until the first page arrives |
+| `hasMore=` | `Paged` | `true` / `false` — whether the server said there is anything after what has been read |
+| `fields=` | `Form` | `<field>:<rule>` per refused field, **sorted by field name**, comma separated; `ok` when none. The rules are `required`, `minLength`, `maxLength`, `kind`, `custom` |
+| `item=` | one ROW of a `Paged` screen | whatever names a row. Which values exist is the contract document's to say, and the case table never asserts on it — it asserts on `count=` |
+
+`fields=` is sorted because the two platforms' `Form.fields` are not one order: Swift's is a
+`Dictionary` and Kotlin's is the rules' own insertion order, so a readout taken in the order it
+was found would be two different readouts for one state.
+
+A list screen's controls are `<screen>.retry` (the first page), `<screen>.retryMore` (the
+footer) and `<screen>.reload`. Two retry ids and not one: both can be on screen at once, and a
+runner asked for one id would refuse to pick. There is no "load more" control at all —
+`PagedView` asks when the end of the rows is laid out.
+
 ## 4. Shared rules — what must be the same on both platforms
 
 Each rule states the behaviour, names the SDK piece that gives it for free, and the
@@ -63,6 +87,8 @@ pitfall that recorded how it was once broken. A contract references rules by id.
 | S8 | Every control is at least the minimum touch target tall and answers a finger anywhere it is drawn — including a moving finger | button components, `contentShape`, no blanket pointer consumption | P21, P36 (a cover cancelled finger presses), P39 (only the label answered) |
 | K1–K7 | The keyboard rules: the body avoids it, tap-outside dismisses, autofocus, return submits, editing clears the refusal, the refusal sits under the field | `Screen`, `SpfnTextField` | k-cells |
 | R1–R8 | The model rules: empty required input refused before a call, second press ignored, write over an unloaded value ignored, then applies only on success, a source is read once per appearance, a refusal leaves the stack where it was, system back is the flow's pop | generated models, `CloseRulesTest` | u-cells |
+| P1–P9 | The paged rules: the first page's four states, an append, a failed append that leaves the rows alone, an append asked for twice, an append where there is nothing to append, a retry, and a reload that starts from the first page | generated models, `Paged` | P-cells |
+| F1–F8 | The form rules: every field checked at once, each refused by the first rule it breaks, a second submit ignored while the write is in flight, editing one field clearing that field's refusal alone | generated models, `Form` | F-cells |
 
 The five defects the 3-stage device round found, and the rule that now covers each:
 

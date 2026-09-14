@@ -37,9 +37,11 @@ Every screen carries these headings, in this order:
 | Heading | Content |
 | --- | --- |
 | Reads | the service method its `source` names, or `none`. The response type it shows |
-| Shows | per state of its state type — `Loadable`: loading, ready, empty, error; `Busy`: idle, busy, error; `Paged`, `Form` when they exist — what is on screen and what a runner reads (`<name>=<value>` readouts, E10) |
+| Shows | per state of its state type — `Loadable`: loading, ready, empty, error; `Busy`: idle, busy, error — what is on screen and what a runner reads (`<name>=<value>` readouts, E10) |
+| Shows, a **list** screen | the first page's four states and the footer's three, the readouts `stack=` `state=` `more=` `count=` `hasMore=` its model publishes, and what one ROW shows — including its own readout, `item=<name>`, whose values this document is the one place that says |
+| Shows, a **form** screen | the readouts `stack=` `state=` `fields=` its model publishes, and what is drawn under a refused field. `fields=` is `<field>:<rule>` per refused field, by field name, or `ok` |
 | Inputs | each field: label, kind, rules, return key, autofocus. `none` for a screen without fields |
-| Controls | each action: its identifier `<screen>.<action>` (E10), role, what it calls, where it goes (`then`), when it is disabled |
+| Controls | each action: its identifier `<screen>.<action>` (E10), role, what it calls, where it goes (`then`), when it is disabled. A list screen adds `<screen>.retry`, `<screen>.retryMore` and `<screen>.reload`, which are its model's own methods rather than spec actions and carry ids by the same rule; a further page has NO control, because the end of the rows coming into view is what asks for one |
 | Layout | the constraints that must hold on both platforms, stated as constraints and never as coordinates: header title centred, close on the right, primary control last in the body, fields above controls, body scrolls under a fixed header, keyboard never covers the focused field or the control under it |
 | Behaviour | back (system, header, swipe), close, what a second press does, what happens when the flow closes with a call in flight (P24) |
 | Same on both | the rules from the implementation guide this screen relies on, by id (`S1`, `S2` …), so the reviewer knows what to compare |
