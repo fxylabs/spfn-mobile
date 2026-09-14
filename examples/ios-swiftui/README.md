@@ -65,6 +65,16 @@ flow's exit status and whether its receipt arrived, so a cell that asserted ever
 still left nothing is reported as that. Receipts come out of the simulator's data container
 through `xcrun simctl get_app_container` and land, with the per-cell Maestro reports, in
 `examples/ui-spec/receipts/ios/<date>/`.
+A cell that failed is driven a **second time, once**, when the evidence it left says the
+LAUNCH stalled — maestro's own driver not coming up, or the app not drawing its first
+readout — and never for anything else, so a false assertion is reported the first time
+rather than run again until it passes. A retried cell says `launch stall, retried` on its
+line, the summary counts them, and the first attempt's log stays beside the second as
+`<cell>.attempt1.log`. On a Mac doing anything else at the same time, give maestro's driver
+longer before that retry is needed: `export MAESTRO_DRIVER_STARTUP_TIMEOUT=120000` (two of
+thirty-five cells on 2026-09-09 failed with `iOS driver not ready in time` under a
+concurrent validate, xcodebuild and swift test; the same thirty-five passed with it set).
+`run-cells.sh` never sets it — it is your variable.
 `sh examples/ui-spec/run-cells.sh --probe` proves the receipt gate bites and needs no
 simulator.
 
