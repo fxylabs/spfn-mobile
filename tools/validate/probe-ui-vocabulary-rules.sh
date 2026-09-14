@@ -25,7 +25,12 @@
 #   m. a host vocabulary name declared on one platform only fails, naming it. `HostEntry`
 #      has no cases and no public methods, so `compare_ui_type` cannot see it at all — it is
 #      exactly the shape of type that goes quiet, and a `HostEntry` only iOS has is a stack
-#      only iOS can put two flows on.
+#      only iOS can put two flows on;
+#   n. a PROPERTY renamed on one platform only fails. `Paged` and `Form` are made of what
+#      they hold, and until they arrived this section read only cases and methods — a
+#      grammar that never looked at a `public let` would report parity over a `hasMore`
+#      that had become a `hasNext` on one side, which is a footer only one platform can
+#      draw.
 #
 # and the same two questions of section 15, which is section 13's shape applied to the
 # VISUAL vocabulary — the tokens, the strings and the component set:
@@ -77,6 +82,7 @@ KOTLIN_HOST_STACK=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/Host
 KOTLIN_TOKENS=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/tokens/SpfnTokens.kt
 SWIFT_TOKENS=Sources/SPFNUI/Tokens/SPFNTokens.swift
 SWIFT_BUTTONS=Sources/SPFNUI/Components/Buttons.swift
+SWIFT_PAGED=Sources/SPFNUI/Paged.swift
 
 cp "$SWIFT_LOADABLE" "$TMP/swift-loadable.bak"
 cp "$SWIFT_FLOW" "$TMP/swift-flow.bak"
@@ -87,6 +93,7 @@ cp "$KOTLIN_HOST_STACK" "$TMP/kotlin-host-stack.bak"
 cp "$KOTLIN_TOKENS" "$TMP/kotlin-tokens.bak"
 cp "$SWIFT_TOKENS" "$TMP/swift-tokens.bak"
 cp "$SWIFT_BUTTONS" "$TMP/swift-buttons.bak"
+cp "$SWIFT_PAGED" "$TMP/swift-paged.bak"
 
 restore_files()
 {
@@ -99,6 +106,7 @@ restore_files()
     cp "$TMP/kotlin-tokens.bak" "$KOTLIN_TOKENS"
     cp "$TMP/swift-tokens.bak" "$SWIFT_TOKENS"
     cp "$TMP/swift-buttons.bak" "$SWIFT_BUTTONS"
+    cp "$TMP/swift-paged.bak" "$SWIFT_PAGED"
 }
 
 restore()
@@ -292,6 +300,16 @@ sed 's/^public data class HostEntry(/public data class HostCell(/' \
     "$TMP/kotlin-host-stack.bak" > "$KOTLIN_HOST_STACK"
 expect_ui_fail 'a host vocabulary name declared on one platform only fails, naming it' \
     'only in Swift: HostEntry'
+
+# --- n. a property renamed on one half of a state type ------------------------------
+# `hasMore` is one of the three things `Paged` IS, and it is renamed here rather than
+# deleted because a rename is what a merge and a half-finished refactor both leave behind:
+# both platforms still compile, both suites still pass, and the two vocabularies have
+# quietly stopped being one. Neither the case grammar nor the method grammar can see it.
+sed 's/^    public let hasMore: Bool$/    public let hasNext: Bool/' \
+    "$TMP/swift-paged.bak" > "$SWIFT_PAGED"
+expect_ui_fail 'a Paged property renamed on the Swift half only fails, naming the type' \
+    'Paged differs between platforms'
 
 # --- i. SwiftUI is Apple-only, and SPFNUI builds on Linux --------------------------
 sed 's/^#if canImport(SwiftUI)$//; s/^#endif$//' "$TMP/swift-host.bak" > "$SWIFT_HOST"

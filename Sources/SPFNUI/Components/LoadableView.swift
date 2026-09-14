@@ -15,6 +15,10 @@
 // and a screen that had to write them would write them differently every time. The words
 // come from ``SPFNStrings`` and the failure is classified into a KEY rather than drawn from
 // the envelope, because the envelope's `message` is text a server chose (decision C7).
+//
+// Two of the three defaults are drawn by ``LoadingLine`` and ``FailureLine`` rather than
+// here, because ``PagedView``'s footer draws the same two lines for the page after the
+// first one and a second copy of them would drift (see `Slots.swift`).
 
 import SPFNCore
 import SwiftUI
@@ -59,48 +63,23 @@ public struct LoadableView<Value: Sendable, Ready: View>: View
         switch state
         {
         case .loading:
-            loading
+            AnyView(LoadingLine())
         case .ready(let value):
             ready(value)
         case .empty:
             AnyView(SpfnText(SPFNStrings.stateEmpty, secondary: true))
         case .error(let envelope):
-            failure(envelope)
+            // The sentence is the caller's classifier's, chosen from the envelope's CODE.
+            // The server's own `message` is never drawn — see this file's header and
+            // decision C7.
+            AnyView(
+                FailureLine(
+                    text: message(envelope),
+                    retryIdentifier: retryIdentifier,
+                    onRetry: onRetry
+                )
+            )
         }
-    }
-
-    private var loading: AnyView
-    {
-        AnyView(
-            HStack(spacing: SPFNTokens.space2)
-            {
-                ProgressView()
-                    .controlSize(.small)
-                SpfnText(SPFNStrings.stateLoading, secondary: true)
-            }
-        )
-    }
-
-    /// The failure, as the sentence the caller's classifier chose for the envelope's CODE.
-    ///
-    /// The server's own `message` is never drawn — see this file's header and decision C7.
-    private func failure(_ envelope: SPFNErrorEnvelope) -> AnyView
-    {
-        AnyView(
-            VStack(alignment: .leading, spacing: SPFNTokens.space3)
-            {
-                StatusText(kind: .error, text: message(envelope))
-                if let onRetry = onRetry
-                {
-                    SecondaryButton(
-                        title: SPFNStrings.actionRetry,
-                        identifier: retryIdentifier,
-                        onTap: onRetry
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        )
     }
 }
 #endif
