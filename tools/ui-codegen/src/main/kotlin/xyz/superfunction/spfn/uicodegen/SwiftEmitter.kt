@@ -26,8 +26,16 @@ class SwiftEmitter(target: Target)
 
     private val readouts: Boolean = target.runnerReadouts;
 
-    /** One name and one type, which is all a stored property and an init parameter share. */
-    private data class Parameter(val name: String, val type: String)
+    /**
+     * One name and one type, which is all a stored property and an init parameter share —
+     * plus, on exactly one of them, a default.
+     *
+     * The default belongs to the INITIALISER and never to the stored property: written on the
+     * property, `private let validator: (any FieldValidator)? = nil` is a constant nil that
+     * the init then cannot assign over. The two halves are written from one list, so this is
+     * where the difference between them lives.
+     */
+    private data class Parameter(val name: String, val type: String, val defaultValue: String? = null)
 
     fun emit(spec: Spec, bundle: Bundle, inputs: Inputs): Map<String, String>
     {
@@ -38,7 +46,7 @@ class SwiftEmitter(target: Target)
         spec.flows.forEach { flow ->
             files["$root/Flows/${type(flow.name, "Flow")}.swift"] = flow(spec, flow, bundle, inputs);
         };
-        files["$root/Screens/ScreenFailure.swift"] = failure(bundle, inputs);
+        files["$root/Screens/ScreenFailure.swift"] = failure(spec, bundle, inputs);
         spec.screens.forEach { screen ->
             files["$root/Screens/${type(screen.name, "Model")}.swift"] = model(spec, screen, bundle, inputs);
             if (screen.usecase)
@@ -278,11 +286,17 @@ class SwiftEmitter(target: Target)
 
     // ---- the models --------------------------------------------------------
 
+    /** Which of the four models this screen gets. The Kotlin half asks in the same order. */
     private fun model(spec: Spec, screen: ScreenDefinition, bundle: Bundle, inputs: Inputs): String
     {
         val flow = spec.flows.first { it.name == screen.flow };
-        return if (screen.isLoadable) loadableModel(spec, flow, screen, bundle, inputs)
-        else busyModel(spec, flow, screen, bundle, inputs);
+        return when
+        {
+            screen.isPaged -> pagedModel(spec, flow, screen, bundle, inputs)
+            screen.isLoadable -> loadableModel(spec, flow, screen, bundle, inputs)
+            ScreenShape.isForm(screen, bundle) -> formModel(spec, flow, screen, bundle, inputs)
+            else -> busyModel(spec, flow, screen, bundle, inputs)
+        };
     }
 
     private fun modelPreamble(screen: ScreenDefinition, inputs: Inputs): String = buildString {
@@ -330,12 +344,22 @@ class SwiftEmitter(target: Target)
         appendLine();
         appendLine("    /// The flow's stack, so the screen can print its depth as a readout.");
         appendLine("    public var stack: [${route(flow)}] { flow.stack }");
+        if (checks(screen))
+        {
+            appendLine();
+            append(rulesTable(screen, bundle));
+        }
         screen.actions.forEach { action -> append(busyAction(spec, screen, action, bundle)) };
         if (screen.calls)
         {
             if (collects(screen, bundle))
             {
                 append(clearError());
+            }
+            if (checks(screen))
+            {
+                appendLine();
+                append(refusalHelpers());
             }
             appendLine();
             append(isCurrent(flow, screen, bundle));
@@ -396,7 +420,12 @@ class SwiftEmitter(target: Target)
      * above it. Membership says yes to that, and the answer would then apply this screen's
      * `then` over the screen the person is actually standing on. On show means on top.
      */
-    private fun isCurrent(flow: FlowDefinition, screen: ScreenDefinition, bundle: Bundle): String = buildString {
+    private fun isCurrent(
+        flow: FlowDefinition,
+        screen: ScreenDefinition,
+        bundle: Bundle,
+        clearedBy: String? = "clearError()"
+    ): String = buildString {
         appendLine("    /// Whether an answer bearing `token` still belongs to a screen that is on show.");
         appendLine("    ///");
         appendLine("    /// Three questions: is this the current request, is the flow still presented, and");
@@ -411,10 +440,19 @@ class SwiftEmitter(target: Target)
         appendLine();
         appendLine("    /// Whether this screen's own route is the one the person is standing on.");
         appendLine("    ///");
-        appendLine("    /// Split out of `isCurrent` because a second caller needs it without a token: the");
-        appendLine("    /// view calls `clearError()` when the text changes, and that is not an answer to a");
-        appendLine("    /// request — it has no generation to compare — while it is still something that must");
-        appendLine("    /// not write into a screen nobody is looking at.");
+        if (clearedBy != null)
+        {
+            appendLine("    /// Split out of `isCurrent` because a second caller needs it without a token: the");
+            appendLine("    /// view calls `$clearedBy` when the text changes, and that is not an answer to a");
+            appendLine("    /// request — it has no generation to compare — while it is still something that must");
+            appendLine("    /// not write into a screen nobody is looking at.");
+        }
+        else
+        {
+            appendLine("    /// A property of its own rather than a clause inside `isCurrent`, because what");
+            appendLine("    /// \"on show\" means is one question: a model that asked it inline would end up");
+            appendLine("    /// asking it a little differently in each method that needs an answer.");
+        }
         appendLine("    private var isOnShow: Bool");
         appendLine("    {");
         appendLine("        flow.isPresented && flow.stack.last == ${routeValue(flow, screen, bundle)}");
@@ -479,13 +517,20 @@ class SwiftEmitter(target: Target)
         appendLine("        {");
         appendLine("            return");
         appendLine("        }");
-        typed.filter { it.type is FieldType.StringType }.forEach { input ->
-            appendLine("        if ${input.name}.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty");
-            appendLine("        {");
-            appendLine("            state = .error(ScreenFailure.validation(\"${input.name}\"))");
-            appendLine("            return");
-            appendLine("        }");
-        };
+        if (checks(screen))
+        {
+            append(checkedGuard(typed));
+        }
+        else
+        {
+            typed.filter { it.type is FieldType.StringType }.forEach { input ->
+                appendLine("        if ${input.name}.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty");
+                appendLine("        {");
+                appendLine("            state = .error(ScreenFailure.validation(\"${input.name}\"))");
+                appendLine("            return");
+                appendLine("        }");
+            };
+        }
         appendLine("        generation += 1");
         appendLine("        let token = generation");
         appendLine("        state = .busy");
@@ -619,8 +664,30 @@ class SwiftEmitter(target: Target)
         screen.services.forEach { parameters += Parameter(it, "any ${type(it, "Service")}") };
         parameters += Parameter("flow", "Flow<${route(flow)}>");
         RouteParameters.of(screen, bundle).forEach { parameters += Parameter(it.name, swiftType(it.type)) };
+        if (takesValidator(screen, bundle))
+        {
+            // Required — no default — exactly when a rule names a custom one, which is the
+            // Kotlin half's rule said in the language that spells an optional existential
+            // `(any FieldValidator)?`.
+            parameters += Parameter(
+                "validator",
+                "(any FieldValidator)?",
+                defaultValue = if (customRule(screen)) null else "nil"
+            );
+        }
         return parameters;
     }
+
+    /** Whether any of this screen's fields is checked against `rules` the spec wrote. */
+    private fun checks(screen: ScreenDefinition): Boolean = screen.inputs.any { it.rules != null }
+
+    /** Whether any of those rules names a custom one, which is what makes it a hard argument. */
+    private fun customRule(screen: ScreenDefinition): Boolean =
+        screen.inputs.any { it.rules?.custom != null }
+
+    /** Whether this screen's model checks its fields, and therefore takes a validator. */
+    private fun takesValidator(screen: ScreenDefinition, bundle: Bundle): Boolean =
+        ScreenShape.isForm(screen, bundle) || checks(screen)
 
     private fun storedProperties(parameters: List<Parameter>): String =
         parameters.joinToString("\n") { "    private let ${it.name}: ${it.type}" } + "\n"
@@ -628,7 +695,8 @@ class SwiftEmitter(target: Target)
     private fun modelInit(parameters: List<Parameter>): String = buildString {
         appendLine("    public init(");
         parameters.forEachIndexed { index, parameter ->
-            appendLine("        ${parameter.name}: ${parameter.type}${if (index == parameters.size - 1) "" else ","}");
+            val given = parameter.defaultValue?.let { " = $it" } ?: "";
+            appendLine("        ${parameter.name}: ${parameter.type}$given${if (index == parameters.size - 1) "" else ","}");
         };
         appendLine("    )");
         appendLine("    {");
@@ -738,6 +806,548 @@ class SwiftEmitter(target: Target)
         appendLine("    }");
     }
 
+
+    // ---- the checked fields ------------------------------------------------
+
+    /**
+     * What every field of this screen is checked against, as one table. Mirrors the Kotlin
+     * half declaration for declaration: every typed input is in it, and an input the spec said
+     * nothing about gets the quiet answer.
+     */
+    private fun rulesTable(screen: ScreenDefinition, bundle: Bundle): String = buildString {
+        val fields = ScreenShape.inputs(screen, bundle);
+        appendLine("    /// What each of this screen's fields is checked against.");
+        appendLine("    public let rules: [String: FieldRules] = [");
+        fields.forEachIndexed { index, field ->
+            val comma = if (index == fields.size - 1) "" else ",";
+            appendLine("        \"${field.name}\": ${fieldRules(screen, field)}$comma");
+        };
+        appendLine("    ]");
+    }
+
+    private fun fieldRules(screen: ScreenDefinition, field: RouteParameters.Parameter): String
+    {
+        val declared = screen.inputNamed(field.name);
+        val rules = declared.rules;
+        val arguments = mutableListOf("required: ${rules?.required ?: true}");
+        rules?.minLength?.let { arguments += "minLength: $it" };
+        rules?.maxLength?.let { arguments += "maxLength: $it" };
+        arguments += "kind: .${declared.kind}";
+        rules?.custom?.let { arguments += "custom: ${quoted(it)}" };
+        return "FieldRules(" + arguments.joinToString(", ") + ")";
+    }
+
+    /** The values a check is given. The Kotlin half's comment applies here word for word. */
+    private fun fieldValues(fields: List<RouteParameters.Parameter>, text: Boolean): String =
+        "[" + fields.joinToString(", ") { field ->
+            val parsed = !text && ScreenShape.isInteger(field);
+            "\"${field.name}\": " + if (parsed) "String(${field.name})" else field.name
+        } + "]"
+
+    /** The `Busy` screen's own check, when its spec wrote rules for a field. */
+    private fun checkedGuard(fields: List<RouteParameters.Parameter>): String = buildString {
+        appendLine("        let checked = Form.check(");
+        appendLine("            values: ${fieldValues(fields, text = false)},");
+        appendLine("            rules: rules,");
+        appendLine("            custom: validator");
+        appendLine("        )");
+        appendLine("        if let refusal = refusals(checked).first");
+        appendLine("        {");
+        appendLine("            state = .error(ScreenFailure.validation(refusal.field, rule: refusal.rule))");
+        appendLine("            return");
+        appendLine("        }");
+    }
+
+    /**
+     * How a checked screen reads its own refusals. Sorted by field name for the reason the
+     * Kotlin half gives, and the reason is stronger here: this platform's `Form.fields` is a
+     * `Dictionary` and has no order of its own at all.
+     */
+    private fun refusalHelpers(): String = buildString {
+        appendLine("    /// Which fields the last check refused, by field name, with the rule that refused each.");
+        appendLine("    private func refusals(_ form: Form) -> [(field: String, rule: String)]");
+        appendLine("    {");
+        appendLine("        form.fields.keys.sorted().compactMap");
+        // The closure's return type is written out, because a multi-statement closure with a
+        // `guard` in it is one Swift will not infer a tuple result for.
+        appendLine("        { field -> (field: String, rule: String)? in");
+        appendLine("            guard let error = form.fields[field] ?? nil");
+        appendLine("            else");
+        appendLine("            {");
+        appendLine("                return nil");
+        appendLine("            }");
+        appendLine("            return (field: field, rule: ruleName(error))");
+        appendLine("        }");
+        appendLine("    }");
+        appendLine();
+        appendLine("    /// The one word a refusal is read as, which is the name of the rule that made it.");
+        appendLine("    private func ruleName(_ error: FieldError) -> String");
+        appendLine("    {");
+        appendLine("        switch error");
+        appendLine("        {");
+        appendLine("        case .required: return \"required\"");
+        appendLine("        case .minLength: return \"minLength\"");
+        appendLine("        case .maxLength: return \"maxLength\"");
+        appendLine("        case .kind: return \"kind\"");
+        appendLine("        case .custom: return \"custom\"");
+        appendLine("        }");
+        appendLine("    }");
+    }
+
+    // ---- the paged model ---------------------------------------------------
+
+    /**
+     * A screen that reads its source a page at a time: its state is a `Paged<Item>`.
+     *
+     * Mirrors the Kotlin half method for method. The cursor is the model's, the generation
+     * token is the `Loadable` model's own, and `readouts` is what an authored view draws —
+     * there is no generated view for a list, because what a row shows is the design of the
+     * screen and a grammar cannot write it.
+     */
+    private fun pagedModel(
+        spec: Spec,
+        flow: FlowDefinition,
+        screen: ScreenDefinition,
+        bundle: Bundle,
+        inputs: Inputs
+    ): String = buildString {
+        val list = requireNotNull(screen.list);
+        val row = Names.swiftType(list.itemType);
+        val parameters = modelParameters(flow, screen, bundle);
+        append(modelPreamble(screen, inputs));
+        appendLine();
+        appendLine("/// The `${screen.name}` screen's state and rules, with no toolkit in sight.");
+        appendLine("///");
+        appendLine("/// Constructor injection, so a test drives this class against a fake service and a");
+        appendLine("/// real `Flow` with no device, no view and no server.");
+        appendLine("///");
+        appendLine("/// The cursor is held here and nowhere else: `Paged` is told what the next one is and");
+        appendLine("/// keeps only whether there WAS one, because a screen shows rows and never a cursor.");
+        appendLine("@MainActor");
+        appendLine("@Observable");
+        appendLine("public final class ${type(screen.name, "Model")}");
+        appendLine("{");
+        appendLine("    /// What this screen's paged read has produced so far.");
+        appendLine("    public private(set) var state: Paged<$row> = .loading");
+        appendLine();
+        append(storedProperties(parameters));
+        appendLine();
+        append(generationField());
+        appendLine();
+        append(cursorField());
+        appendLine();
+        append(modelInit(parameters));
+        appendLine();
+        appendLine("    /// The flow's stack, so the screen can print its depth as a readout.");
+        appendLine("    public var stack: [${route(flow)}] { flow.stack }");
+        appendLine();
+        append(pagedReadouts(row));
+        appendLine();
+        append(loadPage(screen, bundle));
+        appendLine();
+        append(loadMore(screen, bundle));
+        appendLine();
+        append(pagedRetries());
+        screen.actions.forEach { action ->
+            appendLine();
+            append(navigationOnlyAction(spec, screen, action, bundle));
+        };
+        appendLine();
+        append(isCurrent(flow, screen, bundle, clearedBy = null));
+        appendLine("}");
+    }
+
+    private fun cursorField(): String = buildString {
+        appendLine("    /// Where the next page starts, or nil when there is no next page.");
+        appendLine("    ///");
+        appendLine("    /// Cleared by `load()` rather than only written by it. A reload that kept the cursor");
+        appendLine("    /// it had would ask the server for page two of a list whose page one it is in the");
+        appendLine("    /// act of reading again, and append the answer to nothing.");
+        appendLine("    private var cursor: String?");
+    }
+
+    private fun pagedReadouts(row: String): String = buildString {
+        appendLine("    /// What a runner reads this screen as: how deep the flow stands, what the first page");
+        appendLine("    /// did, what a further page is doing, how many rows are on screen, and whether the");
+        appendLine("    /// server said there are more.");
+        appendLine("    ///");
+        appendLine("    /// On the MODEL and not in a view, because a paged flow's views are a person's: a");
+        appendLine("    /// readout each implementer spelled for themselves would be a case table asserting");
+        appendLine("    /// on text two apps write differently.");
+        appendLine("    public var readouts: [String]");
+        appendLine("    {");
+        appendLine("        [");
+        appendLine("            \"stack=\\(flow.stack.count)\",");
+        appendLine("            \"state=\\(pageName(state.page))\",");
+        appendLine("            \"more=\\(moreName(state.more))\",");
+        appendLine("            \"count=\\(rowCount(state.page))\",");
+        appendLine("            \"hasMore=\\(state.hasMore)\"");
+        appendLine("        ]");
+        appendLine("    }");
+        appendLine();
+        appendLine("    /// The one word a runner reads the FIRST page's state as.");
+        appendLine("    private func pageName(_ page: Loadable<[$row]>) -> String");
+        appendLine("    {");
+        appendLine("        switch page");
+        appendLine("        {");
+        appendLine("        case .loading: return \"loading\"");
+        appendLine("        case .ready: return \"ready\"");
+        appendLine("        case .empty: return \"empty\"");
+        appendLine("        case .error: return \"error\"");
+        appendLine("        }");
+        appendLine("    }");
+        appendLine();
+        appendLine("    /// The one word a runner reads a FURTHER page's state as.");
+        appendLine("    private func moreName(_ more: Busy) -> String");
+        appendLine("    {");
+        appendLine("        switch more");
+        appendLine("        {");
+        appendLine("        case .idle: return \"idle\"");
+        appendLine("        case .busy: return \"busy\"");
+        appendLine("        case .error: return \"error\"");
+        appendLine("        }");
+        appendLine("    }");
+        appendLine();
+        appendLine("    /// How many rows are on screen, which is none until the first page arrives.");
+        appendLine("    private func rowCount(_ page: Loadable<[$row]>) -> Int");
+        appendLine("    {");
+        appendLine("        if case .ready(let rows) = page");
+        appendLine("        {");
+        appendLine("            return rows.count");
+        appendLine("        }");
+        appendLine("        return 0");
+        appendLine("    }");
+    }
+
+    private fun loadPage(screen: ScreenDefinition, bundle: Bundle): String = buildString {
+        val source = requireNotNull(screen.source);
+        val list = requireNotNull(screen.list);
+        appendLine("    /// Reads the FIRST page. Called once when the screen appears, however it appeared.");
+        appendLine("    ///");
+        appendLine("    /// The cursor is dropped before the call and not after it, so this always asks for");
+        appendLine("    /// the first page — which is what makes `reload()` a reload rather than an append.");
+        appendLine("    public func load() async");
+        appendLine("    {");
+        appendLine("        generation += 1");
+        appendLine("        let token = generation");
+        appendLine("        cursor = nil");
+        appendLine("        state = .loading");
+        appendLine("        let page: ${response(source)}");
+        appendLine("        do");
+        appendLine("        {");
+        appendLine("            page = try await ${pageCall(screen, bundle, "nil")}");
+        appendLine("        }");
+        append(pagedCatch("firstPageFailed"));
+        appendLine("        guard isCurrent(token)");
+        appendLine("        else");
+        appendLine("        {");
+        appendLine("            return");
+        appendLine("        }");
+        appendLine("        cursor = page.${list.next}");
+        appendLine("        state = state.firstPage(page.${list.items}, next: page.${list.next})");
+        appendLine("    }");
+    }
+
+    private fun loadMore(screen: ScreenDefinition, bundle: Bundle): String = buildString {
+        val source = requireNotNull(screen.source);
+        val list = requireNotNull(screen.list);
+        appendLine("    /// Reads the page after the rows already on screen.");
+        appendLine("    ///");
+        appendLine("    /// Ignored unless `canLoadMore` — there are rows, the server said there are more, and");
+        appendLine("    /// no page is already in flight. The state's own `appending()` ignores it a second");
+        appendLine("    /// time, and both guards are wanted: a list asks for its next page when the end of it");
+        appendLine("    /// comes into view, and the end comes into view whenever the list is laid out again.");
+        appendLine("    public func loadMore() async");
+        appendLine("    {");
+        appendLine("        guard state.canLoadMore");
+        appendLine("        else");
+        appendLine("        {");
+        appendLine("            return");
+        appendLine("        }");
+        appendLine("        generation += 1");
+        appendLine("        let token = generation");
+        appendLine("        let from = cursor");
+        appendLine("        state = state.appending()");
+        appendLine("        let page: ${response(source)}");
+        appendLine("        do");
+        appendLine("        {");
+        appendLine("            page = try await ${pageCall(screen, bundle, "from")}");
+        appendLine("        }");
+        append(pagedCatch("appendFailed"));
+        appendLine("        guard isCurrent(token)");
+        appendLine("        else");
+        appendLine("        {");
+        appendLine("            return");
+        appendLine("        }");
+        appendLine("        cursor = page.${list.next}");
+        appendLine("        state = state.appended(page.${list.items}, next: page.${list.next})");
+        appendLine("    }");
+    }
+
+    private fun pagedRetries(): String = buildString {
+        appendLine("    /// Asks again for the page that failed. The footer's own control calls this.");
+        appendLine("    public func retryMore() async");
+        appendLine("    {");
+        appendLine("        await loadMore()");
+        appendLine("    }");
+        appendLine();
+        appendLine("    /// Reads the list again from its first page, cursor and all.");
+        appendLine("    public func reload() async");
+        appendLine("    {");
+        appendLine("        await load()");
+        appendLine("    }");
+    }
+
+    private fun pagedCatch(named: String): String = buildString {
+        appendLine("        catch");
+        appendLine("        {");
+        appendLine("            if isCurrent(token)");
+        appendLine("            {");
+        appendLine("                state = state.$named(ScreenFailure.envelope(error))");
+        appendLine("            }");
+        appendLine("            return");
+        appendLine("        }");
+    }
+
+    private fun pageCall(screen: ScreenDefinition, bundle: Bundle, from: String): String
+    {
+        val source = requireNotNull(screen.source);
+        val list = requireNotNull(screen.list);
+        if (!screen.usecase)
+        {
+            return "${source.service}.${source.name}(${pagedRequest(screen, bundle, "${list.limitValue}", from)})";
+        }
+        val arguments = RouteParameters.of(screen, bundle).map { "${it.name}: ${it.name}" } +
+            "${list.limitField}: ${list.limitValue}" + "${list.cursor}: $from";
+        return "useCase.${source.name}(" + arguments.joinToString(", ") + ")";
+    }
+
+    /** One page's request: what the route carries, the size the spec wrote, and the cursor. */
+    private fun pagedRequest(
+        screen: ScreenDefinition,
+        bundle: Bundle,
+        limit: String,
+        from: String
+    ): String
+    {
+        val list = requireNotNull(screen.list);
+        val requestType = requireNotNull(requireNotNull(screen.source).declaration.requestType);
+        val arguments = bundle.typeNamed(requestType).fields.mapNotNull { field ->
+            when
+            {
+                field.name == list.limitField -> "${field.name}: $limit"
+                field.name == list.cursor -> "${field.name}: $from"
+                !field.optional -> "${field.name}: ${field.name}"
+                else -> null
+            }
+        };
+        return "${Names.swiftType(requestType)}(" + arguments.joinToString(", ") + ")";
+    }
+
+    // ---- the form model ----------------------------------------------------
+
+    /**
+     * A screen that collects a screenful of input and sends it: its state is a `Form`.
+     *
+     * Mirrors the Kotlin half method for method, including the integer conversion — `Int32`
+     * here and `toIntOrNull` there, which is the same 32 bits said twice. `Form`'s `Number`
+     * kind checks the SHAPE and says nothing about width, precisely because this language's
+     * `Int` is 64 bits and the other's is 32 (Form.swift's header, P9).
+     */
+    private fun formModel(
+        spec: Spec,
+        flow: FlowDefinition,
+        screen: ScreenDefinition,
+        bundle: Bundle,
+        inputs: Inputs
+    ): String = buildString {
+        val fields = ScreenShape.inputs(screen, bundle);
+        val submit = ScreenShape.submitAction(screen, bundle);
+        val parameters = modelParameters(flow, screen, bundle);
+        append(modelPreamble(screen, inputs));
+        appendLine();
+        appendLine("/// The `${screen.name}` screen's state and rules, with no toolkit in sight.");
+        appendLine("///");
+        appendLine("/// Constructor injection, so a test drives this class against a fake service and a");
+        appendLine("/// real `Flow` with no device, no view and no server.");
+        appendLine("///");
+        appendLine("/// Every field is checked at once and a refusal is stated without anything being sent;");
+        appendLine("/// editing one field clears that field's refusal and no other.");
+        appendLine("@MainActor");
+        appendLine("@Observable");
+        appendLine("public final class ${type(screen.name, "Model")}");
+        appendLine("{");
+        appendLine("    /// What this screen's fields and its write are doing.");
+        appendLine("    public private(set) var state: Form = Form()");
+        appendLine();
+        append(storedProperties(parameters));
+        appendLine();
+        append(generationField());
+        appendLine();
+        append(modelInit(parameters));
+        appendLine();
+        appendLine("    /// The flow's stack, so the screen can print its depth as a readout.");
+        appendLine("    public var stack: [${route(flow)}] { flow.stack }");
+        appendLine();
+        append(rulesTable(screen, bundle));
+        appendLine();
+        append(formReadouts());
+        appendLine();
+        append(editMethod());
+        appendLine();
+        append(submitMethod(spec, screen, submit, fields, bundle));
+        screen.actions.filter { it != submit }.forEach { action ->
+            appendLine();
+            append(navigationOnlyAction(spec, screen, action, bundle));
+        };
+        appendLine();
+        append(refusalHelpers());
+        appendLine();
+        append(isCurrent(flow, screen, bundle, clearedBy = "edit(_:)"));
+        appendLine("}");
+    }
+
+    private fun formReadouts(): String = buildString {
+        appendLine("    /// What a runner reads this screen as: how deep the flow stands, what the write is");
+        appendLine("    /// doing, and which fields are refused and by which rule.");
+        appendLine("    public var readouts: [String]");
+        appendLine("    {");
+        appendLine("        [");
+        appendLine("            \"stack=\\(flow.stack.count)\",");
+        appendLine("            \"state=\\(submitName(state.submit))\",");
+        appendLine("            \"fields=\\(refusedFields(state))\"");
+        appendLine("        ]");
+        appendLine("    }");
+        appendLine();
+        appendLine("    /// The one word a runner reads this form's write as.");
+        appendLine("    private func submitName(_ submit: Busy) -> String");
+        appendLine("    {");
+        appendLine("        switch submit");
+        appendLine("        {");
+        appendLine("        case .idle: return \"idle\"");
+        appendLine("        case .busy: return \"busy\"");
+        appendLine("        case .error: return \"error\"");
+        appendLine("        }");
+        appendLine("    }");
+        appendLine();
+        appendLine("    /// Which fields are refused and by which rule, by field name, or `ok`.");
+        appendLine("    private func refusedFields(_ form: Form) -> String");
+        appendLine("    {");
+        appendLine("        let refused = refusals(form).map { \"\\($0.field):\\($0.rule)\" }");
+        appendLine("        return refused.isEmpty ? \"ok\" : refused.joined(separator: \",\")");
+        appendLine("    }");
+    }
+
+    private fun editMethod(): String = buildString {
+        appendLine("    /// The field was edited, so its refusal is stale and goes.");
+        appendLine("    ///");
+        appendLine("    /// Per field, which is what a form has instead of `clearError()`: a person fixing one");
+        appendLine("    /// field is not telling the screen anything about the other three. A field the last");
+        appendLine("    /// check did not look at is left alone rather than invented.");
+        appendLine("    public func edit(_ field: String)");
+        appendLine("    {");
+        appendLine("        state = state.edited(field)");
+        appendLine("    }");
+    }
+
+    private fun submitMethod(
+        spec: Spec,
+        screen: ScreenDefinition,
+        action: ActionDefinition,
+        fields: List<RouteParameters.Parameter>,
+        bundle: Bundle
+    ): String = buildString {
+        val call = requireNotNull(action.call);
+        val parameters = fields.joinToString(", ") { "${it.name}: String" };
+        appendLine("    /// ${call.declaration.summary}");
+        appendLine("    ///");
+        appendLine("    /// Ignored while a write is already in flight (R2), and refused outright when any");
+        appendLine("    /// field breaks its rules — every field at once, and nothing is sent.");
+        appendLine("    ///");
+        appendLine("    /// Every parameter is text, including the ones the contract types as integers: what");
+        appendLine("    /// a person typed is a string, and turning it into a number is a step this method");
+        appendLine("    /// takes after the check and can still refuse.");
+        appendLine("    public func ${action.name}($parameters) async");
+        appendLine("    {");
+        appendLine("        guard state.canSubmit");
+        appendLine("        else");
+        appendLine("        {");
+        appendLine("            return");
+        appendLine("        }");
+        appendLine("        let checked = Form.check(");
+        appendLine("            values: ${fieldValues(fields, text = true)},");
+        appendLine("            rules: rules,");
+        appendLine("            custom: validator");
+        appendLine("        )");
+        appendLine("        if !checked.isValid");
+        appendLine("        {");
+        appendLine("            state = checked");
+        appendLine("            return");
+        appendLine("        }");
+        fields.filter { ScreenShape.isInteger(it) }.forEach { field -> append(conversion(field)) };
+        appendLine("        generation += 1");
+        appendLine("        let token = generation");
+        appendLine("        state = checked.submitting()");
+        appendLine("        do");
+        appendLine("        {");
+        appendLine("            ${discard(call)}try await ${call.service}.${call.name}(${formRequest(call, fields, bundle)})");
+        appendLine("        }");
+        appendLine("        catch");
+        appendLine("        {");
+        appendLine("            if isCurrent(token)");
+        appendLine("            {");
+        appendLine("                state = state.submitFailed(ScreenFailure.envelope(error))");
+        appendLine("            }");
+        appendLine("            return");
+        appendLine("        }");
+        appendLine("        guard isCurrent(token)");
+        appendLine("        else");
+        appendLine("        {");
+        appendLine("            return");
+        appendLine("        }");
+        appendLine("        state = state.submitted()");
+        if (action.then != null)
+        {
+            appendLine("        ${navigationCall(spec, action, bundle)}");
+        }
+        appendLine("    }");
+    }
+
+    /**
+     * One integer field, turned into the 32 bits both platforms carry.
+     *
+     * `Int32` and not `Int`, which here is 64 bits: the Kotlin half's `toIntOrNull` is 32, and
+     * a width that differed would make `3000000000` a request on one phone and a refusal on
+     * the other. The refusal is the field's own `kind`, so a person is told where it is.
+     */
+    private fun conversion(field: RouteParameters.Parameter): String = buildString {
+        appendLine("        guard let ${field.name}Value = Int32(${field.name})");
+        appendLine("        else");
+        appendLine("        {");
+        appendLine("            var refused = checked.fields");
+        appendLine("            let refusal: FieldError = .kind(.number)");
+        appendLine("            refused.updateValue(refusal, forKey: \"${field.name}\")");
+        appendLine("            state = Form(fields: refused, submit: checked.submit)");
+        appendLine("            return");
+        appendLine("        }");
+    }
+
+    /** A form's request: text where the contract says text, and the converted value elsewhere. */
+    private fun formRequest(
+        method: ServiceMethod,
+        fields: List<RouteParameters.Parameter>,
+        bundle: Bundle
+    ): String
+    {
+        val requestType = method.declaration.requestType ?: return "()";
+        val converted = fields.filter { ScreenShape.isInteger(it) }.map { it.name }.toSet();
+        val arguments = bundle.typeNamed(requestType).fields.filter { !it.optional }.map { field ->
+            val value = if (field.name in converted) "Int64(${field.name}Value)" else field.name;
+            "${field.name}: $value";
+        };
+        return "${Names.swiftType(requestType)}(" + arguments.joinToString(", ") + ")";
+    }
+
     // ---- the use case ------------------------------------------------------
 
     private fun useCase(screen: ScreenDefinition, bundle: Bundle, inputs: Inputs): String = buildString {
@@ -754,7 +1364,7 @@ class SwiftEmitter(target: Target)
         appendLine("/// to put a rule that is neither the screen's nor the wire's.");
         appendLine("public protocol $name: Sendable");
         appendLine("{");
-        appendLine("    func ${source.name}(${parameterList(parameters)}) async throws -> ${response(source)}");
+        appendLine("    func ${source.name}(${useCaseParameters(screen, parameters)}) async throws -> ${response(source)}");
         appendLine("}");
         appendLine();
         appendLine("/// The pass-through. It adds a seam, not a rule.");
@@ -767,9 +1377,9 @@ class SwiftEmitter(target: Target)
         appendLine("        self.service = service");
         appendLine("    }");
         appendLine();
-        appendLine("    public func ${source.name}(${parameterList(parameters)}) async throws -> ${response(source)}");
+        appendLine("    public func ${source.name}(${useCaseParameters(screen, parameters)}) async throws -> ${response(source)}");
         appendLine("    {");
-        appendLine("        try await service.${source.name}(${requestLiteral(source, bundle)})");
+        appendLine("        try await service.${source.name}(${useCaseRequest(screen, bundle, source)})");
         appendLine("    }");
         appendLine("}");
     }
@@ -777,9 +1387,25 @@ class SwiftEmitter(target: Target)
     private fun parameterList(parameters: List<RouteParameters.Parameter>): String =
         parameters.joinToString(", ") { "${it.name}: ${swiftType(it.type)}" }
 
+    /** What a use case is asked for, which on a paged screen is a size and a cursor more. */
+    private fun useCaseParameters(screen: ScreenDefinition, parameters: List<RouteParameters.Parameter>): String
+    {
+        val list = screen.list ?: return parameterList(parameters);
+        return (parameters.map { "${it.name}: ${swiftType(it.type)}" } +
+            "${list.limitField}: Int64" + "${list.cursor}: String?").joinToString(", ");
+    }
+
+    /** The request a pass-through use case builds, page or whole. */
+    private fun useCaseRequest(screen: ScreenDefinition, bundle: Bundle, source: ServiceMethod): String
+    {
+        val list = screen.list ?: return requestLiteral(source, bundle);
+        return pagedRequest(screen, bundle, list.limitField, list.cursor);
+    }
+
     // ---- the failure mapping ----------------------------------------------
 
-    private fun failure(bundle: Bundle, inputs: Inputs): String = buildString {
+    private fun failure(spec: Spec, bundle: Bundle, inputs: Inputs): String = buildString {
+        val rules = spec.screens.any { screen -> screen.inputs.any { it.rules != null } };
         appendLine(header(inputs));
         appendLine();
         appendLine("import SPFNClient");
@@ -806,6 +1432,11 @@ class SwiftEmitter(target: Target)
         appendLine("        SPFNErrorEnvelope(code: validationCode, message: field, requestID: \"\")");
         appendLine("    }");
         appendLine();
+        if (rules)
+        {
+            append(ruleRefusal());
+            appendLine();
+        }
         appendLine("    /// The server's own envelope where there is one, and a local one where there is");
         appendLine("    /// not. The message carries the name of the SDK type that failed and never any");
         appendLine("    /// server text.");
@@ -828,7 +1459,7 @@ class SwiftEmitter(target: Target)
         appendLine("            )");
         appendLine("        }");
         appendLine("    }");
-        append(classification(bundle));
+        append(classification(bundle, rules));
         appendLine("}");
     }
 
@@ -845,7 +1476,7 @@ class SwiftEmitter(target: Target)
      * except `fieldMessage`, whose message field is this generator's own field name and never
      * a server's text (decision C7).
      */
-    private fun classification(bundle: Bundle): String = buildString {
+    private fun classification(bundle: Bundle, rules: Boolean): String = buildString {
         appendLine();
         appendLine("    /// The code names a device the server is not holding a request for.");
         appendLine("    public static let deviceNotFoundKey = \"deviceNotFound\"");
@@ -914,12 +1545,35 @@ class SwiftEmitter(target: Target)
         appendLine("    /// this generator's own field name: `validation(_:)` above is what put it there.");
         appendLine("    public static func fieldMessage(_ envelope: SPFNErrorEnvelope?, field: String) -> String?");
         appendLine("    {");
-        appendLine("        guard let envelope = envelope, envelope.code == validationCode, envelope.message == field");
+        if (rules)
+        {
+            // The closure names its parameter rather than taking `$0`, because the `$0` of a
+            // closure nested inside another closure's argument list is the inner one and reads
+            // as the outer one.
+            appendLine("        guard let envelope = envelope, envelope.code == validationCode,");
+            appendLine("            String(envelope.message.prefix(while: { character in character != \":\" })) == field");
+        }
+        else
+        {
+            appendLine("        guard let envelope = envelope, envelope.code == validationCode, envelope.message == field");
+        }
         appendLine("        else");
         appendLine("        {");
         appendLine("            return nil");
         appendLine("        }");
         appendLine("        return SPFNStrings.errorValidation");
+        appendLine("    }");
+    }
+
+    /**
+     * The other refusal a screen makes itself: a field its `rules` turned down, named by the
+     * RULE that turned it down. The Kotlin half's comment applies here word for word.
+     */
+    private fun ruleRefusal(): String = buildString {
+        appendLine("    /// A field its own rules refused. The message is `<field>:<rule>`.");
+        appendLine("    public static func validation(_ field: String, rule: String) -> SPFNErrorEnvelope");
+        appendLine("    {");
+        appendLine("        SPFNErrorEnvelope(code: validationCode, message: \"\\(field):\\(rule)\", requestID: \"\")");
         appendLine("    }");
     }
 
@@ -1259,27 +1913,46 @@ class SwiftEmitter(target: Target)
         appendLine("public final class AppContainer");
         appendLine("{");
         spec.services.forEach { appendLine("    private let ${it.name}: any ${type(it.name, "Service")}") };
+        validated(spec, bundle).forEach {
+            appendLine("    private let ${it.name}Validator: any FieldValidator");
+        };
         appendLine();
         spec.flows.forEach { flow ->
             appendLine("    /// The `${flow.name}` flow, open on its start screen.");
             appendLine("    public let ${flow.name}Flow: Flow<${route(flow)}>");
             appendLine();
         };
-        append(containerInit(spec));
+        append(containerInit(spec, bundle));
         spec.screens.forEach { screen -> append(modelFactory(spec, screen, bundle)) };
         appendLine();
-        append(liveFactory(spec));
+        append(liveFactory(spec, bundle));
         appendLine("}");
     }
 
-    private fun containerInit(spec: Spec): String = buildString {
+    /**
+     * The screens whose models take a validator the app must supply, in spec order.
+     *
+     * A custom rule is a SENTENCE somebody wrote, and a sentence is app code: the generator
+     * knows the rule's name and nothing else about it. So it is injected where a service is
+     * injected — through the container — rather than defaulted to nil in a factory, which
+     * would be a screen whose rule is never asked and whose field is always accepted.
+     */
+    private fun validated(spec: Spec, bundle: Bundle): List<ScreenDefinition> =
+        spec.screens.filter { takesValidator(it, bundle) && customRule(it) }
+
+    private fun containerInit(spec: Spec, bundle: Bundle): String = buildString {
+        val given = spec.services.map { "${it.name}: any ${type(it.name, "Service")}" } +
+            validated(spec, bundle).map { "${it.name}Validator: any FieldValidator" };
         appendLine("    public init(");
-        spec.services.forEachIndexed { index, service ->
-            appendLine("        ${service.name}: any ${type(service.name, "Service")}${if (index == spec.services.size - 1) "" else ","}");
+        given.forEachIndexed { index, parameter ->
+            appendLine("        $parameter${if (index == given.size - 1) "" else ","}");
         };
         appendLine("    )");
         appendLine("    {");
         spec.services.forEach { appendLine("        self.${it.name} = ${it.name}") };
+        validated(spec, bundle).forEach {
+            appendLine("        self.${it.name}Validator = ${it.name}Validator");
+        };
         spec.flows.forEach { appendLine("        self.${it.name}Flow = ${type(it.name, "Flow")}()") };
         appendLine("    }");
     }
@@ -1295,6 +1968,10 @@ class SwiftEmitter(target: Target)
         screen.services.forEach { arguments += "$it: $it" };
         arguments += "flow: ${flow.name}Flow";
         parameters.forEach { arguments += "${it.name}: ${it.name}" };
+        if (customRule(screen))
+        {
+            arguments += "validator: ${screen.name}Validator";
+        }
         appendLine();
         appendLine("    /// A fresh model for one appearance of `${screen.name}`.");
         appendLine("    public func ${screen.name}Model(${parameterList(parameters)}) -> ${type(screen.name, "Model")}");
@@ -1303,15 +1980,19 @@ class SwiftEmitter(target: Target)
         appendLine("    }");
     }
 
-    private fun liveFactory(spec: Spec): String = buildString {
-        val services = spec.services.joinToString(", ") {
-            "${it.name}: Default${type(it.name, "Service")}(client: client)"
-        };
+    private fun liveFactory(spec: Spec, bundle: Bundle): String = buildString {
+        val validators = validated(spec, bundle);
+        val services = (spec.services.map { "${it.name}: Default${type(it.name, "Service")}(client: client)" } +
+            validators.map { "${it.name}Validator: ${it.name}Validator" }).joinToString(", ");
         appendLine("    /// The app against a real server: one transport, one session, one client.");
         appendLine("    public static func live(");
         appendLine("        transport: any SPFNTransport,");
         appendLine("        keyProvider: any SPFNKeyProvider,");
-        appendLine("        baseURL: String");
+        appendLine("        baseURL: String" + if (validators.isEmpty()) "" else ",");
+        validators.forEachIndexed { index, screen ->
+            val comma = if (index == validators.size - 1) "" else ",";
+            appendLine("        ${screen.name}Validator: any FieldValidator$comma");
+        };
         appendLine("    ) -> AppContainer");
         appendLine("    {");
         appendLine("        let session = SPFNSession(");
