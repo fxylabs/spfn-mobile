@@ -45,11 +45,26 @@ class SwiftEmitter(target: Target)
             {
                 files["$root/Screens/${type(screen.name, "UseCase")}.swift"] = useCase(screen, bundle, inputs);
             }
-            files["$root/Views/${type(screen.name, "View")}.swift"] = view(screen, bundle, inputs);
+            if (!spec.viewIsAuthored(screen))
+            {
+                files["$root/Views/${type(screen.name, "View")}.swift"] = view(screen, bundle, inputs);
+            }
         };
         files["$root/AppContainer.swift"] = container(spec, bundle, inputs);
         return files;
     }
+
+    /**
+     * The view files of the flows a person writes: not emitted above, and not to be deleted.
+     *
+     * Named here rather than in `Main` because the path is this emitter's own spelling —
+     * `Views/<Screen>View.swift` — and a second copy of it would drift from the one line
+     * above that writes the file.
+     */
+    fun authoredViews(spec: Spec): Set<String> =
+        spec.screens.filter { spec.viewIsAuthored(it) }
+            .map { "$root/Views/${type(it.name, "View")}.swift" }
+            .toSet()
 
     // ---- names -------------------------------------------------------------
 

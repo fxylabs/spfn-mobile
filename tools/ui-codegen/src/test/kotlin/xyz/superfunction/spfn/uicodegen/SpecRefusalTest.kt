@@ -26,8 +26,25 @@ import org.junit.Test
 class SpecRefusalTest
 {
     private val repoRoot = File("../..")
-    private val specPath = "examples/ui-spec/device-approval.json"
-    private val specText: String = File(repoRoot, specPath).readText(Charsets.UTF_8)
+
+    /**
+     * The spec every case here starts from, which is a DIRECTORY.
+     *
+     * `device-approval.json` holds the showcase's eight flows and `contracts/approveDevice.md`
+     * holds the ninth, in the `json spfn-ui` block at its end. So a mutation is made on a COPY
+     * of the pieces and written into a directory of its own: a case that edited one file would
+     * be asking the generator about half a spec.
+     */
+    private val specPath = "examples/ui-spec"
+
+    /** The one contract document of the example spec, which is the ninth flow. */
+    private val contractDocument = "contracts/approveDevice.md"
+
+    /** Every piece of the spec, by its name inside the directory. */
+    private val specPieces: Map<String, String> = listOf(
+        "device-approval.json",
+        contractDocument
+    ).associateWith { File(repoRoot, "$specPath/$it").readText(Charsets.UTF_8) }
 
     /**
      * The consumer every case here generates for.
@@ -54,26 +71,41 @@ class SpecRefusalTest
     )
 
     private fun generate(repoRoot: File, specPath: String): Map<String, String> =
-        generate(repoRoot, specPath, target)
+        generate(repoRoot, specPath, target).files
 
-    /** Writes a mutated spec under the module's build directory and answers its repo path. */
-    private fun withSpec(name: String, text: String): String
+    /** Writes a mutated spec as a directory under the module's build directory. */
+    private fun withSpec(name: String, pieces: Map<String, String>): String
     {
-        val directory = File(repoRoot, "tools/ui-codegen/build/test-specs");
-        directory.mkdirs();
-        File(directory, name).writeText(text);
-        return "tools/ui-codegen/build/test-specs/$name";
+        val relative = "tools/ui-codegen/build/test-specs/$name";
+        val directory = File(repoRoot, relative);
+        directory.deleteRecursively();
+        pieces.forEach { (piece, text) ->
+            val file = File(directory, piece);
+            file.parentFile?.mkdirs();
+            file.writeText(text);
+        };
+        return relative;
     }
 
-    private fun replaceOnce(needle: String, replacement: String): String
+    /**
+     * The pieces with [needle] replaced once in EVERY piece that carries it.
+     *
+     * Every piece rather than the first, because the two that overlap are the two the union
+     * exists to hold together: both state the pinned digest, and both name the operations they
+     * call. A mutation applied to one of those would be answered by the merge's own refusal —
+     * "the pieces of one spec are written against one contract bundle" — and the case below
+     * would pass on the wrong sentence.
+     */
+    private fun replaceOnce(needle: String, replacement: String): Map<String, String>
     {
-        assertTrue("the spec no longer carries '$needle'", specText.contains(needle));
-        return specText.replaceFirst(needle, replacement);
+        val carrying = specPieces.filterValues { it.contains(needle) };
+        assertTrue("no piece of the spec carries '$needle'", carrying.isNotEmpty());
+        return specPieces + carrying.mapValues { (_, text) -> text.replaceFirst(needle, replacement) };
     }
 
-    private fun assertRefused(name: String, text: String, expected: String)
+    private fun assertRefused(name: String, pieces: Map<String, String>, expected: String)
     {
-        val path = withSpec(name, text);
+        val path = withSpec(name, pieces);
         try
         {
             generate(repoRoot, path);
@@ -90,7 +122,7 @@ class SpecRefusalTest
     fun `a spec pinned to another bundle is refused`()
     {
         assertRefused(
-            "digest.json",
+            "digest",
             replaceOnce("\"manifestSha256\": \"", "\"manifestSha256\": \"00"),
             "spec digest mismatch"
         );
@@ -100,7 +132,7 @@ class SpecRefusalTest
     fun `an operation the contract does not declare is refused`()
     {
         assertRefused(
-            "operation.json",
+            "operation",
             replaceOnce("authDeviceInfo", "authDeviceInformation"),
             "which the pinned contract does not declare"
         );
@@ -110,7 +142,7 @@ class SpecRefusalTest
     fun `a then that pushes a screen outside the flow is refused`()
     {
         assertRefused(
-            "then.json",
+            "then",
             replaceOnce("\"push\": \"reviewDevice\"", "\"push\": \"somewhereElse\""),
             "which is not a screen"
         );
@@ -120,7 +152,7 @@ class SpecRefusalTest
     fun `a start that is not a screen is refused`()
     {
         assertRefused(
-            "start.json",
+            "start",
             replaceOnce("\"start\": \"enterCode\"", "\"start\": \"nowhere\""),
             "which is not a screen"
         );
@@ -130,8 +162,13 @@ class SpecRefusalTest
     fun `a call naming a method no service declares is refused`()
     {
         assertRefused(
-            "call.json",
-            replaceOnce("deviceApproval.approve", "deviceApproval.accept"),
+            "call",
+            // Spelled with the key in front of it, because the document names this method in
+            // its Controls table too and a prose row is not what the generator reads.
+            replaceOnce(
+                "\"approve\": { \"call\": \"deviceApproval.approve\"",
+                "\"approve\": { \"call\": \"deviceApproval.accept\""
+            ),
             "which no service declares"
         );
     }
@@ -148,22 +185,22 @@ class SpecRefusalTest
     fun `a key the generator does not read is refused, by its path`()
     {
         assertRefused(
-            "screen-key.json",
+            "screen-key",
             replaceOnce("\"usecase\": true", "\"useCase\": true"),
             "screens.reviewDevice.useCase is not a key this generator reads"
         );
 
         assertRefused(
-            "action-key.json",
+            "action-key",
             replaceOnce(
-                "\"retry\":   { \"call\": \"deviceApproval.lookup\" }",
-                "\"retry\":   { \"call\": \"deviceApproval.lookup\", \"onFailure\": \"pop\" }"
+                "\"retry\": { \"call\": \"deviceApproval.lookup\" }",
+                "\"retry\": { \"call\": \"deviceApproval.lookup\", \"onFailure\": \"pop\" }"
             ),
             "screens.reviewDevice.actions.retry.onFailure is not a key this generator reads"
         );
 
         assertRefused(
-            "then-key.json",
+            "then-key",
             replaceOnce(
                 "\"then\": { \"push\": \"reviewDevice\" }",
                 "\"then\": { \"push\": \"reviewDevice\", \"animated\": true }"
@@ -184,25 +221,25 @@ class SpecRefusalTest
     fun `a value outside a closed set is refused, by its path`()
     {
         assertRefused(
-            "entry-word.json",
+            "entry-word",
             replaceOnce("\"entry\": \"modal\"", "\"entry\": \"drawer\""),
             "flows.approveDevice.entry is 'drawer'"
         );
 
         assertRefused(
-            "role-word.json",
+            "role-word",
             replaceOnce("\"role\": \"destructive\"", "\"role\": \"danger\""),
             "screens.reviewDevice.actions.deny.role is 'danger'"
         );
 
         assertRefused(
-            "kind-word.json",
+            "kind-word",
             replaceOnce("\"kind\": \"code\"", "\"kind\": \"otp\""),
             "screens.enterCode.inputs.userCode.kind is 'otp'"
         );
 
         assertRefused(
-            "detent-word.json",
+            "detent-word",
             replaceOnce(
                 "\"entry\": \"modal\", \"start\": \"enterCode\"",
                 "\"entry\": \"sheet\", \"sheet\": { \"detent\": \"tall\" }, \"start\": \"enterCode\""
@@ -222,13 +259,13 @@ class SpecRefusalTest
     fun `a detent is required for a sheet and refused for anything else`()
     {
         assertRefused(
-            "sheet-no-detent.json",
+            "sheet-no-detent",
             replaceOnce("\"entry\": \"modal\"", "\"entry\": \"sheet\""),
             "flows.approveDevice.entry is 'sheet' but flows.approveDevice.sheet is absent"
         );
 
         assertRefused(
-            "modal-with-detent.json",
+            "modal-with-detent",
             replaceOnce(
                 "\"entry\": \"modal\", \"start\": \"enterCode\"",
                 "\"entry\": \"modal\", \"sheet\": { \"detent\": \"half\" }, \"start\": \"enterCode\""
@@ -249,7 +286,7 @@ class SpecRefusalTest
     fun `an inputs entry naming nothing the screen collects is refused`()
     {
         assertRefused(
-            "orphan-input.json",
+            "orphan-input",
             replaceOnce("\"userCode\": { \"kind\": \"code\"", "\"userCod\": { \"kind\": \"code\""),
             "screens.enterCode.inputs.userCod decorates an input this screen does not collect"
         );
@@ -267,7 +304,7 @@ class SpecRefusalTest
     fun `a sheet flow carries its detent into both halves`()
     {
         val sheet = withSpec(
-            "sheet-flow.json",
+            "sheet-flow",
             replaceOnce(
                 "\"entry\": \"modal\", \"start\": \"enterCode\"",
                 "\"entry\": \"sheet\", \"sheet\": { \"detent\": \"half\" }, \"start\": \"enterCode\""
@@ -317,7 +354,7 @@ class SpecRefusalTest
         val suppressed = generate(
             repoRoot,
             withSpec(
-                "no-close.json",
+                "no-close",
                 replaceOnce("\"title\": \"Approve a device\",", "\"title\": \"Approve a device\", \"header\": { \"close\": false },")
             )
         );
@@ -473,7 +510,7 @@ class SpecRefusalTest
     @Test
     fun `the same bytes under another path move the spec line and nothing else`()
     {
-        val elsewhere = withSpec("same-bytes.json", specText);
+        val elsewhere = withSpec("same-bytes", specPieces);
         val here = generate(repoRoot, specPath);
         val there = generate(repoRoot, elsewhere);
         assertEquals("the two paths generated different files", here.keys, there.keys);
@@ -508,6 +545,117 @@ class SpecRefusalTest
             setOf("kt", "swift", "json", "md", "yaml"),
             languages
         );
+    }
+
+    /**
+     * A document's PROSE is not an input to the generator; its BLOCK is.
+     *
+     * The prose is the half a contract document exists to have rewritten — it is where what
+     * the screens must do is argued, and nothing downstream reads it. While the digest was
+     * taken over the whole file, rewording one sentence of `contracts/approveDevice.md`
+     * rewrote the `specSha256:` line of all 137 generated files, so the document was
+     * expensive to edit for its own purpose.
+     *
+     * The prose is REPLACED here rather than nudged, because the claim is about the whole
+     * half and a probe that changed one word would pass just as well against a digest that
+     * happened to ignore that word. And the whole output is compared rather than the digest
+     * alone: the digest not moving is the mechanism, generated files not moving is the
+     * property, and the second is the one anybody notices.
+     */
+    @Test
+    fun `rewriting a document's prose leaves the digest and the generated files alone`()
+    {
+        val rewritten = "# approveDevice\n\nNot one word of this prose is the one it replaced.\n\n" +
+            machineBlockOf(contractDocument);
+
+        // Both runs from ONE spec path, rewritten in place between them. The path is itself
+        // an input and is printed on every header, so two fixture directories would differ
+        // on the `spec:` line and the comparison below would be about the wrong thing.
+        val directory = withSpec("prose", specPieces);
+        val here = generate(repoRoot, directory);
+        withSpec("prose", specPieces + (contractDocument to rewritten));
+        val there = generate(repoRoot, directory);
+
+        assertEquals("the two runs wrote different files", here.keys, there.keys);
+        assertEquals("a reworded document moved the spec digest", specDigestOf(here), specDigestOf(there));
+        here.forEach { (path, content) ->
+            assertEquals("$path moved when only the document's prose did", content, there.getValue(path));
+        };
+    }
+
+    /**
+     * One character inside the block moves the digest, and moves nothing else.
+     *
+     * The character is a SPACE added inside the block's JSON, which is the case a digest
+     * taken over anything other than the block's own bytes would get wrong: parse the block
+     * and hash the result and this edit disappears; trim or collapse the block's whitespace
+     * and it disappears too. Neither happens — the digest is the block's bytes, so an edit
+     * to the spec is an edit whatever it looks like.
+     *
+     * That the rest of the output holds still is the other half. The block is unchanged as
+     * JSON, so every generated file must be its old self on every line but the one that
+     * names the digest — which is what makes this the twin of the case above rather than a
+     * second copy of it.
+     */
+    @Test
+    fun `one character inside the block moves the digest and only the digest line`()
+    {
+        val spaced = specPieces.getValue(contractDocument)
+            .replaceFirst("\"specVersion\": 1", "\"specVersion\":  1");
+        assertNotEquals("the block was not edited", specPieces.getValue(contractDocument), spaced);
+
+        // One spec path, rewritten in place between the runs, for the reason above.
+        val directory = withSpec("block", specPieces);
+        val here = generate(repoRoot, directory);
+        withSpec("block", specPieces + (contractDocument to spaced));
+        val there = generate(repoRoot, directory);
+
+        assertNotEquals(
+            "a byte changed inside the block left the digest where it was",
+            specDigestOf(here),
+            specDigestOf(there)
+        );
+        here.forEach { (path, content) ->
+            val moved = content.lines().zip(there.getValue(path).lines())
+                .filter { (ours, theirs) -> ours != theirs };
+            assertEquals(
+                "$path should differ from its spaced-block twin on the digest line alone, and differs on $moved",
+                1,
+                moved.size
+            );
+            assertTrue(
+                "$path moved on a line that is not the digest: ${moved.single()}",
+                moved.single().first.contains("specSha256")
+            );
+        };
+    }
+
+    /** The named piece's machine block, fences and all, as a document would carry it. */
+    private fun machineBlockOf(piece: String): String
+    {
+        val document = specPieces.getValue(piece);
+        val fence = document.indexOf("```json spfn-ui");
+        assertTrue("$piece holds no machine block to take", fence > 0);
+        return document.substring(fence);
+    }
+
+    /**
+     * The spec digest a run printed, which is one value across its files or a failure.
+     *
+     * Read off the OUTPUT rather than asked of `SpecInput`, because the digest is only
+     * interesting where it lands: every header's `specSha256:` line and the case table's
+     * `specSha256` field. Taking it from both is also what keeps this an assertion — two
+     * artefacts naming two digests would be a generator disagreeing with itself.
+     */
+    private fun specDigestOf(generated: Map<String, String>): String
+    {
+        val printed = generated.values
+            .flatMap { it.lines() }
+            .filter { it.contains("specSha256") }
+            .mapNotNull { Regex("[0-9a-f]{64}").find(it)?.value }
+            .toSet();
+        assertEquals("the run did not print exactly one spec digest, but $printed", 1, printed.size);
+        return printed.first();
     }
 
     /**
@@ -574,11 +722,20 @@ class SpecRefusalTest
         return root;
     }
 
+    /** One file or one directory of the real tree, at the same relative path under [root]. */
     private fun copyInto(root: File, relative: String)
     {
         val destination = File(root, relative);
         destination.parentFile?.mkdirs();
-        File(repoRoot, relative).copyTo(destination, overwrite = true);
+        val source = File(repoRoot, relative);
+        if (source.isDirectory)
+        {
+            source.copyRecursively(destination, overwrite = true);
+        }
+        else
+        {
+            source.copyTo(destination, overwrite = true);
+        }
     }
 
     /** Every file under [root], by path relative to it, sorted. */
@@ -651,15 +808,15 @@ class SpecRefusalTest
     fun `a target that asks for no readouts gets none`()
     {
         val quiet = target.copy(name = "quiet", runnerReadouts = false, tableRoot = null);
-        val loud = generate(repoRoot, specPath, target).getValue("${target.kotlinRoot}/views/EnterCodeScreen.kt");
-        val silent = generate(repoRoot, specPath, quiet).getValue("${quiet.kotlinRoot}/views/EnterCodeScreen.kt");
+        val loud = generate(repoRoot, specPath, target).files.getValue("${target.kotlinRoot}/views/EnterCodeScreen.kt");
+        val silent = generate(repoRoot, specPath, quiet).files.getValue("${quiet.kotlinRoot}/views/EnterCodeScreen.kt");
 
         assertTrue("the readout target emitted no state readout", loud.contains("\"state=\" + stateName(state)"));
         assertTrue("the quiet target emitted a state readout", !silent.contains("state="));
         assertTrue("the quiet target emitted a stack readout", !silent.contains("stack="));
         assertTrue("the quiet target dropped a control", silent.contains("id = \"enterCode.submit\""));
 
-        val swift = generate(repoRoot, specPath, quiet).getValue("${quiet.swiftRoot}/Views/EnterCodeView.swift");
+        val swift = generate(repoRoot, specPath, quiet).files.getValue("${quiet.swiftRoot}/Views/EnterCodeView.swift");
         assertTrue("the quiet Swift target emitted a readout", !swift.contains("state="));
         assertTrue("the quiet Swift target dropped a control", swift.contains("identifier: \"enterCode.submit\""));
     }
@@ -677,7 +834,7 @@ class SpecRefusalTest
         val table = "${target.tableRoot}/device-approval.cases.json";
         val before = generate(repoRoot, specPath).getValue(table);
         val mutated = withSpec(
-            "discriminate.json",
+            "discriminate",
             replaceOnce(
                 "\"approve\": { \"call\": \"deviceApproval.approve\", \"then\": \"close\", \"role\": \"primary\" }",
                 "\"approve\": { \"call\": \"deviceApproval.approve\", \"then\": \"pop\", \"role\": \"primary\" }"
@@ -691,7 +848,7 @@ class SpecRefusalTest
     fun `a body key this generator does not carry is refused`()
     {
         assertRefused(
-            "body-key.json",
+            "body-key",
             replaceOnce("\"body\": \"lorem.long\"", "\"body\": \"lorem.enormous\""),
             "which is not a body this generator carries"
         );
@@ -705,12 +862,8 @@ class SpecRefusalTest
     fun `a body on a screen that reads is refused`()
     {
         assertRefused(
-            "body-source.json",
-            replaceOnce(
-                "\"flow\": \"approveDevice\", \"source\": \"deviceApproval.lookup\", \"usecase\": true,",
-                "\"flow\": \"approveDevice\", \"source\": \"deviceApproval.lookup\", \"usecase\": true, " +
-                    "\"body\": \"lorem.short\","
-            ),
+            "body-source",
+            replaceOnce("\"usecase\": true,", "\"usecase\": true, \"body\": \"lorem.short\","),
             "a screen that reads shows what it read"
         );
     }
@@ -741,7 +894,7 @@ class SpecRefusalTest
     @Test
     fun `a narrowed target emits the screens of its own flows and no others`()
     {
-        val narrowed = generate(repoRoot, specPath, target.copy(flows = setOf("approveDevice")));
+        val narrowed = generate(repoRoot, specPath, target.copy(flows = setOf("approveDevice"))).files;
         val views = narrowed.keys.filter { it.startsWith("${target.swiftRoot}/Views/") }.sorted();
         assertEquals(
             listOf("${target.swiftRoot}/Views/EnterCodeView.swift", "${target.swiftRoot}/Views/ReviewDeviceView.swift"),
@@ -853,5 +1006,223 @@ class SpecRefusalTest
                 content.contains("VStack(alignment: .leading, spacing: SPFNTokens.space4)")
             );
         };
+    }
+
+    // ---- the spec is a directory of pieces (N5, D1) --------------------------
+
+    /**
+     * The union is the point: nine flows arrive from two files and the output is one app.
+     *
+     * Floored on both sides rather than on the total, because a merge that silently dropped
+     * a piece would still produce a spec — the wrong one — and a count of everything cannot
+     * say which half went missing (P7).
+     */
+    @Test
+    fun `a directory spec is the union of its json and its contract documents`()
+    {
+        val generated = generate(repoRoot, specPath);
+        assertTrue(
+            "the flow the contract document carries did not reach the output",
+            generated.containsKey("${target.kotlinRoot}/views/EnterCodeScreen.kt")
+        );
+        assertTrue(
+            "the flows the json carries did not reach the output",
+            generated.containsKey("${target.kotlinRoot}/views/LongScreen.kt")
+        );
+        assertEmits(
+            generated = generated,
+            path = "${target.kotlinRoot}/services/DeviceApprovalService.kt",
+            expected = "suspend fun approve("
+        );
+    }
+
+    /**
+     * A block is read line by line, and the three shapes a document really arrives in.
+     *
+     * A ``` inside the JSON's own text does not close the block, because a fence is a LINE;
+     * a document checked out with CRLF endings reads the same as one without; and a tag with
+     * trailing spaces is the same tag. A regular expression over the whole document would
+     * have to be right about all three at once, and the greedy version swallows the prose
+     * between two documents' blocks.
+     */
+    @Test
+    fun `a machine block is read whatever the document does around it`()
+    {
+        val document = "# a flow\n\n" +
+            "```json spfn-ui\n" +
+            "{\n  \"note\": \"``` is three backticks\"\n}\n" +
+            "```\n\nprose after the block\n";
+        val block = "{\n  \"note\": \"``` is three backticks\"\n}";
+
+        assertEquals("a fence inside a string closed the block", block, SpecInput.machineBlock(document, "a.md"));
+        assertEquals(
+            "a document with CRLF endings read differently",
+            block,
+            SpecInput.machineBlock(document.replace("\n", "\r\n"), "a.md")
+        );
+        assertEquals(
+            "spaces after the tag stopped it being the tag",
+            "{}",
+            SpecInput.machineBlock("```json spfn-ui   \n{}\n```  \n", "a.md")
+        );
+    }
+
+    @Test
+    fun `a document that does not hold exactly one machine block is refused by name`()
+    {
+        val one = "```json spfn-ui\n{}\n```\n";
+        assertMachineBlockRefused("", "b.md holds 0 spfn-ui blocks");
+        assertMachineBlockRefused(one + "\n" + one, "b.md holds 2 spfn-ui blocks");
+        assertMachineBlockRefused("```json spfn-ui\n{}\n", "b.md opens a spfn-ui block that no closing fence ends");
+    }
+
+    private fun assertMachineBlockRefused(document: String, expected: String)
+    {
+        try
+        {
+            SpecInput.machineBlock(document, "b.md");
+            fail("a document was accepted that must be refused: $expected");
+        }
+        catch (failure: RuntimeException)
+        {
+            val message = failure.message ?: "";
+            assertTrue("refused, but not on '$expected': $message", message.contains(expected));
+        }
+    }
+
+    /**
+     * The three ways two pieces can disagree, each refused with both paths in the message.
+     *
+     * A name declared twice is the one that matters most: two documents describing one flow
+     * is two truths about what is on the phone, and the generator would take whichever it
+     * read last. The other two are the fields that are properties of the WHOLE spec — the
+     * pinned bundle and, for a method both pieces declare, the operation behind it.
+     */
+    @Test
+    fun `two pieces that disagree are refused, naming both of them`()
+    {
+        val document = specPieces.getValue("contracts/approveDevice.md");
+
+        assertRefused(
+            "flow-twice",
+            specPieces + ("contracts/again.md" to document),
+            "flows.approveDevice is declared in both"
+        );
+
+        assertRefused(
+            "digest-split",
+            specPieces + ("contracts/approveDevice.md" to
+                document.replaceFirst("\"manifestSha256\": \"", "\"manifestSha256\": \"00")),
+            "the pieces of one spec are written against one contract bundle"
+        );
+
+        // The json's `form` screen CALLS this method, so the json declares it too; a call
+        // needs no response type, which is why the mutation goes on this side.
+        assertRefused(
+            "method-split",
+            specPieces + ("device-approval.json" to specPieces.getValue("device-approval.json")
+                .replaceFirst("\"lookup\": { \"operation\": \"authDeviceInfo\" }",
+                    "\"lookup\": { \"operation\": \"authDeviceApprove\" }")),
+            "a method two pieces both declare is one method"
+        );
+    }
+
+    // ---- who writes the views (N5, D2) --------------------------------------
+
+    @Test
+    fun `a views value outside the pair is refused, and a json flow may not claim authored`()
+    {
+        assertRefused(
+            "views-word",
+            replaceOnce(
+                "\"approveDevice\": { \"entry\": \"modal\", \"start\": \"enterCode\" }",
+                "\"approveDevice\": { \"entry\": \"modal\", \"start\": \"enterCode\", \"views\": \"manual\" }"
+            ),
+            "flows.approveDevice.views is 'manual'"
+        );
+
+        assertRefused(
+            "views-in-json",
+            replaceOnce(
+                "\"pushTour\":      { \"entry\": \"push\",  \"start\": \"tourOne\" }",
+                "\"pushTour\":      { \"entry\": \"push\",  \"start\": \"tourOne\", \"views\": \"authored\" }"
+            ),
+            "a view written by hand is written from a contract document"
+        );
+    }
+
+    /**
+     * The switch, in the only place this suite can see it: what the run says it produced.
+     *
+     * An authored flow's views are absent from the files — so `write` writes nothing there
+     * and `verify` has nothing to compare — and present in `authoredViews`, which is what
+     * keeps `staleOutputs` from deleting them. Everything else about the flow is still
+     * generated: the model, the route, the flow and the container are the generator's
+     * whatever draws the screen.
+     */
+    @Test
+    fun `an authored flow's views are not written, and the rest of it still is`()
+    {
+        val authored = withSpec(
+            "authored-views",
+            replaceOnce(
+                "\"approveDevice\": { \"entry\": \"modal\", \"start\": \"enterCode\" }",
+                "\"approveDevice\": { \"entry\": \"modal\", \"start\": \"enterCode\", \"views\": \"authored\" }"
+            )
+        );
+        val generated = generate(repoRoot, authored, target);
+
+        assertEquals(
+            "the authored flow's two screens are not the four view files this run must leave alone",
+            setOf(
+                "${target.kotlinRoot}/views/EnterCodeScreen.kt",
+                "${target.kotlinRoot}/views/ReviewDeviceScreen.kt",
+                "${target.swiftRoot}/Views/EnterCodeView.swift",
+                "${target.swiftRoot}/Views/ReviewDeviceView.swift"
+            ),
+            generated.authoredViews
+        );
+        generated.authoredViews.forEach { view ->
+            assertTrue("$view was generated over a person's own file", view !in generated.files.keys);
+        };
+
+        listOf(
+            "${target.kotlinRoot}/screens/EnterCodeModel.kt",
+            "${target.kotlinRoot}/flows/ApproveDeviceFlow.kt",
+            "${target.swiftRoot}/Screens/ReviewDeviceModel.swift",
+            // And a reference flow in the same run keeps its view: the switch is per flow.
+            "${target.kotlinRoot}/views/LongScreen.kt"
+        ).forEach { path ->
+            assertTrue("$path stopped being generated when one flow's views became a person's", generated.files.containsKey(path));
+        };
+    }
+
+    /**
+     * The other half of the switch: the deletion rule that owns these directories.
+     *
+     * `write` deletes what it did not emit and `verify` reports it, which is what keeps a
+     * generated directory honest — and is exactly what would eat a hand-written view. So the
+     * exemption is read here against a tree holding one of each: a view this run declared
+     * authored, and a leftover from a spec nobody has any more.
+     */
+    @Test
+    fun `an authored view is not stale, and a leftover beside it still is`()
+    {
+        val root = File(repoRoot, "tools/ui-codegen/build/authored-tree");
+        root.deleteRecursively();
+        val views = "${target.kotlinRoot}/views";
+        File(root, views).mkdirs();
+        File(root, "$views/EnterCodeScreen.kt").writeText("// written by hand from contracts/approveDevice.md\n");
+        File(root, "$views/GhostScreen.kt").writeText("// left behind by a spec that no longer declares it\n");
+
+        val generated = Generated(
+            files = mapOf("$views/LongScreen.kt" to "// generated\n"),
+            authoredViews = setOf("$views/EnterCodeScreen.kt")
+        );
+        assertEquals(
+            "the stale reader did not answer with the one file nothing declares",
+            listOf("$views/GhostScreen.kt"),
+            staleOutputs(root, generated)
+        );
     }
 }

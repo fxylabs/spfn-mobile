@@ -44,11 +44,26 @@ class KotlinEmitter(target: Target)
             {
                 files["$root/screens/${type(screen.name, "UseCase")}.kt"] = useCase(screen, bundle, inputs);
             }
-            files["$root/views/${type(screen.name, "Screen")}.kt"] = view(screen, bundle, inputs);
+            if (!spec.viewIsAuthored(screen))
+            {
+                files["$root/views/${type(screen.name, "Screen")}.kt"] = view(screen, bundle, inputs);
+            }
         };
         files["$root/AppContainer.kt"] = container(spec, bundle, inputs);
         return files;
     }
+
+    /**
+     * The view files of the flows a person writes: not emitted above, and not to be deleted.
+     *
+     * Named here rather than in `Main` because the path is this emitter's own spelling —
+     * `views/<Screen>Screen.kt` — and a second copy of it would drift from the one line
+     * above that writes the file.
+     */
+    fun authoredViews(spec: Spec): Set<String> =
+        spec.screens.filter { spec.viewIsAuthored(it) }
+            .map { "$root/views/${type(it.name, "Screen")}.kt" }
+            .toSet()
 
     // ---- names -------------------------------------------------------------
 

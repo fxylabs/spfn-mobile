@@ -1,8 +1,12 @@
 #!/bin/sh
 # SPFN Mobile — offline repository validator.
 #
-# Zero external dependencies beyond POSIX sh, grep, sed, awk, find and a SHA-256
-# utility (`shasum` or `sha256sum`). No network, no package manager, no toolchain.
+# Zero external dependencies beyond POSIX sh, grep, sed, awk, find, a SHA-256
+# utility (`shasum` or `sha256sum`) and — for section 21 alone — python3. No network, no
+# package manager, no toolchain. python3 is what reads a flow's `views` out of its contract
+# document, for the reason `examples/ui-spec/run-cells.sh` states about the case table: the
+# two keys that answer the question live in two objects, and a line-based reader pairs them
+# by proximity. A host without it fails that section rather than skipping it.
 #
 #   sh tools/validate/validate.sh
 #
@@ -233,6 +237,7 @@ for path in \
     tools/ui-codegen/README.md \
     tools/ui-codegen/build.gradle.kts \
     examples/ui-spec/device-approval.json examples/ui-spec/SCHEMA.md \
+    examples/ui-spec/CONTRACT.md examples/ui-spec/contracts/approveDevice.md \
     examples/ui-spec/generated/device-approval.cases.json \
     examples/ui-spec/generated/device-approval.cases.md \
     examples/android-compose/README.md examples/ios-swiftui/README.md \
@@ -243,6 +248,7 @@ for path in \
     tools/validate/probe-social-adapter-rules.sh \
     tools/validate/probe-ui-vocabulary-rules.sh \
     tools/validate/probe-example-scaffold-rules.sh \
+    tools/validate/probe-authored-view-rules.sh \
     tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
     tools/rc-verify/probe-trap-exit.sh tools/rc-verify/local-signed-run.sh \
     tools/device-receipts/receipt-gate.sh tools/device-receipts/probe-receipt-gate.sh \
@@ -264,7 +270,8 @@ done
 
 for path in \
     Sources Tests android Contracts/fixtures tools examples/ios-swiftui \
-    examples/android-compose examples/ui-spec examples/ui-spec/generated/flows \
+    examples/android-compose examples/ui-spec examples/ui-spec/contracts \
+    examples/ui-spec/generated/flows \
     examples/ios-swiftui/Generated docs/architecture docs/migration docs/security \
     tools/device-receipts tools/device-receipts/runs \
     Tests/SPFNConformanceTests "$SWIFT_GENERATED" "$KOTLIN_GENERATED"
@@ -3135,6 +3142,139 @@ then
     pass "every file under $HIT_SHAPE_SOURCE_ROOT that styles a Button plain states at least as many contentShape rectangles, so the coloured part of a button is part of the button"
 else
     fail "files that style a Button plain without a contentShape rectangle to match:$HIT_SHAPE_OFFENDERS; a plain button is tapped on its LABEL's drawn pixels, so the fill around the words takes no press"
+fi
+
+# ---------------------------------------------------------------------------
+section '21. authored views are written by hand'
+# ---------------------------------------------------------------------------
+# A flow's `views` says who draws its screens. `reference` is the generator, which emits a
+# skeleton out of SPFNUI's components; `authored` is a person, writing from the flow's
+# contract document, and for those the generator neither writes the file nor deletes it as
+# stale (decision 2026-09-09, UI D2). That exemption is the whole risk: a view file inside a
+# directory the generator owns, which the generator has promised to leave alone.
+#
+# Two ways it goes wrong and neither fails a build. An authored view that still carries the
+# `GENERATED FILE` header is a file nobody has written yet — the flow was switched over and
+# the skeleton left in place, so the screens on the phone are the grammar's and the document
+# says otherwise. And an authored view that is MISSING is the failure the generator cannot
+# see at all: it does not emit that path, so `spfnUiVerify` has nothing to miss, and the
+# first evidence is a compiler that cannot find a symbol the flow host imports.
+#
+# Read from the CONTRACT DOCUMENTS rather than from a list here, because which flows are
+# authored is a fact the documents state and a second copy of it would drift. The reader is
+# python3 for the reason `examples/ui-spec/run-cells.sh` states about its own: a flow's
+# `views` and a screen's `flow` are two keys in two objects, and pairing them by proximity
+# is how a reader ends up confident about a screen it never saw.
+#
+# The EXAMPLE app's two view roots are what is read. It is the target that takes every flow
+# the spec declares, so it is the one app where every screen has a view; the harness is
+# narrowed to one flow (`--flows`, a target field), and a reader pointed at it would report
+# eight of the nine flows as absent files.
+AUTHORED_SPEC=examples/ui-spec
+AUTHORED_KOTLIN_VIEWS=examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/generated/views
+AUTHORED_SWIFT_VIEWS=examples/ios-swiftui/Generated/Views
+
+# The spec declares fourteen screens today. The floor is what tells a reader that read
+# nothing from a spec whose every view is in order (docs/IMPLEMENTATION-PITFALLS.md P7).
+AUTHORED_SCREEN_FLOOR=14
+
+: > "$TMP/authored-views.txt"
+if command -v python3 > /dev/null 2>&1
+then
+    # Failures inside the reader — a document with two machine blocks, a piece that is not
+    # JSON — leave the file empty and are reported by the floor below, which is the same
+    # answer the generator gives to the same input one refusal earlier.
+    python3 - "$AUTHORED_SPEC" > "$TMP/authored-views.txt" 2> /dev/null <<'VIEWS' || true
+import json
+import os
+import sys
+
+root = sys.argv[1]
+
+
+def machine_block(text):
+    """The one ```json spfn-ui block of a contract document, by the generator's own rule."""
+    body = []
+    blocks = 0
+    inside = False
+    for line in text.replace("\r\n", "\n").split("\n"):
+        if not inside and line.rstrip() == "```json spfn-ui":
+            inside = True
+            blocks += 1
+        elif inside and line.rstrip() == "```":
+            inside = False
+        elif inside and blocks == 1:
+            body.append(line)
+    if blocks != 1 or inside:
+        raise ValueError("%s spfn-ui blocks" % blocks)
+    return "\n".join(body)
+
+
+def pieces():
+    for name in sorted(os.listdir(root)):
+        if name.endswith(".json"):
+            with open(os.path.join(root, name)) as handle:
+                yield handle.read()
+    documents = os.path.join(root, "contracts")
+    for name in sorted(os.listdir(documents)):
+        if name.endswith(".md"):
+            with open(os.path.join(documents, name)) as handle:
+                yield machine_block(handle.read())
+
+
+lines = []
+for piece in pieces():
+    spec = json.loads(piece)
+    written_by = dict((flow, body.get("views", "reference")) for flow, body in spec["flows"].items())
+    for screen, body in sorted(spec["screens"].items()):
+        lines.append("%s %s" % (screen, written_by[body["flow"]]))
+
+print("\n".join(lines))
+VIEWS
+fi
+
+AUTHORED_READ=0
+AUTHORED_OFFENDERS=''
+while read -r AUTHORED_SCREEN AUTHORED_BY
+do
+    if [ -z "$AUTHORED_SCREEN" ]
+    then
+        continue
+    fi
+    AUTHORED_READ=$((AUTHORED_READ + 1))
+    # The emitters' own spelling: `views/<Screen>Screen.kt` and `Views/<Screen>View.swift`,
+    # off a screen name that is lowerCamel in the spec and Pascal in both languages.
+    AUTHORED_PASCAL=$(printf '%s' "$AUTHORED_SCREEN" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$AUTHORED_SCREEN" | cut -c2-)
+    for AUTHORED_VIEW in "$AUTHORED_KOTLIN_VIEWS/${AUTHORED_PASCAL}Screen.kt" "$AUTHORED_SWIFT_VIEWS/${AUTHORED_PASCAL}View.swift"
+    do
+        if [ ! -f "$AUTHORED_VIEW" ]
+        then
+            AUTHORED_OFFENDERS="$AUTHORED_OFFENDERS $AUTHORED_VIEW:absent"
+        elif grep -qE 'GENERATED FILE' "$AUTHORED_VIEW"
+        then
+            if [ "$AUTHORED_BY" = authored ]
+            then
+                AUTHORED_OFFENDERS="$AUTHORED_OFFENDERS $AUTHORED_VIEW:still-generated"
+            fi
+        elif [ "$AUTHORED_BY" = reference ]
+        then
+            AUTHORED_OFFENDERS="$AUTHORED_OFFENDERS $AUTHORED_VIEW:no-generated-header"
+        fi
+    done
+done < "$TMP/authored-views.txt"
+
+if [ "$AUTHORED_READ" -ge "$AUTHORED_SCREEN_FLOOR" ]
+then
+    pass "the authored-view reader read $AUTHORED_READ screens out of $AUTHORED_SPEC and its contract documents"
+else
+    fail "the authored-view reader read $AUTHORED_READ screens out of $AUTHORED_SPEC and its contract documents, fewer than the $AUTHORED_SCREEN_FLOOR that spec declares; it did not run"
+fi
+
+if [ -z "$AUTHORED_OFFENDERS" ]
+then
+    pass 'every authored flow'"'"'s views are written by hand and every reference flow'"'"'s carry the generated header'
+else
+    fail "views that disagree with the flow's own \`views\` key:$AUTHORED_OFFENDERS; an authored view still carrying the generated header is a screen nobody has written, and an absent one is a symbol the generated flow host imports and nothing defines"
 fi
 
 # ---------------------------------------------------------------------------

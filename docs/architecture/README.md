@@ -283,8 +283,9 @@ the result still works, and the layering is gone. A screen model takes its servi
 flow through its initializer (D9), so the same model runs against a real client on a device
 and against a fake on a JVM with no substitution machinery in between.
 
-**The spec is the source, and it is small on purpose.** `examples/ui-spec/device-approval.json`
-has exactly three top-level tables — `services`, `flows`, `screens` — and
+**The spec is the source, and it is small on purpose.** `examples/ui-spec` — the JSON file
+holding the showcase flows, plus one contract document per flow somebody writes screens
+for — has exactly three top-level tables, `services`, `flows` and `screens`, and
 `examples/ui-spec/SCHEMA.md` is what a consumer writes against. Five things are refused
 rather than warned about: a `contract.manifestSha256` that is not the pinned bundle's, an
 operation the contract does not declare, a `then` target outside its own flow, a `start`

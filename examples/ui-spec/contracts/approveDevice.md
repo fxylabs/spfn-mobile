@@ -1,7 +1,8 @@
 # approveDevice — a person approves a device that is signing in with a code
 
-Written to `../CONTRACT.md`. The machine block at the end is the `approveDevice` part
-of `../device-approval.json` and must stay equal to it until the generator reads this file.
+Written to `../CONTRACT.md`. The machine block at the end IS the `approveDevice` part of
+the spec — `tools/ui-codegen` reads this file, and no other file in this repository
+declares this flow.
 
 ## Purpose
 
