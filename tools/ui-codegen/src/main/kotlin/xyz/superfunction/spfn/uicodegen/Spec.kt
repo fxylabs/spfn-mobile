@@ -22,12 +22,15 @@
 package xyz.superfunction.spfn.uicodegen
 
 import xyz.superfunction.spfn.codegen.Bundle
+import xyz.superfunction.spfn.codegen.Field
 import xyz.superfunction.spfn.codegen.FieldType
 import xyz.superfunction.spfn.codegen.Json
 import xyz.superfunction.spfn.codegen.JsonValue
 import xyz.superfunction.spfn.codegen.Names
 import xyz.superfunction.spfn.codegen.Operation
+import xyz.superfunction.spfn.codegen.TypeDefinition
 import xyz.superfunction.spfn.codegen.bool
+import xyz.superfunction.spfn.codegen.number
 import xyz.superfunction.spfn.codegen.obj
 import xyz.superfunction.spfn.codegen.required
 import xyz.superfunction.spfn.codegen.text
@@ -94,7 +97,80 @@ data class InputDefinition(
     /** Whether the return key performs the screen's action, and therefore says `go`. */
     val submitOnReturn: Boolean,
     /** Whether the field takes focus when the screen appears. */
-    val autofocus: Boolean
+    val autofocus: Boolean,
+
+    /**
+     * What this field is checked against before anything is sent, or null.
+     *
+     * Null and an all-defaults object are NOT the same thing, which is why this is nullable
+     * rather than defaulted. A screen whose spec says nothing about a field keeps the
+     * behaviour it had before `rules` existed — the emitted model refuses a blank required
+     * input and sends everything else — and a screen that writes `rules` opts that field
+     * into `Form.check`. Defaulting would have turned every v1 screen into a checked one,
+     * which is a generated-output change wearing a schema addition's clothes.
+     */
+    val rules: RulesDefinition?
+)
+
+/**
+ * What one of a screen's fields is checked against, as the spec declares it.
+ *
+ * The shape of `FieldRules` minus its `kind`, which is deliberately not repeated here: a
+ * field's kind is already `inputs.<name>.kind`, where it decides the keyboard, and a second
+ * spelling of it under `rules` would be two answers to one question. The generator reads the
+ * one key and writes it into both places.
+ */
+data class RulesDefinition(
+    /** Whether an empty field is a refusal. Default `true`. */
+    val required: Boolean,
+
+    /** The fewest UTF-16 code units the field accepts, or null. */
+    val minLength: Long?,
+
+    /** The most UTF-16 code units the field accepts, or null. */
+    val maxLength: Long?,
+
+    /**
+     * The spec's name for the extra rule this field carries, or null for none.
+     *
+     * Nothing here interprets it: it is what makes a field opt in to the screen's
+     * `FieldValidator`, and one field carrying it is what makes that validator a required
+     * constructor argument rather than an optional one.
+     */
+    val custom: String?
+)
+
+/**
+ * How a screen reads its source one page at a time.
+ *
+ * Every name below is the CONTRACT's, resolved against the pinned bundle when the spec is
+ * read. The emitted model reaches for these fields by name, so a field renamed upstream has
+ * to be a refusal here: a `next` that is no longer an optional string would otherwise reach
+ * a compiler as a type error in a file nobody wrote, and an `items` that is no longer an
+ * array would reach it as rows of a type nobody asked for.
+ *
+ * [limitField] is a NAME and not the fixed word `limit`, because a contract is free to call
+ * a page size `pageSize`; [limitValue] is how many rows this screen asks for, which is the
+ * spec's own decision and not something a contract can state.
+ */
+data class ListDefinition(
+    /** The response field carrying the rows, declared `array<T>`. */
+    val items: String,
+
+    /** The response field carrying the next page's cursor, an optional string. */
+    val next: String,
+
+    /** The request field the cursor is handed back on, an optional string. */
+    val cursor: String,
+
+    /** The request field the page size is handed over on, an integer. */
+    val limitField: String,
+
+    /** How many rows one page asks for. */
+    val limitValue: Long,
+
+    /** What one row is: the `T` of the response field's `array<T>`. */
+    val itemType: String
 )
 
 data class ScreenDefinition(
@@ -144,15 +220,31 @@ data class ScreenDefinition(
      * screen's body is what it read: a static one under it would be a second answer to the
      * same question, and the read's would be the one nobody could see.
      */
-    val bodyKey: String?
+    val bodyKey: String?,
+
+    /**
+     * How this screen reads its source a page at a time, or null for a screen that reads it
+     * whole.
+     *
+     * Refused on a screen with no `source` for the reason `body` is refused on a screen with
+     * one: a page is a page OF a read, and a screen that performs none has nothing to page.
+     */
+    val list: ListDefinition?
 )
 {
     /**
      * Whether this screen's state is a `Loadable` rather than a `Busy`. A screen with a
      * source shows what it read; a screen without one shows only whether its write is in
      * flight (SCHEMA.md, "How a screen's state type is derived").
+     *
+     * A PAGED screen is excluded rather than included, even though it reads: its state is a
+     * `Paged<T>`, which carries a `Loadable` inside it and is not one. Every `list` is a
+     * specVersion 2 key, so on a v1 spec this is still exactly `source != null`.
      */
-    val isLoadable: Boolean get() = source != null;
+    val isLoadable: Boolean get() = source != null && list == null;
+
+    /** Whether this screen's state is a `Paged<T>`, which is what a `list` declares. */
+    val isPaged: Boolean get() = list != null;
 
     /**
      * The services this screen's model is given, deduplicated and sorted: the one its
@@ -179,7 +271,14 @@ data class ScreenDefinition(
     /** What the spec says about the input called [name], or nothing, which is every default. */
     fun inputNamed(name: String): InputDefinition =
         inputs.firstOrNull { it.name == name }
-            ?: InputDefinition(name = name, kind = "text", label = name, submitOnReturn = false, autofocus = false);
+            ?: InputDefinition(
+                name = name,
+                kind = "text",
+                label = name,
+                submitOnReturn = false,
+                autofocus = false,
+                rules = null
+            );
 
     /**
      * The action that re-reads this screen's own source and moves nothing, or null.
@@ -297,18 +396,33 @@ data class Spec(
 
     companion object
     {
+        /**
+         * The versions this generator reads, and what the second one adds.
+         *
+         * Both are read by ONE reader rather than by two, because the two specs are the same
+         * spec: version 2 adds `screens.<s>.list` and `screens.<s>.inputs.<i>.rules` and
+         * changes nothing else, so a version 1 file generates exactly the files it generated
+         * before. What the version buys is the refusal in the other direction — a v2 key
+         * written into a v1 file is a spec whose author expected a screen this generator
+         * would not have emitted, and it is refused by name rather than ignored.
+         */
         const val SUPPORTED_VERSION: Long = 1;
+
+        /** The version that added `list` and `inputs.<i>.rules`. */
+        const val PAGED_VERSION: Long = 2;
+
+        private val SUPPORTED_VERSIONS: List<Long> = listOf(SUPPORTED_VERSION, PAGED_VERSION);
 
         fun read(specText: String, bundle: Bundle): Spec
         {
             val root = Json.parse(specText).obj();
             checkKeys(root, setOf("specVersion", "contract", "services", "flows", "screens"), "");
             val version = root.required("specVersion").numberOrRefusal();
-            if (version != SUPPORTED_VERSION)
+            if (version !in SUPPORTED_VERSIONS)
             {
                 throw SpecException(
-                    "specVersion is $version; this generator reads $SUPPORTED_VERSION and refuses to " +
-                        "partially read another"
+                    "specVersion is $version; this generator reads " +
+                        SUPPORTED_VERSIONS.joinToString(" and ") + ", and refuses to partially read another"
                 );
             }
 
@@ -318,10 +432,12 @@ data class Spec(
             val services = readServices(root.required("services").obj(), bundle);
             val methods = services.flatMap { it.methods }.associateBy { it.reference };
             val flows = readFlows(root.required("flows").obj());
-            val screens = readScreens(root.required("screens").obj(), methods, flows);
+            val screens = readScreens(root.required("screens").obj(), methods, flows, bundle, version);
 
             checkReferences(flows, screens);
             checkInputs(screens, bundle);
+            checkShapes(screens, bundle);
+            checkAuthoredViews(flows, screens, bundle);
 
             return Spec(
                 specVersion = version,
@@ -470,12 +586,17 @@ data class Spec(
         private fun readScreens(
             members: Map<String, JsonValue>,
             methods: Map<String, ServiceMethod>,
-            flows: List<FlowDefinition>
+            flows: List<FlowDefinition>,
+            bundle: Bundle,
+            version: Long
         ): List<ScreenDefinition> = members.keys.sorted().map { screen ->
             val entry = members.getValue(screen).obj();
             checkKeys(
                 entry,
-                setOf("flow", "source", "usecase", "actions", "title", "scroll", "header", "inputs", "body"),
+                setOf(
+                    "flow", "source", "usecase", "actions", "title", "scroll", "header", "inputs",
+                    "body", "list"
+                ),
                 "screens.$screen."
             );
             val sourceValue = entry.required("source");
@@ -505,8 +626,9 @@ data class Spec(
                 scroll = entry["scroll"]?.bool() ?: true,
                 close = readClose(entry["header"], screen, flow),
                 suppressesClose = isRoot(screen, flow) && !readClose(entry["header"], screen, flow),
-                inputs = readInputs(entry["inputs"], screen),
-                bodyKey = readBody(entry["body"], screen, source)
+                inputs = readInputs(entry["inputs"], screen, version),
+                bodyKey = readBody(entry["body"], screen, source),
+                list = readList(entry["list"], screen, source, bundle, version)
             );
         }
 
@@ -576,7 +698,7 @@ data class Spec(
          * focus stolen on appearance. A screen collects what its request needs whether or not
          * this object exists at all.
          */
-        private fun readInputs(value: JsonValue?, screen: String): List<InputDefinition>
+        private fun readInputs(value: JsonValue?, screen: String, version: Long): List<InputDefinition>
         {
             if (value == null)
             {
@@ -587,7 +709,7 @@ data class Spec(
                 val entry = members.getValue(input).obj();
                 checkKeys(
                     entry,
-                    setOf("kind", "label", "submitOnReturn", "autofocus"),
+                    setOf("kind", "label", "submitOnReturn", "autofocus", "rules"),
                     "screens.$screen.inputs.$input."
                 );
                 val kind = entry["kind"]?.text() ?: "text";
@@ -603,10 +725,164 @@ data class Spec(
                     kind = kind,
                     label = entry["label"]?.text() ?: input,
                     submitOnReturn = entry["submitOnReturn"]?.bool() ?: false,
-                    autofocus = entry["autofocus"]?.bool() ?: false
+                    autofocus = entry["autofocus"]?.bool() ?: false,
+                    rules = readRules(entry["rules"], "screens.$screen.inputs.$input.rules", version)
                 );
             };
         }
+
+        /**
+         * Refusal 12, half of it: what one field is checked against, or nothing.
+         *
+         * `required` defaults to TRUE, which is the one default here that is not "nothing".
+         * A field a spec bothered to write rules for and said nothing about is a field
+         * somebody expects to be filled in, and the opposite default would make
+         * `"rules": { "minLength": 2 }` a rule that accepts an empty value.
+         */
+        private fun readRules(value: JsonValue?, where: String, version: Long): RulesDefinition?
+        {
+            if (value == null)
+            {
+                return null;
+            }
+            if (version < PAGED_VERSION)
+            {
+                throw SpecException(
+                    "$where is a specVersion $PAGED_VERSION key and this spec says $version; a spec " +
+                        "whose fields are checked says which generator it was written for"
+                );
+            }
+            val entry = value.obj();
+            checkKeys(entry, setOf("required", "minLength", "maxLength", "custom"), "$where.");
+            return RulesDefinition(
+                required = entry["required"]?.bool() ?: true,
+                minLength = entry["minLength"]?.number(),
+                maxLength = entry["maxLength"]?.number(),
+                custom = entry["custom"]?.text()
+            );
+        }
+
+        /**
+         * Refusals 10 and 11: a `list` describes a read this screen really performs, in the
+         * contract's own field names.
+         *
+         * Both directions are refusals, and the second is the one worth the code. The names
+         * reach the emitted model as field accesses and request arguments, so `next` naming a
+         * field the response does not declare, or one that is not an optional string, would
+         * be a compile error in a file nobody wrote — and `items` naming something that is
+         * not an `array<T>` would be a screen paging over rows of a type nobody asked for,
+         * which is P8 one layer up.
+         */
+        private fun readList(
+            value: JsonValue?,
+            screen: String,
+            source: ServiceMethod?,
+            bundle: Bundle,
+            version: Long
+        ): ListDefinition?
+        {
+            if (value == null)
+            {
+                return null;
+            }
+            if (version < PAGED_VERSION)
+            {
+                throw SpecException(
+                    "screens.$screen.list is a specVersion $PAGED_VERSION key and this spec says " +
+                        "$version; a spec that reads a page at a time says which generator it was " +
+                        "written for"
+                );
+            }
+            if (source == null)
+            {
+                throw SpecException(
+                    "screens.$screen.list is written on a screen whose source is null; a page is a " +
+                        "page OF a read, and this screen performs none"
+                );
+            }
+            val entry = value.obj();
+            checkKeys(entry, setOf("items", "next", "cursor", "limit"), "screens.$screen.list.");
+            val limit = entry.required("limit").obj();
+            checkKeys(limit, setOf("field", "value"), "screens.$screen.list.limit.");
+            val response = bundle.typeNamed(requireNotNull(source.declaration.responseType));
+            val request = bundle.typeNamed(
+                source.declaration.requestType
+                    ?: throw SpecException(
+                        "screens.$screen.list pages '${source.reference}', whose operation declares no " +
+                            "request; a page is asked for with a cursor and a size, and there is nowhere " +
+                            "to put either"
+                    )
+            );
+            val itemsField = entry.required("items").text();
+            val cursorField = entry.required("cursor").text();
+            val limitName = limit.required("field").text();
+            return ListDefinition(
+                items = itemsField,
+                next = optionalString(response, entry.required("next").text(), "screens.$screen.list.next"),
+                cursor = optionalString(request, cursorField, "screens.$screen.list.cursor"),
+                limitField = integerField(request, limitName, "screens.$screen.list.limit.field"),
+                limitValue = limit.required("value").number(),
+                itemType = rowType(response, itemsField, bundle, "screens.$screen.list.items")
+            );
+        }
+
+        /** The type one row is, out of the response field the spec named. */
+        private fun rowType(type: TypeDefinition, field: String, bundle: Bundle, where: String): String
+        {
+            val declared = fieldOf(type, field, where);
+            val rows = bundle.fieldType(declared);
+            if (rows !is FieldType.ArrayOf)
+            {
+                throw SpecException(
+                    "$where names ${type.name}.$field, whose type is '${declared.type}'; the rows of a " +
+                        "paged read are an array<T>"
+                );
+            }
+            val element = rows.element;
+            if (element !is FieldType.Named)
+            {
+                throw SpecException(
+                    "$where names ${type.name}.$field, whose rows are '${declared.type}'; a row is a type " +
+                        "the contract declares, because it is what the screen's `Paged` is of"
+                );
+            }
+            return element.name;
+        }
+
+        /** The named field, required to be an optional string, which is what a cursor is. */
+        private fun optionalString(type: TypeDefinition, field: String, where: String): String
+        {
+            val declared = fieldOf(type, field, where);
+            if (!declared.optional || declared.type != "string")
+            {
+                throw SpecException(
+                    "$where names ${type.name}.$field, which is '${declared.type}'" +
+                        (if (declared.optional) "" else " and required") +
+                        "; a cursor is an optional string, because the page after the last one has none"
+                );
+            }
+            return field;
+        }
+
+        /** The named field, required to be an integer, which is what a page size is. */
+        private fun integerField(type: TypeDefinition, field: String, where: String): String
+        {
+            val declared = fieldOf(type, field, where);
+            if (declared.type != "integer")
+            {
+                throw SpecException(
+                    "$where names ${type.name}.$field, which is '${declared.type}'; a page size is an integer"
+                );
+            }
+            return field;
+        }
+
+        private fun fieldOf(type: TypeDefinition, field: String, where: String): Field =
+            type.fields.firstOrNull { it.name == field }
+                ?: throw SpecException(
+                    "$where names '$field', which ${type.name} does not declare; its fields are: " +
+                        type.fields.joinToString(", ") { it.name }
+                );
 
         private fun readActions(
             members: Map<String, JsonValue>,
@@ -739,6 +1015,77 @@ data class Spec(
             };
         }
 
+        /**
+         * Refusal 12's other half: the two new screens have one write each, or none.
+         *
+         * A paged screen's calls are its own — load, loadMore, retryMore and reload — and a
+         * write beside them would be a second thing changing the rows under a person's scroll
+         * with no state to say so. A form's calls are the one that sends its fields; a second
+         * one would be two forms drawn on top of each other, and `Form.check` has one answer
+         * to give. Both are refused here rather than emitted as something plausible.
+         */
+        private fun checkShapes(screens: List<ScreenDefinition>, bundle: Bundle)
+        {
+            screens.forEach { screen ->
+                if (screen.isPaged)
+                {
+                    screen.actions.firstOrNull { it.call != null }?.let { action ->
+                        throw SpecException(
+                            "screens.${screen.name}.actions.${action.name} calls " +
+                                "'${action.call?.reference}' on a screen that reads a page at a time; " +
+                                "a paged screen's own calls are its load, loadMore, retryMore and reload"
+                        );
+                    };
+                    return@forEach;
+                }
+                if (!ScreenShape.isForm(screen, bundle))
+                {
+                    return@forEach;
+                }
+                val submit = ScreenShape.submitAction(screen, bundle);
+                screen.actions.firstOrNull { it.call != null && it != submit }?.let { action ->
+                    throw SpecException(
+                        "screens.${screen.name}.actions.${action.name} calls " +
+                            "'${action.call?.reference}' beside the write that sends this form's " +
+                            "fields; a form is one screenful of input and one write that sends it"
+                    );
+                };
+            };
+        }
+
+        /**
+         * Refusal 13: a flow with a list or a form screen writes its own views.
+         *
+         * The two screens version 2 adds are the two nobody can draw from a grammar. A list
+         * is rows of something — what a row shows is the whole design of the screen — and a
+         * form is fields, labels and the order a person fills them in. A generated skeleton
+         * for either would be a screen shaped like the spec rather than like the thing, which
+         * is what decision D1/D2 of 2026-09-09 took the views back for.
+         *
+         * So the flow says `views: authored` or it is refused. And `authored` is only
+         * writable in a contract document (`SpecInput.checkViewSource`), which means the same
+         * sentence twice from two directions: a flow that reads a page at a time, or collects
+         * a screenful of input, lives in a document that states what its screens must do.
+         */
+        private fun checkAuthoredViews(
+            flows: List<FlowDefinition>,
+            screens: List<ScreenDefinition>,
+            bundle: Bundle
+        )
+        {
+            flows.filterNot { it.authored }.forEach { flow ->
+                val drawn = screens.filter { it.flow == flow.name }
+                    .firstOrNull { it.isPaged || ScreenShape.isForm(it, bundle) }
+                    ?: return@forEach;
+                throw SpecException(
+                    "flows.${flow.name}.views is '${flow.views}' and '${drawn.name}' is a " +
+                        (if (drawn.isPaged) "list" else "form") +
+                        " screen; a list or a form screen has no reference view, so the flow's views " +
+                        "are authored from its contract document"
+                );
+            };
+        }
+
         private val ENTRIES: List<String> = listOf("modal", "push", "sheet");
 
         private val DETENTS: List<String> = listOf("fit", "half", "full");
@@ -772,11 +1119,20 @@ object RouteParameters
 {
     data class Parameter(val name: String, val type: FieldType)
 
-    /** The fields the screen's route carries. Empty for a screen with no source. */
+    /**
+     * The fields the screen's route carries. Empty for a screen with no source.
+     *
+     * A paged screen's page SIZE is not one of them, however required the contract makes it.
+     * It is a number the spec wrote down — `list.limit.value` — so a route that carried it
+     * would ask every caller of `push` to say how many rows the next screen reads, and two
+     * pushes could then disagree about what one screen is.
+     */
     fun of(screen: ScreenDefinition, bundle: Bundle): List<Parameter>
     {
         val source = screen.source ?: return emptyList();
-        return required(source, bundle, "screens.${screen.name}.source");
+        val carried = required(source, bundle, "screens.${screen.name}.source");
+        val list = screen.list ?: return carried;
+        return carried.filter { it.name != list.limitField };
     }
 
     /** The fields an action's own request needs that its screen's route does not carry. */
@@ -803,6 +1159,67 @@ object RouteParameters
             Parameter(field.name, type);
         };
     }
+}
+
+/**
+ * Which of the four models a screen gets, asked in one place.
+ *
+ * Three of the four follow from the spec alone and are `ScreenDefinition`'s own properties.
+ * The fourth does not: whether a screen is a FORM is a fact about how many fields its
+ * requests need, and that is the contract's to say. Both emitters and the rule table ask
+ * here rather than each re-deriving it, because a screen the emitters called a form and the
+ * table called a write would be a table asserting cells against a model that does not exist.
+ */
+object ScreenShape
+{
+    /**
+     * The typed inputs a screen collects, deduplicated, in the order the contract declares
+     * them.
+     *
+     * Contract order rather than alphabetical, because it is the order the request type
+     * itself is written in, and it is what decides the parameter order of the emitted
+     * `submit` and the order a `fields=` readout would list rules in if it were not sorted.
+     */
+    fun inputs(screen: ScreenDefinition, bundle: Bundle): List<RouteParameters.Parameter> =
+        screen.actions.flatMap { RouteParameters.inputs(screen, it, bundle) }.distinctBy { it.name }
+
+    /**
+     * Whether this screen's state is a `Form`: it writes, it does not read, and it collects
+     * more than one field.
+     *
+     * Two fields is the line because one field is where the `Busy` model already says
+     * everything there is to say — a screen with a single input has no second refusal to
+     * report beside the first, and `Form`'s whole reason for existing is that a person
+     * pressing submit should be told every wrong thing at once. A screen that READS is never
+     * a form whatever it collects: its state is what it read, and a write over it is the
+     * `Loadable` model's write.
+     */
+    fun isForm(screen: ScreenDefinition, bundle: Bundle): Boolean =
+        screen.source == null && inputs(screen, bundle).size >= 2
+
+    /**
+     * The action a form's fields are collected for.
+     *
+     * The one action whose call needs them, and a refusal when two actions split them: a
+     * screen whose fields are the arguments of two different writes is two forms drawn on top
+     * of one another, and `Form.check` has one answer to give.
+     */
+    fun submitAction(screen: ScreenDefinition, bundle: Bundle): ActionDefinition
+    {
+        val collecting = screen.actions.filter { RouteParameters.inputs(screen, it, bundle).isNotEmpty() };
+        if (collecting.size != 1)
+        {
+            throw SpecException(
+                "screens.${screen.name} collects ${inputs(screen, bundle).size} fields across " +
+                    "${collecting.size} actions; a form is one screenful of input and one write that " +
+                    "sends it"
+            );
+        }
+        return collecting.single();
+    }
+
+    /** Whether this input reaches its request as an integer, and is therefore converted. */
+    fun isInteger(input: RouteParameters.Parameter): Boolean = input.type is FieldType.IntegerType
 }
 
 /** The one place a spec name becomes a type name, so both emitters spell them alike. */
