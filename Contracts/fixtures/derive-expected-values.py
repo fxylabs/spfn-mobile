@@ -403,12 +403,16 @@ CANONICAL_VECTORS = [
      "a platform that sorted keys with its native string comparison would fail here"),
     ("empty-containers", '{"o":{},"a":[]}',
      "empty object and empty array have canonical forms"),
+    ("zero-forms", '{"z":0,"n":-0}',
+     "`0` and `-0` are the two zeroes JSON grammar admits, and both canonicalize to `0`; "
+     "the rule that refuses a leading zero must not reach them"),
 ]
 
 CANONICAL_REJECTS = [
     ("duplicate-key", '{"a":1,"a":2}', "DUPLICATE_KEY"),
     ("fractional-number", '{"n":1.5}', "NON_INTEGER_NUMBER"),
     ("exponent-number", '{"n":1e3}', "NON_INTEGER_NUMBER"),
+    ("leading-zero", "007", "INVALID_NUMBER"),
     ("trailing-content", '{"a":1} x', "TRAILING_CONTENT"),
     ("unterminated-object", '{"a":', "UNEXPECTED_END"),
     ("raw-control-in-string", '{"a":"' + chr(1) + '"}', "INVALID_TOKEN"),

@@ -8,6 +8,7 @@
 //   - object keys are ordered by their UTF-8 byte sequence, ascending
 //   - no insignificant whitespace is emitted
 //   - numbers are signed 64-bit integers; a fractional or non-finite number is an error
+//   - leading zeros are refused: `0` and `-0` are numbers, `007` and `00` are not
 //   - `"` and `\` are escaped; C0 controls use \b \f \n \r \t where defined and \u00XX
 //     otherwise; every other scalar is emitted literally as UTF-8
 //   - a duplicate object key is an error rather than a last-one-wins overwrite
@@ -557,6 +558,17 @@ private struct Reader
         else
         {
             throw SPFNCanonicalError.nonIntegerNumber(text: text)
+        }
+        // JSON grammar admits one zero digit before the fraction, so `007` and `00` are
+        // not numbers at all. `Int64(text)` reads them as 7 and 0, which would let a
+        // server send the same value under two spellings — and a digest taken over the
+        // canonical form of the second would not match the first. `0` and `-0` are the
+        // forms the grammar does admit, and a lone zero digit is not a leading zero.
+        let digits = text.hasPrefix("-") ? text.dropFirst() : Substring(text)
+        guard digits == "0" || !digits.hasPrefix("0")
+        else
+        {
+            throw SPFNCanonicalError.invalidNumber(text: text)
         }
         guard let number = Int64(text)
         else

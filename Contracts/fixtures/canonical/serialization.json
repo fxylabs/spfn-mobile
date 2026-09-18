@@ -57,6 +57,13 @@
       "input": "{\"o\":{},\"a\":[]}",
       "canonical": "{\"a\":[],\"o\":{}}",
       "sha256": "9bee7ebfc94b459dacb8cbc72cb2900e61f0aa42189df18329f84f92568f4f89"
+    },
+    {
+      "name": "zero-forms",
+      "why": "`0` and `-0` are the two zeroes JSON grammar admits, and both canonicalize to `0`; the rule that refuses a leading zero must not reach them",
+      "input": "{\"z\":0,\"n\":-0}",
+      "canonical": "{\"n\":0,\"z\":0}",
+      "sha256": "67b9d5d43448e58c992867f93a882fa11b7563de5247b094d2bb29ffe430dfd1"
     }
   ]
 }

@@ -18,6 +18,11 @@
       "errorCode": "NON_INTEGER_NUMBER"
     },
     {
+      "name": "leading-zero",
+      "input": "007",
+      "errorCode": "INVALID_NUMBER"
+    },
+    {
       "name": "trailing-content",
       "input": "{\"a\":1} x",
       "errorCode": "TRAILING_CONTENT"
