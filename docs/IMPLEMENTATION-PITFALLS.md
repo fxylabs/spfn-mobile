@@ -65,6 +65,7 @@
 | `NavDisplay` 호출 추가 (플로우·시트·모달의 스택을 그리는 자리) | [P37](#p37) [P30](#p30) [P35](#p35) |
 | `AnchoredDraggable`로 등장·퇴장하는 표면 추가 (시트·서랍·바텀 시트), 플로우가 닫힐 때 컴포지션에서 빠지는 자리 | [P38](#p38) [P34](#p34) [P37](#p37) [P30](#p30) |
 | SwiftUI `Button` 추가, 특히 `.buttonStyle(.plain)` | [P39](#p39) [P21](#p21) |
+| 시계·타임스탬프·경과 시간을 만지는 코드 (증명 시각, 만료 판정, 폴링 간격, 재시도 백오프) | [P40](#p40) [P9](#p9) |
 
 ---
 
@@ -1783,6 +1784,66 @@ Button(action: onTap)
 **나온 곳.** ui/scaffold-3k, iPhone 14 Pro / iOS 26.5.2, 2026-09-09. 사람이 봤다.
 `Buttons.swift`의 `RoleButton`과 `Screen.swift`의 헤더 아이콘 버튼, 둘 다. Android는 같은
 화면이 정상이었고(`Box.clickable`), 예제 35셀은 전부 초록이었다.
+
+## P40. 수면 중 멈추는 단조 시계 {#p40}
+
+**증상.** 앱이 **한동안 쓰지 않다가 다시 열면** 모든 요청이 인증에서 거부된다. 코드는 그대로고,
+같은 셀이 방금 전에는 통과했고, 앱을 껐다 켜면 다시 멀쩡해진다. 서버 로그는 `PROOF_EXPIRED`
+— 클라이언트가 보낸 타임스탬프가 재생 창(`replayWindowMillis`, 300 000 ms)보다 과거다.
+재시도도 같은 값으로 거부된다.
+
+**왜.** 파생 시각은 `서버 앵커 + 단조 경과`다. 플랫폼마다 단조 시계가 **두 종류**이고, 이름이
+비슷한 쪽이 기기 수면 중에 **멈춘다.**
+
+| 플랫폼 | 수면 중 **멈추는** 것 | 수면을 **포함하는** 것 |
+| --- | --- | --- |
+| Darwin | `CLOCK_UPTIME_RAW` = `mach_absolute_time` = `DispatchTime.now().uptimeNanoseconds` | `CLOCK_MONOTONIC_RAW`, `mach_continuous_time()` |
+| Android | `SystemClock.uptimeMillis()`, `System.nanoTime()` | `SystemClock.elapsedRealtime[Nanos]()` |
+| Linux | `CLOCK_MONOTONIC` (suspend 제외) | `CLOCK_BOOTTIME` |
+
+멈추는 쪽을 쓰면 폰이 6분 자는 동안 경과 시간은 0으로 남고, 파생 시각은 6분 뒤처진 채
+깨어난다. 앵커를 다시 잡는 경로가 없으면 프로세스가 죽을 때까지 그대로다.
+
+**왜 단위 테스트가 못 잡나.** 테스트가 도는 기계는 스스로 잠들 수 없다. 두 시계는 **suspend가
+한 번도 없으면 같은 값을 준다** — CI도, 시뮬레이터도, 이 VM도 전부 초록이다. 잘못된 쪽을 골라도
+아무 게이트가 울지 않는다는 것이 이 항목이 등록부에 있는 이유다.
+
+**탐지.**
+
+1. 경과 시간의 **원천**을 grep한다. 아래가 하나라도 걸리면 그 자리가 수면을 세는지 따진다.
+
+   ```sh
+   grep -rn 'DispatchTime\|mach_absolute_time\|CLOCK_UPTIME_RAW' Sources
+   grep -rn 'System.nanoTime\|uptimeMillis' android/*/src/main
+   ```
+2. 걸린 값이 **두 읽기의 차이**로 쓰이면 해당한다. 한 번만 읽어 로그에 찍는 값은 아니다.
+3. 프로필 문서가 아니라 **man page**를 본다. Darwin `clock_gettime(3)`은 `CLOCK_MONOTONIC`
+   계열이 수면 중에도 증가하고 `CLOCK_UPTIME_RAW`만 멈춘다고 적는다 — 이름만 보면 반대로
+   읽히므로 이 줄이 항목의 절반이다.
+
+**처방.** 수면을 포함하는 쪽을 `#if canImport(Darwin)`로 갈라 쓴다.
+
+```swift
+#if canImport(Darwin)
+return clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)
+#else
+var now = timespec()
+clock_gettime(CLOCK_BOOTTIME, &now)
+return UInt64(now.tv_sec) * 1_000_000_000 + UInt64(now.tv_nsec)
+#endif
+```
+
+그리고 **앵커를 버리는 경로를 함께 만든다.** 원천을 고쳐도 서버가 자기 시계를 옮기면 같은
+증상이 나고, 재동기화가 없으면 복구는 프로세스 재시작뿐이다 — `SPFNProofClock.discardAnchor`
+와 `SPFNClient`의 `PROOF_EXPIRED` 분기가 그 쌍이다.
+
+**사람이 도는 셀을 같이 넣는다.** 수면은 기계가 재현할 수 없으므로 실기기 절차로 닫는다:
+셀 1개 통과 → 화면 끄고 6분 → 셀 1개 재실행 → 통과해야 함
+(`tools/harness/README.md`, 실기 iPhone 절).
+
+**나온 곳.** w-fa0vf, 2026-09-18. `SPFNSystemMonotonicClock`이 `DispatchTime`을 읽고 있었다.
+Kotlin 쪽은 처음부터 `elapsedRealtimeNanos`라 정상이었고, **두 플랫폼이 대칭인 코드에서 한쪽만
+틀린** 모양이므로 [P9](#p9)가 함께 걸린다 — 이름이 대응한다고 의미가 대응하지는 않는다.
 
 ## 원장
 

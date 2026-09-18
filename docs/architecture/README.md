@@ -487,16 +487,20 @@ The waiting device obeys the server and nothing else: it waits the `intervalMill
 `start` answer named and then whatever each `pending` names, with no client default and
 no backoff, and it stops at the `expiresAtMillis` it was told — judged on the
 `core.time`-synchronised proof clock, never the device's wall clock, so a device with a
-wrong clock neither gives up early nor polls a code it was told is dead.
+wrong clock neither gives up early nor polls a code it was told is dead. That clock
+advances its server anchor on a monotonic source that keeps counting while the device
+sleeps — Darwin `CLOCK_MONOTONIC_RAW`, Android `elapsedRealtimeNanos`, Linux
+`CLOCK_BOOTTIME` — because the uptime clock beside each of those stops for the duration
+of a sleep and would put every derived timestamp that far in the past.
 
 **A lost network answer is a lost poll wherever it happens in the wait.** Each iteration
 makes two requests that can be dropped: the `core.time` fetch that anchors the proof clock
 — a real request on a fresh install, where nothing has anchored it yet — and the poll
 itself. Both cost the same interval and are asked again, because neither says anything
 about the device code, and the deadline is judged when the clock finally answers. A clock
-that refuses to synchronise at all is a different answer and ends the wait: an untrusted
-base URL and a contract carrying no usable clock operation are the same on every retry,
-so a device that retried them would poll until a deadline it can never read went past.
+that refuses to synchronise at all is a different answer and ends the wait: a contract
+carrying no usable clock operation is the same on every retry, so a device that retried
+it would poll until a deadline it can never read went past.
 
 ## Contract import model
 
@@ -602,3 +606,15 @@ Retry lives at the top for the same reason. Re-sending needs two things no lower
 has: knowing that the request was refused rather than lost, and knowing what changed
 since. An auth refusal is the only case where both are true, so it is the only case that
 is retried, and it is retried once.
+
+A proof refused as expired is the one auth refusal where the session is not what went
+stale — the anchor its timestamp was derived from is — so `execute` asks the session to
+discard that anchor before it spends its one retry, and it does so on both paths a stale
+anchor surfaces on: the response to a request, and the handshake that the request
+provoked. The retry stays one either way, because the second attempt has no path back
+into the function that made it.
+
+The session owns the clock, so the discard is asked of the session rather than of the
+clock directly. The base URL is checked there for the same reason: a session is the one
+object every request passes through, proven or not, so refusing cleartext at its creation
+covers the enrolment path that carries no proof at all.
