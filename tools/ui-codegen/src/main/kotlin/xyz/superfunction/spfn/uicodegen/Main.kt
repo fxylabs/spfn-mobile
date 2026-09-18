@@ -55,37 +55,59 @@ import xyz.superfunction.spfn.codegen.text
 
 private class GenerationFailure(message: String) : RuntimeException(message)
 
+/** An invocation this program cannot read at all, which is a different exit code. */
+private class UsageFailure(message: String) : RuntimeException(message)
+
 fun main(args: Array<String>)
+{
+    try
+    {
+        execute(args);
+    }
+    catch (usage: UsageFailure)
+    {
+        System.err.println(usage.message);
+        kotlin.system.exitProcess(2);
+    }
+    catch (failure: RuntimeException)
+    {
+        System.err.println("ui-codegen: ${failure.message}");
+        kotlin.system.exitProcess(1);
+    }
+}
+
+/**
+ * One invocation, as something that REFUSES rather than exits.
+ *
+ * Split from `main` so every refusal on this path can be read by a test: `exitProcess` ends
+ * the JVM, so a suite calling `main` would end itself, and an unknown mode, a missing
+ * argument and a spec path that is not there went untested for exactly that reason. `main`
+ * is now the two lines that turn a refusal into an exit code, and everything a run decides
+ * is here.
+ */
+internal fun execute(args: Array<String>)
 {
     if (args.size < 3)
     {
-        System.err.println(
+        throw UsageFailure(
             "usage: ui-codegen <repoRoot> <specFileOrDirectory> <write|verify> --target=<name> " +
                 "--swift-root=<dir> --kotlin-root=<dir> --kotlin-package=<pkg> --app-id=<id> " +
-                "[--table-root=<dir>]"
+                "--generate-task=<task> --verify-task=<task> [--table-root=<dir>] [--flows=<a,b>] " +
+                "[--runner-readouts=<true|false>]"
         );
-        kotlin.system.exitProcess(2);
     }
 
     val repoRoot = File(args[0]);
     val specPath = args[1];
     val mode = args[2];
 
-    try
+    val target = Target.parse(args.drop(3));
+    val generated = generate(repoRoot, specPath, target);
+    when (mode)
     {
-        val target = Target.parse(args.drop(3));
-        val generated = generate(repoRoot, specPath, target);
-        when (mode)
-        {
-            "write" -> write(repoRoot, generated)
-            "verify" -> verify(repoRoot, target, generated)
-            else -> throw GenerationFailure("unknown mode '$mode'; expected write or verify")
-        }
-    }
-    catch (failure: RuntimeException)
-    {
-        System.err.println("ui-codegen: ${failure.message}");
-        kotlin.system.exitProcess(1);
+        "write" -> write(repoRoot, generated)
+        "verify" -> verify(repoRoot, target, generated)
+        else -> throw GenerationFailure("unknown mode '$mode'; expected write or verify")
     }
 }
 
@@ -154,7 +176,11 @@ fun generate(repoRoot: File, specPath: String, target: Target): Generated
     {
         scaffolds + CaseTable(target).emit(spec, Rules.cells(spec, bundle), inputs)
     };
-    return Generated(files, kotlin.authoredViews(spec) + swift.authoredViews(spec));
+    // The exemptions come from the WHOLE spec and not from the narrowed one. A flow this
+    // target dropped is a flow this run neither writes nor knows, and an authored flow's
+    // views sit in a directory this run owns: computed from the narrowed spec, they are
+    // neither generated nor exempt, which is precisely the state `staleOutputs` deletes.
+    return Generated(files, kotlin.authoredViews(whole) + swift.authoredViews(whole));
 }
 
 /**
@@ -209,7 +235,17 @@ private fun loadBundle(repoRoot: File): Bundle
 private fun write(repoRoot: File, generated: Generated)
 {
     staleOutputs(repoRoot, generated).forEach { relative ->
-        File(repoRoot, relative).delete();
+        // The answer is read. `delete` returns false for a file it did not remove — a
+        // read-only directory, a file another process holds open — and printing `removed`
+        // over that is this run reporting a tree it did not produce: the next `verify`
+        // fails on the same leftover, naming a file the generator said it had deleted.
+        if (!File(repoRoot, relative).delete())
+        {
+            throw GenerationFailure(
+                "could not remove $relative, which is a stale generated file; the run stops here " +
+                    "rather than reporting a tree it did not write"
+            );
+        }
         println("removed  $relative");
     };
 

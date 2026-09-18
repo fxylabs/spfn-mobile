@@ -1225,4 +1225,284 @@ class SpecRefusalTest
             staleOutputs(root, generated)
         );
     }
+
+    // ---- what a screen may collect, and what a name may be (N6) --------------
+
+    /**
+     * Refusal 14: a screen that reads collects nothing its route does not already carry.
+     *
+     * The shape SCHEMA.md permitted and neither emitter can write: a screen with a `source`
+     * whose action sends a request needing a field the route did not bring. Every half of the
+     * output is wrong in a different way — the Swift view reads `ScreenFailure.fieldMessage`
+     * on a screen the failure accessors were not emitted for, the Kotlin model casts a
+     * `Loadable` to `Busy.Error` and does not import `Busy`, and both emit the write with no
+     * parameters while the view calls it with what it collected. Three compile errors in
+     * files nobody wrote, from a spec that read perfectly well.
+     *
+     * The CONTROL is the case one line up in the same spec: `reviewDevice.approve` sends
+     * `userCode`, the route carries it, and the write is emitted taking nothing.
+     */
+    @Test
+    fun `a reading screen whose action collects a field its route does not carry is refused`()
+    {
+        val collecting = specPieces + (contractDocument to specPieces.getValue(contractDocument)
+            .replaceFirst(
+                "\"deny\": { \"operation\": \"authDeviceDeny\" }",
+                "\"deny\": { \"operation\": \"authDeviceDeny\" },\n      \"say\": { \"operation\": \"echoSend\" }"
+            )
+            .replaceFirst(
+                "\"retry\": { \"call\": \"deviceApproval.lookup\" },",
+                "\"retry\": { \"call\": \"deviceApproval.lookup\" },\n        " +
+                    "\"say\": { \"call\": \"deviceApproval.say\", \"then\": \"close\" },"
+            ));
+
+        assertRefused(
+            "collect-on-read",
+            collecting,
+            "screens.reviewDevice.actions.say collects message, sequence, which " +
+                "screens.reviewDevice's route does not carry"
+        );
+
+        // The control: the same screen's own writes send the field the route brought, and the
+        // emitted method therefore takes nothing at all.
+        assertEmits(
+            generated = generate(repoRoot, specPath),
+            path = "${target.swiftRoot}/Screens/ReviewDeviceModel.swift",
+            expected = "public func approve() async"
+        );
+    }
+
+    /**
+     * Refusal 15, the collision: two names `UiNames.pascal` writes the same way.
+     *
+     * `pascal` raises the first letter and nothing else, so `long` and `Long` are one type
+     * name and one file path. The emitters write their files into a `mutableMapOf`, so the
+     * second one silently replaced the first: a run that emitted a screen nobody could find
+     * a spec entry for, and deleted nothing, and reported success.
+     */
+    @Test
+    fun `two screen names that become one type name are refused, naming both`()
+    {
+        assertRefused(
+            "pascal-collision",
+            replaceOnce(
+                "  \"screens\": {\n    \"tourOne\": {",
+                "  \"screens\": {\n" +
+                    "    \"Long\": { \"flow\": \"longScroll\", \"source\": null, \"body\": \"lorem.short\",\n" +
+                    "      \"actions\": { \"done\": { \"then\": \"close\" } } },\n" +
+                    "    \"tourOne\": {"
+            ),
+            "screens.Long and screens.long are one name once written as a type: both become 'Long'"
+        );
+    }
+
+    /**
+     * Refusal 15, the spelling: a spec name is lowerCamelCase and nothing else.
+     *
+     * SCHEMA.md asked for it and nothing checked it. A hyphen reaches Swift as a syntax error
+     * inside a file nobody wrote, and a leading capital is the collision above waiting for the
+     * name it collides with.
+     */
+    @Test
+    fun `a name that is not lowerCamelCase is refused, by its path`()
+    {
+        assertRefused(
+            "hyphenated-action",
+            replaceOnce(
+                "\"submit\": { \"call\": \"deviceApproval.lookup\", \"then\": \"close\", \"role\": \"primary\" }",
+                "\"submit-now\": { \"call\": \"deviceApproval.lookup\", \"then\": \"close\", \"role\": \"primary\" }"
+            ),
+            "screens.form.actions.submit-now is not a name this generator can spell"
+        );
+    }
+
+    /**
+     * Refusal 15, the reserved words: each language's own list, and the message says which.
+     *
+     * `default` is a legal JSON key and not a legal Swift enum case or method name; `object`
+     * is a legal JSON key and not a legal Kotlin declaration. Neither would have failed here
+     * before — both would have failed on a Mac, or in the example app's build, in a file the
+     * author never opened.
+     *
+     * That the shipped spec's own names — `approve`, `deny`, `submit`, `form`, `long` — pass
+     * is the control, and it is the whole of the rest of this suite: every case here generates
+     * the real spec first.
+     */
+    @Test
+    fun `a name either language reserves is refused, and the message names the language`()
+    {
+        assertRefused(
+            "swift-keyword",
+            replaceOnce(
+                "\"submit\": { \"call\": \"deviceApproval.lookup\", \"then\": \"close\", \"role\": \"primary\" }",
+                "\"default\": { \"call\": \"deviceApproval.lookup\", \"then\": \"close\", \"role\": \"primary\" }"
+            ),
+            "screens.form.actions.default is 'default', which Swift reserves"
+        );
+
+        assertRefused(
+            "kotlin-keyword",
+            replaceOnce(
+                "\"submit\": { \"call\": \"deviceApproval.lookup\", \"then\": \"close\", \"role\": \"primary\" }",
+                "\"object\": { \"call\": \"deviceApproval.lookup\", \"then\": \"close\", \"role\": \"primary\" }"
+            ),
+            "screens.form.actions.object is 'object', which Kotlin reserves"
+        );
+    }
+
+    /**
+     * A flow this target dropped still has its authored views exempted from deletion.
+     *
+     * The exemption list used to be computed from the NARROWED spec, which is the one state
+     * where a person's file is neither generated nor exempt: the flow is not emitted, so no
+     * view of it is written, and the file sitting in a directory this run owns is a leftover
+     * from a spec nobody has — which `write` deletes and `verify` reports.
+     */
+    @Test
+    fun `a narrowed target still exempts the views of the flows it dropped`()
+    {
+        val authored = withSpec(
+            "authored-narrowed",
+            replaceOnce(
+                "\"approveDevice\": { \"entry\": \"modal\", \"start\": \"enterCode\" }",
+                "\"approveDevice\": { \"entry\": \"modal\", \"start\": \"enterCode\", \"views\": \"authored\" }"
+            )
+        );
+        // No table root: the cells are derived from a flow that reads, and this target keeps
+        // the one flow that does not — which is what a second consumer looks like (E6).
+        val narrowed = target.copy(flows = setOf("longScroll"), tableRoot = null);
+        val generated = generate(repoRoot, authored, narrowed);
+
+        assertTrue(
+            "the dropped flow was emitted after all",
+            generated.files.keys.none { it.contains("EnterCode") }
+        );
+        assertTrue(
+            "the dropped flow's authored view is not exempt: ${generated.authoredViews}",
+            "${narrowed.kotlinRoot}/views/EnterCodeScreen.kt" in generated.authoredViews
+        );
+
+        // And the file on disk is not a leftover. The narrowed run writes `LongScreen.kt` into
+        // this directory, so the directory IS read — which is what makes the exemption the
+        // thing being measured rather than a directory nothing looked in.
+        val root = File(repoRoot, "tools/ui-codegen/build/narrowed-authored");
+        root.deleteRecursively();
+        File(root, "${narrowed.kotlinRoot}/views").mkdirs();
+        File(root, "${narrowed.kotlinRoot}/views/EnterCodeScreen.kt")
+            .writeText("// written by hand from contracts/approveDevice.md\n");
+        assertEquals(
+            "a dropped flow's authored view was called stale",
+            emptyList<String>(),
+            staleOutputs(root, generated).filter { it.contains("EnterCode") }
+        );
+    }
+
+    // ---- the refusals that had no reader (N6) --------------------------------
+
+    /**
+     * The version gate, in both directions a `specVersion` can be wrong.
+     *
+     * A number this generator does not read is refused rather than partially read, and a
+     * value that is not a number at all is refused before anything asks what it means.
+     */
+    @Test
+    fun `a specVersion this generator does not read is refused`()
+    {
+        assertRefused(
+            "version-three",
+            replaceOnce("\"specVersion\": 1", "\"specVersion\": 3"),
+            "specVersion is 3; this generator reads 1 and 2"
+        );
+
+        assertRefused(
+            "version-text",
+            replaceOnce("\"specVersion\": 1", "\"specVersion\": \"1\""),
+            "specVersion is not a number"
+        );
+    }
+
+    /**
+     * The four shapes an action and its `then` can be written wrong.
+     *
+     * Each of the four reaches an emitter as something plausible: a control that does
+     * nothing, a push with nowhere to go, a word that is not a navigation, and a screen whose
+     * read answers with nothing to show.
+     */
+    @Test
+    fun `an action that does nothing, and a then that says nothing, are refused`()
+    {
+        assertRefused(
+            "action-idle",
+            replaceOnce("\"back\": { \"then\": \"pop\", \"role\": \"text\" }", "\"back\": { \"role\": \"text\" }"),
+            "declares neither a call nor a then; it is a control that does nothing"
+        );
+
+        assertRefused(
+            "then-no-push",
+            replaceOnce("\"then\": { \"push\": \"reviewDevice\" }", "\"then\": { }"),
+            "screens.enterCode.actions.submit.then is an object with no 'push' key"
+        );
+
+        assertRefused(
+            "then-word",
+            replaceOnce("\"then\": \"pop\"", "\"then\": \"dismiss\""),
+            "it must be 'close', 'pop' or {\"push\": …}"
+        );
+
+        assertRefused(
+            "source-without-response",
+            replaceOnce("\"source\": \"deviceApproval.lookup\"", "\"source\": \"deviceApproval.deny\""),
+            "whose operation declares no response; a screen cannot be filled by a read that " +
+                "answers with nothing"
+        );
+    }
+
+    /**
+     * A route carries a required string or a required integer, and nothing else.
+     *
+     * `authKeysRotate` needs a `KeyAlgorithm`, which is an enum the contract declares — a
+     * type this generator has no way to write into a route case, a push argument and a
+     * container factory. Refused where the spec names it rather than where Swift would.
+     */
+    @Test
+    fun `a source whose request needs a type no route can carry is refused`()
+    {
+        val rotating = specPieces + (contractDocument to specPieces.getValue(contractDocument)
+            .replaceFirst(
+                "\"deny\": { \"operation\": \"authDeviceDeny\" }",
+                "\"deny\": { \"operation\": \"authDeviceDeny\" },\n      " +
+                    "\"rotate\": { \"operation\": \"authKeysRotate\" }"
+            )
+            .replaceFirst("\"source\": \"deviceApproval.lookup\"", "\"source\": \"deviceApproval.rotate\""));
+
+        assertRefused(
+            "route-field-type",
+            rotating,
+            "needs RotateKeyRequest.algorithm, whose type 'KeyAlgorithm' this generator cannot " +
+                "carry on a route; only a required string or integer can be one"
+        );
+    }
+
+    /**
+     * The two ways a screen and a flow can fail to belong to each other.
+     *
+     * A screen whose `flow` is nothing, and a flow whose `start` is another flow's screen.
+     * The second is the one that compiles: `FlowRoute` types differ per flow, so a host
+     * opened on a foreign route is a route its own renderer has no branch for.
+     */
+    @Test
+    fun `a screen of no flow, and a start belonging to another flow, are refused`()
+    {
+        assertRefused(
+            "screen-flowless",
+            replaceOnce("\"flow\": \"longScroll\"", "\"flow\": \"longScrolls\""),
+            "screens.long.flow names 'longScrolls', which is not a flow"
+        );
+
+        assertRefused(
+            "start-foreign",
+            replaceOnce("\"start\": \"tourOne\"", "\"start\": \"modalOne\""),
+            "flows.pushTour.start names 'modalOne', which belongs to flow 'modalTour'"
+        );
+    }
 }

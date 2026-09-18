@@ -120,7 +120,7 @@ data class Target(
                 kotlinPackage = required(fields, "--kotlin-package"),
                 appId = required(fields, "--app-id"),
                 tableRoot = fields["--table-root"],
-                flows = fields["--flows"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet(),
+                flows = flows(fields),
                 runnerReadouts = readouts(fields),
                 generateTask = required(fields, "--generate-task"),
                 verifyTask = required(fields, "--verify-task")
@@ -152,6 +152,30 @@ data class Target(
             null, "false" -> false
             "true" -> true
             else -> throw IllegalArgumentException("--runner-readouts is '$value'; it must be true or false")
+        }
+
+        /**
+         * The flows this target takes, or null when it takes every flow the spec declares.
+         *
+         * An EMPTY value is a missing value, exactly as [required] treats one: `--flows=`
+         * with nothing after it used to become the empty SET, which is a different thing
+         * entirely. The empty set names no flow that the spec does not declare, so
+         * `Spec.narrowedTo` has nothing to refuse in it — and the run then emits an app with
+         * no screens at all, reports success, and deletes every file of the app that was
+         * there as a leftover from a spec nobody has.
+         */
+        private fun flows(fields: Map<String, String>): Set<String>?
+        {
+            val value = fields["--flows"] ?: return null;
+            val names = value.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet();
+            if (names.isEmpty())
+            {
+                throw IllegalArgumentException(
+                    "--flows is written with no flow name in it; a target that takes every flow the " +
+                        "spec declares leaves it off"
+                );
+            }
+            return names;
         }
 
         private fun required(fields: Map<String, String>, key: String): String

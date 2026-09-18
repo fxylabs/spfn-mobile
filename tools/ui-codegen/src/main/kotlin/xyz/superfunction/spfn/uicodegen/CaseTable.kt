@@ -122,7 +122,7 @@ class CaseTable(target: Target)
         appendLine();
         appendLine("```");
         appendLine("maestro test -e APP_ID=$appId \\");
-        appendLine("    $directory/flows/${cells.first { it.runsOnMaestro }.id}.yaml");
+        appendLine("    $directory/flows/${maestroExample(cells)}.yaml");
         appendLine("```");
         appendLine();
         appendLine("The launch carries `SPFN_UI_FIXTURE=<cell>`, which is what says WHICH cell this run is");
@@ -130,6 +130,24 @@ class CaseTable(target: Target)
         appendLine("no cell opens the menu instead, on the same fake.");
         append(checklist(spec, cells));
     }
+
+    /**
+     * The cell the "running one" example points at, or a refusal naming the table it read.
+     *
+     * `first {}` is what this was, and a table with no runnable cell is what it has nothing
+     * to say about: `NoSuchElementException("Collection contains no element matching the
+     * predicate")`, with no table, no target and no file in it. A table of nothing but manual
+     * and unit cells is a real state — every runnable cell taken out of the rules would
+     * produce one — and the honest answer is that a document instructing a reader to run
+     * Maestro against a table no runner can drive is not a document worth writing.
+     */
+    private fun maestroExample(cells: List<Cell>): String =
+        cells.firstOrNull { it.runsOnMaestro }?.id
+            ?: throw SpecException(
+                "the case table tells its reader how to run one cell and none of the ${cells.size} " +
+                    "cells derived from this spec runs on Maestro; every one of them is the JVM's or " +
+                    "a person's"
+            )
 
     /**
      * The cells a person checks, as a checklist with somewhere to write the answer.

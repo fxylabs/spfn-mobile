@@ -290,18 +290,45 @@ object Fixtures
 private class Roles(spec: Spec, val flow: FlowDefinition)
 {
     val entry: ScreenDefinition = spec.screenNamed(flow.start);
-    val submit: ActionDefinition = entry.actions.single { it.call != null && it.then is Navigation.Push };
-    val cancel: ActionDefinition = entry.actions.single { it.call == null };
+    val submit: ActionDefinition = one(entry, "calls a service and pushes") { it.call != null && it.then is Navigation.Push };
+    val cancel: ActionDefinition = one(entry, "only navigates") { it.call == null };
     val detail: ScreenDefinition = spec.screenNamed((submit.then as Navigation.Push).screen);
 
     /** The detail screen's re-read of its own source, whatever the spec called it. */
-    val retry: ActionDefinition = detail.actions.single { it.call?.reference == detail.source?.reference };
+    val retry: ActionDefinition = one(detail, "re-reads its own source") { it.call?.reference == detail.source?.reference };
 
     /** Its writes: every call that is not that re-read. */
     val commits: List<ActionDefinition> =
         detail.actions.filter { it.call != null && it.call.reference != detail.source?.reference };
 
-    val back: ActionDefinition = detail.actions.single { it.call == null };
+    val back: ActionDefinition = one(detail, "only navigates") { it.call == null };
+}
+
+/**
+ * The one action of [screen] that [role] describes, or a refusal that names what is there.
+ *
+ * `single {}` is what these were, and a spec with two matching actions is what it has
+ * nothing to say about: it throws `IllegalArgumentException("Collection contains more than
+ * one matching element")`, which reaches an author as a sentence with no screen in it, no
+ * action, and no file to look in — from a generator whose every other refusal names the path
+ * the spec can be searched for. The zero case was no better: `NoSuchElementException`.
+ *
+ * So both are a refusal of this file's own, and it prints the three things a person needs:
+ * which screen, how many actions matched, and which ones.
+ */
+private fun one(
+    screen: ScreenDefinition,
+    role: String,
+    match: (ActionDefinition) -> Boolean
+): ActionDefinition
+{
+    val matching = screen.actions.filter(match);
+    return matching.singleOrNull() ?: throw SpecException(
+        "the case rules need exactly one action on '${screen.name}' that $role, and it declares " +
+            "${matching.size}" +
+            (if (matching.isEmpty()) "" else ": " + matching.joinToString(", ") { it.name }) +
+            "; the screen's actions are: " + screen.actions.joinToString(", ") { it.name }
+    );
 }
 
 /**
@@ -330,8 +357,16 @@ private class Tour(spec: Spec, val flow: FlowDefinition)
         );
 
     /** The action that moves on from the screen at [depth], counted from one. */
-    fun pushing(depth: Int): ActionDefinition = chain[depth - 1].actions
-        .first { it.then is Navigation.Push };
+    fun pushing(depth: Int): ActionDefinition
+    {
+        val screen = chain[depth - 1];
+        return screen.actions.firstOrNull { it.then is Navigation.Push }
+            ?: throw SpecException(
+                "the case rules walk '${flow.name}' to depth $depth and no action of '${screen.name}' " +
+                    "pushes; the screen's actions are: " +
+                    screen.actions.joinToString(", ") { it.name }
+            );
+    }
 
     private companion object
     {
@@ -401,7 +436,10 @@ object Rules
             ?: throw SpecException(
                 "the case rules cover exactly one flow that reads; this spec declares ${reading.size}"
             );
-        val roles = roles(spec, flow);
+        // `Roles` refuses by name when the shape is not there: which screen, how many actions
+        // matched the role, and which ones. It used to be wrapped in a catch that turned a
+        // collection exception into one sentence about the whole shape.
+        val roles = Roles(spec, flow);
         if (roles.entry.isLoadable || !roles.detail.isLoadable)
         {
             throw SpecException(
@@ -792,18 +830,6 @@ object Rules
             Step.Tap("${roles.detail.name}.${roles.back.name}"),
             Step.Tap("${roles.entry.name}.${roles.cancel.name}")
         )
-    }
-
-    private fun roles(spec: Spec, flow: FlowDefinition): Roles = try
-    {
-        Roles(spec, flow);
-    }
-    catch (absent: NoSuchElementException)
-    {
-        throw SpecException(
-            "the case rules cover a flow with a submitting entry screen, a cancel, and a detail screen " +
-                "carrying two closing writes, a retry and a back: ${absent.message}"
-        );
     }
 
     /** u1–u6: the entry screen, whose state is a `Busy`. */
