@@ -249,6 +249,11 @@ for path in \
     tools/validate/probe-ui-vocabulary-rules.sh \
     tools/validate/probe-example-scaffold-rules.sh \
     tools/validate/probe-authored-view-rules.sh \
+    tools/validate/probe-ci-actions-rules.sh \
+    tools/ci/README.md tools/ci/validate.sh tools/ci/validate-known-red.txt \
+    tools/ci/android.sh tools/ci/swift.sh \
+    tools/ci/install-swift.sh tools/ci/install-android-sdk.sh \
+    tools/ci/swift-toolchain.lock tools/ci/actions-allowlist.txt \
     tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
     tools/rc-verify/probe-trap-exit.sh tools/rc-verify/local-signed-run.sh \
     tools/device-receipts/receipt-gate.sh tools/device-receipts/probe-receipt-gate.sh \
@@ -3465,6 +3470,70 @@ then
     pass 'every Kotlin file that draws a PagedView states scroll = false, so no LazyColumn is measured inside an infinite height'
 else
     fail "Kotlin files that draw a PagedView without a \`scroll = false\` anywhere in them:$PAGED_SCROLL_OFFENDERS; a LazyColumn inside Screen(scroll = true)'s verticalScroll is measured against an infinite height and throws IllegalStateException on the frame the screen appears"
+fi
+
+# ---------------------------------------------------------------------------
+section '24. every action a workflow uses is on the SHA-pinned list (D14)'
+# ---------------------------------------------------------------------------
+# D14, resolved 2026-09-18: a workflow may use an action only if its name AND its commit
+# SHA are written down in tools/ci/actions-allowlist.txt. The per-workflow rules in
+# section 8 already say WHICH action each file may name; this section is the register
+# those SHAs are read from, so bumping an action is an edit to a reviewed list rather than
+# a character change inside a YAML file nobody diffs.
+#
+# It fails closed in both directions. No list, or no `uses:` line anywhere under
+# .github/workflows, means the check had nothing to read — which is indistinguishable from
+# a check that was silently deleted — so it is reported as a failure rather than as a pass
+# with nothing behind it. An allowlist entry that is not itself a 40-hex pin fails too:
+# a list that admitted `@v7` would admit every future commit that tag ever points at.
+#
+# tools/validate/probe-ci-actions-rules.sh proves all three refusals bite.
+ACTIONS_ALLOWLIST=tools/ci/actions-allowlist.txt
+
+if [ ! -f "$ACTIONS_ALLOWLIST" ]
+then
+    fail "$ACTIONS_ALLOWLIST is missing, so the action pinning rule did not run"
+else
+    # The reference alone, with the list-item dash, the `uses:` key and any trailing
+    # comment removed. Full-line comments are dropped first: an action named in prose is
+    # documentation, not a step.
+    USES_REFS=$(grep -nE 'uses:' .github/workflows/*.yml 2>/dev/null \
+        | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' \
+        | sed -E 's/[[:space:]]*#.*$//; s/^([^:]+:[0-9]+):[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*/\1 /' \
+        | sed -E 's/[[:space:]]+$//' || true)
+
+    ALLOWED_REFS=$(sed -E 's/[[:space:]]*#.*$//; s/[[:space:]]+$//' "$ACTIONS_ALLOWLIST" | grep -v '^$' || true)
+    UNPINNED_ENTRIES=$(printf '%s\n' "$ALLOWED_REFS" | grep -v '^$' \
+        | grep -vE '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}$' || true)
+
+    if [ -z "$USES_REFS" ]
+    then
+        fail "no workflow under .github/workflows names any action, so the action pinning rule did not run"
+    elif [ -n "$UNPINNED_ENTRIES" ]
+    then
+        fail "$ACTIONS_ALLOWLIST holds entries that are not 40-hex commit pins: $(printf '%s' "$UNPINNED_ENTRIES" | tr '\n' ' ')"
+    else
+        UNLISTED_ACTIONS=''
+        LISTED_ACTIONS=0
+        printf '%s\n' "$USES_REFS" > "$TMP/uses-refs.txt"
+        while read -r location reference
+        do
+            if printf '%s\n' "$ALLOWED_REFS" | grep -qxF -- "$reference"
+            then
+                LISTED_ACTIONS=$((LISTED_ACTIONS + 1))
+            else
+                UNLISTED_ACTIONS="$UNLISTED_ACTIONS $location:$reference"
+            fi
+        done < "$TMP/uses-refs.txt"
+
+        if [ -n "$UNLISTED_ACTIONS" ]
+        then
+            fail "actions used by a workflow but not in $ACTIONS_ALLOWLIST:$UNLISTED_ACTIONS"
+            printf '%s\n' "$USES_REFS" | sed 's/^/          /'
+        else
+            pass "all $LISTED_ACTIONS action reference(s) under .github/workflows are pinned by a SHA listed in $ACTIONS_ALLOWLIST"
+        fi
+    fi
 fi
 
 # ---------------------------------------------------------------------------
