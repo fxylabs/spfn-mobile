@@ -1,0 +1,22 @@
+# Every GitHub Action any workflow in this repository may use, each pinned to a full
+# 40-character commit SHA (D14, resolved 2026-09-18). Section 24 of
+# tools/validate/validate.sh reads every `uses:` line under .github/workflows and fails on
+# anything that is not one of these lines, so a tag or a branch ref — `@v7`, `@main` — is a
+# failure even for an action already on this list: a movable ref is how an unreviewed
+# action enters a workflow.
+#
+# Format: owner/repo@<40 hex>  # vX.Y.Z
+#
+# The comment is the human-readable version the SHA was taken from. It is documentation,
+# not the pin; the SHA is the pin.
+#
+# Two actions, for two reasons that stay small on purpose:
+#   - checkout, because a job needs the source and a hand-rolled `git clone` in each gate
+#     workflow would be three copies of a credential-handling step.
+#   - upload-artifact, used once and only on failure, to carry the RC harness logs out of
+#     a publish-central run (the logs died with the runner in dispatch 30795139768).
+# Toolchains are NOT on this list. Swift and the Android SDK arrive through
+# tools/ci/install-swift.sh and tools/ci/install-android-sdk.sh, which pin what they
+# fetch by digest — a setup action pins nothing this repository can read.
+actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
