@@ -36,6 +36,21 @@ class SpfnVersionTest
         assertTrue(SpfnScaffold.IS_SCAFFOLD);
         assertTrue(SpfnScaffold.DISCLAIMER.contains("no supported release"));
     }
+
+    /**
+     * The disclaimer used to say there was "no device evidence". Phones have run the
+     * harness since 2026-08-07, so that sentence understated what exists — and a
+     * disclaimer that is wrong in the safe direction is still a disclaimer nobody can
+     * trust. What is actually unmet is the nine-cell gate, and that is what it must say.
+     * SPFNCoreTests.swift asserts the same of the Swift text.
+     */
+    @Test
+    fun disclaimerReportsDeviceRunsAndTheUnmetGate()
+    {
+        assertFalse(SpfnScaffold.DISCLAIMER.contains("no device evidence"));
+        assertTrue(SpfnScaffold.DISCLAIMER.contains("Real phones have run the harness"));
+        assertTrue(SpfnScaffold.DISCLAIMER.contains("has met the nine-cell device gate"));
+    }
 }
 
 class SpfnDigestTest

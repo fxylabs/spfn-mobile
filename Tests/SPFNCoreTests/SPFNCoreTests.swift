@@ -38,6 +38,17 @@ final class SPFNScaffoldTests: XCTestCase
     {
         XCTAssertTrue(SPFNScaffold.disclaimer.contains("do not exist at all"))
     }
+
+    /// The disclaimer used to say there was "no device evidence". Phones have run the
+    /// harness since 2026-08-07, so that sentence understated what exists — and a
+    /// disclaimer that is wrong in the safe direction is still a disclaimer nobody can
+    /// trust. What is actually unmet is the nine-cell gate, and that is what it must say.
+    func testDisclaimerReportsDeviceRunsAndTheUnmetGate() throws
+    {
+        XCTAssertFalse(SPFNScaffold.disclaimer.contains("no device evidence"))
+        XCTAssertTrue(SPFNScaffold.disclaimer.contains("Real phones have run the harness"))
+        XCTAssertTrue(SPFNScaffold.disclaimer.contains("has met the nine-cell device gate"))
+    }
 }
 
 final class SPFNContractBindingTests: XCTestCase
