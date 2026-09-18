@@ -85,6 +85,7 @@ import androidx.compose.ui.semantics.semantics
 import xyz.superfunction.spfn.ui.SpfnStrings
 import xyz.superfunction.spfn.ui.WayOut
 import xyz.superfunction.spfn.ui.tokens.SpfnTokens
+import xyz.superfunction.spfn.ui.tokens.spfnPalette
 
 /**
  * A screen inside a flow: a header, and a body under it.

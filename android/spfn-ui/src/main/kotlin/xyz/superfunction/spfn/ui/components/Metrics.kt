@@ -25,12 +25,8 @@
 
 package xyz.superfunction.spfn.ui.components
 
-import androidx.compose.runtime.Composable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import xyz.superfunction.spfn.ui.tokens.SpfnPalette
-import xyz.superfunction.spfn.ui.tokens.SpfnTokens
 
 /** Sizes the platform fixes, not the palette. */
 internal object Metrics
@@ -47,15 +43,3 @@ internal object Metrics
     /** How big a header's own mark is drawn, inside a [TOUCH_TARGET]-sized frame. */
     val ICON_SIZE: Dp = 20.dp;
 }
-
-/**
- * The palette for the appearance in scope.
- *
- * Not a token and deliberately not in the key set: it is HOW a palette is chosen, and the two
- * platforms choose one by different mechanisms — `isSystemInDarkTheme` here, a SwiftUI
- * environment value there. A key that could not mean the same thing on both sides has no
- * business in a set the two sides are compared on.
- */
-@Composable
-internal fun spfnPalette(): SpfnPalette =
-    if (isSystemInDarkTheme()) SpfnTokens.dark else SpfnTokens.light

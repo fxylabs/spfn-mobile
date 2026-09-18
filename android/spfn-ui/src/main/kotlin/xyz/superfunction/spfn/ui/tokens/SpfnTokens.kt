@@ -18,12 +18,17 @@
 //
 // [SpfnTokens.dark] is STRUCTURE ONLY. It carries the light palette's values today, so that
 // every component is already written against a palette it looks up rather than against
-// constants, and the day the dark values arrive they arrive as six numbers in one place. A
+// constants, and the day the dark values arrive they arrive as seven numbers in one place. A
 // dark palette that did not exist at all would mean every component had to grow a branch
-// later; a dark palette guessed at now would ship a theme nobody designed.
+// later; a dark palette guessed at now would ship a theme nobody designed. That rule is why
+// [SpfnPalette.handle] carries the light value in both palettes and not a light-on-dark one:
+// a single designed value in a palette advertised as undesigned is a half-theme, and the
+// handle joins the dark appearance with the other six.
 
 package xyz.superfunction.spfn.ui.tokens
 
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -33,9 +38,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * The six colours a screen is drawn out of, as one value so that a scheme is one lookup.
+ * The seven colours a screen is drawn out of, as one value so that a scheme is one lookup.
  *
- * A data class rather than six constants per scheme: a component asks for the palette once
+ * A data class rather than seven constants per scheme: a component asks for the palette once
  * and then reads colours off the answer, which is what makes "the same component in the dark
  * palette" a different value rather than a different code path.
  */
@@ -56,7 +61,22 @@ public data class SpfnPalette(
     public val accent: Color,
 
     /** The one colour that means "this went wrong". */
-    public val error: Color
+    public val error: Color,
+
+    /**
+     * The drag handle on a sheet, over [surface].
+     *
+     * A colour and therefore a token, which is the whole test (decision S10). `Sheet.kt` held
+     * this as a constant of its own and was the one hardcoded colour in either half of the
+     * module; a constant is a value that cannot follow a palette, so a light-on-dark theme
+     * would have drawn an invisible handle on a dark sheet. The scrim's opacity beside it
+     * stayed a constant for the opposite reason: it is not a colour.
+     *
+     * iOS has no call site — the system draws that sheet and its own grabber — and carries
+     * the key anyway, because the two palettes are one key set and section 15 of the
+     * validator compares them.
+     */
+    public val handle: Color
 )
 
 /** What every SPFN component draws with. */
@@ -69,14 +89,15 @@ public object SpfnTokens
         text = Color(0xFF000000),
         textSecondary = Color(0xFF6B6B70),
         accent = Color(0xFF0B5FFF),
-        error = Color(0xFFC62828)
+        error = Color(0xFFC62828),
+        handle = Color(0x33000000)
     );
 
     /**
      * The palette a dark appearance reads, which today is the light one.
      *
      * Structure without values, deliberately: see this file's header. Every component
-     * already resolves a palette, so the dark theme is a change to these six lines.
+     * already resolves a palette, so the dark theme is a change to these seven lines.
      */
     public val dark: SpfnPalette = SpfnPalette(
         background = Color(0xFFFFFFFF),
@@ -84,7 +105,8 @@ public object SpfnTokens
         text = Color(0xFF000000),
         textSecondary = Color(0xFF6B6B70),
         accent = Color(0xFF0B5FFF),
-        error = Color(0xFFC62828)
+        error = Color(0xFFC62828),
+        handle = Color(0x33000000)
     );
 
     /** The tightest gap: between a label and the thing it labels. */
@@ -123,3 +145,21 @@ public object SpfnTokens
     /** Anything whose characters have to line up: a code, a readout. */
     public val mono: TextStyle = TextStyle(fontSize = 13.sp, fontFamily = FontFamily.Monospace);
 }
+
+/**
+ * The palette for the appearance in scope.
+ *
+ * Not a token and deliberately not in the key set: it is HOW a palette is chosen, and the two
+ * platforms choose one by different mechanisms — `isSystemInDarkTheme` here, a SwiftUI
+ * environment value there. A key that could not mean the same thing on both sides has no
+ * business in a set the two sides are compared on.
+ *
+ * It stands beside what it selects rather than in `components/Metrics.kt`, where it used to:
+ * `Metrics` is the four sizes the tokens do NOT hold, and a palette selector living there
+ * made the one file whose whole subject is "not a token" the door onto every token there is.
+ * The Swift twin puts its own `spfnPalette(for:)` in `Tokens/SPFNTokens.swift` for the same
+ * reason, and the two files are read as a pair.
+ */
+@Composable
+internal fun spfnPalette(): SpfnPalette =
+    if (isSystemInDarkTheme()) SpfnTokens.dark else SpfnTokens.light
