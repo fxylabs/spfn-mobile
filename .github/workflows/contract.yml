@@ -2,11 +2,13 @@
 #
 # What it runs: `tools/ci/validate.sh`, which runs the offline validator and then judges
 # its output against tools/ci/validate-known-red.txt. That validator is where the contract
-# evidence lives — the pinned bundle's SHA-256 against Contracts/upstream.lock.json, the
-# lock's own claims against Contracts/upstream-provenance.json, the admitted SemVer window,
-# the wire mapping constants on both platforms, and the generated sources' cross-platform
-# agreement. So this file calls the validate script alone: the digest check is already
-# inside it, and a second implementation of it here would be a second thing to keep true.
+# evidence lives — the vendored bundle's real SHA-256 against the digest
+# Contracts/upstream-provenance.json records, the lock's own claims against that same
+# evidence file, the refusal of a lock that restates a value the evidence owns, the
+# admitted SemVer window, the wire mapping constants on both platforms, and the generated
+# sources' cross-platform agreement. So this file calls the validate script alone: the
+# digest check is already inside it, and a second implementation of it here would be a
+# second thing to keep true.
 #
 # Where the rest of the contract evidence is checked, so nobody adds it twice:
 #   - `:contract-codegen:spfnCodegenVerify` — generated sources regenerate byte-identically

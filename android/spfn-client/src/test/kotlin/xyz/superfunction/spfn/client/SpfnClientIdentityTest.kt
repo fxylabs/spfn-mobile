@@ -216,9 +216,10 @@ class SpfnClientIdentityTest
     {
         /**
          * The first version above the admitted window, computed from the pin rather than
-         * written down. The rule is the contract's own — `upstream.lock.json`'s
-         * `rangeRule`: on a 0.x line the breaking axis is the minor, above it the major —
-         * so this is the smallest version the window cannot admit.
+         * written down. The rule is the contract's own — `Contracts/README.md`, "The
+         * supported range is not the major alone": on a 0.x line the breaking axis is the
+         * minor, above it the major — so this is the smallest version the window cannot
+         * admit.
          *
          * A literal here rots silently: these cells were written at the 0.4.1 pin, where
          * "0.9.0" meant ahead; the 0.9.0 pin put that same literal inside the window,

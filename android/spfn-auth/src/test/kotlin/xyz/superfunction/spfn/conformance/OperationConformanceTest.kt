@@ -29,19 +29,25 @@ import xyz.superfunction.spfn.generated.SpfnListItemsResponse
 class OperationConformanceTest
 {
     @Test
-    fun generatedBindingMatchesTheLock()
+    fun generatedBindingMatchesThePinnedContract()
     {
-        val lock = SpfnCanonicalJson.parse(Fixtures.bytes("Contracts/upstream.lock.json")).members();
-        val contract = lock.obj("contract");
+        val evidence = SpfnCanonicalJson.parse(Fixtures.bytes("Contracts/upstream-provenance.json")).members();
+        val contract = evidence.obj("contract");
+        val version = contract.text("version");
 
-        assertEquals(contract.text("version"), SpfnGeneratedContract.BINDING.importedVersion);
-        assertEquals(contract.text("manifestSha256"), SpfnGeneratedContract.BINDING.importedManifestSha256);
+        assertEquals(version, SpfnGeneratedContract.BINDING.importedVersion);
+        assertEquals(contract.text("bundleSha256"), SpfnGeneratedContract.BINDING.importedManifestSha256);
         assertEquals(contract.text("supportedRange"), SpfnGeneratedContract.BINDING.supportedRange);
         assertEquals(contract.number("major"), SpfnGeneratedContract.BINDING.supportedMajor.toLong());
         // The 0.x compatibility rule is decided from the major and the minor together, so
         // a generated binding carrying only the major would silently accept a
-        // neighbouring minor the lock excludes.
-        assertEquals(contract.number("minor"), SpfnGeneratedContract.BINDING.supportedMinor.toLong());
+        // neighbouring minor the pin excludes. The minor is derived from the version here
+        // for the same reason codegen derives it: the evidence records the version and the
+        // major and stops, rather than giving one number two places to be wrong in.
+        assertEquals(
+            version.split(".")[1].toLong(),
+            SpfnGeneratedContract.BINDING.supportedMinor.toLong()
+        );
     }
 
     @Test

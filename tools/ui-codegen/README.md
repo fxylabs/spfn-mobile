@@ -10,7 +10,7 @@ One screen spec in, one app scaffold out per **target**.
 Both verify tasks are wired into `check`, and they are two tasks rather than one so a
 failure names WHICH app's scaffold drifted.
 
-Inputs — a place, the bundle, the repository-relative path of the place, the lock that
+Inputs — a place, the bundle, the repository-relative path of the place, the pin that
 chooses the bundle, and this generator's own version:
 
 - `examples/ui-spec` — the screens, written by a person. A DIRECTORY: `device-approval.json`
@@ -23,9 +23,10 @@ chooses the bundle, and this generator's own version:
   generated header prints it, and `specSha256` is the digest of the pieces.
 - `Contracts/spfn-mobile-contract.json` — the pinned bundle, read through
   `:contract-codegen`'s own reader rather than a second copy of it.
-- `Contracts/upstream.lock.json`'s `contract` block — it names the bundle file and the
-  digest the bundle's bytes must have, so it decides which bytes the run reads and whether
-  the run happens at all. Nothing of it reaches the output directly.
+- the pin — `Contracts/upstream.lock.json`'s `contract.bundlePath` names the bundle file
+  and `Contracts/upstream-provenance.json`'s `contract` block states the digest those bytes
+  must have, so between them they decide which bytes the run reads and whether the run
+  happens at all. Nothing of either reaches the output directly.
 - `gradle.properties`' `spfn.version` — this generator's version, handed to the run as
   `-Dspfn.ui-codegen.version` by the Gradle task and printed in every header. A run that is
   not given one refuses: a default would be the `0.1.0-dev` constant again, which claimed a
@@ -70,12 +71,13 @@ and this generator DELETES every file it did not emit from a directory it owns.
 
 ## What holds it together
 
-**The digest gate.** The bundle's sha256 is recomputed and compared with the lock AND
-with the spec's own `contract.manifestSha256`. Both, because they are different mistakes:
-a bundle edited without re-pinning, and a spec written against a bundle that is no longer
-the pinned one. This generator is the fourth reader of that digest and, like the contract
-generator, it is a consumer that recomputes and compares — never a place the value is
-edited (`docs/IMPLEMENTATION-PITFALLS.md` P2).
+**The digest gate.** The bundle's sha256 is recomputed and compared with the upstream
+evidence's `contract.bundleSha256` AND with the spec's own `contract.manifestSha256`. Both,
+because they are different mistakes: a bundle edited without re-pinning, and a spec written
+against a bundle that is no longer the pinned one. This generator reads that digest through
+`:contract-codegen`'s `ContractPin`, the same reader the contract generator uses, and like
+it is a consumer that recomputes and compares — never a place the value is edited
+(`docs/IMPLEMENTATION-PITFALLS.md` P2).
 
 **The operation gate.** An operation named in `services` must be one of the descriptor
 names the contract generator emits. The legal set is derived when the spec is read, with
@@ -86,7 +88,7 @@ is derived rather than listed because a second copy of the rule would drift and 
 would arrive as a compile error in a file nobody wrote.
 
 **Determinism.** Output is a pure function of the spec bytes, the bundle bytes, the spec's
-repository-relative path, the lock's contract block and this generator's own version:
+repository-relative path, the pinned contract and this generator's own version:
 sorted iteration, no timestamp, no host name, no absolute path. The version is on that list
 for the reason the path is — every header prints it — and it is read from
 `gradle.properties`' `spfn.version` and handed over by the Gradle task

@@ -95,30 +95,31 @@
 **탐지.** `git grep -l <digest>`로 세는 것이 유일하게 정확하다. 오늘 기준 명령은 48개를
 내고, 48개 모두가 역할을 지닌다. `CHANGELOG.md`도 산문 안에서 digest를 언급하지만
 `29c26160…`처럼 축약하므로 이 명령에는 걸리지 않는다 — 그것은 역할이 아니라 기록이다.
-개수를 외우지 말고 **역할**을 기억한다 — 넷은 서로 다르게 갱신되고, **손으로 고치는
-자리는 둘뿐이며 나머지 46개는 손대는 순간 자기 생성기와 어긋난다.**
+개수를 외우지 말고 **역할**을 기억한다 — 넷은 서로 다르게 갱신되고, **이 저장소가 손으로
+고치는 자리는 화면 스펙 하나뿐이며 나머지는 손대는 순간 자기 생성기 또는 upstream과
+어긋난다.**
 
 | 역할 | 파일 | 어떻게 갱신되나 | 확인 |
 | --- | --- | --- | --- |
-| 손으로 고정 | `Contracts/upstream.lock.json` (`contract.manifestSha256`) | 직접 편집하는 두 자리 중 하나이자, 다른 하나가 대조하는 기준 | 번들 파일의 실제 sha256과 같은지 재계산해 대조. validator 5절이 강제한다 |
-| 손으로 고정 | `examples/ui-spec/device-approval.json` (`contract.manifestSha256`) | 화면 스펙을 쓴 사람이 적는다. 번들을 재핀하면 lock과 **함께** 고쳐야 하는 자리 | `:ui-codegen:spfnGenerateUi`가 번들 sha256을 재계산해 lock과 스펙 **둘 다**에 대조하고, 어느 쪽이 어긋나도 생성을 거부한다 |
+| 손으로 고정 | `examples/ui-spec/device-approval.json` (`contract.manifestSha256`) | 화면 스펙을 쓴 사람이 적는다. 번들을 재핀하면 provenance와 **함께** 맞춰야 하는 유일한 자리 | `:ui-codegen:spfnGenerateUi`가 번들 sha256을 재계산해 provenance와 스펙 **둘 다**에 대조하고, 어느 쪽이 어긋나도 생성을 거부한다 |
 | fixture 파생물 | `Contracts/fixtures/MANIFEST.json` (`bundleSha256`) | `derive-expected-values.py` 재실행. **손으로 고치지 않는다** | 파일 안 `derivedBy` 필드가 스스로 밝힌다 |
 | codegen 산출물 | 생성 파일 10개 헤더 (Swift 5 + Kotlin 5) | codegen 재생성. **손으로 고치지 않는다** | `:contract-codegen:spfnCodegenVerify` |
 | codegen 산출물 | 화면 스캐폴드 52개 — `examples/` 아래 34개(두 앱의 `Generated`·`generated` 소스 18, case 표 둘, Maestro flow 14개)와 `tools/harness/` 아래 18개(`ios/GeneratedUI` 9, `android/**/harness/generated` 9; 하네스 대상은 표도 flow도 내지 않는다) | 대상별로 `:ui-codegen:spfnGenerateUi`·`:ui-codegen:spfnGenerateHarnessUi` 재실행. **손으로 고치지 않는다** | `:ui-codegen:spfnUiVerify`·`:ui-codegen:spfnHarnessUiVerify` (둘 다 `check`에 물려 있다) |
-| upstream 제공 | `Contracts/upstream-provenance.json` (`bundleSha256`) | 새 번들과 함께 도착한다. 갱신 대상이 아니라 **대조 대상** | validator 5절이 lock과 필드 단위로 맞춰 본다 |
+| upstream 제공 | `Contracts/upstream-provenance.json` (`contract.bundleSha256`) | 새 번들과 함께 도착한다. 갱신 대상이 아니라 **이 값의 유일한 출처**다 — lockVersion 3(2026-09-18)이 lock의 사본을 지웠으므로 대조할 둘째 사본이 없다 | validator 5절이 번들의 실제 바이트에서 재계산해 맞춰 본다 |
 
-**처방.** 번들 교체는 lock 직접 편집 → **화면 스펙의 `contract.manifestSha256`도 같은
-값으로 편집** → `derive-expected-values.py` 재실행 → codegen 재생성 → `ui-codegen` 재생성
-→ 결정성 확인이 한 묶음이다. 스펙을 빼먹으면 `spfnGenerateUi`가 거부하므로 조용히
-틀리지는 않지만, 거부 메시지를 "생성기가 깨졌다"로 읽으면 시간을 쓴다. 나머지 셋 중
-둘(MANIFEST, 생성 파일 44개)은 이 저장소의 **파생물**이라 손으로 편집하면 자기 생성기와
-어긋난다. 네 번째는 파생물이
-아니라 **upstream이 발행한 증거**다 — 우리 도구 중 무엇도 그것을 쓰지 않는다. 그것을
-"우리가 갱신할 것"으로 착각하면 evidence를 lock에 맞춰 편집하게 되는데, 그것은
-provenance 게이트가 정확히 잡으려는 행위다([P1](#p1)).
+**처방.** 번들 교체는 provenance·번들 복사 → lock의 `source.commit` 갱신 → **화면 스펙의
+`contract.manifestSha256`을 같은 값으로 편집** → `derive-expected-values.py` 재실행 →
+codegen 재생성 → `ui-codegen` 재생성 → 결정성 확인이 한 묶음이다. 스펙을 빼먹으면
+`spfnGenerateUi`가 거부하므로 조용히 틀리지는 않지만, 거부 메시지를 "생성기가 깨졌다"로
+읽으면 시간을 쓴다. MANIFEST와 생성 파일들은 이 저장소의 **파생물**이라 손으로 편집하면
+자기 생성기와 어긋난다. provenance는 파생물이 아니라 **upstream이 발행한 증거**이고,
+이제는 version·major·supportedRange·bundleSha256의 **유일한 출처**이기도 하다. 그것을
+"우리가 갱신할 것"으로 착각해 편집하면 provenance 게이트가 정확히 그 행위를 잡는다
+([P1](#p1)).
 
-**검증.** `git grep -l <digest> | wc -l`이 48이고, 그중 `upstream-provenance.json`이
-포함돼 있으며 그 값이 lock과 같은지 본다. 개수가 늘었다면 새 소비처가 생긴 것이니
+**검증.** `git grep -l <digest>`에 `upstream-provenance.json`이 포함돼 있고
+`upstream.lock.json`은 **포함되지 않는지** 본다 — lock에 다시 나타나면 validator 5절이
+이름을 대며 실패한다. 개수가 늘었다면 새 소비처가 생긴 것이니
 **그 파일이 스스로 파생물임을 밝히는지**(`derivedBy` 류 필드, 생성기 헤더) 먼저 보고
 역할을 판정해 이 표에 추가한다.
 
@@ -171,8 +172,10 @@ cs-mzv14 r1이 "세 곳"을 잡았고(`upstream-provenance.json` 누락), r2가 
 
 ## P5. `json_string`류는 임의 깊이 첫 히트를 취한다 {#p5}
 
-**증상.** lock에 같은 이름 키가 둘 생기면 validator가 의도하지 않은 쪽을 읽는다.
-에러가 아니라 **다른 파일을 digest**하는 형태로 나타난다.
+**증상.** 한 파일 안에 같은 이름 키가 둘 생기면 validator가 의도하지 않은 쪽을 읽는다.
+에러가 아니라 **다른 파일을 digest**하는 형태로 나타난다. 파일이 다르면 문제가 아니다 —
+lock의 `contract.bundlePath`와 provenance의 `source.bundlePath`는 이름이 같지만 서로 다른
+파일에 있고, 읽는 쪽이 어느 파일을 여는지 고른다.
 
 **탐지.** validator가 읽는 키 이름을 전부 나열하고, 그 이름이 파일 안에 2번 이상
 나오는지, 또는 다른 키의 부분 문자열인지 본다. 새 키를 lock에 추가할 때도 같은 질문.

@@ -390,14 +390,41 @@ section '5. contract lock discipline'
 # A resolved lock can lie in a way a placeholder cannot: it can claim provenance it does
 # not have. The rules below let a locally authored dev bundle be pinned honestly, and
 # refuse any claim of an upstream export that carries no upstream evidence.
+#
+# THE SOURCE OF A CONTRACT VALUE IS PROVENANCE, AND ONLY PROVENANCE. The contract's own
+# facts — name, version, major, supportedRange, bundleSha256 — are read from
+# Contracts/upstream-provenance.json, which the exporter wrote and this repository copies
+# unmodified. Until lockVersion 3 the lock carried a second copy of them and this section
+# compared the two; the comparison is gone, along with the two gaps found in it on
+# 2026-08-04, because a value with one home has nothing to disagree with. What the lock
+# still answers is what only the consumer knows: which commit was read, which npm versions
+# came from it, and where the vendored copy sits in this tree.
 STATUS=$(json_string "$LOCK" status)
-LOCK_DIGEST=$(json_string "$LOCK" manifestSha256)
 BUNDLE_PATH=$(json_string "$LOCK" bundlePath)
 LOCK_ORIGIN=$(json_string "$LOCK" origin)
 LOCK_EXPORTED=$(json_bool "$LOCK" exportedByUpstreamCI)
 LOCK_COMMIT=$(json_string "$LOCK" commit)
 UPSTREAM_ORIGIN='spfn-primitives-ci-export'
 UPSTREAM_EVIDENCE=Contracts/upstream-provenance.json
+PINNED_DIGEST=$(json_string "$UPSTREAM_EVIDENCE" bundleSha256)
+
+# A key this lock shed may not come back. Re-adding one restores the second source the
+# shrink removed, and a second source is where the drift this section used to hunt comes
+# from. Closed by construction: it names the keys, not the ways they could disagree.
+REAPPEARED=''
+for SHED in version major minor manifestSha256 supportedRange rangeRule authProfiles
+do
+    if grep -qE "\"$SHED\"[[:space:]]*:" "$LOCK"
+    then
+        REAPPEARED="$REAPPEARED $SHED"
+    fi
+done
+if [ -z "$REAPPEARED" ]
+then
+    pass 'the lock restates no contract value that lives in the upstream evidence'
+else
+    fail "the lock restates values whose only source is $UPSTREAM_EVIDENCE:$REAPPEARED"
+fi
 
 case "$STATUS" in
     UNRESOLVED_PLACEHOLDER)
@@ -439,13 +466,6 @@ case "$STATUS" in
             pass 'a dev-pinned lock carries no upstream commit SHA'
         fi
 
-        if printf '%s' "$LOCK_DIGEST" | grep -qE '^[0-9a-f]{64}$'
-        then
-            pass 'manifestSha256 is 64 lowercase hex characters'
-        else
-            fail "manifestSha256 '$LOCK_DIGEST' is not a SHA-256 digest"
-        fi
-
         RESOLVED=yes
         ;;
 
@@ -465,60 +485,29 @@ case "$STATUS" in
             fail "an upstream lock must carry a 40-hex source commit, got '$LOCK_COMMIT'"
         fi
 
-        # Until this change set the rule was "refuse an upstream claim that carries no
-        # evidence". Now that a real export exists the rule turns around: the claim must
-        # be checked against the evidence rather than merely accompanied by it. A lock
-        # that agrees with itself proves nothing; a lock that agrees with a file the
-        # exporter wrote is the whole point of pinning.
+        # The evidence is what makes the claim checkable, and it is now the only place
+        # the contract's own values live. What is left to check about it is that it is
+        # there, that it agrees with itself, and that it names someone other than this
+        # repository as the source — which is what a dev bundle dressed up as an export
+        # would fail. The value-by-value comparison that used to sit here is gone with
+        # the second copy it compared against.
         if [ -f "$UPSTREAM_EVIDENCE" ]
         then
             pass "upstream provenance evidence exists at $UPSTREAM_EVIDENCE"
 
             EV_ORIGIN=$(json_string "$UPSTREAM_EVIDENCE" origin)
             EV_EXPORTED=$(json_bool "$UPSTREAM_EVIDENCE" exportedByUpstreamCI)
-            EV_DIGEST=$(json_string "$UPSTREAM_EVIDENCE" bundleSha256)
-            EV_EXPORTER=$(json_string "$UPSTREAM_EVIDENCE" exporterVersion)
             EV_REPOSITORY=$(json_string "$UPSTREAM_EVIDENCE" repository)
-            EV_VERSION=$(json_string "$UPSTREAM_EVIDENCE" version)
-            EV_RANGE=$(json_string "$UPSTREAM_EVIDENCE" supportedRange)
-            LOCK_EXPORTER=$(json_string "$LOCK" exporterVersion)
-            LOCK_REPOSITORY=$(json_string "$LOCK" repository)
-            LOCK_VERSION=$(json_string "$LOCK" version)
-            LOCK_RANGE=$(json_string "$LOCK" supportedRange)
 
             equals "$EV_ORIGIN" "$UPSTREAM_ORIGIN" 'the evidence names the same exporter as the lock'
             equals "$EV_EXPORTED" 'true' 'the evidence itself records an upstream CI export'
-            equals "$EV_DIGEST" "$LOCK_DIGEST" \
-                'the evidence records the same bundle digest the lock pins'
-            equals "$LOCK_EXPORTER" "$EV_EXPORTER" 'lock and evidence name the same exporter version'
-            equals "$LOCK_REPOSITORY" "$EV_REPOSITORY" 'lock and evidence name the same source repository'
-            equals "$LOCK_VERSION" "$EV_VERSION" 'lock and evidence name the same contract version'
-            # The two ranges answer different questions and stop being identical the
-            # moment a pinned version carries a patch. The evidence declares the line
-            # upstream supports (">=0.4.0 <0.5.0"); the lock declares the window THIS
-            # SDK admits (">=0.4.1 <0.5.0"), whose floor is the pinned version because
-            # 0.4.1 added operations a 0.4.0 server does not serve. Requiring the two to
-            # be equal would force the lock to promise a server it would then call
-            # missing operations on.
-            #
-            # So the rule is containment, checked in the only two places it can go wrong
-            # on a 0.x line: the ceilings must agree, and the evidence floor must name
-            # the same minor the lock pins. The lock's own floor is pinned to its exact
-            # version by the range-shape check below, so a lock cannot widen itself.
-            EV_CEILING=${EV_RANGE##*<}
-            LOCK_CEILING=${LOCK_RANGE##*<}
-            EV_FLOOR=${EV_RANGE#>=}
-            EV_FLOOR=${EV_FLOOR%% *}
-            equals "$LOCK_CEILING" "$EV_CEILING" \
-                'lock and evidence declare the same upper bound'
-            if [ -z "$EV_FLOOR" ] || [ -z "$EV_CEILING" ] || [ "$EV_FLOOR" = "$EV_RANGE" ]
-            then
-                fail "the evidence range '$EV_RANGE' is not a '>=<floor> <<ceiling>' window"
-            else
-                pass 'the evidence range parses as a bounded window'
-            fi
-            equals "${EV_FLOOR%.*}" "${LOCK_VERSION%.*}" \
-                'the evidence floor names the same major.minor the lock pins'
+
+            # The exporter cannot write the consumer's commit into a file it generates
+            # before that commit exists, so the evidence says so in as many words and the
+            # lock is where the SHA goes. A copy that filled the placeholder in was edited
+            # on the way here, which is the one thing this file may not be.
+            equals "$(json_string "$UPSTREAM_EVIDENCE" commit)" 'RECORDED_BY_CONSUMER' \
+                'the evidence still carries the placeholder the exporter wrote, so it was copied unmodified'
 
             if printf '%s' "$EV_REPOSITORY" | grep -qi 'spfn-mobile'
             then
@@ -529,27 +518,6 @@ case "$STATUS" in
         else
             fail "an upstream-export claim requires $UPSTREAM_EVIDENCE; none exists, so the claim is unsupported"
         fi
-
-        # The lock's range must be the one its own version implies, so a pin cannot
-        # quietly widen what the SDK accepts. Below 1.0.0 the breaking axis is the minor.
-        LOCK_MAJOR=$(json_number "$LOCK" major)
-        LOCK_MINOR=$(json_number "$LOCK" minor)
-        if [ "$LOCK_MAJOR" = "0" ]
-        then
-            equals "$LOCK_RANGE" ">=$LOCK_VERSION <0.$((LOCK_MINOR + 1)).0" \
-                'a 0.x lock declares a range bounded by the next minor, not the next major'
-        else
-            equals "$LOCK_RANGE" ">=$LOCK_VERSION <$((LOCK_MAJOR + 1)).0.0" \
-                'a stable lock declares a range bounded by the next major'
-        fi
-        case "$LOCK_VERSION" in
-            "$LOCK_MAJOR.$LOCK_MINOR."*)
-                pass 'the lock version agrees with the major and minor recorded beside it'
-                ;;
-            *)
-                fail "lock version '$LOCK_VERSION' does not start with its own major.minor ($LOCK_MAJOR.$LOCK_MINOR)"
-                ;;
-        esac
 
         # Documents outlive the state they describe. Three review rounds each found a
         # surviving sentence saying the export does not exist, in wording the previous
@@ -645,15 +613,15 @@ esac
 # UNRESOLVED_PLACEHOLDER, where nothing is pinned and there is nothing to digest.
 if [ "${RESOLVED:-no}" = "yes" ]
 then
-    if printf '%s' "$LOCK_DIGEST" | grep -qE '^[0-9a-f]{64}$'
+    if printf '%s' "$PINNED_DIGEST" | grep -qE '^[0-9a-f]{64}$'
     then
-        pass 'manifestSha256 is 64 lowercase hex characters'
+        pass 'the evidence bundleSha256 is 64 lowercase hex characters'
     else
-        fail "manifestSha256 '$LOCK_DIGEST' is not a SHA-256 digest"
+        fail "the evidence bundleSha256 '$PINNED_DIGEST' is not a SHA-256 digest"
     fi
 
-    equals "$(sha256_of "$BUNDLE_PATH")" "$LOCK_DIGEST" \
-        "the pinned digest is the real SHA-256 of $BUNDLE_PATH"
+    equals "$(sha256_of "$BUNDLE_PATH")" "$PINNED_DIGEST" \
+        "the digest the evidence records is the real SHA-256 of $BUNDLE_PATH"
 
     FIXTURE_FILES=$(find Contracts/fixtures -type f -name '*.json' ! -name 'MANIFEST.json' 2>/dev/null || true)
     if [ -n "$FIXTURE_FILES" ]
@@ -667,8 +635,8 @@ then
     ACTUAL_FIXTURES=$(printf '%s\n' "$FIXTURE_FILES" | grep -c . || true)
     equals "$ACTUAL_FIXTURES" "$FIXTURE_COUNT" \
         'fixture MANIFEST.json count matches the files on disk'
-    contains Contracts/fixtures/MANIFEST.json "\"bundleSha256\": \"$LOCK_DIGEST\"" \
-        'fixture MANIFEST.json pins the same bundle digest as the lock'
+    contains Contracts/fixtures/MANIFEST.json "\"bundleSha256\": \"$PINNED_DIGEST\"" \
+        'fixture MANIFEST.json pins the same bundle digest as the evidence'
 
     # Every fixture digest recorded in the manifest must be the real one.
     DRIFTED=''
@@ -690,8 +658,10 @@ then
     fi
 fi
 
-contains "$LOCK" '"allowed": ["clientProofV1"]' 'lock allowlists exactly clientProofV1'
-contains "$LOCK" '"unknownProfilePolicy": "reject"' 'lock rejects unknown auth profiles (no fallback)'
+# The auth-profile allowlist is an SDK policy and not a contract pin, so the lock stopped
+# restating it at lockVersion 3. Its home is the enum on each platform, which section 6
+# reads directly; what stays here is the bundle's own statement, because that is the
+# contract's side of the same boundary.
 contains "$BUNDLE" '"allowed": ["clientProofV1"]' 'bundle allowlists exactly clientProofV1'
 
 # The contract range rule decides whether the SDK talks to a server at all, and it is
@@ -1809,7 +1779,7 @@ do
         UNMARKED="$UNMARKED $generated"
         continue
     fi
-    if ! grep -q "bundleSha256:    $LOCK_DIGEST" "$generated"
+    if ! grep -q "bundleSha256:    $PINNED_DIGEST" "$generated"
     then
         WRONG_DIGEST="$WRONG_DIGEST $generated"
     fi
@@ -1824,9 +1794,9 @@ fi
 
 if [ -z "$WRONG_DIGEST" ]
 then
-    pass 'every generated header carries the digest pinned in the lock'
+    pass 'every generated header carries the digest the upstream evidence records'
 else
-    fail "generated sources name a digest the lock does not pin:$WRONG_DIGEST"
+    fail "generated sources name a digest the upstream evidence does not record:$WRONG_DIGEST"
 fi
 
 # ---------------------------------------------------------------------------

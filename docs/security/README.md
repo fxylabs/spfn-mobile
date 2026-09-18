@@ -64,14 +64,22 @@ platforms can implement differently, and a divergence there is a forgeable proof
 
 A fabricated contract digest reads exactly like a verified one, and a fabricated
 provenance record reads exactly like a real one. The validator therefore recomputes the
-pinned digest from the file it names, and refuses any lock claiming an upstream CI
-export unless upstream evidence is present on disk. That evidence now exists, so the
-rule turned around: the claim is checked against `Contracts/upstream-provenance.json`
-field by field — origin, digest, exporter version, repository, version and range — and
-evidence naming this repository as the source fails, because that is what a locally
-authored bundle dressed up as an export looks like.
+pinned digest from the file it names, and refuses any lock claiming an upstream CI export
+unless upstream evidence is present on disk. Evidence naming this repository as the source
+fails, because that is what a locally authored bundle dressed up as an export looks like.
 
-The bundle's origin is stated in three places: its own text, the lock, and the header of
-every generated source file. This is a supply-chain control, not bookkeeping. What it
-does not do is prove the pinned commit exists upstream; that check needs a runner able to
-reach the primitives repository, and nothing here claims otherwise.
+Between 2026-08-02 and 2026-09-18 there was a second control here: the lock carried its
+own copy of the contract's facts and the validator held the two copies equal field by
+field. That control is gone, and its absence is the stronger position. Two copies of a
+digest are two places an attacker or an accident can change; holding them equal only turns
+one mistake into a visible one when the comparison itself is complete, and by 2026-08-04
+it had two gaps. `lockVersion` 3 removed the second copy instead: the contract's facts live
+in `Contracts/upstream-provenance.json` alone, the digest is checked against the bundle's
+real bytes, and there is no pair to disagree.
+
+The bundle's origin is still stated in three places: its own text, the lock, and the
+header of every generated source file. Those three are not copies of one value being held
+equal — each is a different party saying what it believes, which is the point of a
+supply-chain control. What none of them does is prove the pinned commit exists upstream;
+that check needs a runner able to reach the primitives repository, and nothing here claims
+otherwise.

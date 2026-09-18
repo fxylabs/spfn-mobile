@@ -54,6 +54,7 @@ REPLAY_WINDOW_MILLIS = 300000
 
 BUNDLE_PATH = os.path.join(HERE, "..", "spfn-mobile-contract.json")
 LOCK_PATH = os.path.join(HERE, "..", "upstream.lock.json")
+PROVENANCE_PATH = os.path.join(HERE, "..", "upstream-provenance.json")
 
 # --------------------------------------------------------------------------
 # The fixed test keypairs.
@@ -1197,10 +1198,9 @@ def main() -> int:
                         "bytes": len(body.encode("utf-8"))})
         print("wrote %s" % relative)
 
-    lock = load_lock()
     manifest = {
-        "status": lock["status"],
-        "contractVersion": lock["contract"]["version"],
+        "status": load_json(LOCK_PATH)["status"],
+        "contractVersion": load_json(PROVENANCE_PATH)["contract"]["version"],
         "bundleSha256": bundle_digest(),
         "fixtureCount": len(written),
         "derivedBy": "Contracts/fixtures/derive-expected-values.py",
@@ -1220,13 +1220,15 @@ def bundle_digest() -> str:
         return hashlib.sha256(handle.read()).hexdigest()
 
 
-def load_lock() -> dict:
-    """Status and contract version come from the lock, never from a constant here.
+def load_json(path: str) -> dict:
+    """Status and contract version are read, never written out as a constant here.
 
-    They were written out by hand until the contract moved upstream, and a hand-written
-    copy of a fact recorded elsewhere is a copy that goes stale without saying so.
+    A hand-written copy of a fact recorded elsewhere is a copy that goes stale without
+    saying so. Each comes from the one file that owns it: the resolution status is the
+    consumer's and lives in the lock, while the contract version is the exporter's and
+    lives in the provenance evidence.
     """
-    with open(LOCK_PATH, "r", encoding="utf-8") as handle:
+    with open(path, "r", encoding="utf-8") as handle:
         return json.load(handle)
 
 

@@ -5,6 +5,30 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The contract pin has one source
+
+- **`Contracts/upstream.lock.json` is `lockVersion` 3 and carries only what this repository
+  can know**: which primitives commit the bundle was read from, which npm versions were
+  published from it, and where the vendored copy sits in this tree. `contract.version`,
+  `major`, `minor`, `manifestSha256`, `supportedRange` and `rangeRule` are gone —
+  `Contracts/upstream-provenance.json`, the exporter's own file copied here unmodified, is
+  now the only place any of them is written. Every reader moved with them: both generators,
+  the validator, the receipt gate and its probe, `rc-verify`, the fixture derivation, and
+  the Swift and Kotlin conformance suites.
+- **`authProfiles` left the lock too.** The allowlist is an SDK policy and not a contract
+  pin; its home is `SPFNAuthProfile` / `SpfnAuthProfile` and validator section 6, which
+  reads those enums directly and already did.
+- **The checks that compared the lock against the evidence are removed rather than
+  repaired.** They existed to catch two copies of one value drifting apart, and on
+  2026-08-04 two gaps were found in them. With one copy there is nothing to compare. What
+  replaces them is closed rather than open: validator section 5 fails, naming the key, if a
+  shed key reappears in the lock, and `tools/validate/probe-contract-lock-rules.sh` drives
+  that refusal and the digest rule against the real validator.
+- **Both generators read the pin through one function.** `:ui-codegen` had its own copy of
+  `:contract-codegen`'s `loadBundle` despite its build script saying otherwise; there is now
+  one `ContractPin.loadBundle`, and the 0.x minor is derived from the version rather than
+  read, because the evidence records the version and the major and stops.
+
 ### The harness screen is Compose
 
 - **`tools/harness/android` draws its screen in Jetpack Compose**, foundation only and no

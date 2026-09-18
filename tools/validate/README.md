@@ -50,17 +50,24 @@ inventing provenance, which is worse: a fabricated "exported by upstream CI" rec
 reads exactly like a real one.
 
 So the rules are asymmetric on purpose. A locally authored bundle may be pinned as long
-as it says so: `origin: spfn-mobile-step2-dev-bundle`, `exportedByUpstreamCI: false`, no
-40-hex commit, and a `manifestSha256` that is the real digest of the file it names.
+as it says so: `origin: spfn-mobile-step2-dev-bundle`, `exportedByUpstreamCI: false` and
+no 40-hex commit.
 
-An upstream claim is held to more. Until 2026-08-02 there was no export to make, so the
-rule was simply to refuse a claim with no evidence beside it. Now that the lock is
-`RESOLVED_UPSTREAM`, the check turned around: the claim is compared against
-`Contracts/upstream-provenance.json`, the file the exporter itself wrote — same origin,
-same digest, same exporter version, same repository, same version and range — plus an
-exact 40-hex commit and a bundle that labels itself `UPSTREAM_EXPORT`. Evidence naming
-this repository as the source fails, because that is what a dev bundle dressed up as an
-export looks like. A lock that agrees only with itself is not evidence of anything.
+An upstream claim is held to more: an exact 40-hex commit, a bundle that labels itself
+`UPSTREAM_EXPORT`, and `Contracts/upstream-provenance.json` on disk, naming the same
+exporter, still carrying the exporter's own `RECORDED_BY_CONSUMER` placeholder — proof it
+was copied rather than edited on the way here — and naming a source repository other than
+this one, because a dev bundle dressed up as an export is what that would be.
+
+**The source of a contract value is provenance, and only provenance.** Between 2026-08-02
+and 2026-09-18 the lock carried a second copy of the version, major, minor, supported
+range and digest, and this section compared the two copies field by field. `lockVersion` 3
+removed the copy, and the comparison went with it — along with the two gaps found in it on
+2026-08-04, which are not worth fixing once there is nothing to compare. What replaces it
+is one closed check: a lock that grows any of those keys back fails, by name.
+
+`sh tools/validate/probe-contract-lock-rules.sh` drives that refusal and the digest rule
+against the real validator on temporarily mutated, cp-backed files.
 
 The digest and fixture checks are shared by both resolved states rather than living
 inside the dev-bundle branch, so moving the lock upstream cannot quietly drop them.

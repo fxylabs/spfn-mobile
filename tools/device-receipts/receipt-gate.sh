@@ -44,8 +44,9 @@
 # clean". tools/device-receipts/probe-receipt-gate.sh drives each one and asserts the
 # messages are distinct; tools/validate/validate.sh runs that probe on every run.
 #
-# The contract version is read from the repository's own pin (Contracts/upstream.lock.json
-# contract.version, cross-checked against the generated sources' header) rather than
+# The contract version is read from the repository's own pin
+# (Contracts/upstream-provenance.json contract.version, cross-checked against the
+# generated sources' header) rather than
 # hard-coded, so re-pinning the contract invalidates every receipt taken against the old
 # one and the gate demands a fresh device run — which is the point: evidence about a
 # 0.9.0 wire contract says nothing about a 0.10.0 one. That is not hypothetical any more.
@@ -67,7 +68,7 @@
 #
 # Overrides, used by the probe and by nothing else:
 #   SPFN_RECEIPT_ROOT   directory holding the dated receipt directories
-#   SPFN_RECEIPT_LOCK   the contract lock to read the pin from
+#   SPFN_RECEIPT_PIN    the upstream evidence file to read the contract version from
 #
 # Requirements: POSIX sh, awk, find, wc. No network, no toolchain, no JSON parser.
 
@@ -77,7 +78,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$ROOT"
 
 RECEIPT_ROOT=${SPFN_RECEIPT_ROOT:-tools/device-receipts/runs}
-LOCK=${SPFN_RECEIPT_LOCK:-Contracts/upstream.lock.json}
+PIN=${SPFN_RECEIPT_PIN:-Contracts/upstream-provenance.json}
 GENERATED_HEADER=Sources/SPFNGenerated/Generated/SPFNGeneratedContract.swift
 
 TAB=$(printf '\t')
@@ -112,9 +113,9 @@ die()
 # The contract this repository is pinned to
 # ---------------------------------------------------------------------------
 # Read from inside the "contract" object rather than by first-hit-at-any-depth (P5):
-# the lock also carries lockVersion and exporterVersion, and a whole-file read would
-# happily return one of those.
-[ -r "$LOCK" ] || die "the contract lock $LOCK is not readable, so the gate cannot know which contract to demand"
+# the evidence also carries evidenceVersion and exporterVersion, and a whole-file read
+# would happily return one of those.
+[ -r "$PIN" ] || die "the contract pin $PIN is not readable, so the gate cannot know which contract to demand"
 
 PINNED_CONTRACT=$(awk '
 $0 ~ /^[[:space:]]*"contract"[[:space:]]*:[[:space:]]*\{/ { inblock = 1; next }
@@ -126,17 +127,17 @@ inblock && match($0, /"version"[[:space:]]*:[[:space:]]*"[^"]*"/) {
     print v
     exit
 }
-' "$LOCK")
+' "$PIN")
 
 [ -n "$PINNED_CONTRACT" ] \
-    || die "no contract.version in $LOCK; an unreadable pin is not a matching pin"
+    || die "no contract.version in $PIN; an unreadable pin is not a matching pin"
 case "$PINNED_CONTRACT" in
     *[!0-9.]* | '' | .* | *.)
-        die "contract.version '$PINNED_CONTRACT' in $LOCK is not a dotted version" ;;
+        die "contract.version '$PINNED_CONTRACT' in $PIN is not a dotted version" ;;
 esac
 
 # The receipts carry the version the GENERATED contract announced to the app, so the
-# generated sources and the lock must agree before their agreement means anything. When
+# generated sources and the pin must agree before their agreement means anything. When
 # they disagree the repository is mid-repin and the gate has nothing valid to compare
 # against — which is a refusal, not a pass.
 [ -r "$GENERATED_HEADER" ] \
@@ -147,7 +148,7 @@ GENERATED_CONTRACT=$(awk '
 [ -n "$GENERATED_CONTRACT" ] \
     || die "$GENERATED_HEADER carries no '// contractVersion:' header line"
 [ "$GENERATED_CONTRACT" = "$PINNED_CONTRACT" ] \
-    || die "the lock pins contract $PINNED_CONTRACT but the generated sources were built from $GENERATED_CONTRACT; re-run codegen before judging device evidence"
+    || die "the pin names contract $PINNED_CONTRACT but the generated sources were built from $GENERATED_CONTRACT; re-run codegen before judging device evidence"
 
 # ---------------------------------------------------------------------------
 # Enumeration — an unreadable tree must never look like an empty one
@@ -392,7 +393,7 @@ not_true()
 
 printf 'SPFN Mobile — device receipt gate\n'
 printf 'root:     %s\n' "$RECEIPT_ROOT"
-printf 'contract: %s (pinned by %s, matching the generated sources)\n' "$PINNED_CONTRACT" "$LOCK"
+printf 'contract: %s (pinned by %s, matching the generated sources)\n' "$PINNED_CONTRACT" "$PIN"
 printf 'receipts: %s files\n\n' "$SCANNED"
 
 # ---------------------------------------------------------------------------
