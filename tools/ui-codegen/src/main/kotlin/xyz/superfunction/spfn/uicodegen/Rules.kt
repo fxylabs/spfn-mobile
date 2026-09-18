@@ -15,7 +15,10 @@
 //   R4  a response that arrives after its flow closed changes nothing;
 //   R5  `then` is applied only after the call succeeded — close empties the stack, pop
 //       drops one route and is a no-op on the last, push adds one;
-//   R6  a screen with a source loads it once when it appears, however it appeared;
+//   R6  a screen with a source loads it once when it appears, however it appeared —
+//       and what that says about a SECOND appearance is open decision D27: Swift's
+//       `.task` reads again on every appearance, Kotlin's `LaunchedEffect(model)`
+//       reads once per model, and no cell below tells the two apart;
 //   R7  a failed call leaves the screen in its error state and the stack where it was;
 //   R8  the system back gesture is the flow's own pop, and on a modal flow's last route
 //       it is the flow's close;
