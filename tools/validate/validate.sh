@@ -250,6 +250,14 @@ for path in \
     tools/validate/probe-example-scaffold-rules.sh \
     tools/validate/probe-authored-view-rules.sh \
     tools/validate/probe-ci-actions-rules.sh \
+    tools/validate/probe-contract-lock-rules.sh \
+    tools/validate/probe-social-surface-rules.sh \
+    tools/validate/probe-paged-scroll-rules.sh \
+    tools/validate/probe-sheet-exit-rules.sh \
+    tools/validate/probe-flow-transitions-rules.sh \
+    tools/validate/probe-pointer-consumption-rules.sh \
+    tools/validate/probe-predictive-back-rules.sh \
+    tools/validate/probe-button-hit-shape-rules.sh \
     tools/ci/README.md tools/ci/validate.sh tools/ci/validate-known-red.txt \
     tools/ci/android.sh tools/ci/swift.sh \
     tools/ci/install-swift.sh tools/ci/install-android-sdk.sh \

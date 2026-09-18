@@ -89,6 +89,7 @@ pitfall that recorded how it was once broken. A contract references rules by id.
 | R1–R8 | The model rules: empty required input refused before a call, second press ignored, write over an unloaded value ignored, then applies only on success, a source is read once per appearance, a refusal leaves the stack where it was, system back is the flow's pop | generated models, `CloseRulesTest` | u-cells |
 | P1–P9 | The paged rules: the first page's four states, an append, a failed append that leaves the rows alone, an append asked for twice, an append where there is nothing to append, a retry, and a reload that starts from the first page | generated models, `Paged` | P-cells |
 | F1–F8 | The form rules: every field checked at once, each refused by the first rule it breaks, a second submit ignored while the write is in flight, editing one field clearing that field's refusal alone | generated models, `Form` | F-cells |
+| C1 | Key custody is read, never inferred: where the phone has no hardware key store the SDK falls back to a software key **silently** and records `softwareKeychain` / the Android equivalent in the stored key; the app reads `SPFNKeyCustody` / `SpfnKeyCustody` from that record to decide what to tell the person, and the SDK itself shows nothing (decision of 2026-09-18, review step 5) | `SPFNStoredKey.custody`, `SpfnStoredKey.custody` | — |
 
 The five defects the 3-stage device round found, and the rule that now covers each:
 
