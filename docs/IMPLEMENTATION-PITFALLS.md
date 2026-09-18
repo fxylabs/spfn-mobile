@@ -66,6 +66,7 @@
 | `AnchoredDraggable`로 등장·퇴장하는 표면 추가 (시트·서랍·바텀 시트), 플로우가 닫힐 때 컴포지션에서 빠지는 자리 | [P38](#p38) [P34](#p34) [P37](#p37) [P30](#p30) |
 | SwiftUI `Button` 추가, 특히 `.buttonStyle(.plain)` | [P39](#p39) [P21](#p21) |
 | 시계·타임스탬프·경과 시간을 만지는 코드 (증명 시각, 만료 판정, 폴링 간격, 재시도 백오프) | [P40](#p40) [P9](#p9) |
+| 같은 route 값을 두 번 push할 수 있는 흐름 작성, 라우트 타입 설계 (`FlowRoute` 구현) | [P41](#p41) [P31](#p31) [P15](#p15) |
 
 ---
 
@@ -1844,6 +1845,64 @@ return UInt64(now.tv_sec) * 1_000_000_000 + UInt64(now.tv_nsec)
 **나온 곳.** w-fa0vf, 2026-09-18. `SPFNSystemMonotonicClock`이 `DispatchTime`을 읽고 있었다.
 Kotlin 쪽은 처음부터 `elapsedRealtimeNanos`라 정상이었고, **두 플랫폼이 대칭인 코드에서 한쪽만
 틀린** 모양이므로 [P9](#p9)가 함께 걸린다 — 이름이 대응한다고 의미가 대응하지는 않는다.
+## P41. Navigation 3는 백스택 항목을 **값**으로 식별한다 — 같은 route 값을 두 번 push하면 Android에서 하나가 사라진다 {#p41}
+
+**증상.** 같은 화면을 두 번 여는 흐름에서 **Android만** 깊이가 어긋난다. 흐름은 스택이
+둘이라고 믿고(`flow.stack.value.size == 2`) 사람은 화면 하나를 본다. 뒤로가기를 한 번
+누르면 흐름은 깊이 1로 내려가는데 화면은 이미 깊이 1을 그리고 있었으므로 **아무것도 움직이지
+않는다** — 사람 눈에는 "뒤로가기가 한 번 먹혔다". iOS에서 같은 흐름은 화면 둘을 정상으로
+그리고 뒤로가기도 한 번에 하나씩 듣는다.
+
+**왜.** `NavDisplay`의 백스택은 `List<Any>`이고, 항목의 **동일성이 곧 값**이다. 그것이
+`NavEntry`의 저장 상태를 리컴포지션 너머로 유지하는 방식이므로 — 같은 값이면 같은 항목이고
+같은 항목이면 이미 있는 것이다 — 값이 같은 항목 둘은 **하나**가 된다. `FlowRoute`를
+`data class Step(val name: String)`처럼 값으로만 쓰면 `Step("detail")` 두 개는 서로 같다.
+
+SwiftUI의 `NavigationStack(path:)`은 값의 **배열**이고 중복을 지우지 않는다. 그래서 같은
+코드가 iOS에서는 화면 둘, Android에서는 화면 하나가 된다. 어휘가 같고 `Flow`도 `HostStack`도
+같은 답을 내는데 **그리는 층에서만** 갈린다.
+
+**자동 테스트가 닿지 않는 층이다.** `HostStackTest`·`HostStackTests`는 리스트를 묻고 리스트는
+양쪽에서 항목 둘을 낸다 — 그 테스트는 통과하고 통과해야 맞다
+(`sync_theSameRouteValueTwice_isTwoEntriesOnTheList`). 그 아래를 볼 수 있는 것이 이 저장소에
+없다: 이 모듈의 JVM 스위트에는 Compose 런타임이 없고, Robolectric도 계측 스위트도 없으며,
+Maestro 셀은 "화면이 하나냐 둘이냐"를 물을 수 없다 — 두 화면이 같은 readout을 내므로 셀은
+어느 쪽이든 초록이다. **사람이 기기에서 보거나, 라우트 타입을 보고 아는 수밖에 없다.**
+
+**탐지.**
+
+1. 라우트 타입을 읽는다. 같은 흐름 안에서 **두 번 나올 수 있는 화면**이 값에 자기를 구별할
+   것을 들고 있나. `detail(id:)`는 안전하고 `detail`은 아니다. 목록에서 같은 항목을 두 번
+   여는 흐름, "다시 열기", 중첩된 편집 화면이 이 모양이다.
+
+   ```sh
+   grep -rn 'FlowRoute' --include=*.kt android examples tools
+   grep -rn ': FlowRoute' --include=*.swift Sources Tests examples tools
+   ```
+2. 스택 깊이와 화면 수를 **사람이** 대조한다. 같은 route를 두 번 push한 뒤 뒤로가기를
+   눌러 화면이 움직이는지 본다. 움직이지 않으면 확정이다.
+
+**처방.** 라우트 값에 **식별자를 넣는다.** 두 번 나올 수 있는 화면의 케이스는 그 화면을
+구별하는 것 — 항목의 id, 목록에서의 위치, 푸시한 순번 — 을 payload로 든다. 그것이 없으면
+값이 같아지고, 값이 같아지는 것은 이 항목의 전부다. 네비게이터에 중복을 허용시키려 하지
+않는다: `NavDisplay`의 값 동일성은 저장 상태가 붙어 있는 자리이고, 거기를 우회하면 두 화면이
+서로의 상태를 쓴다.
+
+```kotlin
+// 이 모양이면 Android에서 둘이 하나가 된다
+public data class Step(val name: String) : FlowRoute
+
+// 두 번 열릴 수 있는 화면은 자기를 구별할 것을 든다
+public sealed interface Step : FlowRoute
+{
+    public data class Detail(val itemId: String) : Step
+}
+```
+
+**나온 곳.** w-4bvt1, UI 런타임 리뷰 정정, 2026-09-18. 기기에서 나온 것이 아니라 `HostStack`
+테스트 빈칸을 메우다 나왔다 — 같은 값 두 번이라는 케이스를 쓰면서 두 네비게이터의 식별 방식이
+다르다는 것이 드러났고, 그래서 **처방이 있는 채로** 등록된 첫 항목이다. 이 저장소의 흐름 중
+같은 route 값을 두 번 push하는 것은 오늘 없다.
 
 ## 원장
 

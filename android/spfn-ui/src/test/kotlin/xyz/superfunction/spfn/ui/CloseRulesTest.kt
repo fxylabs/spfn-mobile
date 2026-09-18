@@ -41,6 +41,7 @@ private data class Stop(val name: String) : FlowRoute
 
 private val first = Stop("first");
 private val second = Stop("second");
+private val third = Stop("third");
 
 private val PUSH: FlowEntry = FlowEntry.Push;
 private val MODAL: FlowEntry = FlowEntry.Modal;
@@ -247,6 +248,32 @@ class CloseRulesTest
         flow.close();
         assertEquals(emptyList<Stop>(), flow.stack.value);
         assertFalse(flow.isPresented.value);
+    }
+
+    // --- depth 3, which is the depth-2 row and is asserted once to say so ----
+
+    /**
+     * `Flow` branches on `count > 1` and never on the count itself, so every depth above the
+     * root is one row of the table and not a row per depth. That is a claim about the code
+     * rather than about the table, which is why it is one case and not twelve: the table has
+     * six rows, this repository writes one test per cell, and a depth-3 copy of every
+     * depth-2 cell would be a table that grew without saying anything new.
+     *
+     * What the case IS for is the half a reader cannot check by eye — that a pop at depth 3
+     * lands on depth 2 and stops there, still open and still drawing a back rather than a
+     * close. A version of `back` that closed on anything but the root would pass every
+     * depth-2 cell above and fail this one.
+     */
+    @Test
+    fun push_depth3_headerBack_pops()
+    {
+        val flow = Flow(listOf(first, second, third));
+        assertEquals(WayOut.Back, flow.wayOut(PUSH));
+        assertTrue(flow.back(PUSH));
+        assertEquals(listOf(first, second), flow.stack.value);
+        assertTrue(flow.isPresented.value);
+        // Still above the root, so still the same row: a back, not a close.
+        assertEquals(WayOut.Back, flow.wayOut(PUSH));
     }
 
     // --- the rule that outlives the flow ------------------------------------
