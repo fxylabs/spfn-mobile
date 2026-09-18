@@ -602,7 +602,7 @@ final class HarnessModel: ObservableObject
         {
             return nil
         }
-        return AppContainer.live(
+        return try AppContainer.live(
             transport: transport,
             keyProvider: provider,
             baseURL: configuration.baseURL
@@ -708,7 +708,7 @@ final class HarnessModel: ObservableObject
     {
         SPFNClient(
             transport: transport,
-            session: SPFNSession(
+            session: try SPFNSession(
                 transport: transport,
                 keyProvider: provider,
                 baseURL: configuration.baseURL

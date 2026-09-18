@@ -8,6 +8,7 @@
 //
 // android/spfn-client/.../SpfnSession.kt is the same object in Kotlin.
 
+import Foundation
 import SPFNAuth
 import SPFNCore
 import SPFNGenerated
@@ -43,13 +44,20 @@ extension SPFNSessionState: CustomStringConvertible, CustomDebugStringConvertibl
     }
 }
 
-/// The two ways opening a session can fail on this layer.
+/// The three ways a session can fail on this layer: one at creation, two at the handshake.
 ///
 /// Everything else passes through unchanged: a `SPFNTransportError` stays a transport
 /// error and a `SPFNAuthError` stays an auth error. Wrapping them here would erase the
 /// distinction the execute path above is going to classify on.
 public enum SPFNSessionError: Error, Equatable, Sendable
 {
+    /// The base URL was neither https nor http to loopback, so no session was created.
+    ///
+    /// It carries no URL. A base URL can hold a nonce in its query, and an error that
+    /// printed the value would put it in whatever log caught it — the same rule the
+    /// refusal below follows for the envelope.
+    case untrustedBaseURL
+
     /// The server refused the handshake and answered with a well-formed error envelope.
     ///
     /// The envelope is server-controlled text and never prints itself; read `rejection`
@@ -97,6 +105,8 @@ extension SPFNSessionError: CustomStringConvertible, CustomDebugStringConvertibl
     {
         switch self
         {
+        case .untrustedBaseURL:
+            return "SPFNSessionError.untrustedBaseURL"
         case .handshakeRejected(let httpStatus, _):
             return "SPFNSessionError.handshakeRejected(httpStatus: \(httpStatus), envelope: redacted)"
         case .malformedResponse(let reason):
@@ -123,12 +133,16 @@ extension SPFNSessionError: CustomStringConvertible, CustomDebugStringConvertibl
 /// The in-flight handshake is therefore shared explicitly rather than implied.
 public actor SPFNSession
 {
-    /// The server every request goes to, without a trailing slash.
+    /// The server every request goes to, without a trailing slash, and https or loopback.
     ///
     /// Public and immutable so the execute path above reads the base URL from the session
     /// that signs against it rather than holding a second copy of it. Two copies is one
     /// too many: a request proved against one host and sent to another is a 401 nobody
     /// can explain from the call site.
+    ///
+    /// Checked once, here, because this is the one place every request passes through:
+    /// the proven path proves against it, the unproven path sends to it, and the clock
+    /// synchronizes against it. A check in any of the three would leave the other two.
     public let baseURL: String
 
     private let transport: any SPFNTransport
@@ -145,6 +159,10 @@ public actor SPFNSession
     private var generation: UInt64 = 0
     private var inFlight: (generation: UInt64, task: Task<SPFNSessionState, Error>)?
 
+    /// - Throws: `SPFNSessionError.untrustedBaseURL` if `baseURL` is anything but https
+    ///   or http to loopback. Creation is where it is refused, so a host app cannot hold
+    ///   a session that would send a proof — or an enrolment, which carries none — over
+    ///   cleartext to somewhere a third party can read it.
     public init(
         transport: any SPFNTransport,
         keyProvider: any SPFNKeyProvider,
@@ -152,11 +170,17 @@ public actor SPFNSession
         clock: any SPFNProofClock = SPFNProcessServerClock.shared,
         nonceGenerator: any SPFNNonceGenerator = SPFNRandomNonceGenerator(),
         timeoutMillis: Int64 = 15_000
-    )
+    ) throws
     {
+        let trimmed = Self.withoutTrailingSlash(baseURL)
+        guard Self.isTrusted(baseURL: trimmed)
+        else
+        {
+            throw SPFNSessionError.untrustedBaseURL
+        }
         self.transport = transport
         self.keyProvider = keyProvider
-        self.baseURL = Self.withoutTrailingSlash(baseURL)
+        self.baseURL = trimmed
         self.clock = clock
         self.nonceGenerator = nonceGenerator
         self.timeoutMillis = timeoutMillis
@@ -284,6 +308,16 @@ public actor SPFNSession
             ),
             sessionID: sessionID
         )
+    }
+
+    /// Discards the proof clock's anchor for this server, so the next proof is minted
+    /// against a server time fetched again rather than derived from the old one.
+    ///
+    /// The session owns the clock, so the execute path above asks the session rather
+    /// than holding a second reference to something it does not otherwise touch.
+    public func resynchronizeClock() async
+    {
+        await clock.discardAnchor(baseURL: baseURL)
     }
 
     /// Discards the held session and abandons any handshake still in flight.
@@ -431,5 +465,37 @@ public actor SPFNSession
             trimmed.removeLast()
         }
         return trimmed
+    }
+
+    /// https anywhere, http to loopback only (D21).
+    ///
+    /// An emulator's `10.0.2.2` is not loopback and is refused with everything else: it
+    /// is a route through the host's network stack, so a clock or an enrolment sent to it
+    /// is on the wire. The harness gives every Android target an `adb reverse` route to
+    /// `127.0.0.1` for that reason.
+    private static func isTrusted(baseURL: String) -> Bool
+    {
+        guard let components = URLComponents(string: baseURL),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased()
+        else
+        {
+            return false
+        }
+        if scheme == "https"
+        {
+            return true
+        }
+        return scheme == "http" && isLoopback(host)
+    }
+
+    /// The brackets are stripped first: Foundation and java.net disagree about whether an
+    /// IPv6 literal host keeps them, and `http://[::1]` has to be the same answer on both.
+    private static func isLoopback(_ host: String) -> Bool
+    {
+        let bare = host.hasPrefix("[") && host.hasSuffix("]")
+            ? String(host.dropFirst().dropLast())
+            : host
+        return bare == "localhost" || bare == "::1" || bare.hasPrefix("127.")
     }
 }

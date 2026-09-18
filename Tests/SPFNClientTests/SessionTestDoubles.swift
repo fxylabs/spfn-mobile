@@ -36,11 +36,60 @@ final class FakeClock: SPFNClock, SPFNProofClock, @unchecked Sendable
         nowMillis()
     }
 
+    /// Nothing anchors this clock, so there is nothing to discard.
+    func discardAnchor(baseURL _: String) {}
+
     func set(_ millis: Int64)
     {
         lock.lock()
         defer { lock.unlock() }
         self.millis = millis
+    }
+}
+
+/// A proof clock with the shipped one's anchor and none of its network.
+///
+/// The retry suite asks how many times a call had to go and fetch `core.time`, which is
+/// only a number if the anchor is modelled: a clock that answers every read without one
+/// cannot tell a derived timestamp from a freshly synchronized one.
+final class AnchoringProofClock: SPFNProofClock, @unchecked Sendable
+{
+    private let lock = NSLock()
+    private let millis: Int64
+    private var anchored = false
+    private var recorded = 0
+
+    init(_ millis: Int64)
+    {
+        self.millis = millis
+    }
+
+    /// How many times a read had to synchronize rather than derive.
+    var synchronizations: Int
+    {
+        lock.withLock { recorded }
+    }
+
+    func nowMillis(
+        transport _: any SPFNTransport,
+        baseURL _: String,
+        timeoutMillis _: Int64
+    ) async throws -> Int64
+    {
+        lock.withLock
+        {
+            if !anchored
+            {
+                anchored = true
+                recorded += 1
+            }
+            return millis
+        }
+    }
+
+    func discardAnchor(baseURL _: String)
+    {
+        lock.withLock { anchored = false }
     }
 }
 
@@ -89,6 +138,9 @@ final class ScriptedProofClock: SPFNProofClock, @unchecked Sendable
         }
         return millis
     }
+
+    /// Nothing anchors this clock, so there is nothing to discard.
+    func discardAnchor(baseURL _: String) {}
 }
 
 /// A sleeper that records what it was asked to wait and never really waits.

@@ -775,13 +775,13 @@ public actor SPFNKeyLifecycle
     /// is never consulted — the unproven path touches no session state — so the
     /// enrollment client carries the candidate key under an empty identity rather
     /// than a second provider type that exists only to throw.
-    private func client(signingWith provider: SPFNSecureEnclaveKeyProvider?) -> SPFNClient
+    private func client(signingWith provider: SPFNSecureEnclaveKeyProvider?) throws -> SPFNClient
     {
         let keyProvider: any SPFNKeyProvider = provider
             ?? SPFNSecureEnclaveKeyProvider(clientID: "", key: makeKeyPlaceholder)
         return SPFNClient(
             transport: transport,
-            session: SPFNSession(
+            session: try SPFNSession(
                 transport: transport,
                 keyProvider: keyProvider,
                 baseURL: baseURL,

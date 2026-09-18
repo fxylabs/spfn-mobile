@@ -156,13 +156,17 @@ public final class AppContainer
     }
 
     /// The app against a real server: one transport, one session, one client.
+    ///
+    /// Throws `SPFNSessionError.untrustedBaseURL` when `baseURL` is neither https nor
+    /// http to loopback: the session refuses cleartext at creation, and this is where
+    /// a generated app creates one.
     public static func live(
         transport: any SPFNTransport,
         keyProvider: any SPFNKeyProvider,
         baseURL: String
-    ) -> AppContainer
+    ) throws -> AppContainer
     {
-        let session = SPFNSession(
+        let session = try SPFNSession(
             transport: transport,
             keyProvider: keyProvider,
             baseURL: baseURL

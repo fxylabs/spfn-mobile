@@ -201,7 +201,7 @@ final class SPFNRealServerVerifyTests: XCTestCase
     {
         let fixture = try Fixture()
         let approver = try await Self.approverTask.value
-        let approving = fixture.client(signingWith: approver.provider)
+        let approving = try fixture.client(signingWith: approver.provider)
         let waiting = fixture.waitingDevice()
         let shown = ShownCode()
 
@@ -302,7 +302,7 @@ final class SPFNRealServerVerifyTests: XCTestCase
     {
         let fixture = try Fixture()
         let approver = try await Self.approverTask.value
-        let approving = fixture.client(signingWith: approver.provider)
+        let approving = try fixture.client(signingWith: approver.provider)
         let waiting = fixture.waitingDevice()
         let shown = ShownCode()
 
@@ -523,7 +523,11 @@ final class SPFNRealServerVerifyTests: XCTestCase
         {
             return
         }
-        let revoking = fixture.client(signingWith: drained.approver.provider)
+        guard let revoking = try? fixture.client(signingWith: drained.approver.provider)
+        else
+        {
+            return
+        }
         for keyID in drained.waitingKeyIDs + [drained.approver.key.keyID]
         {
             _ = try? await revoking.execute(
@@ -642,14 +646,14 @@ final class SPFNRealServerVerifyTests: XCTestCase
 
         /// A client signing with [provider], or an unproven one for the login call —
         /// whose signer is never consulted, mirroring the lifecycle's enrollment client.
-        func client(signingWith provider: SPFNSecureEnclaveKeyProvider?) -> SPFNClient
+        func client(signingWith provider: SPFNSecureEnclaveKeyProvider?) throws -> SPFNClient
         {
             let keyProvider: any SPFNKeyProvider = provider
                 ?? SPFNSecureEnclaveKeyProvider(
                     clientID: "",
                     key: SPFNCustodyKey.generate(keyID: "unenrolled", preferSecureEnclave: false)
                 )
-            let session = SPFNSession(
+            let session = try SPFNSession(
                 transport: transport,
                 keyProvider: keyProvider,
                 baseURL: environment.baseURL,

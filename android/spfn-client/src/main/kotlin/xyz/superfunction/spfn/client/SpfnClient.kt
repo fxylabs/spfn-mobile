@@ -7,7 +7,8 @@
 // that do not exist yet.
 //
 // Retry is off. The one exception is an auth refusal, which re-opens the session and
-// re-sends once, because that is the only failure where the client knows what changed and
+// re-sends once — and, when the refusal is PROOF_EXPIRED, re-anchors the proof clock
+// first — because that is the only failure where the client knows what changed and
 // knows the request was never applied. A transport failure is not retried: this layer
 // cannot tell a request that never arrived from one that arrived and whose answer was
 // lost, and re-sending the second kind is how a client applies an operation twice.
@@ -79,7 +80,22 @@ class SpfnClient(
             return executeUnproven(call, canonicalBody);
         }
 
-        val first = attempt(call.operation, canonicalBody);
+        // A handshake refused for an expired proof never reaches `read`: `attempt` opens
+        // the session, so the refusal comes out of the call below rather than out of a
+        // response. It buys the same one retry, for the same reason — the anchor the
+        // timestamp came from is the thing that was wrong, and it has just been replaced.
+        val first = try
+        {
+            attempt(call.operation, canonicalBody)
+        }
+        catch (refusal: SpfnClientError.Auth)
+        {
+            if (refusal.failure.code != SpfnGeneratedErrorCode.PROOF_EXPIRED)
+            {
+                throw refusal;
+            }
+            return retryOnceAfterResynchronizing(call, canonicalBody);
+        };
 
         return try
         {
@@ -188,7 +204,35 @@ class SpfnClient(
         // stays a CancellationException so the enclosing scope still unwinds as one.
         coroutineContext.ensureActive();
 
+        // An expired proof is not a stale session: the timestamp was derived from an
+        // anchor that has stopped being true, and re-opening a session against the same
+        // anchor mints the same doomed timestamp. So the anchor goes first, and the
+        // re-handshake below then runs on a server time fetched again.
+        if (refusal.failure.code == SpfnGeneratedErrorCode.PROOF_EXPIRED)
+        {
+            session.resynchronizeClock();
+        }
+
         session.invalidate(staleSessionId = presentedSessionId);
+        val second = attempt(call.operation, canonicalBody);
+        return read(second.response, call);
+    }
+
+    /**
+     * Re-anchors the proof clock and opens the session once more.
+     *
+     * Straight-line for the same reason as [retryOnce]: the second attempt has no path
+     * back into either function, so a refusal it meets is classified and thrown rather
+     * than bought another try — whatever the refusal turns out to be.
+     */
+    private suspend fun <Req, Resp> retryOnceAfterResynchronizing(
+        call: SpfnCall<Req, Resp>,
+        canonicalBody: ByteArray
+    ): Resp
+    {
+        coroutineContext.ensureActive();
+
+        session.resynchronizeClock();
         val second = attempt(call.operation, canonicalBody);
         return read(second.response, call);
     }

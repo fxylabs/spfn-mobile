@@ -34,6 +34,8 @@ enum HarnessOutcome
             return name(forClient: error)
         case let error as SPFNClockSynchronizationError:
             return "clockSynchronization:\(clockName(error))"
+        case SPFNSessionError.untrustedBaseURL:
+            return "session:untrustedBaseURL"
         case let error as SPFNTransportError:
             return name(forTransport: error)
         case let error as SPFNKeyStoreError:
@@ -56,7 +58,6 @@ enum HarnessOutcome
         switch error
         {
         case .contractIncompatible: return "contractIncompatible"
-        case .untrustedBaseURL: return "untrustedBaseURL"
         case .requestFailed: return "requestFailed"
         case .invalidResponse: return "invalidResponse"
         case .monotonicClockInvalid: return "monotonicClockInvalid"

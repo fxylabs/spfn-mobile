@@ -168,14 +168,74 @@ class SpfnProcessServerClockTest
         assertEquals(0, transport.callCount)
     }
 
-    @Test
-    fun nonLoopbackCleartextIsRejectedBeforeTheNetwork() = runBlocking {
-        val transport = ScriptedTransport(emptyList())
-        val clock = SpfnProcessServerClock(FakeMonotonicClock(10)) { generatedClockOperation() }
+    // ---- discarding an anchor ----------------------------------------------
 
-        val error = failureOf { clock.nowMillis(transport, "http://example.invalid", 1_000) }
-        assertTrue(error is SpfnClockSynchronizationException.UntrustedBaseUrl)
-        assertEquals(0, transport.callCount)
+    /**
+     * C1. An anchor that has stopped being true is discarded, and the next read pays for a
+     * fresh one rather than deriving from the old.
+     */
+    @Test
+    fun aReadAfterADiscardedAnchorSynchronizesAgain() = runBlocking {
+        val monotonic = FakeMonotonicClock(10);
+        val transport = ScriptedTransport(listOf(answer(timeResponse(1_000)), answer(timeResponse(9_000))));
+        val clock = SpfnProcessServerClock(monotonic) { generatedClockOperation() };
+
+        val anchored = clock.nowMillis(transport, baseUrl, 1_000);
+        clock.discardAnchor(baseUrl);
+        monotonic.set(30);
+        val resynchronized = clock.nowMillis(transport, baseUrl, 1_000);
+
+        assertEquals(1_000, anchored);
+        assertEquals("the server's new answer, not the old one advanced", 9_000, resynchronized);
+        assertEquals(2, transport.callCount);
+    }
+
+    /**
+     * C2. A discard that lands while a synchronization is in flight leaves it alone: its
+     * answer is a server time paired with the instant it arrived, so it is a correct anchor
+     * whenever it lands, and dropping it would only cost the request.
+     */
+    @Test
+    fun aDiscardDuringASynchronizationLeavesTheAnswerAsTheAnchor() = runBlocking {
+        val monotonic = FakeMonotonicClock(10);
+        val clock = SpfnProcessServerClock(monotonic) { generatedClockOperation() };
+        val transport = ScriptedTransport(
+            listOf(answer(timeResponse(5_000))),
+            onCall = { clock.discardAnchor(baseUrl) }
+        );
+
+        val anchored = clock.nowMillis(transport, baseUrl, 1_000);
+        monotonic.set(20);
+        val derived = clock.nowMillis(transport, baseUrl, 1_000);
+
+        assertEquals(5_000, anchored);
+        assertEquals("the in-flight answer became the anchor", 5_010, derived);
+        assertEquals(1, transport.callCount);
+    }
+
+    /**
+     * Several requests refused at once each discard the anchor and each ask again, and the
+     * sharing that makes concurrent first readers one request makes these one too.
+     */
+    @Test
+    fun concurrentReadsAfterADiscardShareOneResynchronization() = runBlocking {
+        val transport = ScriptedTransport(
+            listOf(answer(timeResponse(1_000)), answer(timeResponse(2_000))),
+            holdMillis = 50
+        );
+        val clock = SpfnProcessServerClock(FakeMonotonicClock(10)) { generatedClockOperation() };
+
+        clock.nowMillis(transport, baseUrl, 1_000);
+        clock.discardAnchor(baseUrl);
+        clock.discardAnchor(baseUrl);
+
+        val values = listOf(
+            async { clock.nowMillis(transport, baseUrl, 1_000) },
+            async { clock.nowMillis(transport, baseUrl, 1_000) }
+        ).awaitAll();
+
+        assertEquals(listOf(2_000L, 2_000L), values);
+        assertEquals("one synchronization to anchor, and one shared re-synchronization", 2, transport.callCount);
     }
 
     private fun answer(body: String): ScriptedTransport.Outcome =

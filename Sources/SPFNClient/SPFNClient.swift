@@ -7,7 +7,8 @@
 // that do not exist yet.
 //
 // Retry is off. The one exception is an auth refusal, which re-opens the session and
-// re-sends once, because that is the only failure where the client knows what changed and
+// re-sends once — and, when the refusal is PROOF_EXPIRED, re-anchors the proof clock
+// first — because that is the only failure where the client knows what changed and
 // knows the request was never applied. A transport failure is not retried: this layer
 // cannot tell a request that never arrived from one that arrived and whose answer was
 // lost, and re-sending the second kind is how a client applies an operation twice.
@@ -86,7 +87,19 @@ public struct SPFNClient: Sendable
             break
         }
 
-        let first = try await attempt(call.operation, canonicalBody: canonicalBody)
+        // A handshake refused for an expired proof never reaches `read`: `attempt` opens
+        // the session, so the refusal comes out of the call below rather than out of a
+        // response. It buys the same one retry, for the same reason — the anchor the
+        // timestamp came from is the thing that was wrong, and it has just been replaced.
+        let first: Attempt
+        do
+        {
+            first = try await attempt(call.operation, canonicalBody: canonicalBody)
+        }
+        catch SPFNClientError.auth(let failure) where failure.code == .proofExpired
+        {
+            return try await retryOnceAfterResynchronizing(call, canonicalBody: canonicalBody)
+        }
 
         do
         {
@@ -197,7 +210,37 @@ public struct SPFNClient: Sendable
             throw SPFNClientError.transport(.cancelled)
         }
 
+        // An expired proof is not a stale session: the timestamp was derived from an
+        // anchor that has stopped being true, and re-opening a session against the same
+        // anchor mints the same doomed timestamp. So the anchor goes first, and the
+        // re-handshake below then runs on a server time fetched again.
+        if failure.code == .proofExpired
+        {
+            await session.resynchronizeClock()
+        }
+
         await session.invalidate(staleSessionID: sessionID)
+        let second = try await attempt(call.operation, canonicalBody: canonicalBody)
+        return try Self.read(second.response, for: call)
+    }
+
+    /// Re-anchors the proof clock and opens the session once more.
+    ///
+    /// Straight-line for the same reason as `retryOnce`: the second attempt has no path
+    /// back into either function, so a refusal it meets is classified and thrown rather
+    /// than bought another try — whatever the refusal turns out to be.
+    private func retryOnceAfterResynchronizing<Request, Response>(
+        _ call: SPFNCall<Request, Response>,
+        canonicalBody: [UInt8]
+    ) async throws -> Response
+    {
+        guard !Task.isCancelled
+        else
+        {
+            throw SPFNClientError.transport(.cancelled)
+        }
+
+        await session.resynchronizeClock()
         let second = try await attempt(call.operation, canonicalBody: canonicalBody)
         return try Self.read(second.response, for: call)
     }
@@ -348,6 +391,11 @@ public struct SPFNClient: Sendable
         }
         switch failure
         {
+        // Unreachable from here: a session that failed this check was never created, so
+        // no client holds one. Named rather than defaulted, so adding a session error
+        // later is a compile error in this switch instead of a silent passthrough.
+        case .untrustedBaseURL:
+            return failure
         case .handshakeRejected(let httpStatus, let envelope):
             return refusal(envelope, httpStatus: httpStatus)
         case .malformedResponse(let reason) where reason == SPFNSessionError.notAnErrorEnvelope:

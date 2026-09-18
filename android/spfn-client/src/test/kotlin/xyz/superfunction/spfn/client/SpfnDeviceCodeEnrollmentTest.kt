@@ -495,15 +495,16 @@ class SpfnDeviceCodeEnrollmentTest
 
     /**
      * D20: the other half. A clock that refuses to synchronize at all is not a lost fetch
-     * — an untrusted base URL and a contract with no usable clock operation answer the
-     * same on every retry — so retrying would poll until the code expired against a
-     * deadline this device can never read. It ends the wait and deletes the key.
+     * — a contract with no usable clock operation and a monotonic source that moved
+     * backwards answer the same on every retry — so retrying would poll until the code
+     * expired against a deadline this device can never read. It ends the wait and deletes
+     * the key.
      */
     @Test
     fun d20_aClockSynchronizationRefusalEndsTheWaitWithoutAPoll() = runBlocking {
         val refusals = listOf(
-            SpfnClockSynchronizationException.UntrustedBaseUrl(),
-            SpfnClockSynchronizationException.ContractIncompatible()
+            SpfnClockSynchronizationException.ContractIncompatible(),
+            SpfnClockSynchronizationException.MonotonicClockInvalid()
         );
         for (refusal in refusals)
         {

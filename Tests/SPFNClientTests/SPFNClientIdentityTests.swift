@@ -331,7 +331,7 @@ final class SPFNClientIdentityTests: XCTestCase
     {
         SPFNClient(
             transport: transport,
-            session: SPFNSession(
+            session: try SPFNSession(
                 transport: transport,
                 keyProvider: try ExecuteFixtures.syntheticProvider(clientID: SessionFixtureValues.clientID),
                 baseURL: baseURL,

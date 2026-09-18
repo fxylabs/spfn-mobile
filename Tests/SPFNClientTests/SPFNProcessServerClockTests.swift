@@ -14,7 +14,7 @@ final class SPFNProcessServerClockTests: XCTestCase
         ])
         let monotonic = FakeMonotonicClock(10)
         let clock = SPFNProcessServerClock(monotonicClock: monotonic)
-        let session = SPFNSession(
+        let session = try SPFNSession(
             transport: transport,
             keyProvider: SPFNSoftwareKeyProvider(
                 clientID: SessionFixtureValues.clientID,
@@ -61,7 +61,7 @@ final class SPFNProcessServerClockTests: XCTestCase
         let transport = ScriptedTransport([
             .failure(SPFNTransportError.connectivity("offline")),
         ])
-        let session = SPFNSession(
+        let session = try SPFNSession(
             transport: transport,
             keyProvider: SPFNSoftwareKeyProvider(
                 clientID: SessionFixtureValues.clientID,
@@ -205,26 +205,78 @@ final class SPFNProcessServerClockTests: XCTestCase
         XCTAssertEqual(calls, 0)
     }
 
-    func testNonLoopbackCleartextIsRejectedBeforeTheNetwork() async throws
-    {
-        let transport = ScriptedTransport([])
-        let clock = SPFNProcessServerClock(monotonicClock: FakeMonotonicClock(10))
+    // MARK: - Discarding an anchor
 
-        do
-        {
-            _ = try await clock.nowMillis(
-                transport: transport,
-                baseURL: "http://example.invalid",
-                timeoutMillis: 1_000
-            )
-            XCTFail("expected an untrusted base URL")
-        }
-        catch
-        {
-            XCTAssertEqual(error as? SPFNClockSynchronizationError, .untrustedBaseURL)
-        }
+    /// C1. An anchor that has stopped being true is discarded, and the next read pays for
+    /// a fresh one rather than deriving from the old.
+    func testAReadAfterADiscardedAnchorSynchronizesAgain() async throws
+    {
+        let monotonic = FakeMonotonicClock(10)
+        let transport = ScriptedTransport([
+            .success(.json(200, timeResponse(1_000))),
+            .success(.json(200, timeResponse(9_000))),
+        ])
+        let clock = SPFNProcessServerClock(monotonicClock: monotonic)
+
+        let anchored = try await clock.nowMillis(transport: transport, baseURL: baseURL, timeoutMillis: 1_000)
+        await clock.discardAnchor(baseURL: baseURL)
+        monotonic.set(30)
+        let resynchronized = try await clock.nowMillis(transport: transport, baseURL: baseURL, timeoutMillis: 1_000)
+
+        XCTAssertEqual(anchored, 1_000)
+        XCTAssertEqual(resynchronized, 9_000, "the server's new answer, not the old one advanced")
         let calls = await transport.callCount
-        XCTAssertEqual(calls, 0)
+        XCTAssertEqual(calls, 2)
+    }
+
+    /// C2. A discard that lands while a synchronization is in flight leaves it alone: its
+    /// answer is a server time paired with the instant it arrived, so it is a correct
+    /// anchor whenever it lands, and dropping it would only cost the request.
+    func testADiscardDuringASynchronizationLeavesTheAnswerAsTheAnchor() async throws
+    {
+        let url = baseURL
+        let monotonic = FakeMonotonicClock(10)
+        let clock = SPFNProcessServerClock(monotonicClock: monotonic)
+        let transport = ScriptedTransport(
+            [.success(.json(200, timeResponse(5_000)))],
+            onCall: { _ in await clock.discardAnchor(baseURL: url) }
+        )
+
+        let anchored = try await clock.nowMillis(transport: transport, baseURL: url, timeoutMillis: 1_000)
+        monotonic.set(20)
+        let derived = try await clock.nowMillis(transport: transport, baseURL: url, timeoutMillis: 1_000)
+
+        XCTAssertEqual(anchored, 5_000)
+        XCTAssertEqual(derived, 5_010, "the in-flight answer became the anchor")
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 1)
+    }
+
+    /// Several requests refused at once each discard the anchor and each ask again, and
+    /// the sharing that makes concurrent first readers one request makes these one too.
+    func testConcurrentReadsAfterADiscardShareOneResynchronization() async throws
+    {
+        let transport = ScriptedTransport(
+            [
+                .success(.json(200, timeResponse(1_000))),
+                .success(.json(200, timeResponse(2_000))),
+            ],
+            holdNanos: 50_000_000
+        )
+        let clock = SPFNProcessServerClock(monotonicClock: FakeMonotonicClock(10))
+        let url = baseURL
+
+        _ = try await clock.nowMillis(transport: transport, baseURL: url, timeoutMillis: 1_000)
+        await clock.discardAnchor(baseURL: url)
+        await clock.discardAnchor(baseURL: url)
+
+        async let first = clock.nowMillis(transport: transport, baseURL: url, timeoutMillis: 1_000)
+        async let second = clock.nowMillis(transport: transport, baseURL: url, timeoutMillis: 1_000)
+        let values = try await (first, second)
+
+        XCTAssertEqual([values.0, values.1], [2_000, 2_000])
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 2, "one synchronization to anchor, and one shared re-synchronization")
     }
 
     private func timeResponse(_ millis: Int64) -> String

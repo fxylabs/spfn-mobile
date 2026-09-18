@@ -9,7 +9,6 @@
 package xyz.superfunction.spfn.client
 
 import android.os.SystemClock
-import java.net.URI
 import java.security.SecureRandom
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -38,10 +37,30 @@ class SpfnSystemClock : SpfnClock
     override fun nowMillis(): Long = System.currentTimeMillis()
 }
 
-/** A process-local, fail-closed source of clientProofV1 timestamps. */
-fun interface SpfnProofClock
+/**
+ * A process-local, fail-closed source of clientProofV1 timestamps.
+ *
+ * The base URL a read is given has already been checked by the session that owns the
+ * clock: a session cannot be created against anything but https or loopback http, so
+ * there is no cleartext rule to restate here.
+ */
+interface SpfnProofClock
 {
     suspend fun nowMillis(transport: SpfnTransport, baseUrl: String, timeoutMillis: Long): Long
+
+    /**
+     * Forgets whatever anchors [baseUrl], so the next read synchronizes again.
+     *
+     * The one way out of an anchor that has stopped being true — a device that slept
+     * through the server's replay window, or a server whose own clock moved. Without it
+     * an anchor lasts for the life of the process and every proof minted from it is
+     * refused for the same reason as the last.
+     *
+     * A synchronization already in flight is left alone. Its answer is a server time
+     * paired with the instant it arrived, so it is a correct anchor whenever it lands,
+     * and abandoning it would only cost the request that is about to answer.
+     */
+    suspend fun discardAnchor(baseUrl: String)
 }
 
 /** Fixed, non-sensitive reasons the proof clock could not synchronize or advance. */
@@ -49,9 +68,6 @@ sealed class SpfnClockSynchronizationException(message: String) : IllegalStateEx
 {
     class ContractIncompatible :
         SpfnClockSynchronizationException("the contract does not declare a usable clock operation")
-
-    class UntrustedBaseUrl :
-        SpfnClockSynchronizationException("clock synchronization requires HTTPS or loopback HTTP")
 
     class RequestFailed :
         SpfnClockSynchronizationException("the clock synchronization request failed")
@@ -71,6 +87,12 @@ internal fun interface SpfnMonotonicClock
     fun nowNanos(): Long
 }
 
+/**
+ * The platform's sleep-inclusive monotonic source: `elapsedRealtime` counts through deep
+ * sleep, and `uptimeMillis` and `System.nanoTime` do not, so only the first derives a
+ * proof timestamp a device still holds after it slept. SPFNClock.swift reads Darwin's
+ * `CLOCK_MONOTONIC_RAW` for the same reason.
+ */
 internal object SpfnSystemMonotonicClock : SpfnMonotonicClock
 {
     override fun nowNanos(): Long = SystemClock.elapsedRealtimeNanos()
@@ -99,6 +121,11 @@ class SpfnProcessServerClock internal constructor(
     private val inFlight = mutableMapOf<String, CompletableDeferred<Anchor>>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    override suspend fun discardAnchor(baseUrl: String)
+    {
+        mutex.withLock { anchors.remove(baseUrl.trimEnd('/')) };
+    }
+
     override suspend fun nowMillis(transport: SpfnTransport, baseUrl: String, timeoutMillis: Long): Long
     {
         val key = baseUrl.trimEnd('/');
@@ -106,10 +133,6 @@ class SpfnProcessServerClock internal constructor(
             anchors[key]?.let { return derivedTime(it) };
             inFlight[key]?.let { return@withLock it };
 
-            if (!isTrusted(key))
-            {
-                throw SpfnClockSynchronizationException.UntrustedBaseUrl();
-            }
             val operation = operationResolver()
                 ?: throw SpfnClockSynchronizationException.ContractIncompatible();
             if (operation.authProfile != "none" || operation.requiresSession)
@@ -204,25 +227,6 @@ class SpfnProcessServerClock internal constructor(
             throw SpfnClockSynchronizationException.ClockOverflow();
         }
         return anchor.serverTimeMillis + elapsed;
-    }
-
-    private fun isTrusted(baseUrl: String): Boolean
-    {
-        val uri = try
-        {
-            URI(baseUrl);
-        }
-        catch (_: IllegalArgumentException)
-        {
-            return false;
-        };
-        val scheme = uri.scheme?.lowercase() ?: return false;
-        val host = uri.host?.lowercase() ?: return false;
-        if (scheme == "https")
-        {
-            return true;
-        }
-        return scheme == "http" && (host == "localhost" || host == "::1" || host.startsWith("127."));
     }
 
     companion object

@@ -22,9 +22,43 @@ class FakeClock(millis: Long) : SpfnClock, SpfnProofClock
 
     override suspend fun nowMillis(transport: SpfnTransport, baseUrl: String, timeoutMillis: Long): Long = millis
 
+    /** Nothing anchors this clock, so there is nothing to discard. */
+    override suspend fun discardAnchor(baseUrl: String) = Unit
+
     fun set(value: Long)
     {
         millis = value;
+    }
+}
+
+/**
+ * A proof clock with the shipped one's anchor and none of its network.
+ *
+ * The retry suite asks how many times a call had to go and fetch `core.time`, which is
+ * only a number if the anchor is modelled: a clock that answers every read without one
+ * cannot tell a derived timestamp from a freshly synchronized one.
+ */
+class AnchoringProofClock(private val millis: Long) : SpfnProofClock
+{
+    private var anchored = false
+    private var recorded = 0
+
+    /** How many times a read had to synchronize rather than derive. */
+    val synchronizations: Int get() = synchronized(this) { recorded }
+
+    override suspend fun nowMillis(transport: SpfnTransport, baseUrl: String, timeoutMillis: Long): Long =
+        synchronized(this) {
+            if (!anchored)
+            {
+                anchored = true;
+                recorded += 1;
+            }
+            millis;
+        }
+
+    override suspend fun discardAnchor(baseUrl: String)
+    {
+        synchronized(this) { anchored = false };
     }
 }
 
@@ -62,6 +96,9 @@ class ScriptedProofClock(
         }
         return millis;
     }
+
+    /** Nothing anchors this clock, so there is nothing to discard. */
+    override suspend fun discardAnchor(baseUrl: String) = Unit
 }
 
 /**

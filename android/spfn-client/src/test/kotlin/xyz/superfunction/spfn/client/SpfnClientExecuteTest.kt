@@ -47,7 +47,7 @@ class SpfnClientExecuteTest
 
     private fun session(
         transport: SpfnTransport,
-        clock: FakeClock = FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS),
+        clock: SpfnProofClock = FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS),
         nonces: List<String> = emptyList(),
         clientId: String = SessionFixtureValues.CLIENT_ID
     ): SpfnSession = SpfnSession(
@@ -60,7 +60,7 @@ class SpfnClientExecuteTest
 
     private fun client(
         transport: SpfnTransport,
-        clock: FakeClock = FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS),
+        clock: SpfnProofClock = FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS),
         nonces: List<String> = emptyList(),
         clientId: String = SessionFixtureValues.CLIENT_ID,
         timeoutMillis: Long = 15_000
@@ -78,6 +78,12 @@ class SpfnClientExecuteTest
 
     private fun header(name: String, request: SpfnTransportRequest): String? =
         request.headers.firstOrNull { it.first == name }?.second
+
+    private fun operationCalls(transport: ScriptedTransport): Int =
+        transport.received.count { !it.url.endsWith(SpfnGeneratedOperations.authClientProofHandshake.path) }
+
+    private fun handshakeCalls(transport: ScriptedTransport): Int =
+        transport.received.count { it.url.endsWith(SpfnGeneratedOperations.authClientProofHandshake.path) }
 
     // ---- one path ----------------------------------------------------------
 
@@ -484,6 +490,182 @@ class SpfnClientExecuteTest
      * A handshake that is itself refused is surfaced. Re-opening a session in answer to a
      * refused attempt to open one is the loop this policy exists to not have.
      */
+    // ---- the retry that re-anchors the clock -------------------------------
+
+    /**
+     * R1. A proof refused as expired says the anchor the timestamp came from has stopped
+     * being true — a device that slept through the replay window is the case this exists
+     * for — so the anchor is discarded and the one retry runs on a re-fetched server time.
+     */
+    @Test
+    fun anExpiredProofResynchronizesTheClockBeforeTheOneRetry() = runBlocking {
+        val clock = AnchoringProofClock(SessionFixtureValues.ISSUED_AT_MILLIS);
+        val transport = ScriptedTransport(
+            listOf(
+                handshakeAnswer(),
+                answer(ExecuteFixtures.errorEnvelope("PROOF_EXPIRED"), statusCode = 401),
+                handshakeAnswer(),
+                answer(ExecuteFixtures.ECHO_RESPONSE_BODY)
+            )
+        );
+        val subject = client(transport, clock);
+
+        assertEquals(ExecuteFixtures.ECHO_RESPONSE, subject.execute(ExecuteCalls.ECHO, ExecuteFixtures.ECHO_REQUEST));
+        assertEquals("the discarded anchor was fetched again", 2, clock.synchronizations);
+        assertEquals("one request, refused, and one re-sent", 2, operationCalls(transport));
+    }
+
+    /**
+     * R2. The second attempt is classified and thrown, whatever it says. Re-anchoring is
+     * part of the one retry rather than a reason for another.
+     */
+    @Test
+    fun aSecondExpiredProofSurfacesInsteadOfResynchronizingAgain() = runBlocking {
+        val clock = AnchoringProofClock(SessionFixtureValues.ISSUED_AT_MILLIS);
+        val transport = ScriptedTransport(
+            listOf(
+                handshakeAnswer(),
+                answer(ExecuteFixtures.errorEnvelope("PROOF_EXPIRED"), statusCode = 401),
+                handshakeAnswer(),
+                answer(ExecuteFixtures.errorEnvelope("PROOF_EXPIRED"), statusCode = 401)
+            )
+        );
+        val subject = client(transport, clock);
+
+        val thrown = failureOf { subject.execute(ExecuteCalls.ECHO, ExecuteFixtures.ECHO_REQUEST) };
+
+        assertTrue("got $thrown", thrown is SpfnClientError.Auth);
+        assertEquals(SpfnGeneratedErrorCode.PROOF_EXPIRED, (thrown as SpfnClientError.Auth).failure.code);
+        assertEquals("two requests, and then it stops", 2, operationCalls(transport));
+    }
+
+    /**
+     * R3. A revoked session is the other refusal, and the clock is not what was wrong with
+     * it: the anchor stands and the retry is the re-handshake it always was.
+     */
+    @Test
+    fun aRevokedSessionDoesNotResynchronizeTheClock() = runBlocking {
+        val clock = AnchoringProofClock(SessionFixtureValues.ISSUED_AT_MILLIS);
+        val transport = ScriptedTransport(
+            listOf(
+                handshakeAnswer(),
+                answer(ExecuteFixtures.errorEnvelope("SESSION_REVOKED"), statusCode = 401),
+                handshakeAnswer(),
+                answer(ExecuteFixtures.ECHO_RESPONSE_BODY)
+            )
+        );
+        val subject = client(transport, clock);
+
+        assertEquals(ExecuteFixtures.ECHO_RESPONSE, subject.execute(ExecuteCalls.ECHO, ExecuteFixtures.ECHO_REQUEST));
+        assertEquals("the anchor was never discarded", 1, clock.synchronizations);
+        assertEquals("one re-handshake, as before", 2, handshakeCalls(transport));
+    }
+
+    /**
+     * R4. The handshake mints a proof of its own, so it is refused first when the anchor is
+     * stale — and it is refused before any session exists to present. The re-anchoring
+     * branch therefore sits above the rule that a call presenting no session is not
+     * retried, or a slept device could never open a session again.
+     */
+    @Test
+    fun aRefusedHandshakeForAnExpiredProofResynchronizesAndOpensOnce() = runBlocking {
+        val clock = AnchoringProofClock(SessionFixtureValues.ISSUED_AT_MILLIS);
+        val transport = ScriptedTransport(
+            listOf(
+                answer(ExecuteFixtures.errorEnvelope("PROOF_EXPIRED"), statusCode = 401),
+                handshakeAnswer(),
+                answer(ExecuteFixtures.ECHO_RESPONSE_BODY)
+            )
+        );
+        val subject = client(transport, clock);
+
+        assertEquals(ExecuteFixtures.ECHO_RESPONSE, subject.execute(ExecuteCalls.ECHO, ExecuteFixtures.ECHO_REQUEST));
+        assertEquals(2, clock.synchronizations);
+        assertEquals("one refused handshake and one that opened", 2, handshakeCalls(transport));
+        assertEquals("the request went out once", 1, operationCalls(transport));
+    }
+
+    /**
+     * R5. The same straight line on the handshake path: the second refusal is thrown, and
+     * the request it was opening a session for is never sent.
+     */
+    @Test
+    fun aSecondRefusedHandshakeForAnExpiredProofSurfaces() = runBlocking {
+        val clock = AnchoringProofClock(SessionFixtureValues.ISSUED_AT_MILLIS);
+        val transport = ScriptedTransport(
+            listOf(
+                answer(ExecuteFixtures.errorEnvelope("PROOF_EXPIRED"), statusCode = 401),
+                answer(ExecuteFixtures.errorEnvelope("PROOF_EXPIRED"), statusCode = 401)
+            )
+        );
+        val subject = client(transport, clock);
+
+        val thrown = failureOf { subject.execute(ExecuteCalls.ECHO, ExecuteFixtures.ECHO_REQUEST) };
+
+        assertTrue("got $thrown", thrown is SpfnClientError.Auth);
+        assertEquals(SpfnGeneratedErrorCode.PROOF_EXPIRED, (thrown as SpfnClientError.Auth).failure.code);
+        assertEquals(2, handshakeCalls(transport));
+        assertEquals("no request is sent without a session", 0, operationCalls(transport));
+    }
+
+    /**
+     * R6. An unproven operation carries no proof, so an expired one is not what the server
+     * refused. It touches no clock and buys no retry, as before.
+     */
+    @Test
+    fun anUnprovenOperationRefusedAsExpiredIsNotRetriedOrResynchronized() = runBlocking {
+        val clock = AnchoringProofClock(SessionFixtureValues.ISSUED_AT_MILLIS);
+        val transport = ScriptedTransport(
+            listOf(answer(ExecuteFixtures.errorEnvelope("PROOF_EXPIRED"), statusCode = 401))
+        );
+        val subject = client(transport, clock);
+
+        val thrown = failureOf { subject.execute(ExecuteCalls.REGISTER, ExecuteFixtures.REGISTER_REQUEST) };
+
+        assertTrue("got $thrown", thrown is SpfnClientError.Auth);
+        assertEquals(SpfnGeneratedErrorCode.PROOF_EXPIRED, (thrown as SpfnClientError.Auth).failure.code);
+        assertEquals("the unproven path reads no clock at all", 0, clock.synchronizations);
+        assertEquals(1, transport.callCount);
+    }
+
+    /**
+     * R7. Cancellation still wins, and it wins before the anchor is touched: a retry nobody
+     * is waiting for should cost neither a request nor a `core.time` fetch.
+     */
+    @Test
+    fun cancellationBeforeTheResynchronizedRetrySendsNothingFurther() = runBlocking {
+        val running = CompletableDeferred<Job>();
+        val clock = AnchoringProofClock(SessionFixtureValues.ISSUED_AT_MILLIS);
+        val transport = ScriptedTransport(
+            listOf(
+                handshakeAnswer(),
+                answer(ExecuteFixtures.errorEnvelope("PROOF_EXPIRED"), statusCode = 401),
+                handshakeAnswer(),
+                answer(ExecuteFixtures.ECHO_RESPONSE_BODY)
+            ),
+            onCall = { call -> if (call == 2) running.await().cancel() }
+        );
+        val subject = client(transport, clock);
+
+        var thrown: Throwable? = null;
+        val job = launch {
+            try
+            {
+                subject.execute(ExecuteCalls.ECHO, ExecuteFixtures.ECHO_REQUEST);
+            }
+            catch (failure: Throwable)
+            {
+                thrown = failure;
+            }
+        };
+        running.complete(job);
+        job.join();
+
+        assertTrue("got $thrown", thrown is CancellationException);
+        assertEquals("the anchor was never discarded", 1, clock.synchronizations);
+        assertEquals("the re-handshake never happened", 2, transport.callCount);
+    }
+
     @Test
     fun aRefusedHandshakeIsSurfacedWithoutAnotherAttempt() = runBlocking {
         val transport = ScriptedTransport(

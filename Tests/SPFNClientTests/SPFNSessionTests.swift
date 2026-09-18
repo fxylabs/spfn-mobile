@@ -36,14 +36,25 @@ final class SPFNSessionTests: XCTestCase
         nonces: [String],
         clientID: String = SessionFixtureValues.clientID,
         keyProvider: SPFNSoftwareKeyProvider? = nil
-    ) -> SPFNSession
+    ) throws -> SPFNSession
     {
-        SPFNSession(
+        try SPFNSession(
             transport: transport,
             keyProvider: keyProvider ?? self.keyProvider(clientID: clientID),
             baseURL: baseURL,
             clock: clock,
             nonceGenerator: ScriptedNonceGenerator(nonces)
+        )
+    }
+
+    private func makeSession(baseURL: String) throws -> SPFNSession
+    {
+        try SPFNSession(
+            transport: ScriptedTransport([]),
+            keyProvider: keyProvider(),
+            baseURL: baseURL,
+            clock: FakeClock(SessionFixtureValues.issuedAtMillis),
+            nonceGenerator: ScriptedNonceGenerator([])
         )
     }
 
@@ -54,12 +65,67 @@ final class SPFNSessionTests: XCTestCase
         .success(.json(200, SessionFixtureValues.handshakeResponse(expiringAt: millis)))
     }
 
+    // MARK: - The base URL
+
+    /// D21. Cleartext to anywhere but loopback is refused where a session is created,
+    /// which is the one place every request passes through: the proven path proves
+    /// against this URL, the unproven enrolment path sends to it, and the clock
+    /// synchronizes against it. `10.0.2.2` is an emulator's route through the host's
+    /// network stack rather than loopback, so it is refused with everything else.
+    func testASessionIsRefusedForCleartextToAnythingButLoopback() throws
+    {
+        let refused = [
+            "http://api.example.com",
+            "http://10.0.2.2:8080",
+            "ftp://example.invalid",
+            "/v1",
+            "",
+        ]
+
+        for url in refused
+        {
+            XCTAssertThrowsError(try makeSession(baseURL: url), url)
+            {
+                XCTAssertEqual($0 as? SPFNSessionError, .untrustedBaseURL, url)
+            }
+        }
+    }
+
+    func testASessionIsCreatedForHttpsAndForLoopbackCleartext() throws
+    {
+        let allowed = [
+            "https://api.example.com",
+            "http://localhost:8080",
+            "http://127.0.0.1",
+            "http://[::1]",
+        ]
+
+        for url in allowed
+        {
+            XCTAssertNoThrow(try makeSession(baseURL: url), url)
+        }
+    }
+
+    /// The URL can carry a nonce in its query, so the refusal names none of it — the
+    /// same rule the handshake refusal follows for the envelope.
+    func testTheRefusalCarriesNoPartOfTheURL() throws
+    {
+        let thrown = SPFNSessionError.untrustedBaseURL
+        var dumped = ""
+        dump(thrown, to: &dumped)
+
+        for rendered in ["\(thrown)", String(reflecting: thrown), thrown.description, dumped]
+        {
+            XCTAssertEqual(rendered.contains("://"), false, rendered)
+        }
+    }
+
     // MARK: - The handshake request
 
     func testHandshakeSendsOneRequestToTheContractPath() async throws
     {
         let transport = ScriptedTransport([handshakeAnswer()])
-        let subject = session(
+        let subject = try session(
             transport: transport,
             clock: FakeClock(SessionFixtureValues.issuedAtMillis),
             nonces: ["nonce-000000000001"]
@@ -80,7 +146,7 @@ final class SPFNSessionTests: XCTestCase
     func testHandshakeCarriesNoSessionHeader() async throws
     {
         let transport = ScriptedTransport([handshakeAnswer()])
-        let subject = session(
+        let subject = try session(
             transport: transport,
             clock: FakeClock(SessionFixtureValues.issuedAtMillis),
             nonces: ["nonce-000000000001"]
@@ -100,7 +166,7 @@ final class SPFNSessionTests: XCTestCase
     {
         let transport = ScriptedTransport([handshakeAnswer()])
         let provider = keyProvider()
-        let subject = session(
+        let subject = try session(
             transport: transport,
             clock: FakeClock(SessionFixtureValues.issuedAtMillis),
             nonces: ["nonce-000000000001"],
@@ -138,7 +204,7 @@ final class SPFNSessionTests: XCTestCase
     func testEveryProofCarriesAFreshNonce() async throws
     {
         let transport = ScriptedTransport([handshakeAnswer()])
-        let subject = session(
+        let subject = try session(
             transport: transport,
             clock: FakeClock(SessionFixtureValues.issuedAtMillis),
             nonces: []
@@ -182,7 +248,7 @@ final class SPFNSessionTests: XCTestCase
     {
         let transport = ScriptedTransport([handshakeAnswer()])
         let clock = FakeClock(SessionFixtureValues.issuedAtMillis)
-        let subject = session(transport: transport, clock: clock, nonces: ["n1", "n2"])
+        let subject = try session(transport: transport, clock: clock, nonces: ["n1", "n2"])
 
         _ = try await subject.ensureSession()
         _ = try await subject.ensureSession()
@@ -197,7 +263,7 @@ final class SPFNSessionTests: XCTestCase
         let renewed = SessionFixtureValues.expiresAtMillis + 300_000
         let transport = ScriptedTransport([handshakeAnswer(), handshakeAnswer(expiringAt: renewed)])
         let clock = FakeClock(SessionFixtureValues.issuedAtMillis)
-        let subject = session(transport: transport, clock: clock, nonces: ["n1", "n2"])
+        let subject = try session(transport: transport, clock: clock, nonces: ["n1", "n2"])
 
         _ = try await subject.ensureSession()
         clock.set(SessionFixtureValues.expiresAtMillis)
@@ -218,7 +284,7 @@ final class SPFNSessionTests: XCTestCase
             handshakeAnswer(expiringAt: SessionFixtureValues.expiresAtMillis + 300_000),
         ])
         let clock = FakeClock(SessionFixtureValues.issuedAtMillis)
-        let subject = session(transport: transport, clock: clock, nonces: ["n1", "n2"])
+        let subject = try session(transport: transport, clock: clock, nonces: ["n1", "n2"])
 
         _ = try await subject.ensureSession()
 
@@ -237,7 +303,7 @@ final class SPFNSessionTests: XCTestCase
     {
         let transport = ScriptedTransport([handshakeAnswer()], holdNanos: 40_000_000)
         let clock = FakeClock(SessionFixtureValues.issuedAtMillis)
-        let subject = session(transport: transport, clock: clock, nonces: [])
+        let subject = try session(transport: transport, clock: clock, nonces: [])
 
         let states = try await withThrowingTaskGroup(of: SPFNSessionState.self) { group in
             for _ in 0 ..< 16
@@ -262,7 +328,7 @@ final class SPFNSessionTests: XCTestCase
     {
         let transport = ScriptedTransport([handshakeAnswer(), handshakeAnswer()])
         let clock = FakeClock(SessionFixtureValues.issuedAtMillis)
-        let subject = session(transport: transport, clock: clock, nonces: ["n1", "n2"])
+        let subject = try session(transport: transport, clock: clock, nonces: ["n1", "n2"])
 
         _ = try await subject.ensureSession()
         await subject.invalidate()
@@ -280,7 +346,7 @@ final class SPFNSessionTests: XCTestCase
     {
         let transport = ScriptedTransport([handshakeAnswer()])
         let clock = FakeClock(SessionFixtureValues.issuedAtMillis)
-        let subject = session(transport: transport, clock: clock, nonces: ["n1", "n2"])
+        let subject = try session(transport: transport, clock: clock, nonces: ["n1", "n2"])
 
         let headers = try await subject.proofHeaders(
             operation: SPFNGeneratedOperations.echoSend,
@@ -296,7 +362,7 @@ final class SPFNSessionTests: XCTestCase
     {
         let transport = ScriptedTransport([handshakeAnswer()])
         let clock = FakeClock(SessionFixtureValues.issuedAtMillis)
-        let subject = session(transport: transport, clock: clock, nonces: ["n1"])
+        let subject = try session(transport: transport, clock: clock, nonces: ["n1"])
 
         let headers = try await subject.proofHeaders(
             operation: SPFNGeneratedOperations.authClientProofHandshake,
@@ -311,7 +377,7 @@ final class SPFNSessionTests: XCTestCase
     {
         let transport = ScriptedTransport([handshakeAnswer()])
         let clock = FakeClock(SessionFixtureValues.issuedAtMillis)
-        let subject = session(transport: transport, clock: clock, nonces: ["n1", "n2"])
+        let subject = try session(transport: transport, clock: clock, nonces: ["n1", "n2"])
 
         let headers = try await subject.proofHeaders(
             operation: SPFNGeneratedOperations.itemsList,
@@ -328,7 +394,7 @@ final class SPFNSessionTests: XCTestCase
     {
         let body = #"{"error":{"code":"PROOF_INVALID","message":"test vector for PROOF_INVALID","requestId":"req-proof-invalid"}}"#
         let transport = ScriptedTransport([.success(.json(401, body))])
-        let subject = session(
+        let subject = try session(
             transport: transport,
             clock: FakeClock(SessionFixtureValues.issuedAtMillis),
             nonces: ["n1"]
@@ -367,7 +433,7 @@ final class SPFNSessionTests: XCTestCase
         let markers = ["MARKER_CODE_7f31", "session-marker-message-a4c2", "req-marker-b8e5"]
         let body = #"{"error":{"code":"MARKER_CODE_7f31","message":"session-marker-message-a4c2","requestId":"req-marker-b8e5"}}"#
         let transport = ScriptedTransport([.success(.json(401, body))])
-        let subject = session(
+        let subject = try session(
             transport: transport,
             clock: FakeClock(SessionFixtureValues.issuedAtMillis),
             nonces: ["n1"]
@@ -441,7 +507,7 @@ final class SPFNSessionTests: XCTestCase
         for body in [#"{"sessionId":"s"}"#, #"{"nope":1}"#, "not json at all", ""]
         {
             let transport = ScriptedTransport([.success(.json(200, body))])
-            let subject = session(
+            let subject = try session(
                 transport: transport,
                 clock: FakeClock(SessionFixtureValues.issuedAtMillis),
                 nonces: ["n1"]
@@ -467,7 +533,7 @@ final class SPFNSessionTests: XCTestCase
         for body in [#"{"error":{"code":"X"}}"#, "<html>gateway</html>", ""]
         {
             let transport = ScriptedTransport([.success(.json(502, body))])
-            let subject = session(
+            let subject = try session(
                 transport: transport,
                 clock: FakeClock(SessionFixtureValues.issuedAtMillis),
                 nonces: ["n1"]
@@ -504,7 +570,7 @@ final class SPFNSessionTests: XCTestCase
         for body in bodies
         {
             let transport = ScriptedTransport([.success(.json(200, body))])
-            let subject = session(
+            let subject = try session(
                 transport: transport,
                 clock: FakeClock(SessionFixtureValues.issuedAtMillis),
                 nonces: ["n1"]
@@ -527,7 +593,7 @@ final class SPFNSessionTests: XCTestCase
     func testAControlCharacterInAProofFieldStaysAnAuthError() async throws
     {
         let transport = ScriptedTransport([handshakeAnswer()])
-        let subject = session(
+        let subject = try session(
             transport: transport,
             clock: FakeClock(SessionFixtureValues.issuedAtMillis),
             nonces: ["n1"],
@@ -550,7 +616,7 @@ final class SPFNSessionTests: XCTestCase
     func testATransportFailureStaysATransportError() async throws
     {
         let transport = ScriptedTransport([.failure(SPFNTransportError.timedOut)])
-        let subject = session(
+        let subject = try session(
             transport: transport,
             clock: FakeClock(SessionFixtureValues.issuedAtMillis),
             nonces: ["n1"]
@@ -575,7 +641,7 @@ final class SPFNSessionTests: XCTestCase
             .failure(SPFNTransportError.timedOut),
             handshakeAnswer(),
         ])
-        let subject = session(
+        let subject = try session(
             transport: transport,
             clock: FakeClock(SessionFixtureValues.issuedAtMillis),
             nonces: ["n1", "n2"]
@@ -598,7 +664,7 @@ final class SPFNSessionTests: XCTestCase
     func testASignerFailurePropagatesAndNothingIsSent() async throws
     {
         let transport = ScriptedTransport([handshakeAnswer()])
-        let subject = SPFNSession(
+        let subject = try SPFNSession(
             transport: transport,
             keyProvider: ThrowingKeyProvider(),
             baseURL: baseURL,

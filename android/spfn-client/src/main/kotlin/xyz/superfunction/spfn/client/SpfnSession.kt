@@ -10,6 +10,7 @@
 
 package xyz.superfunction.spfn.client
 
+import java.net.URI
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -45,7 +46,7 @@ class SpfnSessionState(
 }
 
 /**
- * The two ways opening a session can fail on this layer.
+ * The three ways a session can fail on this layer: one at creation, two at the handshake.
  *
  * Everything else passes through unchanged: a [SpfnTransportError] stays a transport
  * error and a `SpfnAuthException` stays an auth failure. Wrapping them here would erase
@@ -53,6 +54,16 @@ class SpfnSessionState(
  */
 sealed class SpfnSessionError(message: String) : IllegalStateException(message)
 {
+    /**
+     * The base URL was neither https nor http to loopback, so no session was created.
+     *
+     * The message names no URL. A base URL can hold a nonce in its query, and a
+     * `Throwable`'s message is printed by `toString` and by every stack trace — the same
+     * rule [HandshakeRejected] follows for the envelope.
+     */
+    class UntrustedBaseUrl :
+        SpfnSessionError("the base URL must be https, or http to loopback")
+
     /**
      * The server refused the handshake and answered with a well-formed error envelope.
      *
@@ -109,14 +120,26 @@ class SpfnSession(
 )
 {
     /**
-     * The server every request goes to, without a trailing slash.
+     * The server every request goes to, without a trailing slash, and https or loopback.
      *
      * Public and immutable so the execute path above reads the base URL from the session
      * that signs against it rather than holding a second copy of it. Two copies is one too
      * many: a request proved against one host and sent to another is a 401 nobody can
      * explain from the call site.
+     *
+     * Checked once, here, because this is the one place every request passes through: the
+     * proven path proves against it, the unproven enrolment path sends to it, and the
+     * clock synchronizes against it. A check in any of the three would leave the other two.
      */
     val baseUrl: String = baseUrl.trimEnd('/')
+
+    init
+    {
+        if (!isTrusted(this.baseUrl))
+        {
+            throw SpfnSessionError.UntrustedBaseUrl();
+        }
+    }
 
     private val mutex = Mutex()
     private var state: SpfnSessionState? = null
@@ -234,6 +257,18 @@ class SpfnSession(
         );
     }
 
+    /**
+     * Discards the proof clock's anchor for this server, so the next proof is minted
+     * against a server time fetched again rather than derived from the old one.
+     *
+     * The session owns the clock, so the execute path above asks the session rather than
+     * holding a second reference to something it does not otherwise touch.
+     */
+    suspend fun resynchronizeClock()
+    {
+        clock.discardAnchor(baseUrl);
+    }
+
     /** Discards the held session and abandons any handshake still in flight. */
     suspend fun invalidate()
     {
@@ -314,6 +349,43 @@ class SpfnSession(
             headers.add(SpfnWireHeaders.SESSION to sessionId);
         }
         return headers;
+    }
+
+    /**
+     * https anywhere, http to loopback only (D21).
+     *
+     * An emulator's `10.0.2.2` is not loopback and is refused with everything else: it is
+     * a route through the host's network stack, so a clock or an enrolment sent to it is
+     * on the wire. The harness gives every Android target an `adb reverse` route to
+     * `127.0.0.1` for that reason.
+     */
+    private fun isTrusted(baseUrl: String): Boolean
+    {
+        val uri = try
+        {
+            URI(baseUrl);
+        }
+        catch (_: IllegalArgumentException)
+        {
+            return false;
+        };
+        val scheme = uri.scheme?.lowercase() ?: return false;
+        val host = uri.host?.lowercase() ?: return false;
+        if (scheme == "https")
+        {
+            return true;
+        }
+        return scheme == "http" && isLoopback(host);
+    }
+
+    /**
+     * The brackets are stripped first: `java.net.URI` keeps them around an IPv6 literal
+     * and Foundation does not, and `http://[::1]` has to be the same answer on both.
+     */
+    private fun isLoopback(host: String): Boolean
+    {
+        val bare = if (host.startsWith("[") && host.endsWith("]")) host.substring(1, host.length - 1) else host;
+        return bare == "localhost" || bare == "::1" || bare.startsWith("127.");
     }
 
     private sealed interface Claim

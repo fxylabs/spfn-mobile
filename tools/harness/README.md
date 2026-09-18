@@ -162,14 +162,17 @@ loopback and is never exposed to the network.
 
 **Why not the emulator's own alias.** An emulator reaches the host loopback at `10.0.2.2`
 too, and the runner used to rewrite the base URL to it. The SDK will not have that: it
-synchronizes its proof clock over plain HTTP to loopback only — `isTrusted` in
-`android/spfn-client/src/main/kotlin/xyz/superfunction/spfn/client/SpfnClock.kt` admits
-`https`, `localhost`, `::1` and `127.*`, and answers anything else with
-`SpfnClockSynchronizationException.UntrustedBaseUrl`. On the 2d run that split the cells
-in two: registration and resume passed, and every cell needing a proof came back
-`err:clockSynchronization:untrustedBaseURL`. The SDK's rule is the right one — a clock a
-plaintext third party can set is a clock an attacker can set — so the runner gives the
-emulator the same loopback route it gives a phone.
+speaks plain HTTP to loopback only — `isTrusted` in
+`android/spfn-client/src/main/kotlin/xyz/superfunction/spfn/client/SpfnSession.kt` admits
+`https`, `localhost`, `::1` and `127.*`, and refuses anything else at the moment a session
+is created, with `SpfnSessionError.UntrustedBaseUrl` (`err:session:untrustedBaseURL`). On
+the 2d run, when the check still sat on the proof clock, that split the cells in two:
+registration and resume passed, and every cell needing a proof came back
+`err:clockSynchronization:untrustedBaseURL`. The check moved to the session because the
+split was the bug — an enrolment carries no proof and went out over cleartext anyway — so
+today the same address refuses the whole app instead of half of it. The rule is the right
+one either way — a clock a plaintext third party can set is a clock an attacker can set —
+so the runner gives the emulator the same loopback route it gives a phone.
 
 **On Android, that address also has to be the one the build permits.** The app speaks
 plain HTTP to exactly one host — the one `spfn.harness.serverBaseUrl` names — and to
@@ -275,6 +278,19 @@ misreading. Attach the cable, and the entry turns `wired` and `connected`.
 Android has the same button for the same reason, and it answers in its own vocabulary:
 `strongBox` or `trustedEnvironment`. The two platforms name different hardware, so a flow
 that ever asserts on this asserts per platform.
+
+**The sleeping phone is the second thing only a real device settles.** A proof timestamp
+is the server's time plus monotonic elapsed time, and Darwin's uptime clock stops while
+the device sleeps — so a phone that slept past the server's 300 000 ms replay window used
+to mint proofs that far in the past and have every one of them refused. No unit test can
+suspend the machine it runs on, so this is a manual cell:
+
+1. Launch the harness against the reference server and run any one proven cell — it passes.
+2. Lock the screen and leave the phone alone for six minutes, longer than the replay window.
+3. Wake it and run one proven cell again.
+4. It must pass. A `err:auth:PROOF_EXPIRED` receipt means the monotonic source went back
+   to an uptime clock (docs/IMPLEMENTATION-PITFALLS.md P40).
+5. Write down the phone and the iOS version beside the reading, as with `custody=`.
 
 ## Sign-in, and why it is a launch argument
 
