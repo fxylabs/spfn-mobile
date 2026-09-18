@@ -447,6 +447,14 @@ object SpfnCanonicalJson
             return value;
         }
 
+        // The scan below is looser than JSON grammar on purpose: it swallows every byte a
+        // number could be made of — digits, `.`, `e`, `E`, `+`, `-` — and only then decides
+        // what the run was. Checking the grammar position by position would report whichever
+        // rule happened to be violated first, so `1.5e3` and `1e3.5` would answer with
+        // different codes depending on the order the rules were written in. Classifying the
+        // whole run instead keeps the code a function of the input, and which input reaches
+        // which code is pinned by Contracts/fixtures/canonical/rejects.json rather than by
+        // reading this loop.
         private fun readNumber(): SpfnCanonicalValue
         {
             val start = offset;

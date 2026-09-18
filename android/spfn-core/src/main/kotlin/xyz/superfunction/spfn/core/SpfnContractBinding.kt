@@ -16,11 +16,6 @@ data class SpfnContractBinding(
     val importedManifestSha256: String,
 
     /**
-     * The SemVer range this SDK declares support for, for display and diagnostics.
-     * `requireSupported` enforces this range; it does not parse this string, it derives
-     * the same bounds from the pinned version, and the validator asserts the two agree.
-     */
-    /**
      * The SemVer range the pinned contract declares, verbatim from the bundle. It is what
      * the contract says, not what this SDK will accept: [admittedRange] is the enforced
      * window, and the two differ when the pin is a pre-release.
