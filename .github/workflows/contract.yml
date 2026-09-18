@@ -1,33 +1,55 @@
-# STEP2-SCAFFOLD: NOT A GATE.
+# The contract gate. A required check: a pull request that reddens it does not merge.
 #
-# Manual-only. No checkout, no toolchain setup and no third-party action, because
-# pinning actions by commit SHA is still an open decision (D14) and an unpinned action
-# is worse than no action.
+# What it runs: `tools/ci/validate.sh`, which runs the offline validator and then judges
+# its output against tools/ci/validate-known-red.txt. That validator is where the contract
+# evidence lives — the pinned bundle's SHA-256 against Contracts/upstream.lock.json, the
+# lock's own claims against Contracts/upstream-provenance.json, the admitted SemVer window,
+# the wire mapping constants on both platforms, and the generated sources' cross-platform
+# agreement. So this file calls the validate script alone: the digest check is already
+# inside it, and a second implementation of it here would be a second thing to keep true.
 #
-# The checks it must run once it becomes real all exist locally today:
-#   sh tools/validate/validate.sh
-#   ./gradlew :contract-codegen:spfnCodegenVerify
-#   swift test --filter SPFNConformanceTests
-#   ./gradlew :spfn-auth:testDebugUnitTest
+# Where the rest of the contract evidence is checked, so nobody adds it twice:
+#   - `:contract-codegen:spfnCodegenVerify` — generated sources regenerate byte-identically
+#     — runs in android.yml, the job that already has the Gradle and Android toolchain.
+#   - `swift test --filter SPFNConformanceTests` is part of the whole Swift suite in
+#     swift.yml; the Kotlin conformance suite is part of `testDebugUnitTest` in android.yml.
 #
-# Still missing before this can gate anything:
-#   - a breaking-contract diff report against the previous contract version
-#   - a runner able to reach the SPFN primitives repository to re-verify the pinned
-#     export commit, which nothing in this repository does today
+# This job needs no toolchain at all — the validator is POSIX sh plus python3, both on the
+# image — which is why it is also the fastest signal on a pull request.
+#
+# What it deliberately does not run: a breaking-contract diff against the previous contract
+# version, and a re-verification of the pinned export against the SPFN primitives
+# repository. Neither exists yet, and neither is blocked by D2.
+#
+# Two failures are expected and admitted by name in tools/ci/validate-known-red.txt: the
+# device-receipt gate has been red on purpose since the 2026-09-02 re-pin to contract
+# 0.10.0, because the committed receipts were taken against 0.9.0. Clearing it needs two
+# real phones and a person, which D2 leaves outside CI. Any OTHER failure, and the
+# disappearance of either of those two, fails this job.
+#
+# Expected duration: under a minute — the validator takes 5 seconds on this repository's
+# development VM. timeout-minutes is 20, which is the "something hung" line.
 name: contract
 
 on:
-  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: contract-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  placeholder:
-    runs-on: ubuntu-latest
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - name: State repository status
-        run: |
-          echo "STEP2-SCAFFOLD: contract validation runs locally, not here."
-          echo "The bundle pinned in Contracts/upstream.lock.json is an SPFN primitives"
-          echo "export, verified offline against Contracts/upstream-provenance.json."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Offline validation, judged against the known-red list
+        run: sh tools/ci/validate.sh

@@ -1157,27 +1157,45 @@ else
     fail "CocoaPods trunk publication command present in: $TRUNK"
 fi
 
-# One workflow — and only one — may speak publication: publish-central.yml, the manual
-# Central path the publication transition opened. Every other workflow keeps the full
-# Step 2 rule. What publish-central.yml itself may do is pinned right after the loop:
-# named secrets only, one remote endpoint only, held-for-confirmation upload only.
+# Workflows come in three kinds now, and each kind is held to its own shape.
 #
-# Manual-only is an ALLOW-list over the parsed `on:` trigger set, not a deny-list of
-# trigger names: a deny-list misses the flow-style forms (`on: [push, ...]`,
-# `on: push`, `on: {push: …}`) and every trigger nobody thought to name —
-# workflow_run, repository_dispatch, merge_group, a future one. Here the trigger set
-# of every workflow is extracted, whichever YAML style declares it, and anything that
-# is not exactly `workflow_dispatch` fails, as does a workflow declaring no trigger.
+# THREE ARE GATES (D2, partly resolved 2026-09-18): swift, android and contract run every
+# Linux-runnable check on every pull request. They trigger automatically, they check the
+# source out, and every command they run is a script under tools/ci/ — because a workflow
+# file cannot be run on a developer machine, and a gate nobody can reproduce locally is a
+# gate nobody can fix.
+#
+# ONE MAY SPEAK PUBLICATION: publish-central.yml, the manual Central path the publication
+# transition opened. What it may do is pinned right after the loop: named secrets only,
+# one remote endpoint only, held-for-confirmation upload only.
+#
+# THE REST STAY MANUAL AND INERT: security.yml and release-candidate.yml describe what D2
+# leaves outside CI — macOS, real devices, signing and publication — and perform nothing.
+#
+# The trigger check is an ALLOW-list over the parsed `on:` set, not a deny-list of trigger
+# names: a deny-list misses the flow-style forms (`on: [push, ...]`, `on: push`,
+# `on: {push: …}`) and every trigger nobody thought to name — workflow_run,
+# repository_dispatch, merge_group, a future one. The trigger set of every workflow is
+# extracted, whichever YAML style declares it, and compared against the set its kind
+# allows; a workflow declaring no trigger fails either way.
 PUBLISH_WORKFLOW=.github/workflows/publish-central.yml
+GATE_WORKFLOWS=' .github/workflows/swift.yml .github/workflows/android.yml .github/workflows/contract.yml '
 for workflow in .github/workflows/*.yml
 do
     [ -f "$workflow" ] || continue
 
-    # Actions allow-list. publish-central.yml may use exactly one action — the
-    # SHA-pinned log-artifact uploader that carries failure evidence out of the
-    # runner — and a tag- or branch-pinned form of even that one fails, because a
-    # movable ref is how an unreviewed action enters a workflow. Every other
-    # workflow still uses none.
+    case "$GATE_WORKFLOWS" in
+        *" $workflow "*) IS_GATE=yes ;;
+        *) IS_GATE=no ;;
+    esac
+
+    # Actions allow-list, per workflow. publish-central.yml may use exactly one action —
+    # the SHA-pinned log-artifact uploader that carries failure evidence out of the
+    # runner. A gate workflow may use exactly one too: the SHA-pinned checkout, because a
+    # job needs the source. Everything else uses none. A tag- or branch-pinned form of
+    # even an admitted action fails, because a movable ref is how an unreviewed action
+    # enters a workflow. Section 24 is the other half of this: it holds every one of these
+    # lines to the SHAs recorded in tools/ci/actions-allowlist.txt.
     if [ "$workflow" = "$PUBLISH_WORKFLOW" ]
     then
         # Non-anchored on purpose: `uses:` can open a step (`- uses:`) or ride in a
@@ -1190,6 +1208,17 @@ do
         if [ -z "$UNEXPECTED_USES" ]
         then
             pass "$workflow uses only the commit-SHA-pinned upload-artifact action"
+        else
+            fail "$workflow uses an action outside the SHA-pinned allowlist: $UNEXPECTED_USES"
+        fi
+    elif [ "$IS_GATE" = yes ]
+    then
+        UNEXPECTED_USES=$(grep -E 'uses:' "$workflow" \
+            | grep -vE '^[[:space:]]*#' \
+            | grep -vE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*actions/checkout@[0-9a-f]{40}([[:space:]]+#.*)?$' || true)
+        if [ -z "$UNEXPECTED_USES" ]
+        then
+            pass "$workflow uses only the commit-SHA-pinned checkout action"
         else
             fail "$workflow uses an action outside the SHA-pinned allowlist: $UNEXPECTED_USES"
         fi
@@ -1248,22 +1277,51 @@ do
             }
         }
     ' "$workflow")
-    UNEXPECTED_TRIGGERS=$(printf '%s\n' "$TRIGGERS" | grep -v '^workflow_dispatch$' | grep -v '^$' || true)
+    if [ "$IS_GATE" = yes ]
+    then
+        ADMITTED_TRIGGERS='^(pull_request|push)$'
+        TRIGGER_DESCRIPTION='pull_request and push, and nothing else'
+    else
+        ADMITTED_TRIGGERS='^workflow_dispatch$'
+        TRIGGER_DESCRIPTION='workflow_dispatch and nothing else'
+    fi
+    UNEXPECTED_TRIGGERS=$(printf '%s\n' "$TRIGGERS" | grep -vE "$ADMITTED_TRIGGERS" | grep -v '^$' || true)
     if printf '%s\n' "$TRIGGERS" | grep -q '^SPFN_UNPARSEABLE_TRIGGER$'
     then
         fail "$workflow has a trigger line the parser cannot read; an unparseable trigger is refused"
     elif [ -z "$TRIGGERS" ]
     then
-        fail "$workflow declares no trigger at all; a workflow must be explicitly manual"
+        fail "$workflow declares no trigger at all; a workflow must say when it runs"
     elif [ -z "$UNEXPECTED_TRIGGERS" ]
     then
-        pass "$workflow triggers on workflow_dispatch and nothing else"
+        pass "$workflow triggers on $TRIGGER_DESCRIPTION"
     else
-        fail "$workflow declares triggers beyond workflow_dispatch: $(printf '%s' "$UNEXPECTED_TRIGGERS" | tr '\n' ' ')"
+        fail "$workflow declares triggers beyond $TRIGGER_DESCRIPTION: $(printf '%s' "$UNEXPECTED_TRIGGERS" | tr '\n' ' ')"
     fi
 
-    contains "$workflow" 'NOT A GATE' "$workflow states that it is not a gate"
-    contains "$workflow" 'workflow_dispatch' "$workflow is manual-only"
+    if [ "$IS_GATE" = yes ]
+    then
+        # A gate runs scripts, never commands of its own. The whole point of tools/ci is
+        # that the runner and a developer's terminal execute the same text; a `run:` that
+        # named a gradle or swift invocation directly would be a second gate nobody can
+        # reproduce. Only `sh tools/ci/<name>.sh` is admitted as a run command.
+        UNEXPECTED_RUNS=$(grep -nE '^[[:space:]]*run:' "$workflow" \
+            | grep -vE '^[0-9]+:[[:space:]]*run:[[:space:]]*sh tools/ci/[a-z-]+\.sh[[:space:]]*$' || true)
+        if [ -z "$UNEXPECTED_RUNS" ]
+        then
+            pass "$workflow runs tools/ci scripts and nothing else, so its gate is reproducible off a runner"
+        else
+            fail "$workflow runs a command that is not a tools/ci script: $UNEXPECTED_RUNS"
+        fi
+
+        contains "$workflow" 'A required check' "$workflow states that it is a required check"
+        contains "$workflow" 'timeout-minutes' "$workflow bounds its own runtime"
+        lacks_active "$workflow" 'runs-on:[[:space:]]*[a-z-]*latest' \
+            "$workflow names an exact runner image rather than a moving 'latest'"
+    else
+        contains "$workflow" 'NOT A GATE' "$workflow states that it is not a gate"
+        contains "$workflow" 'workflow_dispatch' "$workflow is manual-only"
+    fi
 
     if [ "$workflow" = "$PUBLISH_WORKFLOW" ]
     then

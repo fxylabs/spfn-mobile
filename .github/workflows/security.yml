@@ -1,16 +1,23 @@
-# STEP2-SCAFFOLD: NOT A GATE.
+# NOT A GATE. Manual-only, and not one of the three required checks.
 #
-# Manual-only. No checkout, no toolchain setup, no third-party action (D14).
+# D2 (partly resolved 2026-09-18) put every check that can run on a Linux runner under the
+# CI referee. The offline half of "security" went with it: the validator's credential,
+# key-file, cleartext, auth-boundary and hybrid-bridge rules all run on every pull request now,
+# inside contract.yml. Restating them here would be a second copy of one gate.
 #
-# Gates this file must implement before it becomes a required check:
-#   - secret, license and dependency scanning
-#   - fuzzing of the canonical JSON parser and the proof input builder, both of which
-#     now exist and both of which parse untrusted bytes
-#   - SPDX or CycloneDX SBOM generation
-#   - checksum and source-to-artifact traceability
+# What is left in this file is what D2 leaves outside CI, and what does not exist yet:
+#   - signature, checksum and source-to-artifact traceability. That is publication
+#     evidence: it is produced by a signed release, the signing key exists only as a
+#     GitHub secret, and a release is dispatched by a person (see publish-central.yml).
+#     A pull-request job cannot produce it and must not imply it has.
+#   - SPDX or CycloneDX SBOM generation. The CycloneDX tasks exist but are on-demand by
+#     decision D7, and the SBOM that matters is a candidate's, not a branch's.
+#   - secret, license and dependency scanning, and fuzzing of the canonical JSON parser and
+#     the proof input builder. None of these is implemented. They are Linux-runnable, so
+#     when they exist they belong under the CI referee, not here.
 #
-# Until then the honest security check is local and offline:
-#   sh tools/validate/validate.sh
+# Until then the honest security check is `sh tools/ci/validate.sh`, which contract.yml
+# runs on every pull request.
 name: security
 
 on:
@@ -21,9 +28,9 @@ permissions:
 
 jobs:
   placeholder:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: State repository status
         run: |
-          echo "STEP2-SCAFFOLD: security CI is not implemented."
-          echo "Run locally instead: sh tools/validate/validate.sh"
+          echo "NOT A GATE: security scanning, fuzzing and SBOM generation are not implemented."
+          echo "The offline security rules run on every pull request in contract.yml."
