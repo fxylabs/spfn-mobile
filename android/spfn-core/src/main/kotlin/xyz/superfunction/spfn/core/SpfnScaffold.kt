@@ -1,14 +1,11 @@
 // SPFN Mobile — what this checkout actually is.
 //
-// Counterpart of Sources/SPFNCore/SPFNVersion.swift and SPFNScaffold.swift.
+// Counterpart of Sources/SPFNCore/SPFNScaffold.swift. The disclaimer is carried in-band
+// with the binary because it is the one place a consumer can read what exists without
+// trusting a README — which means it is also the one place that has to be corrected when
+// what exists changes.
 
 package xyz.superfunction.spfn.core
-
-/** Mirror of the Swift `SPFNVersion`. Must equal the repository VERSION file. */
-object SpfnVersion
-{
-    const val CURRENT: String = "0.1.0-alpha.3"
-}
 
 /** Machine-readable statement of what this checkout actually is. */
 object SpfnScaffold

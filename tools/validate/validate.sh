@@ -374,7 +374,7 @@ else
 fi
 
 contains Sources/SPFNCore/SPFNVersion.swift "\"$VERSION\"" 'SPFNVersion.current matches VERSION'
-contains android/spfn-core/src/main/kotlin/xyz/superfunction/spfn/core/SpfnCore.kt "\"$VERSION\"" 'SpfnVersion.CURRENT matches VERSION'
+contains android/spfn-core/src/main/kotlin/xyz/superfunction/spfn/core/SpfnVersion.kt "\"$VERSION\"" 'SpfnVersion.CURRENT matches VERSION'
 contains gradle.properties "spfn.version=$VERSION" 'gradle.properties spfn.version matches VERSION'
 contains "$PODSPEC" "'$VERSION'" 'CocoaPods fixture version matches VERSION'
 contains CHANGELOG.md "$VERSION" 'CHANGELOG references VERSION'
@@ -1967,7 +1967,7 @@ contains README.md 'no public support' 'README refuses to promise public support
 contains RELEASE.md "$(tr -d '[:space:]' < VERSION)" 'RELEASE.md names the current version'
 contains RELEASE.md 'UNRESOLVED' 'RELEASE.md still claims no device support'
 contains Sources/SPFNCore/SPFNScaffold.swift 'isScaffold: Bool = true' 'the built library declares itself a scaffold'
-contains android/spfn-core/src/main/kotlin/xyz/superfunction/spfn/core/SpfnCore.kt 'IS_SCAFFOLD: Boolean = true' \
+contains android/spfn-core/src/main/kotlin/xyz/superfunction/spfn/core/SpfnScaffold.kt 'IS_SCAFFOLD: Boolean = true' \
     'the Android library declares itself a scaffold'
 
 # ---------------------------------------------------------------------------
