@@ -387,7 +387,7 @@ An action with neither `call` nor `then` is refused: it is a control that does n
 The generator fails, and generates nothing at all, when:
 
 1. **Digest mismatch.** `contract.manifestSha256` differs from the recomputed sha256 of
-   the bundle, or from `Contracts/upstream.lock.json`'s `contract.manifestSha256`. Both
+   the bundle, or from `Contracts/upstream-provenance.json`'s `contract.bundleSha256`. Both
    comparisons are made — a spec pinned to yesterday's bundle and a lock pointed at a
    different file are different mistakes and both are refused.
 2. **Unknown operation.** A name in `services.<service>.<method>.operation` is not one of

@@ -10,27 +10,27 @@ import XCTest
 
 final class OperationConformanceTests: XCTestCase
 {
-    func testGeneratedBindingMatchesTheLock() throws
+    func testGeneratedBindingMatchesThePinnedContract() throws
     {
-        let lock = try SPFNCanonicalJSON.parse(
-            [UInt8](try Data(contentsOf: Fixtures.repoRoot.appendingPathComponent("Contracts/upstream.lock.json")))
+        let evidence = try SPFNCanonicalJSON.parse(
+            [UInt8](try Data(contentsOf: Fixtures.repoRoot.appendingPathComponent("Contracts/upstream-provenance.json")))
         ).members()
-        let contract = try lock["contract"]!.members()
+        let contract = try evidence["contract"]!.members()
+        let version = try contract.text("version")
 
-        XCTAssertEqual(SPFNGeneratedContract.binding.importedVersion, try contract.text("version"))
-        XCTAssertEqual(SPFNGeneratedContract.binding.importedManifestSha256, try contract.text("manifestSha256"))
-
-        // Codegen reads this range from the lock rather than from the bundle, so the
-        // binding states the window this SDK admits and not the line upstream declares.
-        // The two differ from 0.4.1 on: the bundle says ">=0.4.0 <0.5.0" because that is
-        // the line, while the lock says ">=0.4.1 <0.5.0" because 0.4.1 added operations
-        // a 0.4.0 server does not serve.
+        XCTAssertEqual(SPFNGeneratedContract.binding.importedVersion, version)
+        XCTAssertEqual(SPFNGeneratedContract.binding.importedManifestSha256, try contract.text("bundleSha256"))
         XCTAssertEqual(SPFNGeneratedContract.binding.supportedRange, try contract.text("supportedRange"))
         XCTAssertEqual(Int64(SPFNGeneratedContract.binding.supportedMajor), try contract.number("major"))
-        // The 0.x compatibility rule is decided from the major and the minor together,
-        // so a generated binding that carried only the major would silently accept a
-        // neighbouring minor the lock excludes.
-        XCTAssertEqual(Int64(SPFNGeneratedContract.binding.supportedMinor), try contract.number("minor"))
+        // The 0.x compatibility rule is decided from the major and the minor together, so
+        // a generated binding that carried only the major would silently accept a
+        // neighbouring minor the pin excludes. The minor is derived from the version here
+        // for the same reason codegen derives it: the evidence records the version and
+        // the major and stops, rather than giving one number two places to be wrong in.
+        XCTAssertEqual(
+            SPFNGeneratedContract.binding.supportedMinor,
+            try XCTUnwrap(Int(version.split(separator: ".").dropFirst().first ?? ""))
+        )
     }
 
     func testGeneratedBindingDigestMatchesTheBundleOnDisk() throws

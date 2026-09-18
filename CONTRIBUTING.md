@@ -103,10 +103,12 @@ To pin a new export:
 1. Copy `contracts/mobile/spfn-mobile-contract.json` and
    `contracts/mobile/upstream-provenance.json` from the primitives commit you intend to
    pin. Copy them, do not adapt them.
-2. Update `Contracts/upstream.lock.json`: `source.commit`, `contract.version`, `major`,
-   `minor`, `supportedRange`, and `manifestSha256` from
-   `shasum -a 256 Contracts/spfn-mobile-contract.json`. Until the digest matches, the
-   generator refuses to run — that ordering is the gate, not an obstacle.
+2. Update `Contracts/upstream.lock.json`: `source.commit`, and `publishedPackages` if the
+   npm releases moved with it. Nothing else. The contract's own facts — version, major,
+   supported range and `bundleSha256` — arrive in the provenance file copied in step 1
+   and are never restated in the lock, so there is one copy of each and nothing to keep
+   in step. Until that digest matches `shasum -a 256 Contracts/spfn-mobile-contract.json`,
+   the generator refuses to run — that ordering is the gate, not an obstacle.
 3. Regenerate: `./gradlew :contract-codegen:spfnGenerateClients`, then
    `:contract-codegen:spfnCodegenVerify` to prove the output is deterministic.
 4. Refresh the fixtures: `python3 Contracts/fixtures/derive-expected-values.py --write`.

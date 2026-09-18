@@ -326,8 +326,9 @@ class InvocationTest
     }
 
     /**
-     * A repository root holding only what a run reads: the lock, the bundle it points at,
-     * and the spec. Built rather than pointed at the real tree, because `write` writes.
+     * A repository root holding only what a run reads: the lock, the upstream evidence
+     * beside it, the bundle they describe between them, and the spec. Built rather than
+     * pointed at the real tree, because `write` writes.
      */
     private fun fixtureRoot(name: String): File
     {
@@ -336,7 +337,12 @@ class InvocationTest
         val lock = File(repoRoot, "Contracts/upstream.lock.json");
         val bundlePath = Regex("\"bundlePath\": \"([^\"]+)\"").find(lock.readText())?.groupValues?.get(1)
             ?: error("the lock names no bundlePath");
-        listOf("Contracts/upstream.lock.json", bundlePath, specPath).forEach { relative ->
+        listOf(
+            "Contracts/upstream.lock.json",
+            "Contracts/upstream-provenance.json",
+            bundlePath,
+            specPath
+        ).forEach { relative ->
             val destination = File(root, relative);
             destination.parentFile?.mkdirs();
             val source = File(repoRoot, relative);

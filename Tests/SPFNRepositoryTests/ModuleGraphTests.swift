@@ -164,6 +164,11 @@ final class ModuleGraphTests: XCTestCase
     }
 }
 
+/// Two files, two questions. `upstream.lock.json` answers what only this repository can
+/// know — which primitives commit was read, and where the vendored copy sits in this
+/// tree. `upstream-provenance.json` answers what the contract IS, in the exporter's own
+/// words, copied here unmodified. Since lockVersion 3 neither restates the other, so
+/// there is no pair of copies to hold equal and no way for them to drift apart.
 final class ContractLockTests: XCTestCase
 {
     private func lock() throws -> [String: Any]
@@ -171,49 +176,54 @@ final class ContractLockTests: XCTestCase
         try RepoPaths.json(at: "Contracts/upstream.lock.json")
     }
 
-    func testLockIsPinnedToARealDigest() throws
+    private func evidence() throws -> [String: Any]
     {
-        let lock = try lock()
-        XCTAssertEqual(lock["status"] as? String, "RESOLVED_UPSTREAM")
+        try RepoPaths.json(at: "Contracts/upstream-provenance.json")
+    }
 
-        let contract = try XCTUnwrap(lock["contract"] as? [String: Any])
-        let digest = try XCTUnwrap(contract["manifestSha256"] as? String)
+    func testThePinnedBundleHashesToTheDigestTheEvidenceRecords() throws
+    {
+        XCTAssertEqual(try lock()["status"] as? String, "RESOLVED_UPSTREAM")
+
+        let contract = try XCTUnwrap(try evidence()["contract"] as? [String: Any])
+        let digest = try XCTUnwrap(contract["bundleSha256"] as? String)
         XCTAssertEqual(digest.count, 64)
         XCTAssertTrue(
             digest.allSatisfy { $0.isHexDigit && !$0.isUppercase },
-            "manifestSha256 must be 64 lowercase hex characters"
+            "bundleSha256 must be 64 lowercase hex characters"
         )
 
-        let bundlePath = try XCTUnwrap(contract["bundlePath"] as? String)
+        let bundlePath = try XCTUnwrap(
+            (try lock()["contract"] as? [String: Any])?["bundlePath"] as? String
+        )
         XCTAssertEqual(
             SPFNDigest.sha256Hex(try RepoPaths.bytes(at: bundlePath)),
             digest,
-            "the lock digest does not match the bundle it points at"
+            "the file the lock points at is not the one the evidence describes"
         )
     }
 
-    /// An upstream claim now has to be true rather than absent. The evidence file is
-    /// copied unmodified from the same upstream commit, so the lock is checked against
-    /// something the exporter wrote instead of against itself.
+    /// An upstream claim has to be true rather than absent. The evidence file is copied
+    /// unmodified from the same upstream commit — which is why it still carries the
+    /// exporter's `RECORDED_BY_CONSUMER` placeholder, a file being unable to state the
+    /// commit it was read at. The commit itself is the lock's to record.
     func testProvenanceClaimIsBackedByUpstreamEvidence() throws
     {
         let provenance = try XCTUnwrap(try lock()["provenance"] as? [String: Any])
         XCTAssertEqual(provenance["origin"] as? String, "spfn-primitives-ci-export")
         XCTAssertEqual(provenance["exportedByUpstreamCI"] as? Bool, true)
 
-        let evidence = try RepoPaths.json(at: "Contracts/upstream-provenance.json")
-        XCTAssertEqual(evidence["origin"] as? String, "spfn-primitives-ci-export")
+        let record = try evidence()
+        XCTAssertEqual(record["origin"] as? String, "spfn-primitives-ci-export")
         XCTAssertEqual(
-            evidence["exportedByUpstreamCI"] as? Bool, true,
+            record["exportedByUpstreamCI"] as? Bool, true,
             "the lock may claim an upstream export only when the exporter's own evidence says so"
         )
 
-        let contract = try XCTUnwrap(try lock()["contract"] as? [String: Any])
-        let evidenceContract = try XCTUnwrap(evidence["contract"] as? [String: Any])
+        let evidenceSource = try XCTUnwrap(record["source"] as? [String: Any])
         XCTAssertEqual(
-            contract["manifestSha256"] as? String,
-            evidenceContract["bundleSha256"] as? String,
-            "the lock pins a digest the upstream evidence does not record"
+            evidenceSource["commit"] as? String, "RECORDED_BY_CONSUMER",
+            "the evidence was edited on the way here; it must be the exporter's file verbatim"
         )
 
         let source = try XCTUnwrap(try lock()["source"] as? [String: Any])
@@ -229,15 +239,18 @@ final class ContractLockTests: XCTestCase
         )
     }
 
-    /// Below 1.0.0 the breaking axis is the minor, so the range the lock prints must be
-    /// bounded by the next minor. A range bounded by the next major would say the SDK
-    /// supports contracts it has never seen.
-    func testPreStableLockRangeIsBoundedByTheNextMinor() throws
+    /// Below 1.0.0 the breaking axis is the minor, so the range the evidence declares
+    /// must be bounded by the next minor. A range bounded by the next major would say
+    /// the SDK supports contracts it has never seen.
+    func testPreStableRangeIsBoundedByTheNextMinor() throws
     {
-        let contract = try XCTUnwrap(try lock()["contract"] as? [String: Any])
+        let contract = try XCTUnwrap(try evidence()["contract"] as? [String: Any])
         let major = try XCTUnwrap(contract["major"] as? Int)
-        let minor = try XCTUnwrap(contract["minor"] as? Int)
         let version = try XCTUnwrap(contract["version"] as? String)
+        // Derived, not read: the evidence records the version and the major and stops
+        // there, because a minor written beside a version is a second chance to be wrong
+        // about the same number.
+        let minor = try XCTUnwrap(Int(version.split(separator: ".").dropFirst().first ?? ""))
 
         XCTAssertTrue(version.hasPrefix("\(major).\(minor)."))
         if major == 0
@@ -250,11 +263,23 @@ final class ContractLockTests: XCTestCase
         }
     }
 
-    func testLockAllowlistMatchesTheSwiftAllowlist() throws
+    /// A value with two homes can disagree with itself, so the lock stopped carrying a
+    /// second copy of anything the evidence states. Named here so re-adding one fails
+    /// the Swift suite as well as `tools/validate/validate.sh` section 5.
+    func testTheLockRestatesNothingTheEvidenceOwns() throws
     {
-        let profiles = try XCTUnwrap(try lock()["authProfiles"] as? [String: Any])
-        XCTAssertEqual(profiles["allowed"] as? [String], ["clientProofV1"])
-        XCTAssertEqual(profiles["unknownProfilePolicy"] as? String, "reject")
+        let contract = try XCTUnwrap(try lock()["contract"] as? [String: Any])
+        for shed in ["version", "major", "minor", "manifestSha256", "supportedRange", "rangeRule"]
+        {
+            XCTAssertNil(
+                contract[shed],
+                "contract.\(shed) belongs to Contracts/upstream-provenance.json and nowhere else"
+            )
+        }
+        XCTAssertNil(
+            try lock()["authProfiles"],
+            "the auth allowlist is an SDK policy; its home is SPFNAuthProfile, not the contract pin"
+        )
     }
 
     func testFixtureManifestMatchesTheFilesOnDisk() throws

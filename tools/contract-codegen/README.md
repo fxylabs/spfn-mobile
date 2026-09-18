@@ -19,14 +19,18 @@ hand-written for the same reason: zero external dependencies.
 
 ## Contract
 
-- **Input:** the bundle named by `Contracts/upstream.lock.json`, and nothing else.
+- **Input:** the bundle named by `Contracts/upstream.lock.json`'s `contract.bundlePath`,
+  read through `ContractPin` — which `:ui-codegen` shares rather than copying — and
+  described by `Contracts/upstream-provenance.json`, and nothing else.
 - **Output:** `Sources/SPFNGenerated/Generated/` (Swift) and
   `android/spfn-generated/src/main/kotlin/xyz/superfunction/spfn/generated/` (Kotlin),
   produced in the same run from the same input.
 - **Digest gate:** the generator recomputes the bundle's SHA-256 and refuses to run when
-  it does not match the lock. A generated header that names a digest was therefore
-  demonstrably produced from a file with that digest.
-- **Zero network:** generation reads one file from disk. Nothing is fetched.
+  it does not match the `contract.bundleSha256` the upstream evidence records. A generated
+  header that names a digest was therefore demonstrably produced from a file with that
+  digest.
+- **Zero network:** generation reads three files from disk — the pin's two halves and the
+  bundle they name between them. Nothing is fetched.
 - **Deterministic:** output is a pure function of the bundle bytes. No timestamp, no
   host name, no absolute path, no unordered map iteration. Two consecutive runs produce
   byte-identical files.

@@ -659,25 +659,27 @@ class SpecRefusalTest
     }
 
     /**
-     * A lock whose contract block disagrees with the bundle it points at stops the run.
+     * Upstream evidence whose digest disagrees with the bundle the lock points at stops
+     * the run.
      *
-     * This is the fourth input, and the only one whose gate lives outside `Spec`: the lock
-     * decides WHICH file the bundle bytes are read from and what their digest must be, so a
-     * lock naming another `manifestSha256` describes a bundle that is not the one on disk.
-     * Generating from it would emit headers stating a digest no file has.
+     * This is the fourth input, and the only one whose gate lives outside `Spec`. Two
+     * files answer between them: the lock decides WHICH file the bundle bytes are read
+     * from, and `upstream-provenance.json` states what their digest must be. Evidence
+     * naming another `bundleSha256` describes a bundle that is not the one on disk, and
+     * generating from it would emit headers stating a digest no file has.
      *
-     * The refusal names the lock as the source of the claim it could not honour — `lock
-     * says: <digest>` — and it happens inside `generate`, which returns a map and writes
+     * The refusal names the source of the claim it could not honour — `provenance says:
+     * <digest>` — and it happens inside `generate`, which returns a map and writes
      * nothing; the fixture root is listed before and after to keep that a measurement
      * rather than an inference. The control run is what makes the refusal mean the digest:
-     * the same fixture root with the lock untouched generates.
+     * the same fixture root with the evidence untouched generates.
      */
     @Test
-    fun `a lock naming another bundle digest is refused before anything is written`()
+    fun `evidence naming another bundle digest is refused before anything is written`()
     {
         val broken = "0".repeat(64);
-        val good = fixtureRoot("lock-good") { it };
-        val bad = fixtureRoot("lock-bad") { lock -> lock.replace(pinnedDigest(), broken) };
+        val good = fixtureRoot("pin-good") { it };
+        val bad = fixtureRoot("pin-bad") { evidence -> evidence.replace(pinnedDigest(), broken) };
         val before = filesUnder(bad);
 
         assertTrue("the control fixture root generated nothing", generate(good, specPath).isNotEmpty());
@@ -685,30 +687,38 @@ class SpecRefusalTest
         try
         {
             generate(bad, specPath);
-            fail("a lock naming another bundle digest was accepted");
+            fail("evidence naming another bundle digest was accepted");
         }
         catch (failure: RuntimeException)
         {
             val message = failure.message ?: "";
             assertTrue("refused, but not on the digest: $message", message.contains("bundle digest mismatch"));
-            assertTrue("the refusal does not say what the lock claimed: $message", message.contains("lock says: $broken"));
+            assertTrue(
+                "the refusal does not say what the evidence claimed: $message",
+                message.contains("provenance says: $broken")
+            );
         }
         assertEquals("the refused run wrote into the tree", before, filesUnder(bad));
     }
 
-    /** The digest the real lock pins, which is also the one the real bundle hashes to. */
+    /** The digest the evidence records, which is also the one the real bundle hashes to. */
     private fun pinnedDigest(): String =
-        Regex("\"manifestSha256\": \"([0-9a-f]{64})\"").find(lockText)?.groupValues?.get(1)
-            ?: error("the lock declares no contract manifestSha256");
+        Regex("\"bundleSha256\": \"([0-9a-f]{64})\"").find(evidenceText)?.groupValues?.get(1)
+            ?: error("the upstream evidence declares no contract bundleSha256");
 
     private val lockText: String = File(repoRoot, "Contracts/upstream.lock.json").readText(Charsets.UTF_8)
 
+    private val evidenceText: String =
+        File(repoRoot, "Contracts/upstream-provenance.json").readText(Charsets.UTF_8)
+
     /**
-     * A repository root holding only what `generate` reads — the lock, the bundle the lock
-     * points at, and the spec — with [mutate] applied to the lock's text.
+     * A repository root holding only what `generate` reads — the lock, the upstream
+     * evidence, the bundle the lock points at, and the spec — with [mutate] applied to
+     * the evidence's text.
      *
-     * Built rather than pointed at the real tree because the lock's path is fixed inside
-     * Main.kt: the only way to ask the digest gate a question is to give it another root.
+     * Built rather than pointed at the real tree because both paths are fixed inside
+     * `ContractPin`: the only way to ask the digest gate a question is to give it another
+     * root.
      */
     private fun fixtureRoot(name: String, mutate: (String) -> String): File
     {
@@ -718,7 +728,8 @@ class SpecRefusalTest
             ?: error("the lock names no bundlePath");
         copyInto(root, bundlePath);
         copyInto(root, specPath);
-        File(root, "Contracts/upstream.lock.json").writeText(mutate(lockText), Charsets.UTF_8);
+        copyInto(root, "Contracts/upstream.lock.json");
+        File(root, "Contracts/upstream-provenance.json").writeText(mutate(evidenceText), Charsets.UTF_8);
         return root;
     }
 
