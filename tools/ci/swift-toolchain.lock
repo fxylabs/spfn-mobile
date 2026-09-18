@@ -1,0 +1,20 @@
+# The Swift toolchain tools/ci/install-swift.sh puts on a Linux runner: one URL and the
+# SHA-256 of the exact bytes it must receive. Two fields, read by `sed -n 's/^URL=//p'`
+# and `sed -n 's/^SHA256=//p'`; everything else in this file is a comment.
+#
+# Why a digest and not a signature check at run time: swift.org publishes no checksum for
+# a Linux tarball (…tar.gz.sha256, .sha256sum and .sha512 are all 404, and the release
+# JSON carries checksums only for the Static and Wasm SDKs). What it publishes is a
+# detached PGP signature. The digest below was taken on 2026-09-18 from a download whose
+# `…tar.gz.sig` verified as "Swift 6.x Release Signing Key", primary key
+# 52BB7E3DE28A71BE22EC05FFEF80A866B47A981F — the same fingerprint swiftlang/swift-docker
+# pins for Ubuntu 24.04 — and it was recomputed from a second, independent download
+# (1 008 044 814 bytes) the same day. That key passed its expiry on 2026-09-16, and a key
+# fetched at run time would be trusted on the same TLS connection that delivered the
+# tarball, so the signature is this pin's provenance and the digest is the pin.
+#
+# Version 6.2.1 matches the VM that runs the same gates (docs/OPEN-DECISIONS.md D5 pins
+# the tools version; the compiler that builds on Linux is this one). Bumping it means a
+# new URL, a new verified digest, and a new line in this comment saying how.
+URL=https://download.swift.org/swift-6.2.1-release/ubuntu2404/swift-6.2.1-RELEASE/swift-6.2.1-RELEASE-ubuntu24.04.tar.gz
+SHA256=4022cb64faf7e2681c19f9b62a22fb7d9055db6194d9e4a4bef9107b6ce10946

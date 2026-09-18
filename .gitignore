@@ -46,6 +46,8 @@ examples/ui-spec/receipts/manual/*
 # CocoaPods (fixture only; nothing here is a real integration)
 Pods/
 *.lock
+# The CI toolchain pin is a lock file that IS tracked: it is the pin, not a resolver's cache.
+!tools/ci/swift-toolchain.lock
 
 # macOS
 .DS_Store
