@@ -9,7 +9,31 @@ package xyz.superfunction.spfn.uicodegen
 
 object Header
 {
-    const val GENERATOR: String = "spfn-ui-codegen 0.1.0-dev";
+    /** The system property the Gradle tasks hand this generator its version in. */
+    const val VERSION_PROPERTY: String = "spfn.ui-codegen.version";
+
+    /**
+     * What every header names as its generator, version and all.
+     *
+     * The version used to be `0.1.0-dev`, written here, while `gradle.properties` said
+     * `0.1.0-alpha.3` — so every generated file claimed to come from a generator this
+     * repository does not ship, and the two would go on disagreeing because nothing reads
+     * both. It is now the repository's own version, handed over by the Gradle task that runs
+     * this program.
+     *
+     * That makes the version an INPUT, exactly like the spec path: it reaches the output, so
+     * a run that did not state it would be a run whose files claim a provenance nobody
+     * supplied. Absent, it is a refusal rather than a default — a default would be the
+     * `0.1.0-dev` problem again, wearing a fallback's clothes.
+     */
+    val GENERATOR: String get() = "spfn-ui-codegen " + version();
+
+    private fun version(): String = System.getProperty(VERSION_PROPERTY)
+        ?: throw IllegalStateException(
+            "-D$VERSION_PROPERTY names no version; this generator's version is printed in every " +
+                "file it writes, so it is an input the caller states — gradle.properties' " +
+                "spfn.version is where the Gradle tasks read it from"
+        );
 
     fun lines(inputs: Inputs): List<String> = listOf(
         "GENERATED FILE — DO NOT EDIT.",

@@ -287,6 +287,44 @@ class InvocationTest
         }
     }
 
+
+    /**
+     * The generator's own version is an input, and a run that was not given one refuses.
+     *
+     * It used to be a constant reading `0.1.0-dev` while `gradle.properties` said
+     * `0.1.0-alpha.3`, so all 137 generated files named a generator this repository does not
+     * ship — and nothing read both values, so nothing could notice. The version now arrives
+     * from the caller, which makes "absent" a real state: refused, because a default is how
+     * the constant got there in the first place.
+     */
+    @Test
+    fun `a run that is not told its own version refuses rather than defaulting`()
+    {
+        val version = System.getProperty(Header.VERSION_PROPERTY)
+            ?: fail("the Gradle test task did not hand the version down") as String;
+
+        System.clearProperty(Header.VERSION_PROPERTY);
+        try
+        {
+            assertTrue("a generator name was produced with no version to put in it", Header.GENERATOR.isEmpty());
+            fail("a run with no version generated a header anyway");
+        }
+        catch (failure: RuntimeException)
+        {
+            val message = failure.message ?: "";
+            assertTrue("refused, but not on the version: $message", message.contains("names no version"));
+        }
+        finally
+        {
+            System.setProperty(Header.VERSION_PROPERTY, version);
+        }
+
+        assertTrue(
+            "the header does not name the version the caller gave it: ${Header.GENERATOR}",
+            Header.GENERATOR == "spfn-ui-codegen $version"
+        );
+    }
+
     /**
      * A repository root holding only what a run reads: the lock, the bundle it points at,
      * and the spec. Built rather than pointed at the real tree, because `write` writes.

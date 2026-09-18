@@ -26,7 +26,7 @@ abstract class SwiftNames(target: Target)
 
     protected val readouts: Boolean = target.runnerReadouts;
 
-    protected fun type(name: String, kind: String): String = UiNames.swiftType(name, kind)
+    protected fun type(name: String, kind: String): String = UiNames.type(name, kind)
 
     protected fun route(flow: FlowDefinition): String = type(flow.name, "Route")
 
@@ -60,7 +60,7 @@ abstract class KotlinNames(target: Target)
 
     protected val pkg: String = target.kotlinPackage;
 
-    protected fun type(name: String, kind: String): String = UiNames.kotlinType(name, kind)
+    protected fun type(name: String, kind: String): String = UiNames.type(name, kind)
 
     protected fun route(flow: FlowDefinition): String = type(flow.name, "Route")
 

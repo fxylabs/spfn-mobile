@@ -497,11 +497,13 @@ data class Spec(
         /**
          * Refusal 2: an operation name must be one the contract generator emits.
          *
-         * The legal set is derived with `Names.lowerCamel`, the same function
-         * `SwiftEmitter` and `KotlinEmitter` name their descriptors with, so a name this
-         * accepts is a name `SpfnGeneratedCalls` really carries. Re-implementing the
-         * rule here would let the two drift and turn a spec typo into a compile error in
-         * a file nobody wrote.
+         * The legal set is derived here with `Names.lowerCamel` — the contract generator's
+         * own naming function — and the emitters then write the spec's string through
+         * unchanged: `SPFNGeneratedCalls.${'$'}{method.operation}`. So this check is the ONLY
+         * thing standing between a spec typo and a descriptor that does not exist, and it is
+         * the reason the set is derived rather than listed: a second copy of the rule would
+         * drift from the contract generator's and turn the typo into a compile error in a
+         * file nobody wrote.
          */
         private fun readServices(members: Map<String, JsonValue>, bundle: Bundle): List<ServiceDefinition>
         {
@@ -651,6 +653,10 @@ data class Spec(
             );
         }
 
+        /** Whether this screen is the root of a flow that was presented over something. */
+        private fun isRoot(screen: String, flow: FlowDefinition?): Boolean =
+            flow != null && flow.start == screen && flow.presentedOver
+
         /**
          * Whether this screen's header draws a close, defaulted from the flow it belongs to.
          *
@@ -661,10 +667,6 @@ data class Spec(
          * a back — so the key only means anything on a root, and it is read the same way
          * everywhere rather than refused where it is moot.
          */
-        /** Whether this screen is the root of a flow that was presented over something. */
-        private fun isRoot(screen: String, flow: FlowDefinition?): Boolean =
-            flow != null && flow.start == screen && flow.presentedOver
-
         private fun readClose(value: JsonValue?, screen: String, flow: FlowDefinition?): Boolean
         {
             val fromFlow = isRoot(screen, flow);
@@ -1404,9 +1406,23 @@ object ScreenShape
 /** The one place a spec name becomes a type name, so both emitters spell them alike. */
 object UiNames
 {
+    /**
+     * A spec name with its first letter raised, which is the whole of the transformation.
+     *
+     * It raises the FIRST letter and touches nothing else, which is why `enterCode` and
+     * `EnterCode` would be one type name and one file — refusal 15 is what keeps a spec from
+     * declaring both.
+     */
     fun pascal(name: String): String = name.replaceFirstChar { it.uppercase() }
 
-    fun swiftType(name: String, kind: String): String = pascal(name) + kind
-
-    fun kotlinType(name: String, kind: String): String = pascal(name) + kind
+    /**
+     * A type name out of a spec name and a kind: `enterCode` + `Model` → `EnterCodeModel`.
+     *
+     * ONE function and not one per language. `swiftType` and `kotlinType` were two names for
+     * this body, which reads as a divergence that has not happened yet and is really a claim
+     * that the two halves might spell a type differently. They do not — and the place either
+     * half would start to is its own `type()` in `EmitterNames.kt`, which is where the two
+     * vocabularies are written side by side.
+     */
+    fun type(name: String, kind: String): String = pascal(name) + kind
 }
