@@ -29,6 +29,17 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$ROOT"
 
+# The Android Gradle plugin reads ANDROID_HOME and the deprecated ANDROID_SDK_ROOT, and
+# refuses to build when both are set and disagree. A hosted runner pre-sets the second to
+# its own image's SDK, so a workflow that sets only the first builds against neither.
+# Refusing here names the two paths; the plugin's own message arrives a minute later,
+# after the Gradle distribution has been downloaded.
+if [ -n "${ANDROID_SDK_ROOT:-}" ] && [ -n "${ANDROID_HOME:-}" ] && [ "$ANDROID_SDK_ROOT" != "$ANDROID_HOME" ]
+then
+    printf 'CI-ANDROID: ANDROID_HOME (%s) and ANDROID_SDK_ROOT (%s) name different SDKs; set both to one path or unset the second.\n' "$ANDROID_HOME" "$ANDROID_SDK_ROOT" >&2
+    exit 1
+fi
+
 if [ -z "${ANDROID_HOME:-}" ]
 then
     printf 'CI-ANDROID: ANDROID_HOME is empty; the Gradle build has no SDK to compile against.\n' >&2

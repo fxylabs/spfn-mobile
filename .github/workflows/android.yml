@@ -48,7 +48,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
+      # Both names, one path. The hosted ubuntu image pre-sets ANDROID_SDK_ROOT to its own
+      # SDK, and the Android Gradle plugin refuses to build when the two variables name
+      # different directories ("Several environment variables ... contain different paths
+      # to the SDK"). The first run on main, 2026-09-18, failed exactly there.
       ANDROID_HOME: ${{ github.workspace }}/android-sdk
+      ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
