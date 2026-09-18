@@ -341,8 +341,21 @@ data class Spec(
     val screens: List<ScreenDefinition>
 )
 {
+    /**
+     * The screen called [name], or a refusal that names it.
+     *
+     * `first {}` is what this was, and what it threw for a name nothing matches is a
+     * `NoSuchElementException` reading "Collection contains no element matching the
+     * predicate" — no screen name, no spec, nothing an author can search for. Every caller
+     * here is one of the rules, and a rule asking for a screen that is not there is a
+     * question worth printing.
+     */
     fun screenNamed(name: String): ScreenDefinition =
-        screens.first { it.name == name }
+        screens.firstOrNull { it.name == name }
+            ?: throw SpecException(
+                "'$name' is not a screen this spec declares; its screens are: " +
+                    screens.map { it.name }.sorted().joinToString(", ")
+            )
 
     fun screensOf(flow: FlowDefinition): List<ScreenDefinition> =
         screens.filter { it.flow == flow.name }
@@ -355,7 +368,11 @@ data class Spec(
      * half a flow drawn from a grammar is two vocabularies inside one stack.
      */
     fun viewIsAuthored(screen: ScreenDefinition): Boolean =
-        flows.first { it.name == screen.flow }.authored
+        flows.firstOrNull { it.name == screen.flow }?.authored
+            ?: throw SpecException(
+                "screens.${screen.name}.flow names '${screen.flow}', which is not a flow this spec " +
+                    "declares; its flows are: " + flows.map { it.name }.sorted().joinToString(", ")
+            )
 
     /**
      * This spec with only [wanted] left of it, or this spec when [wanted] is null.
@@ -435,7 +452,9 @@ data class Spec(
             val screens = readScreens(root.required("screens").obj(), methods, flows, bundle, version);
 
             checkReferences(flows, screens);
+            checkNames(services, flows, screens);
             checkInputs(screens, bundle);
+            checkCollected(screens, bundle);
             checkShapes(screens, bundle);
             checkAuthoredViews(flows, screens, bundle);
 
@@ -478,11 +497,13 @@ data class Spec(
         /**
          * Refusal 2: an operation name must be one the contract generator emits.
          *
-         * The legal set is derived with `Names.lowerCamel`, the same function
-         * `SwiftEmitter` and `KotlinEmitter` name their descriptors with, so a name this
-         * accepts is a name `SpfnGeneratedCalls` really carries. Re-implementing the
-         * rule here would let the two drift and turn a spec typo into a compile error in
-         * a file nobody wrote.
+         * The legal set is derived here with `Names.lowerCamel` — the contract generator's
+         * own naming function — and the emitters then write the spec's string through
+         * unchanged: `SPFNGeneratedCalls.${'$'}{method.operation}`. So this check is the ONLY
+         * thing standing between a spec typo and a descriptor that does not exist, and it is
+         * the reason the set is derived rather than listed: a second copy of the rule would
+         * drift from the contract generator's and turn the typo into a compile error in a
+         * file nobody wrote.
          */
         private fun readServices(members: Map<String, JsonValue>, bundle: Bundle): List<ServiceDefinition>
         {
@@ -632,6 +653,10 @@ data class Spec(
             );
         }
 
+        /** Whether this screen is the root of a flow that was presented over something. */
+        private fun isRoot(screen: String, flow: FlowDefinition?): Boolean =
+            flow != null && flow.start == screen && flow.presentedOver
+
         /**
          * Whether this screen's header draws a close, defaulted from the flow it belongs to.
          *
@@ -642,10 +667,6 @@ data class Spec(
          * a back — so the key only means anything on a root, and it is read the same way
          * everywhere rather than refused where it is moot.
          */
-        /** Whether this screen is the root of a flow that was presented over something. */
-        private fun isRoot(screen: String, flow: FlowDefinition?): Boolean =
-            flow != null && flow.start == screen && flow.presentedOver
-
         private fun readClose(value: JsonValue?, screen: String, flow: FlowDefinition?): Boolean
         {
             val fromFlow = isRoot(screen, flow);
@@ -1016,6 +1037,131 @@ data class Spec(
         }
 
         /**
+         * Refusal 14: a screen that reads collects nothing its own route does not carry.
+         *
+         * A screen's inputs are derived — `RouteParameters.inputs` gives an action whatever
+         * its request needs that the route did not bring — and on a screen with no source
+         * that is a form. On a screen WITH one it is a shape neither emitter can write, and
+         * the three ways it fails are worth naming because every one of them is a compile
+         * error in a file nobody wrote:
+         *
+         *   - the Swift view draws a field that reads `ScreenFailure.fieldMessage(failure, …)`
+         *     while the failure accessors it reads are emitted for a screen that does not read;
+         *   - the Kotlin model reaches for `(state as? Busy.Error)` on a screen whose state is
+         *     a `Loadable`, and does not import `Busy` at all;
+         *   - and both halves emit the write with no parameters while the view calls it with
+         *     the values it collected.
+         *
+         * The spec is where that is cheap to refuse. A screen that reads shows what it read:
+         * its state is the read, so there is no form under it and nothing for a field refusal
+         * to be shown against.
+         */
+        private fun checkCollected(screens: List<ScreenDefinition>, bundle: Bundle)
+        {
+            screens.filter { it.source != null }.forEach { screen ->
+                screen.actions.forEach { action ->
+                    val collected = RouteParameters.inputs(screen, action, bundle);
+                    if (collected.isEmpty())
+                    {
+                        return@forEach;
+                    }
+                    throw SpecException(
+                        "screens.${screen.name}.actions.${action.name} collects " +
+                            collected.joinToString(", ") { it.name } +
+                            ", which screens.${screen.name}'s route does not carry, on a screen whose " +
+                            "source is '${screen.source?.reference}'; a screen that reads shows what it " +
+                            "read, so it has no fields to collect with and no state to refuse one in"
+                    );
+                };
+            };
+        }
+
+        /**
+         * Refusal 15: every name this spec declares is one both languages can spell.
+         *
+         * A spec name is an identifier in two languages and a file name in two trees, and
+         * nothing downstream can repair one that is not. Three things are refused here:
+         *
+         *   - two names that are one name once written as a type. `UiNames.pascal` raises the
+         *     first letter and nothing else, so `enterCode` and `EnterCode` both reach the
+         *     emitters as `EnterCode` — one `Screens/EnterCodeModel.swift`, written twice into
+         *     a `mutableMapOf`, and the second one silently wins.
+         *   - a name that is not lowerCamelCase. The rule is exactly what SCHEMA.md asks for
+         *     and nothing more: a lowercase letter, then letters and digits. A hyphen or a
+         *     space reaches Swift as a syntax error and a leading capital is the collision
+         *     above waiting for its twin.
+         *   - a name either language reserves. `default` is a legal JSON key and not a legal
+         *     Swift enum case; `object` is a legal JSON key and not a legal Kotlin class name.
+         *
+         * All three are checked over the names that become declarations: the services and
+         * their methods, the flows, the screens and their actions. The inputs are NOT here —
+         * those names come from the contract, which the contract generator has already spelled
+         * (refusal 8 is what keeps the spec from inventing one).
+         */
+        private fun checkNames(
+            services: List<ServiceDefinition>,
+            flows: List<FlowDefinition>,
+            screens: List<ScreenDefinition>
+        )
+        {
+            // The collision first, because it is the refusal that names BOTH keys; a spec
+            // that breaks the spelling rule as well is told about the pair it has to resolve.
+            checkCollisions("services", services.map { it.name });
+            checkCollisions("flows", flows.map { it.name });
+            checkCollisions("screens", screens.map { it.name });
+
+            services.forEach { service ->
+                checkSpelling("services.${service.name}", service.name);
+                service.methods.forEach { checkSpelling("services.${service.name}.${it.name}", it.name) };
+            };
+            flows.forEach { checkSpelling("flows.${it.name}", it.name) };
+            screens.forEach { screen ->
+                checkSpelling("screens.${screen.name}", screen.name);
+                screen.actions.forEach {
+                    checkSpelling("screens.${screen.name}.actions.${it.name}", it.name);
+                };
+            };
+        }
+
+        /** Two names of one kind that `UiNames.pascal` writes the same way. */
+        private fun checkCollisions(where: String, names: List<String>)
+        {
+            names.groupBy { UiNames.pascal(it) }.forEach { (pascal, colliding) ->
+                if (colliding.size > 1)
+                {
+                    throw SpecException(
+                        colliding.sorted().joinToString(" and ") { "$where.$it" } +
+                            " are one name once written as a type: both become '$pascal', so they name " +
+                            "one generated file and the second one written wins"
+                    );
+                }
+            };
+        }
+
+        private fun checkSpelling(where: String, name: String)
+        {
+            if (!LOWER_CAMEL.matches(name))
+            {
+                throw SpecException(
+                    "$where is not a name this generator can spell; a spec name is lowerCamelCase — a " +
+                        "lowercase letter followed by letters and digits — because it reaches both " +
+                        "languages as a declaration and both trees as a file name"
+                );
+            }
+            val reserving = listOfNotNull(
+                "Swift".takeIf { name in SWIFT_KEYWORDS },
+                "Kotlin".takeIf { name in KOTLIN_KEYWORDS }
+            );
+            if (reserving.isNotEmpty())
+            {
+                throw SpecException(
+                    "$where is '$name', which ${reserving.joinToString(" and ")} reserves; it reaches " +
+                        "that language as a declaration name and would not compile there"
+                );
+            }
+        }
+
+        /**
          * Refusal 12's other half: the two new screens have one write each, or none.
          *
          * A paged screen's calls are its own — load, loadMore, retryMore and reload — and a
@@ -1085,6 +1231,41 @@ data class Spec(
                 );
             };
         }
+
+        /** A lowercase letter and then letters and digits, which is what SCHEMA.md asks for. */
+        private val LOWER_CAMEL: Regex = Regex("[a-z][A-Za-z0-9]*");
+
+        /**
+         * The words Swift reserves, from The Swift Programming Language, "Lexical Structure —
+         * Keywords and Punctuation".
+         *
+         * The unconditional ones only: the keywords of declarations, statements, expressions
+         * and types. The words that are keywords in PARTICULAR CONTEXTS — `open`, `some`,
+         * `any`, `async`, `await`, `each` — are deliberately absent, because `func await()`
+         * compiles and a list that refused it would refuse a name Swift accepts.
+         */
+        private val SWIFT_KEYWORDS: Set<String> = setOf(
+            "associatedtype", "class", "deinit", "enum", "extension", "fileprivate", "func",
+            "import", "init", "inout", "internal", "let", "operator", "private",
+            "precedencegroup", "protocol", "public", "rethrows", "static", "struct",
+            "subscript", "typealias", "var",
+            "break", "case", "continue", "default", "defer", "do", "else", "fallthrough",
+            "for", "guard", "if", "in", "repeat", "return", "switch", "throw", "where", "while",
+            "as", "catch", "false", "is", "nil", "self", "super", "throws", "true", "try"
+        )
+
+        /**
+         * The words Kotlin reserves, from kotlinlang.org's keyword reference.
+         *
+         * The HARD keywords only. Kotlin's soft and modifier keywords — `open`, `data`,
+         * `value`, `sealed`, `get`, `set`, `by`, `where` — are identifiers wherever a name is
+         * expected, so refusing them would refuse names the language spells perfectly well.
+         */
+        private val KOTLIN_KEYWORDS: Set<String> = setOf(
+            "as", "break", "class", "continue", "do", "else", "false", "for", "fun", "if",
+            "in", "interface", "is", "null", "object", "package", "return", "super", "this",
+            "throw", "true", "try", "typealias", "typeof", "val", "var", "when", "while"
+        )
 
         private val ENTRIES: List<String> = listOf("modal", "push", "sheet");
 
@@ -1225,9 +1406,23 @@ object ScreenShape
 /** The one place a spec name becomes a type name, so both emitters spell them alike. */
 object UiNames
 {
+    /**
+     * A spec name with its first letter raised, which is the whole of the transformation.
+     *
+     * It raises the FIRST letter and touches nothing else, which is why `enterCode` and
+     * `EnterCode` would be one type name and one file — refusal 15 is what keeps a spec from
+     * declaring both.
+     */
     fun pascal(name: String): String = name.replaceFirstChar { it.uppercase() }
 
-    fun swiftType(name: String, kind: String): String = pascal(name) + kind
-
-    fun kotlinType(name: String, kind: String): String = pascal(name) + kind
+    /**
+     * A type name out of a spec name and a kind: `enterCode` + `Model` → `EnterCodeModel`.
+     *
+     * ONE function and not one per language. `swiftType` and `kotlinType` were two names for
+     * this body, which reads as a divergence that has not happened yet and is really a claim
+     * that the two halves might spell a type differently. They do not — and the place either
+     * half would start to is its own `type()` in `EmitterNames.kt`, which is where the two
+     * vocabularies are written side by side.
+     */
+    fun type(name: String, kind: String): String = pascal(name) + kind
 }

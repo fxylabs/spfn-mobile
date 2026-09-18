@@ -10,8 +10,8 @@ One screen spec in, one app scaffold out per **target**.
 Both verify tasks are wired into `check`, and they are two tasks rather than one so a
 failure names WHICH app's scaffold drifted.
 
-Inputs — a place, the bundle, the repository-relative path of the place, and the lock
-that chooses the bundle:
+Inputs — a place, the bundle, the repository-relative path of the place, the lock that
+chooses the bundle, and this generator's own version:
 
 - `examples/ui-spec` — the screens, written by a person. A DIRECTORY: `device-approval.json`
   inside it holds the eight showcase flows, and each `contracts/*.md` holds one flow's part
@@ -26,6 +26,10 @@ that chooses the bundle:
 - `Contracts/upstream.lock.json`'s `contract` block — it names the bundle file and the
   digest the bundle's bytes must have, so it decides which bytes the run reads and whether
   the run happens at all. Nothing of it reaches the output directly.
+- `gradle.properties`' `spfn.version` — this generator's version, handed to the run as
+  `-Dspfn.ui-codegen.version` by the Gradle task and printed in every header. A run that is
+  not given one refuses: a default would be the `0.1.0-dev` constant again, which claimed a
+  generator this repository does not ship.
 
 ## Targets
 
@@ -39,9 +43,13 @@ lists in `build.gradle.kts` and a third would be a third task there.
 | `example` | `examples/ios-swiftui/Generated/` | `examples/android-compose/src/main/kotlin/…/example/generated/` | `examples/ui-spec/generated/` |
 | `harness` | `tools/harness/ios/GeneratedUI/` | `tools/harness/android/src/main/kotlin/…/harness/generated/` | none |
 
-Each target gets the same nine files per platform: the service protocol and its default
-implementation, the route enum with its flow and flow host, one model per screen plus any
-use case, the shared screen failure, one view skeleton per screen, and the container.
+Each target gets the same KINDS of file per platform, one per thing the spec declares: a
+service protocol and its default implementation per service, a route enum with its flow and
+flow host per flow, a model per screen plus a use case for each screen that asks for one,
+one shared screen failure, a view skeleton per screen a flow has not taken back, and the
+container. How many that is, is the spec's answer and not a constant: the example target
+generates 41 files per platform from nine flows, and the harness — narrowed to one flow —
+generates 9 (section 21 of `tools/validate/validate.sh` counts both).
 
 The view skeleton is the one file a flow can take back. A flow whose `views` are
 `authored` has its screens written by hand from its contract document, and this generator
@@ -70,13 +78,20 @@ generator, it is a consumer that recomputes and compares — never a place the v
 edited (`docs/IMPLEMENTATION-PITFALLS.md` P2).
 
 **The operation gate.** An operation named in `services` must be one of the descriptor
-names the contract generator emits, derived with `Names.lowerCamel` — the same function
-`SwiftEmitter` and `KotlinEmitter` name their descriptors with. Two copies of that rule
-would drift, and the drift would arrive as a compile error in a file nobody wrote.
+names the contract generator emits. The legal set is derived when the spec is read, with
+`Names.lowerCamel` — the contract generator's own naming function — and the emitters then
+write the spec's string through unchanged (`SPFNGeneratedCalls.<operation>`). So the gate is
+the only thing between a typo in the spec and a descriptor that does not exist, and the set
+is derived rather than listed because a second copy of the rule would drift and the drift
+would arrive as a compile error in a file nobody wrote.
 
 **Determinism.** Output is a pure function of the spec bytes, the bundle bytes, the spec's
-repository-relative path and the lock's contract block: sorted iteration, no timestamp, no
-host name, no absolute path. For a directory the spec bytes are the pieces, in name order,
+repository-relative path, the lock's contract block and this generator's own version:
+sorted iteration, no timestamp, no host name, no absolute path. The version is on that list
+for the reason the path is — every header prints it — and it is read from
+`gradle.properties`' `spfn.version` and handed over by the Gradle task
+(`-Dspfn.ui-codegen.version`), because a version written in the generator as well was two
+versions and the two disagreed. For a directory the spec bytes are the pieces, in name order,
 each framed with its own name inside the directory — a walk in the filesystem's order would
 hash differently on a Mac than on the CI runner. A document contributes its `json spfn-ui`
 block and not its prose: the prose is not an input to the generator, the block is, so

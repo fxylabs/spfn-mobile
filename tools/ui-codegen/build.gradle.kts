@@ -22,6 +22,25 @@ kotlin {
     jvmToolchain(libs.versions.jdk.toolchain.get().toInt())
 }
 
+/// This generator's own version, which every header it writes prints.
+///
+/// Read from `gradle.properties` rather than written in `Header.kt`, because a version
+/// written in two places is two versions: the constant said `0.1.0-dev` while the repository
+/// said `0.1.0-alpha.3`, and every generated file claimed a generator that does not ship.
+///
+/// It is an INPUT to the output and is therefore handed over explicitly, on the four tasks
+/// that generate or verify and on the test task that reads what they produce. A run without
+/// it refuses rather than defaulting (`Header.VERSION_PROPERTY`).
+val generatorVersion: Provider<String> = providers.gradleProperty("spfn.version")
+
+tasks.withType<JavaExec>().configureEach {
+    systemProperty("spfn.ui-codegen.version", generatorVersion.get())
+}
+
+tasks.withType<Test>().configureEach {
+    systemProperty("spfn.ui-codegen.version", generatorVersion.get())
+}
+
 dependencies {
     // The bundle and JSON readers, and the descriptor naming function. Depended on
     // rather than copied: an operation name this generator accepts has to be exactly a

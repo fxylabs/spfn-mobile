@@ -89,9 +89,9 @@ and moving it later is moving one object between two files.
 | --- | --- | --- |
 | `specVersion` | integer | `1` or `2`. A spec written for a later generator is refused, never partially read. |
 | `contract.manifestSha256` | string | The sha256 of the contract bundle this spec was written against. |
-| `services` | object | One entry per service. The key is the service name in lowerCamelCase. |
-| `flows` | object | One entry per flow. The key is the flow name in lowerCamelCase. |
-| `screens` | object | One entry per screen. The key is the screen name in lowerCamelCase. |
+| `services` | object | One entry per service. The key is the service name, in lowerCamelCase and checked (refusal 15). |
+| `flows` | object | One entry per flow. The key is the flow name, under the same rule. |
+| `screens` | object | One entry per screen. The key is the screen name, under the same rule. |
 
 Every one of the five keys is required. There is no default for any of them: a spec that
 omitted `services` is not a spec with no services, it is a spec somebody did not finish.
@@ -382,7 +382,7 @@ control the loudest thing on its screen.
 
 An action with neither `call` nor `then` is refused: it is a control that does nothing.
 
-## The thirteen refusals
+## The fifteen refusals
 
 The generator fails, and generates nothing at all, when:
 
@@ -440,6 +440,59 @@ The generator fails, and generates nothing at all, when:
     screen — so the generator has no skeleton to offer and says so rather than emitting one.
     `authored` is only writable in a contract document, so the two rules together mean a flow
     of either kind lives in a document that states what its screens must do.
+14. **An action on a screen that reads, collecting a field the route does not carry.** A
+    screen's inputs are derived: an action whose request needs something the route did not
+    bring collects it. On a screen with no `source` that is a form; on a screen with one it is
+    a shape neither emitter can write — the Swift view reads a field refusal off accessors
+    that are not emitted for a screen that reads, the Kotlin model casts a `Loadable` to
+    `Busy.Error`, and both emit the write with no parameters while the view calls it with what
+    it collected. A screen that reads shows what it read, so its writes send what its route
+    carries and nothing else.
+15. **A name this generator cannot spell, or two that are one name.** Every name the spec
+    declares — a service, one of its methods, a flow, a screen, an action — becomes a
+    declaration in two languages and a path in two trees. Three things are refused: a name
+    that is not lowerCamelCase, a name either language reserves (`default` is not a Swift enum
+    case; `object` is not a Kotlin declaration), and two names `pascal` writes the same way —
+    `long` and `Long` are one `LongModel.swift`, and the second one written wins silently.
+    See **What a name may be** below.
+
+## What a name may be
+
+Every name this spec declares is an identifier in Swift, an identifier in Kotlin and part of
+a file path in both trees: a service and each of its methods, a flow, a screen and each of its
+actions. So the rule is one rule, and it is checked rather than assumed (refusal 15):
+
+**lowerCamelCase — a lowercase letter, then letters and digits.** `userCode`, `v2` and
+`tourOne` are names; `submit-now`, `send message` and `EnterCode` are not. Nothing else is
+permitted, which is also why a name never needs escaping anywhere the generator writes it: it
+cannot contain a quote, a backslash or a `$`.
+
+**Not a word either language reserves.** The lists are in `Spec.kt`, taken from The Swift
+Programming Language's lexical structure and kotlinlang.org's keyword reference, and they hold
+the unconditional keywords only — `await` and `open` are contextual in their own languages and
+are names here. An action called `default` is a legal JSON key and not a legal Swift enum case.
+
+**Not a second spelling of a name already declared.** The emitters raise a name's first letter
+to make a type out of it, so `long` and `Long` are one `LongModel.swift` — one map entry, one
+file, and the second one written wins with nothing to say it did.
+
+The inputs are the exception, and they are not an exception to this rule so much as outside
+it: an input's name is a CONTRACT field name, spelled by the contract generator, and refusal 8
+is what stops a spec inventing one.
+
+## What a screen may collect
+
+A screen's fields are derived from the contract: an action whose request needs something the
+screen's route does not carry collects it (see `inputs` above). That makes a screen with no
+`source` and two or more collected fields a form — and it makes an action that collects on a
+screen WITH a `source` a refusal (refusal 14).
+
+The reason is that the read is already the screen's state. A screen that reads shows what it
+read, so there is no form underneath it for a field refusal to be shown in, and there is
+nothing for the emitted write to take its arguments from; the three files that come out of
+the attempt disagree with each other and none of them compiles. A flow that has to collect
+something and then read is two screens, which is what the worked example is: `enterCode`
+collects the code, `reviewDevice` carries it on its route and reads with it.
 
 ## How a screen's state type is derived
 
