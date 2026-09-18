@@ -248,6 +248,38 @@ final class SPFNDeviceCodeEnrollmentTests: XCTestCase
     }
 
     // MARK: - D7, D8: the two answers the poll is written for
+    /// The whole device-code wait is unproven — `auth.device.start` and every poll — and
+    /// it parks exactly one key however long the approval takes.
+    ///
+    /// The count used to rise with the wait rather than with the enrollment: every
+    /// unproven call minted a throwaway P-256 key to fill a signer slot the path never
+    /// reads, so a person who took ten intervals to approve cost ten keypairs. Counted
+    /// across two polls, because a per-call cost is only visible when there is more than
+    /// one call.
+    func testTheUnprovenWaitParksOneKeyHoweverManyPollsItTakes() async throws
+    {
+        let generated = GenerationCounter()
+        let transport = ScriptedTransport([startAnswer(), pendingAnswer(7_000), approvedAnswer()])
+        let key = try testKey()
+        let lifecycle = SPFNKeyLifecycle(
+            transport: transport,
+            store: InMemoryKeyStore(),
+            baseURL: baseURL,
+            clock: FakeClock(startedAtMillis),
+            proofClock: FakeClock(startedAtMillis),
+            nonceGenerator: ScriptedNonceGenerator([]),
+            sleeper: ScriptedSleeper(),
+            newKeyID: { "key-test-0001" },
+            makeKey: { _ in generated.record(key) }
+        )
+
+        _ = try await lifecycle.enrollByDeviceCode { _, _ in }
+
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 3, "one start and two polls, all of them unproven")
+        XCTAssertEqual(generated.count, 1, "the parked key, and nothing minted per call")
+    }
+
 
     func testD7APendingAnswerWaitsItsIntervalAndPollsTheSameCodeAgain() async throws
     {

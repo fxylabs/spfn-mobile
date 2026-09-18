@@ -849,14 +849,12 @@ public actor SPFNKeyLifecycle
         return SPFNEnrollmentResult(clientID: clientID, keyID: candidate.keyID, isNewUser: false)
     }
 
-    /// One client per call, over one session. For the unproven enrollment the signer
-    /// is never consulted — the unproven path touches no session state — so the
-    /// enrollment client carries the candidate key under an empty identity rather
-    /// than a second provider type that exists only to throw.
+    /// One client per call, over one session. For the unproven enrollment the signer is
+    /// never consulted — the unproven path touches no session state — so it is handed a
+    /// provider that refuses to sign rather than a key.
     private func client(signingWith provider: SPFNSecureEnclaveKeyProvider?) throws -> SPFNClient
     {
-        let keyProvider: any SPFNKeyProvider = provider
-            ?? SPFNSecureEnclaveKeyProvider(clientID: "", key: makeKeyPlaceholder)
+        let keyProvider: any SPFNKeyProvider = provider ?? UnenrolledKeyProvider()
         return SPFNClient(
             transport: transport,
             session: try SPFNSession(
@@ -871,10 +869,34 @@ public actor SPFNKeyLifecycle
         )
     }
 
-    /// A throwaway key backing the never-consulted placeholder above.
-    private var makeKeyPlaceholder: SPFNCustodyKey
+    /// The signer the unproven path is given: it names nothing and refuses to sign.
+    ///
+    /// It replaces a throwaway P-256 key that used to be generated per unproven call — on
+    /// every enrollment, every `auth.device.start`, and every poll of a device-code wait,
+    /// which is one keypair per interval for as long as somebody takes to approve. It was
+    /// never consulted, so the cost bought nothing; and had anything ever consulted it,
+    /// the request would have gone out signed by a key no server has ever heard of, which
+    /// is a refusal nobody could read. Refusing outright is what turns that into a
+    /// failure at the line that asked.
+    ///
+    /// `SpfnKeyLifecycle.UnenrolledKeyProvider` is the same object on the other platform.
+    private struct UnenrolledKeyProvider: SPFNKeyProvider
     {
-        SPFNCustodyKey.generate(keyID: "unenrolled", preferSecureEnclave: false)
+        /// What a signature asked for on the unproven path is: a bug in this file. Its
+        /// own type rather than an `SPFNKeyLifecycleError`, which is the vocabulary of
+        /// things a caller can do something about.
+        enum Refusal: Error, Equatable
+        {
+            case theUnprovenPathNeverSigns
+        }
+
+        let clientID = ""
+        let keyID = ""
+
+        func sign(_ message: [UInt8]) throws -> [UInt8]
+        {
+            throw Refusal.theUnprovenPathNeverSigns
+        }
     }
 
     /// The signature algorithm every key this lifecycle generates is signed with.
