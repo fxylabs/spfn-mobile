@@ -1,7 +1,20 @@
-# STEP2-SCAFFOLD: NOT A GATE.
+# NOT A GATE, and outside the CI referee by decision.
 #
-# Manual-only, and deliberately inert. This file exists so the location is reserved and
-# so nobody adds release automation somewhere less visible. It performs no build, holds
+# D2 (partly resolved 2026-09-18) put every Linux-runnable check under the three required
+# workflows. A release candidate is the clearest case of what stays out: it is a signed,
+# published artifact plus real-device evidence, and all three of those — macOS, hardware
+# and publication — are what D2 leaves open.
+#
+# Concretely, what this file would have to do that a pull-request runner cannot:
+#   - build on macOS, because `tools/rc-verify/rc-verify.sh` needs a Swift toolchain, an
+#     Android SDK and the Apple half in one place;
+#   - sign, with a key that exists only as a GitHub secret and is injected per run;
+#   - clear `tools/device-receipts/receipt-gate.sh`, which rc-verify runs before it will
+#     verify anything and which needs fifteen cells driven by a person on two real phones.
+#     That gate is the one failure CI admits by name, in tools/ci/validate-known-red.txt.
+#
+# Manual-only, and deliberately inert besides. This file exists so the location is reserved
+# and so nobody adds release automation somewhere less visible. It performs no build, holds
 # no credential, and reads no secret.
 #
 # A successful candidate build is never approval to release. Before this file may do
@@ -33,10 +46,10 @@ permissions:
 
 jobs:
   placeholder:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Refuse to imply a release path exists
         run: |
-          echo "STEP2-SCAFFOLD: no release candidate pipeline exists."
+          echo "NOT A GATE: no release candidate pipeline exists."
           echo "No artifact has been built, signed, uploaded or approved."
           exit 0

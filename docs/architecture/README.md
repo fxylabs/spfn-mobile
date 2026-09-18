@@ -569,6 +569,29 @@ using only the Python standard library. It is not part of any build, and its
 independence from both SDKs is precisely what makes the fixtures evidence rather than a
 restatement.
 
+## What CI is a referee over
+
+A workflow file cannot be run on a developer machine, so nothing that matters is written
+in one. Every gate is a script under `tools/ci/`, and a workflow only calls one. That is
+what lets the same command mean the same thing on a laptop, on the development VM and on a
+runner, and it is why changing a gate is changing a script rather than editing YAML.
+
+Three workflows gate a pull request — `swift`, `android`, `contract` — and between them
+they run every check this repository has that can run on Linux (D2, partly resolved
+2026-09-18). What stays outside is the same boundary everything else in this document
+draws: the macOS compile with Keychain, Secure Enclave and the AuthenticationServices
+adapter; the emulator and real-device cells; and anything signed or published. The
+integration run stays out too, for a reason specific to it: the `swift-e` cell fails on
+Linux, so a Linux job could only report a failure it is not allowed to fix.
+
+One consequence is worth stating plainly, because it looks like a broken build. The
+offline validator is red on purpose: the device-receipt gate refuses the committed
+receipts, which were taken against contract `0.9.0` before the 2026-09-02 re-pin. CI does
+not hide that and does not obey it either. `tools/ci/validate.sh` judges the validator's
+output against `tools/ci/validate-known-red.txt`, admits exactly those two rows, and fails
+on any other — *and* on either of those two no longer appearing, because an allowlist that
+outlives its failure is how a real failure gets admitted later.
+
 ## Where the independence in the integration run comes from
 
 The reference server shares source with the Android modules, so a round trip against it

@@ -1,32 +1,59 @@
-# STEP2-SCAFFOLD: NOT A GATE.
+# The Android gate. A required check: a pull request that reddens it does not merge.
 #
-# Manual-only. No checkout, no toolchain setup, no third-party action (D14).
+# What it runs: `tools/ci/android.sh` — unit tests across every Android module, lint
+# across the SDK modules under `android/`, the three build tools' JVM suites, and the
+# codegen determinism tasks `:contract-codegen:spfnCodegenVerify`,
+# `:ui-codegen:spfnUiVerify` and `:ui-codegen:spfnHarnessUiVerify`. Codegen determinism
+# lives here rather than in contract.yml because it is a Gradle task and this is the job
+# that already has a JDK, a Gradle wrapper and an Android SDK; running it twice would buy
+# no second opinion. The workflow calls the script and nothing else.
 #
-# What runs locally today, with ANDROID_HOME pointing at an Android SDK:
-#   ./gradlew build                    # five modules compile, unit tests run
-#   ./gradlew spfnScaffoldCheck        # module graph coherence
-#   ./gradlew spfnToolchainReport      # the effective D5 baseline
+# What it deliberately does not run, all of it D2's macOS/device/publication boundary:
+#   - an emulator and a real device. The nine lifecycle cells and the fifteen device
+#     sign-in cells need hardware a hosted runner does not have, which is exactly why
+#     tools/ci/validate-known-red.txt admits the receipt gate's two red rows.
+#   - `assemble` of a release variant, signing and any publication task.
+#   - the integration run. `tools/reference-server/run-integration.sh` expects ten
+#     receipts and its `swift-e` cell fails on Linux (confirmed 2026-09-18, Mac-only);
+#     `:reference-server:test` excludes those cases by its own configuration, so the unit
+#     suite here is the whole of what CI takes from that module.
 #
-# Gates this file must implement before it becomes a required check:
-#   - Gradle dependency verification against gradle/verification-metadata.xml
-#   - lint and assemble in addition to unit tests
-#   - API and binary compatibility snapshots
-#   - Keystore coverage; emulator on main, real device at candidate stage
+# The SDK is not taken from the runner image: tools/ci/install-android-sdk.sh names
+# `platforms;android-36` and `build-tools;36.0.0` and installs them under ANDROID_HOME
+# (D20). The JDK is the runner's; `settings.gradle.kts` applies the foojay resolver, which
+# provisions JDK 21 only if the runner has none.
 #
-# How CI obtains and pins an Android SDK is open decision D20.
+# Expected duration: about 10 minutes on a cold runner. The whole script takes 20 seconds
+# on this repository's development VM with a warm Gradle daemon and a populated dependency
+# cache; a runner starts with neither, and `gradle/verification-metadata.xml` makes every
+# resolved artifact a checksum-verified download. timeout-minutes is 40, which is the
+# "something hung" line, not the expectation.
 name: android
 
 on:
-  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  placeholder:
-    runs-on: ubuntu-latest
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      ANDROID_HOME: ${{ github.workspace }}/android-sdk
     steps:
-      - name: State repository status
-        run: |
-          echo "STEP2-SCAFFOLD: Android CI is not implemented."
-          echo "Run locally instead: ANDROID_HOME=... ./gradlew build"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the named Android SDK components
+        run: sh tools/ci/install-android-sdk.sh
+
+      - name: Unit tests, lint and codegen verification
+        run: sh tools/ci/android.sh

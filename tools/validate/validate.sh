@@ -249,6 +249,11 @@ for path in \
     tools/validate/probe-ui-vocabulary-rules.sh \
     tools/validate/probe-example-scaffold-rules.sh \
     tools/validate/probe-authored-view-rules.sh \
+    tools/validate/probe-ci-actions-rules.sh \
+    tools/ci/README.md tools/ci/validate.sh tools/ci/validate-known-red.txt \
+    tools/ci/android.sh tools/ci/swift.sh \
+    tools/ci/install-swift.sh tools/ci/install-android-sdk.sh \
+    tools/ci/swift-toolchain.lock tools/ci/actions-allowlist.txt \
     tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
     tools/rc-verify/probe-trap-exit.sh tools/rc-verify/local-signed-run.sh \
     tools/device-receipts/receipt-gate.sh tools/device-receipts/probe-receipt-gate.sh \
@@ -1157,27 +1162,45 @@ else
     fail "CocoaPods trunk publication command present in: $TRUNK"
 fi
 
-# One workflow — and only one — may speak publication: publish-central.yml, the manual
-# Central path the publication transition opened. Every other workflow keeps the full
-# Step 2 rule. What publish-central.yml itself may do is pinned right after the loop:
-# named secrets only, one remote endpoint only, held-for-confirmation upload only.
+# Workflows come in three kinds now, and each kind is held to its own shape.
 #
-# Manual-only is an ALLOW-list over the parsed `on:` trigger set, not a deny-list of
-# trigger names: a deny-list misses the flow-style forms (`on: [push, ...]`,
-# `on: push`, `on: {push: …}`) and every trigger nobody thought to name —
-# workflow_run, repository_dispatch, merge_group, a future one. Here the trigger set
-# of every workflow is extracted, whichever YAML style declares it, and anything that
-# is not exactly `workflow_dispatch` fails, as does a workflow declaring no trigger.
+# THREE ARE GATES (D2, partly resolved 2026-09-18): swift, android and contract run every
+# Linux-runnable check on every pull request. They trigger automatically, they check the
+# source out, and every command they run is a script under tools/ci/ — because a workflow
+# file cannot be run on a developer machine, and a gate nobody can reproduce locally is a
+# gate nobody can fix.
+#
+# ONE MAY SPEAK PUBLICATION: publish-central.yml, the manual Central path the publication
+# transition opened. What it may do is pinned right after the loop: named secrets only,
+# one remote endpoint only, held-for-confirmation upload only.
+#
+# THE REST STAY MANUAL AND INERT: security.yml and release-candidate.yml describe what D2
+# leaves outside CI — macOS, real devices, signing and publication — and perform nothing.
+#
+# The trigger check is an ALLOW-list over the parsed `on:` set, not a deny-list of trigger
+# names: a deny-list misses the flow-style forms (`on: [push, ...]`, `on: push`,
+# `on: {push: …}`) and every trigger nobody thought to name — workflow_run,
+# repository_dispatch, merge_group, a future one. The trigger set of every workflow is
+# extracted, whichever YAML style declares it, and compared against the set its kind
+# allows; a workflow declaring no trigger fails either way.
 PUBLISH_WORKFLOW=.github/workflows/publish-central.yml
+GATE_WORKFLOWS=' .github/workflows/swift.yml .github/workflows/android.yml .github/workflows/contract.yml '
 for workflow in .github/workflows/*.yml
 do
     [ -f "$workflow" ] || continue
 
-    # Actions allow-list. publish-central.yml may use exactly one action — the
-    # SHA-pinned log-artifact uploader that carries failure evidence out of the
-    # runner — and a tag- or branch-pinned form of even that one fails, because a
-    # movable ref is how an unreviewed action enters a workflow. Every other
-    # workflow still uses none.
+    case "$GATE_WORKFLOWS" in
+        *" $workflow "*) IS_GATE=yes ;;
+        *) IS_GATE=no ;;
+    esac
+
+    # Actions allow-list, per workflow. publish-central.yml may use exactly one action —
+    # the SHA-pinned log-artifact uploader that carries failure evidence out of the
+    # runner. A gate workflow may use exactly one too: the SHA-pinned checkout, because a
+    # job needs the source. Everything else uses none. A tag- or branch-pinned form of
+    # even an admitted action fails, because a movable ref is how an unreviewed action
+    # enters a workflow. Section 24 is the other half of this: it holds every one of these
+    # lines to the SHAs recorded in tools/ci/actions-allowlist.txt.
     if [ "$workflow" = "$PUBLISH_WORKFLOW" ]
     then
         # Non-anchored on purpose: `uses:` can open a step (`- uses:`) or ride in a
@@ -1190,6 +1213,17 @@ do
         if [ -z "$UNEXPECTED_USES" ]
         then
             pass "$workflow uses only the commit-SHA-pinned upload-artifact action"
+        else
+            fail "$workflow uses an action outside the SHA-pinned allowlist: $UNEXPECTED_USES"
+        fi
+    elif [ "$IS_GATE" = yes ]
+    then
+        UNEXPECTED_USES=$(grep -E 'uses:' "$workflow" \
+            | grep -vE '^[[:space:]]*#' \
+            | grep -vE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*actions/checkout@[0-9a-f]{40}([[:space:]]+#.*)?$' || true)
+        if [ -z "$UNEXPECTED_USES" ]
+        then
+            pass "$workflow uses only the commit-SHA-pinned checkout action"
         else
             fail "$workflow uses an action outside the SHA-pinned allowlist: $UNEXPECTED_USES"
         fi
@@ -1248,22 +1282,51 @@ do
             }
         }
     ' "$workflow")
-    UNEXPECTED_TRIGGERS=$(printf '%s\n' "$TRIGGERS" | grep -v '^workflow_dispatch$' | grep -v '^$' || true)
+    if [ "$IS_GATE" = yes ]
+    then
+        ADMITTED_TRIGGERS='^(pull_request|push)$'
+        TRIGGER_DESCRIPTION='pull_request and push, and nothing else'
+    else
+        ADMITTED_TRIGGERS='^workflow_dispatch$'
+        TRIGGER_DESCRIPTION='workflow_dispatch and nothing else'
+    fi
+    UNEXPECTED_TRIGGERS=$(printf '%s\n' "$TRIGGERS" | grep -vE "$ADMITTED_TRIGGERS" | grep -v '^$' || true)
     if printf '%s\n' "$TRIGGERS" | grep -q '^SPFN_UNPARSEABLE_TRIGGER$'
     then
         fail "$workflow has a trigger line the parser cannot read; an unparseable trigger is refused"
     elif [ -z "$TRIGGERS" ]
     then
-        fail "$workflow declares no trigger at all; a workflow must be explicitly manual"
+        fail "$workflow declares no trigger at all; a workflow must say when it runs"
     elif [ -z "$UNEXPECTED_TRIGGERS" ]
     then
-        pass "$workflow triggers on workflow_dispatch and nothing else"
+        pass "$workflow triggers on $TRIGGER_DESCRIPTION"
     else
-        fail "$workflow declares triggers beyond workflow_dispatch: $(printf '%s' "$UNEXPECTED_TRIGGERS" | tr '\n' ' ')"
+        fail "$workflow declares triggers beyond $TRIGGER_DESCRIPTION: $(printf '%s' "$UNEXPECTED_TRIGGERS" | tr '\n' ' ')"
     fi
 
-    contains "$workflow" 'NOT A GATE' "$workflow states that it is not a gate"
-    contains "$workflow" 'workflow_dispatch' "$workflow is manual-only"
+    if [ "$IS_GATE" = yes ]
+    then
+        # A gate runs scripts, never commands of its own. The whole point of tools/ci is
+        # that the runner and a developer's terminal execute the same text; a `run:` that
+        # named a gradle or swift invocation directly would be a second gate nobody can
+        # reproduce. Only `sh tools/ci/<name>.sh` is admitted as a run command.
+        UNEXPECTED_RUNS=$(grep -nE '^[[:space:]]*run:' "$workflow" \
+            | grep -vE '^[0-9]+:[[:space:]]*run:[[:space:]]*sh tools/ci/[a-z-]+\.sh[[:space:]]*$' || true)
+        if [ -z "$UNEXPECTED_RUNS" ]
+        then
+            pass "$workflow runs tools/ci scripts and nothing else, so its gate is reproducible off a runner"
+        else
+            fail "$workflow runs a command that is not a tools/ci script: $UNEXPECTED_RUNS"
+        fi
+
+        contains "$workflow" 'A required check' "$workflow states that it is a required check"
+        contains "$workflow" 'timeout-minutes' "$workflow bounds its own runtime"
+        lacks_active "$workflow" 'runs-on:[[:space:]]*[a-z-]*latest' \
+            "$workflow names an exact runner image rather than a moving 'latest'"
+    else
+        contains "$workflow" 'NOT A GATE' "$workflow states that it is not a gate"
+        contains "$workflow" 'workflow_dispatch' "$workflow is manual-only"
+    fi
 
     if [ "$workflow" = "$PUBLISH_WORKFLOW" ]
     then
@@ -3407,6 +3470,70 @@ then
     pass 'every Kotlin file that draws a PagedView states scroll = false, so no LazyColumn is measured inside an infinite height'
 else
     fail "Kotlin files that draw a PagedView without a \`scroll = false\` anywhere in them:$PAGED_SCROLL_OFFENDERS; a LazyColumn inside Screen(scroll = true)'s verticalScroll is measured against an infinite height and throws IllegalStateException on the frame the screen appears"
+fi
+
+# ---------------------------------------------------------------------------
+section '24. every action a workflow uses is on the SHA-pinned list (D14)'
+# ---------------------------------------------------------------------------
+# D14, resolved 2026-09-18: a workflow may use an action only if its name AND its commit
+# SHA are written down in tools/ci/actions-allowlist.txt. The per-workflow rules in
+# section 8 already say WHICH action each file may name; this section is the register
+# those SHAs are read from, so bumping an action is an edit to a reviewed list rather than
+# a character change inside a YAML file nobody diffs.
+#
+# It fails closed in both directions. No list, or no `uses:` line anywhere under
+# .github/workflows, means the check had nothing to read — which is indistinguishable from
+# a check that was silently deleted — so it is reported as a failure rather than as a pass
+# with nothing behind it. An allowlist entry that is not itself a 40-hex pin fails too:
+# a list that admitted `@v7` would admit every future commit that tag ever points at.
+#
+# tools/validate/probe-ci-actions-rules.sh proves all three refusals bite.
+ACTIONS_ALLOWLIST=tools/ci/actions-allowlist.txt
+
+if [ ! -f "$ACTIONS_ALLOWLIST" ]
+then
+    fail "$ACTIONS_ALLOWLIST is missing, so the action pinning rule did not run"
+else
+    # The reference alone, with the list-item dash, the `uses:` key and any trailing
+    # comment removed. Full-line comments are dropped first: an action named in prose is
+    # documentation, not a step.
+    USES_REFS=$(grep -nE 'uses:' .github/workflows/*.yml 2>/dev/null \
+        | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' \
+        | sed -E 's/[[:space:]]*#.*$//; s/^([^:]+:[0-9]+):[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*/\1 /' \
+        | sed -E 's/[[:space:]]+$//' || true)
+
+    ALLOWED_REFS=$(sed -E 's/[[:space:]]*#.*$//; s/[[:space:]]+$//' "$ACTIONS_ALLOWLIST" | grep -v '^$' || true)
+    UNPINNED_ENTRIES=$(printf '%s\n' "$ALLOWED_REFS" | grep -v '^$' \
+        | grep -vE '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}$' || true)
+
+    if [ -z "$USES_REFS" ]
+    then
+        fail "no workflow under .github/workflows names any action, so the action pinning rule did not run"
+    elif [ -n "$UNPINNED_ENTRIES" ]
+    then
+        fail "$ACTIONS_ALLOWLIST holds entries that are not 40-hex commit pins: $(printf '%s' "$UNPINNED_ENTRIES" | tr '\n' ' ')"
+    else
+        UNLISTED_ACTIONS=''
+        LISTED_ACTIONS=0
+        printf '%s\n' "$USES_REFS" > "$TMP/uses-refs.txt"
+        while read -r location reference
+        do
+            if printf '%s\n' "$ALLOWED_REFS" | grep -qxF -- "$reference"
+            then
+                LISTED_ACTIONS=$((LISTED_ACTIONS + 1))
+            else
+                UNLISTED_ACTIONS="$UNLISTED_ACTIONS $location:$reference"
+            fi
+        done < "$TMP/uses-refs.txt"
+
+        if [ -n "$UNLISTED_ACTIONS" ]
+        then
+            fail "actions used by a workflow but not in $ACTIONS_ALLOWLIST:$UNLISTED_ACTIONS"
+            printf '%s\n' "$USES_REFS" | sed 's/^/          /'
+        else
+            pass "all $LISTED_ACTIONS action reference(s) under .github/workflows are pinned by a SHA listed in $ACTIONS_ALLOWLIST"
+        fi
+    fi
 fi
 
 # ---------------------------------------------------------------------------

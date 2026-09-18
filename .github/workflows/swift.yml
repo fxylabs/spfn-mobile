@@ -1,28 +1,56 @@
-# STEP2-SCAFFOLD: NOT A GATE.
+# The Swift gate. A required check: a pull request that reddens it does not merge.
 #
-# Manual-only. No checkout, no toolchain setup, no third-party action (D14).
+# What it runs: `tools/ci/swift.sh` — `swift build --build-tests` then `swift test
+# --skip-build`, over the Linux module set (SPFNCore, SPFNGenerated, SPFNAuth,
+# SPFNClient, whose cryptography is swift-crypto behind `.when(platforms: [.linux])`).
+# The workflow calls the script and nothing else; changing the gate means changing
+# tools/ci/swift.sh, so this file and a developer's terminal cannot drift apart.
 #
-# What runs locally today:
-#   swift build && swift test          # 45 tests, Swift 6 language mode
+# What it deliberately does not run, all of it D2's macOS/device/publication boundary:
+#   - the macOS compile, and with it Keychain, Secure Enclave and the
+#     AuthenticationServices provider adapter. Those need Apple frameworks and a macOS
+#     runner; the two adapter modules declare no Linux half at all, so their rows are
+#     absent here rather than skipped.
+#   - a real device, which no hosted runner has.
+#   - the integration run. `tools/reference-server/run-integration.sh` expects ten
+#     receipts, and the `swift-e` cell fails on Linux (confirmed 2026-09-18) — it is a
+#     Mac-only cell, so a Linux job could only report a failure it is not allowed to fix.
 #
-# Gates this file must implement before it becomes a required check:
-#   - swift build and swift test on a Linux runner (core, no Apple frameworks)
-#   - a separate macOS job for Keychain and Secure Enclave coverage
-#   - concurrency, cancellation and error-path tests
-#   - every third-party action pinned by commit SHA
+# The toolchain is Swift 6.2.1, fetched and digest-checked by tools/ci/install-swift.sh
+# against tools/ci/swift-toolchain.lock rather than taken from the runner image.
+#
+# Expected duration: about 3 minutes on a cold runner — the whole build and suite take
+# 41 seconds on this repository's development VM with a warm apt cache, and the runner
+# adds the toolchain download and the apt step. timeout-minutes is 30, which is the
+# "something hung" line, not the expectation.
 name: swift
 
 on:
-  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
+# A second push to the same pull request makes the first run's answer worthless, so it
+# is cancelled rather than left to finish and confuse the check list. `github.ref` is
+# the pull request's merge ref on a PR and the branch on a push, so the two never share
+# a group.
+concurrency:
+  group: swift-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  placeholder:
-    runs-on: ubuntu-latest
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - name: State repository status
-        run: |
-          echo "STEP2-SCAFFOLD: Swift CI is not implemented."
-          echo "Run locally instead: swift build && swift test"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the pinned Swift toolchain
+        run: sh tools/ci/install-swift.sh
+
+      - name: Swift build and test
+        run: sh tools/ci/swift.sh
