@@ -28,6 +28,10 @@
 // `interactiveDismissDisabled` is deliberately absent. A sheet a user cannot drag away is a
 // sheet that has to justify itself, and no flow in this repository has that to say yet.
 //
+// What HEIGHT that sheet stands at is `SheetPresentation.swift`, not this file. Binding a
+// flow to a navigator and resolving a detent are two subjects, and the second one is what
+// Android's `Sheet.kt` is a whole file for.
+//
 // ---------------------------------------------------------------------------
 // A `.push` flow has two paths, and only one of them is whole
 // ---------------------------------------------------------------------------
@@ -277,78 +281,5 @@ public struct FlowHost<Route: FlowRoute, Content: View>: View
             }
         )
     }
-}
-
-/// The three heights, resolved onto the system's own sheet vocabulary.
-///
-/// A separate modifier rather than an `#if` in the middle of a chain, because the platform
-/// split is real: `presentationDetents` is iOS's and macOS has no sheet detents at all, so
-/// on macOS this is a plain sheet and the detent is information the platform has no use for.
-///
-/// `half` and `full` are the system's own `.medium` and `.large` rather than fractions of
-/// our own, because a sheet the user recognises is worth more than a sheet that matches
-/// Android to the pixel.
-///
-/// `fit` has no system detent, so it is measured. There IS a non-circular measurement and it
-/// took a Mac to find it: the thing to measure is the scroll CONTENT — the stack a `Screen`
-/// fixes vertically before it lays it out — and never the scroll view, which inside a sheet
-/// is as tall as the sheet and would feed the detent its own answer back. `Screen` reports
-/// the content's height through `ScreenContentHeightKey` and this modifier stands the sheet
-/// at that plus the header the content does not include. The measurement arrives once and
-/// does not oscillate, because the number reported does not move when the sheet does.
-///
-/// Until it arrives — the first pass, and the permanent state of a screen whose body does
-/// not scroll — the sheet takes `SheetGeometry`'s unmeasured fallback, which is the same
-/// number Android falls back to when it has not measured either.
-///
-/// No ceiling is named on this side. `SheetGeometry.fitHeight` takes one and Android passes
-/// its container's `full`; SwiftUI clamps a `.height` detent to the sheet's own maximum
-/// itself, so a second, smaller ceiling invented here would only make the sheet shorter than
-/// the platform's own answer.
-private struct SheetPresentation: ViewModifier
-{
-    let detent: SheetDetent
-
-    @State private var measured: CGFloat = 0
-
-    func body(content: Content) -> some View
-    {
-    #if os(macOS)
-        content
-    #else
-        content
-            .onPreferenceChange(ScreenContentHeightKey.self)
-            { height in
-                measured = height
-            }
-            .presentationDetents([Self.presentationDetent(for: detent, content: measured)])
-            .presentationDragIndicator(.visible)
-    #endif
-    }
-
-#if !os(macOS)
-    private static func presentationDetent(for detent: SheetDetent, content: CGFloat) -> PresentationDetent
-    {
-        switch detent
-        {
-        case .fit:
-            let height = SheetGeometry.fitHeight(
-                content: Double(content),
-                header: Double(Metrics.headerHeight),
-                max: .infinity
-            )
-            guard height > 0
-            else
-            {
-                return .fraction(SheetGeometry.fitFallbackFraction)
-            }
-            return .height(CGFloat(height))
-        case .half:
-            return .medium
-        case .full:
-            return .large
-        }
-    }
-#endif
 }
 #endif
