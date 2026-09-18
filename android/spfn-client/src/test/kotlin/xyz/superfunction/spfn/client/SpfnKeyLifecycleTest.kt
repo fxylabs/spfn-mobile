@@ -19,6 +19,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import xyz.superfunction.spfn.auth.SpfnAuthException
 import xyz.superfunction.spfn.auth.SpfnEcdsa
 import xyz.superfunction.spfn.core.SpfnDigest
 import xyz.superfunction.spfn.generated.SpfnGeneratedContract
@@ -33,6 +34,12 @@ class SpfnKeyLifecycleTest
 {
     private val baseUrl = "https://example.invalid"
     private val ttlMillis: Long = SpfnGeneratedContract.KEY_POLICY_TTL_DAYS * 24 * 60 * 60 * 1_000
+
+    /**
+     * A client id the canonical proof input cannot carry: the C0 character would make the
+     * newline-separated form ambiguous, so the proof is refused before it is signed.
+     */
+    private val CLIENT_ID_WITH_A_CONTROL_CHARACTER = "client-test-\u0001-0001"
 
     // ---- M1 + M2: enrollment sends the fixture bytes and persists the identity
 
@@ -503,72 +510,342 @@ class SpfnKeyLifecycleTest
 
     // ---- M5: every way a rotation fails, exactly one signable key ----------
 
-    /**
-     * A refusal in the same call that sent the request: the server did not apply it,
-     * so the candidate is destroyed and the old key stays the one signer.
-     */
+    // ---- M5: the rotation table, one case per cell -------------------------
+
+    // Every way a rotation can end, twice: once through rotate() and once through
+    // resumeRotation(). The two entry points read one classification, and a pair of cases
+    // per row is what keeps that true — a second table growing beside the first is exactly
+    // the drift the shared function exists to prevent. The rows are named K1–K10 here, in
+    // docs/architecture/README.md, and in the two implementations.
+
+    /** K1: the answer decoded and named the key that was sent. The swap completes. */
     @Test
-    fun aRefusedRotationKeepsTheOldKeyAndDiscardsTheCandidate() = runBlocking {
-        val transport = ScriptedTransport(listOf(answer(ExecuteFixtures.errorEnvelope("PROOF_INVALID"), 401)));
-        val store = InMemoryKeyMetadataStore();
-        val engine = scriptedEngine(testKeyPair(), wrongKeyPair());
-        enrol(store, engine, keyId = "key-test-0001", clientId = "client-test-0001");
-        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0002"));
+    fun rotate_K1_decodedAnswerNamingTheKeySent_promotesTheCandidate() = runBlocking {
+        val install = rotatingInstall(ScriptedTransport(listOf(answer("{\"keyId\":\"key-test-0002\",\"success\":true}"))));
 
-        val thrown = failureOf { lifecycle.rotate() };
+        val result = install.lifecycle.rotate();
 
-        assertTrue("got $thrown", thrown is SpfnClientError.Auth);
-        assertEquals(SpfnGeneratedErrorCode.PROOF_INVALID, (thrown as SpfnClientError.Auth).failure.code);
-        assertEquals("key-test-0001", store.load(SpfnKeyLifecycle.ACTIVE_SLOT)?.keyId);
-        assertNull(store.load(SpfnKeyLifecycle.CANDIDATE_SLOT));
-        assertFalse("the candidate's Keystore entry is gone", engine.contains("spfn-client-key-key-test-0002"));
-        assertEquals(SpfnKeyLifecycleState.ENROLLED, lifecycle.state());
+        assertEquals(SpfnEnrollmentResult("client-test-0001", "key-test-0002", false), result);
+        assertEquals("key-test-0002", install.store.load(SpfnKeyLifecycle.ACTIVE_SLOT)?.keyId);
+        assertNull(install.store.load(SpfnKeyLifecycle.CANDIDATE_SLOT));
+        assertEquals(SpfnKeyLifecycleState.ENROLLED, install.lifecycle.state());
     }
 
-    /**
-     * A transport failure is the one outcome where the server's state is unknown:
-     * the machine parks in ROTATION_PENDING, and the old key stays the only signer.
-     */
+    /** K2: no answer at all. The server may or may not have applied it. */
     @Test
-    fun aTransportFailureParksTheRotationWithTheOldKeyActive() = runBlocking {
-        val transport = ScriptedTransport(
-            listOf(ScriptedTransport.Outcome.Failure(SpfnTransportError.TimedOut()))
+    fun rotate_K2_transportFailure_keepsCandidateAndStaysPending() = runBlocking {
+        val install = rotatingInstall(
+            ScriptedTransport(listOf(ScriptedTransport.Outcome.Failure(SpfnTransportError.TimedOut())))
         );
-        val store = InMemoryKeyMetadataStore();
-        val engine = scriptedEngine(testKeyPair(), wrongKeyPair());
-        enrol(store, engine, keyId = "key-test-0001", clientId = "client-test-0001");
-        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0002"));
 
-        val thrown = failureOf { lifecycle.rotate() };
+        val thrown = failureOf { install.lifecycle.rotate() };
 
         assertTrue("got $thrown", thrown is SpfnClientError.Transport);
-        assertEquals(SpfnKeyLifecycleState.ROTATION_PENDING, lifecycle.state());
-        assertEquals("the candidate never becomes signable by existing",
-            "key-test-0001", lifecycle.activeProvider()?.keyId);
+        assertCandidateHeld(install);
 
-        // And while unresolved, no second rotation and no enrollment may start.
-        val rotateAgain = failureOf { lifecycle.rotate() };
+        // And while unresolved, no second rotation may start.
+        val rotateAgain = failureOf { install.lifecycle.rotate() };
         assertTrue("got $rotateAgain", rotateAgain is SpfnKeyLifecycleException.RotationUnresolved);
     }
 
     /**
-     * Resume, case one: the server never saw the first attempt. The re-send succeeds
-     * and the swap completes as if nothing had died.
+     * K3: the server answered 2xx and this SDK could not read the answer. It said yes, so
+     * the candidate is a key it may already honour — the row this suite exists for.
      */
     @Test
-    fun resumeRetriesARotationTheServerNeverApplied() = runBlocking {
-        val transport = ScriptedTransport(listOf(answer("{\"keyId\":\"key-test-0002\",\"success\":true}")));
-        val store = InMemoryKeyMetadataStore();
-        val engine = scriptedEngine(testKeyPair(), wrongKeyPair());
-        enrol(store, engine, keyId = "key-test-0001", clientId = "client-test-0001");
-        parkCandidate(store, engine, keyId = "key-test-0002", clientId = "client-test-0001");
-        val lifecycle = makeLifecycle(transport, store, engine, keyIds = emptyList());
+    fun rotate_K3_decodingOn2xx_keepsCandidateAndStaysPending() = runBlocking {
+        for ((body, expected) in UNREADABLE_SUCCESSES)
+        {
+            val install = rotatingInstall(ScriptedTransport(listOf(answer(body))));
 
-        val result = lifecycle.resumeRotation();
+            val thrown = failureOf { install.lifecycle.rotate() };
+
+            assertTrue("body $body gave $thrown", thrown is SpfnClientError.Decoding);
+            assertEquals(body, expected, (thrown as SpfnClientError.Decoding).failure);
+            assertTrue("a 2xx is not a refusal", thrown.onSuccessStatus);
+            assertCandidateHeld(install);
+        }
+    }
+
+    /**
+     * K4: the same unreadability over a REFUSAL. The server answered no, so nothing was
+     * applied and the candidate goes.
+     */
+    @Test
+    fun rotate_K4_decodingOnNon2xx_discardsCandidateAndKeepsTheOldKey() = runBlocking {
+        for ((body, expected) in unreadableRefusals())
+        {
+            val install = rotatingInstall(ScriptedTransport(listOf(answer(body, 401))));
+
+            val thrown = failureOf { install.lifecycle.rotate() };
+
+            assertTrue("body $body gave $thrown", thrown is SpfnClientError.Decoding);
+            assertEquals(body, expected, (thrown as SpfnClientError.Decoding).failure);
+            assertFalse("an unreadable refusal is still a refusal", thrown.onSuccessStatus);
+            assertCandidateRefused(install);
+        }
+    }
+
+    /** K5: the old key itself is dead (M6). */
+    @Test
+    fun rotate_K5_sessionRevoked_wipesEverySlot() = runBlocking {
+        val install = rotatingInstall(
+            ScriptedTransport(listOf(answer(ExecuteFixtures.errorEnvelope("SESSION_REVOKED"), 401)))
+        );
+
+        failureOf { install.lifecycle.rotate() };
+
+        assertWiped(install);
+    }
+
+    /**
+     * K6: any other refusal the server decided on, whether it authenticated the request or
+     * refused it on contract grounds.
+     */
+    @Test
+    fun rotate_K6_otherRefusal_discardsCandidateAndKeepsTheOldKey() = runBlocking {
+        for (code in listOf("PROOF_REPLAYED", "VALIDATION_ERROR"))
+        {
+            val install = rotatingInstall(
+                ScriptedTransport(listOf(answer(ExecuteFixtures.errorEnvelope(code), 400)))
+            );
+
+            val thrown = failureOf { install.lifecycle.rotate() };
+
+            assertTrue("code $code gave $thrown", thrown is SpfnClientError);
+            assertCandidateRefused(install);
+        }
+    }
+
+    /** K7: the proof would not assemble, so no request ever existed. */
+    @Test
+    fun rotate_K7_proofAssemblyFailure_discardsCandidateAndKeepsTheOldKey() = runBlocking {
+        val transport = ScriptedTransport(emptyList());
+        val install = rotatingInstall(transport, clientId = CLIENT_ID_WITH_A_CONTROL_CHARACTER);
+
+        val thrown = failureOf { install.lifecycle.rotate() };
+
+        assertTrue("got $thrown", thrown is SpfnAuthException);
+        assertEquals("PROOF_INPUT_INVALID", (thrown as SpfnAuthException).code);
+        assertCandidateRefused(install);
+        assertEquals("an unassembled proof costs no request", 0, transport.callCount);
+    }
+
+    /**
+     * K8, the clock half: the proof's timestamp could not be anchored, so nothing was
+     * sent. This is the row that used to escape every catch clause.
+     */
+    @Test
+    fun rotate_K8_clockSynchronizationFailure_discardsCandidateAndKeepsTheOldKey() = runBlocking {
+        val transport = ScriptedTransport(emptyList());
+        val install = rotatingInstall(
+            transport,
+            proofClock = ScriptedProofClock(1_750_000_000_000, listOf(SpfnClockSynchronizationException.RequestFailed()))
+        );
+
+        val thrown = failureOf { install.lifecycle.rotate() };
+
+        assertTrue("got $thrown", thrown is SpfnClockSynchronizationException.RequestFailed);
+        assertCandidateRefused(install);
+        assertEquals("a clock that would not answer costs no request", 0, transport.callCount);
+    }
+
+    /**
+     * K8, the store half: the candidate could not be written, which is the other way a
+     * rotation fails before a request exists. rotate() is the only path with a write
+     * before the send; a resume's candidate is already on disk.
+     */
+    @Test
+    fun rotate_K8_candidateStoreFailure_leavesNoCandidateAndKeepsTheOldKey() = runBlocking {
+        val transport = ScriptedTransport(emptyList());
+        val install = rotatingInstall(
+            transport,
+            store = SlotRefusingKeyMetadataStore(SpfnKeyLifecycle.CANDIDATE_SLOT)
+        );
+
+        val thrown = failureOf { install.lifecycle.rotate() };
+
+        assertTrue("got $thrown", thrown is SlotRefusingKeyMetadataStore.WriteRefused);
+        assertCandidateRefused(install);
+        assertEquals("a candidate that could not be persisted is never sent", 0, transport.callCount);
+    }
+
+    /**
+     * K9: a 2xx that decoded and named a key this call never sent. The server applied
+     * SOMETHING, so the candidate is held exactly as in K3 rather than destroyed.
+     */
+    @Test
+    fun rotate_K9_serverNamedAnotherKey_keepsCandidateAndStaysPending() = runBlocking {
+        val install = rotatingInstall(ScriptedTransport(listOf(answer("{\"keyId\":\"key-test-0009\",\"success\":true}"))));
+
+        val thrown = failureOf { install.lifecycle.rotate() };
+
+        assertTrue("got $thrown", thrown is SpfnKeyLifecycleException.ServerNamedAnotherKey);
+        assertCandidateHeld(install);
+    }
+
+    /**
+     * K10: cancellation is a row of its own and not an escape. The request may already be
+     * with the server, so a withdrawn call settles no more than a lost one.
+     */
+    @Test
+    fun rotate_K10_transportCancelled_keepsCandidateAndStaysPending() = runBlocking {
+        val install = rotatingInstall(
+            ScriptedTransport(listOf(ScriptedTransport.Outcome.Failure(SpfnTransportError.Cancelled())))
+        );
+
+        val thrown = failureOf { install.lifecycle.rotate() };
+
+        assertTrue("got $thrown", thrown is SpfnClientError.Transport);
+        assertCandidateHeld(install);
+    }
+
+    /** K1 on resume: the server never saw the first attempt, and the re-send settles it. */
+    @Test
+    fun resume_K1_decodedAnswerNamingTheKeySent_promotesTheCandidate() = runBlocking {
+        val install = pendingInstall(ScriptedTransport(listOf(answer("{\"keyId\":\"key-test-0002\",\"success\":true}"))));
+
+        val result = install.lifecycle.resumeRotation();
 
         assertEquals("key-test-0002", result.keyId);
-        assertEquals("key-test-0002", store.load(SpfnKeyLifecycle.ACTIVE_SLOT)?.keyId);
-        assertNull(store.load(SpfnKeyLifecycle.CANDIDATE_SLOT));
+        assertEquals("key-test-0002", install.store.load(SpfnKeyLifecycle.ACTIVE_SLOT)?.keyId);
+        assertNull(install.store.load(SpfnKeyLifecycle.CANDIDATE_SLOT));
+    }
+
+    /**
+     * K2 on resume: a resume lost the same way the first send was leaves the machine where
+     * it was, ready to be resumed again.
+     */
+    @Test
+    fun resume_K2_transportFailure_keepsCandidateAndStaysPending() = runBlocking {
+        val install = pendingInstall(
+            ScriptedTransport(listOf(ScriptedTransport.Outcome.Failure(SpfnTransportError.TimedOut())))
+        );
+
+        val thrown = failureOf { install.lifecycle.resumeRotation() };
+
+        assertTrue("got $thrown", thrown is SpfnClientError.Transport);
+        assertCandidateHeld(install);
+    }
+
+    /** K3 on resume. */
+    @Test
+    fun resume_K3_decodingOn2xx_keepsCandidateAndStaysPending() = runBlocking {
+        for ((body, expected) in UNREADABLE_SUCCESSES)
+        {
+            val install = pendingInstall(ScriptedTransport(listOf(answer(body))));
+
+            val thrown = failureOf { install.lifecycle.resumeRotation() };
+
+            assertTrue("body $body gave $thrown", thrown is SpfnClientError.Decoding);
+            assertEquals(body, expected, (thrown as SpfnClientError.Decoding).failure);
+            assertTrue("a 2xx is not a refusal", thrown.onSuccessStatus);
+            assertCandidateHeld(install);
+        }
+    }
+
+    /** K4 on resume. */
+    @Test
+    fun resume_K4_decodingOnNon2xx_discardsCandidateAndKeepsTheOldKey() = runBlocking {
+        for ((body, expected) in unreadableRefusals())
+        {
+            val install = pendingInstall(ScriptedTransport(listOf(answer(body, 401))));
+
+            val thrown = failureOf { install.lifecycle.resumeRotation() };
+
+            assertTrue("body $body gave $thrown", thrown is SpfnClientError.Decoding);
+            assertEquals(body, expected, (thrown as SpfnClientError.Decoding).failure);
+            assertFalse("an unreadable refusal is still a refusal", thrown.onSuccessStatus);
+            assertCandidateRefused(install);
+        }
+    }
+
+    /** K5 on resume. */
+    @Test
+    fun resume_K5_sessionRevoked_wipesEverySlot() = runBlocking {
+        val install = pendingInstall(
+            ScriptedTransport(listOf(answer(ExecuteFixtures.errorEnvelope("SESSION_REVOKED"), 401)))
+        );
+
+        failureOf { install.lifecycle.resumeRotation() };
+
+        assertWiped(install);
+    }
+
+    /**
+     * K6 on resume. PROOF_INVALID is the one auth code that does NOT land here — it
+     * completes the rotation instead, which is the asymmetry the case below pins.
+     */
+    @Test
+    fun resume_K6_otherRefusal_discardsCandidateAndKeepsTheOldKey() = runBlocking {
+        for (code in listOf("PROOF_REPLAYED", "VALIDATION_ERROR"))
+        {
+            val install = pendingInstall(
+                ScriptedTransport(listOf(answer(ExecuteFixtures.errorEnvelope(code), 400)))
+            );
+
+            val thrown = failureOf { install.lifecycle.resumeRotation() };
+
+            assertTrue("code $code gave $thrown", thrown is SpfnClientError);
+            assertCandidateRefused(install);
+        }
+    }
+
+    /** K7 on resume. */
+    @Test
+    fun resume_K7_proofAssemblyFailure_discardsCandidateAndKeepsTheOldKey() = runBlocking {
+        val transport = ScriptedTransport(emptyList());
+        val install = pendingInstall(transport, clientId = CLIENT_ID_WITH_A_CONTROL_CHARACTER);
+
+        val thrown = failureOf { install.lifecycle.resumeRotation() };
+
+        assertTrue("got $thrown", thrown is SpfnAuthException);
+        assertEquals("PROOF_INPUT_INVALID", (thrown as SpfnAuthException).code);
+        assertCandidateRefused(install);
+        assertEquals("an unassembled proof costs no request", 0, transport.callCount);
+    }
+
+    /**
+     * K8 on resume. Only the clock half is reachable here: a resume writes nothing before
+     * it sends, because the candidate it re-sends is already on disk.
+     */
+    @Test
+    fun resume_K8_clockSynchronizationFailure_discardsCandidateAndKeepsTheOldKey() = runBlocking {
+        val transport = ScriptedTransport(emptyList());
+        val install = pendingInstall(
+            transport,
+            proofClock = ScriptedProofClock(1_750_000_000_000, listOf(SpfnClockSynchronizationException.RequestFailed()))
+        );
+
+        val thrown = failureOf { install.lifecycle.resumeRotation() };
+
+        assertTrue("got $thrown", thrown is SpfnClockSynchronizationException.RequestFailed);
+        assertCandidateRefused(install);
+        assertEquals("a clock that would not answer costs no request", 0, transport.callCount);
+    }
+
+    /** K9 on resume: the key id is compared again, and disagreeing again settles nothing. */
+    @Test
+    fun resume_K9_serverNamedAnotherKey_keepsCandidateAndStaysPending() = runBlocking {
+        val install = pendingInstall(ScriptedTransport(listOf(answer("{\"keyId\":\"key-test-0009\",\"success\":true}"))));
+
+        val thrown = failureOf { install.lifecycle.resumeRotation() };
+
+        assertTrue("got $thrown", thrown is SpfnKeyLifecycleException.ServerNamedAnotherKey);
+        assertCandidateHeld(install);
+    }
+
+    /** K10 on resume. */
+    @Test
+    fun resume_K10_transportCancelled_keepsCandidateAndStaysPending() = runBlocking {
+        val install = pendingInstall(
+            ScriptedTransport(listOf(ScriptedTransport.Outcome.Failure(SpfnTransportError.Cancelled())))
+        );
+
+        val thrown = failureOf { install.lifecycle.resumeRotation() };
+
+        assertTrue("got $thrown", thrown is SpfnClientError.Transport);
+        assertCandidateHeld(install);
     }
 
     /**
@@ -616,27 +893,6 @@ class SpfnKeyLifecycleTest
     // ---- M6: SESSION_REVOKED wipes -----------------------------------------
 
     @Test
-    fun sessionRevokedDuringRotationWipesEverything() = runBlocking {
-        val transport = ScriptedTransport(listOf(answer(ExecuteFixtures.errorEnvelope("SESSION_REVOKED"), 401)));
-        val store = InMemoryKeyMetadataStore();
-        val engine = scriptedEngine(testKeyPair(), wrongKeyPair());
-        enrol(store, engine, keyId = "key-test-0001", clientId = "client-test-0001");
-        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0002"));
-
-        failureOf { lifecycle.rotate() };
-
-        assertNull(store.load(SpfnKeyLifecycle.ACTIVE_SLOT));
-        assertNull(store.load(SpfnKeyLifecycle.CANDIDATE_SLOT));
-        assertFalse(engine.contains("spfn-client-key-key-test-0001"));
-        assertFalse(engine.contains("spfn-client-key-key-test-0002"));
-        assertEquals(
-            "the re-enrollment-required signal a caller reads",
-            SpfnKeyLifecycleState.UNENROLLED,
-            lifecycle.state()
-        );
-    }
-
-    @Test
     fun noteSessionRevokedIsTheSameWipe() = runBlocking {
         val store = InMemoryKeyMetadataStore();
         val engine = scriptedEngine(testKeyPair());
@@ -679,6 +935,21 @@ class SpfnKeyLifecycleTest
     }
 
     // ---- assembly ----------------------------------------------------------
+
+    /**
+     * The two ways a 2xx can be unreadable, and the failure each is named by. Both are K3:
+     * the status is what decides the row, not which of them arrived.
+     */
+    private val UNREADABLE_SUCCESSES = listOf(
+        "{not canonical json" to SpfnDecodingFailure.NOT_CANONICAL_JSON,
+        "{}" to SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE
+    )
+
+    /** The two ways a refusal can be unreadable. Both are K4. */
+    private fun unreadableRefusals() = listOf(
+        "{\"error\":{\"nothing\":\"an envelope declares\"}}" to SpfnDecodingFailure.NOT_AN_ERROR_ENVELOPE,
+        ExecuteFixtures.errorEnvelope("NO_SUCH_CODE_IN_THIS_CONTRACT") to SpfnDecodingFailure.UNKNOWN_ERROR_CODE
+    )
 
     private fun answer(text: String, statusCode: Int = 200): ScriptedTransport.Outcome =
         ScriptedTransport.Outcome.Answer(jsonResponse(statusCode, text))
@@ -734,12 +1005,18 @@ class SpfnKeyLifecycleTest
         store.save(SpfnKeyLifecycle.CANDIDATE_SLOT, key.metadata(clientId = clientId, createdAtMillis = 1_750_000_000_000));
     }
 
+    /**
+     * @param proofClock the clock the proof's timestamp is derived from, which is the
+     * injected [clock] unless a case needs it to fail on its own — the K8 row is about a
+     * synchronization failure, and a clock that always answers cannot produce one.
+     */
     private fun makeLifecycle(
         transport: SpfnTransport,
         store: SpfnKeyMetadataStore,
         engine: SpfnKeystoreEngine,
         keyIds: List<String>,
         clock: FakeClock = FakeClock(1_750_000_000_000),
+        proofClock: SpfnProofClock? = null,
         nonces: List<String> = emptyList()
     ): SpfnKeyLifecycle
     {
@@ -750,9 +1027,105 @@ class SpfnKeyLifecycleTest
             engine = engine,
             baseUrl = baseUrl,
             clock = clock,
-            proofClock = clock,
+            proofClock = proofClock ?: clock,
             nonceGenerator = ScriptedNonceGenerator(nonces),
             newKeyId = { if (remaining.isEmpty()) "key-unexpected" else remaining.removeAt(0) }
+        );
+    }
+
+    // ---- the rotation table's own assembly ---------------------------------
+
+    /**
+     * The install every [SpfnKeyLifecycle.rotate] cell starts from: `key-test-0001`
+     * enrolled, and `key-test-0002` queued as the key the rotation will generate.
+     */
+    private fun rotatingInstall(
+        transport: SpfnTransport,
+        store: SpfnKeyMetadataStore = InMemoryKeyMetadataStore(),
+        clientId: String = "client-test-0001",
+        proofClock: SpfnProofClock? = null
+    ): Install
+    {
+        val engine = scriptedEngine(testKeyPair(), wrongKeyPair());
+        enrol(store, engine, keyId = "key-test-0001", clientId = clientId);
+        return Install(
+            store,
+            engine,
+            makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0002"), proofClock = proofClock)
+        );
+    }
+
+    /**
+     * The install every [SpfnKeyLifecycle.resumeRotation] cell starts from: the same one,
+     * with the candidate already persisted, as a process death mid-rotation would have
+     * left it.
+     */
+    private fun pendingInstall(
+        transport: SpfnTransport,
+        clientId: String = "client-test-0001",
+        proofClock: SpfnProofClock? = null
+    ): Install
+    {
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair(), wrongKeyPair());
+        enrol(store, engine, keyId = "key-test-0001", clientId = clientId);
+        parkCandidate(store, engine, keyId = "key-test-0002", clientId = clientId);
+        return Install(
+            store,
+            engine,
+            makeLifecycle(transport, store, engine, keyIds = emptyList(), proofClock = proofClock)
+        );
+    }
+
+    private class Install(
+        val store: SpfnKeyMetadataStore,
+        val engine: ScriptedKeystoreEngine,
+        val lifecycle: SpfnKeyLifecycle
+    )
+
+    /**
+     * K2, K3, K9, K10: the outcome is unknown, so the candidate survives — Keystore entry
+     * and all — and the install answers ROTATION_PENDING with the OLD key still the only
+     * one that can sign.
+     */
+    private suspend fun assertCandidateHeld(install: Install)
+    {
+        assertEquals(
+            "the server may hold this key; it is not this SDK's to delete",
+            "key-test-0002",
+            install.store.load(SpfnKeyLifecycle.CANDIDATE_SLOT)?.keyId
+        );
+        assertTrue("the candidate's Keystore entry is kept too", install.engine.contains("spfn-client-key-key-test-0002"));
+        assertEquals("key-test-0001", install.store.load(SpfnKeyLifecycle.ACTIVE_SLOT)?.keyId);
+        assertEquals(SpfnKeyLifecycleState.ROTATION_PENDING, install.lifecycle.state());
+        assertEquals(
+            "the candidate never becomes signable by existing",
+            "key-test-0001",
+            install.lifecycle.activeProvider()?.keyId
+        );
+    }
+
+    /**
+     * K4, K6, K7, K8: the rotation was not applied, so the candidate is gone — slot and
+     * Keystore entry both — and the old key is still the one signer.
+     */
+    private suspend fun assertCandidateRefused(install: Install)
+    {
+        assertNull(install.store.load(SpfnKeyLifecycle.CANDIDATE_SLOT));
+        assertFalse("the candidate's Keystore entry is gone", install.engine.contains("spfn-client-key-key-test-0002"));
+        assertEquals("key-test-0001", install.store.load(SpfnKeyLifecycle.ACTIVE_SLOT)?.keyId);
+        assertEquals(SpfnKeyLifecycleState.ENROLLED, install.lifecycle.state());
+    }
+
+    /** K5: the old key itself is dead, so nothing signs until a fresh enrollment. */
+    private suspend fun assertWiped(install: Install)
+    {
+        assertNull(install.store.load(SpfnKeyLifecycle.ACTIVE_SLOT));
+        assertNull(install.store.load(SpfnKeyLifecycle.CANDIDATE_SLOT));
+        assertEquals(
+            "the re-enrollment-required signal a caller reads",
+            SpfnKeyLifecycleState.UNENROLLED,
+            install.lifecycle.state()
         );
     }
 
@@ -811,6 +1184,40 @@ class ScriptedKeystoreEngine(
     override fun delete(alias: String)
     {
         keys.remove(alias);
+    }
+}
+
+/**
+ * A store that reads and deletes like any other and refuses to write one named slot.
+ *
+ * The K8 row is about a failure that is neither a client error nor an auth exception, and
+ * a store that refused every write could never be enrolled into in the first place — so
+ * the refusal is narrowed to the slot the case is about.
+ */
+class SlotRefusingKeyMetadataStore(private val refusedSlot: String) : SpfnKeyMetadataStore
+{
+    /**
+     * Its own type, so a case can assert the lifecycle neither wrapped it nor replaced it
+     * with something from the client taxonomy.
+     */
+    class WriteRefused : IllegalStateException("this store refuses to write that slot")
+
+    private val records = mutableMapOf<String, SpfnStoredKeyMetadata>()
+
+    override fun load(slot: String): SpfnStoredKeyMetadata? = records[slot]
+
+    override fun save(slot: String, metadata: SpfnStoredKeyMetadata)
+    {
+        if (slot == refusedSlot)
+        {
+            throw WriteRefused();
+        }
+        records[slot] = metadata;
+    }
+
+    override fun delete(slot: String)
+    {
+        records.remove(slot);
     }
 }
 

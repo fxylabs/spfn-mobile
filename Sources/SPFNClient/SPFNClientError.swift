@@ -110,7 +110,21 @@ public enum SPFNClientError: Error, Equatable, Sendable
     case server(SPFNServerFailure)
 
     /// A response arrived that the contract cannot describe.
-    case decoding(SPFNDecodingFailure)
+    ///
+    /// `onSuccessStatus` is the status band the unreadable answer arrived on, and it is
+    /// carried because the two bands mean opposite things to a caller that changes server
+    /// state. A refusal this SDK could not read is still a refusal: nothing was applied. A
+    /// 2xx this SDK could not read is not a refusal at all — the server answered success
+    /// and may well have done the thing — so a caller that treats it as one undoes work
+    /// the server kept. It is a band rather than the status itself: the classification is
+    /// the only question anybody asks of it, and a number would invite a second rule
+    /// decided on the status, which is what the rest of this file refuses to do.
+    ///
+    /// The band is not derivable from the failure: `notCanonicalJSON` is raised on both
+    /// paths, and the two session-handshake failures are raised where no operation
+    /// response exists at all — those carry false, because the request the caller made
+    /// was never sent.
+    case decoding(SPFNDecodingFailure, onSuccessStatus: Bool)
 
     /// This client and the server that answered do not hold the same contract, so the
     /// answer is not read at all. Raised before the response is classified: a server
@@ -152,8 +166,8 @@ extension SPFNClientError: CustomStringConvertible, CustomDebugStringConvertible
             return "SPFNClientError.auth(\(failure))"
         case .server(let failure):
             return "SPFNClientError.server(\(failure))"
-        case .decoding(let failure):
-            return "SPFNClientError.decoding(\(failure.rawValue))"
+        case .decoding(let failure, let onSuccessStatus):
+            return "SPFNClientError.decoding(\(failure.rawValue), onSuccessStatus: \(onSuccessStatus))"
         case .contract(let mismatch):
             let server = mismatch.serverVersion ?? "<unread>"
             return "SPFNClientError.contract(\(mismatch.reason.rawValue),"

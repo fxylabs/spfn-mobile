@@ -68,7 +68,7 @@ final class SPFNNoResponseOperationTests: XCTestCase
     {
         let thrown = try await denyFailing(with: .json(204, "{}"))
 
-        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.bodyOnNoResponseOperation))
+        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.bodyOnNoResponseOperation, onSuccessStatus: true))
     }
 
     /// N3. 200 with a body. A 2xx that is not 204 is not the answer the contract
@@ -78,7 +78,7 @@ final class SPFNNoResponseOperationTests: XCTestCase
     {
         let thrown = try await denyFailing(with: .json(200, "{}"))
 
-        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notNoContentOnNoResponseOperation))
+        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notNoContentOnNoResponseOperation, onSuccessStatus: true))
     }
 
     /// N4. A refusal reaches a bodyless operation exactly as it reaches every other one:
@@ -109,7 +109,7 @@ final class SPFNNoResponseOperationTests: XCTestCase
 
         XCTAssertEqual(
             thrown as? SPFNClientError,
-            .decoding(.notCanonicalJSON),
+            .decoding(.notCanonicalJSON, onSuccessStatus: true),
             "an empty body is not the declared response; this is the pre-0.10.0 refusal, unchanged"
         )
     }

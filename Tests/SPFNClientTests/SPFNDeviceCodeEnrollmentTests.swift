@@ -365,7 +365,7 @@ final class SPFNDeviceCodeEnrollmentTests: XCTestCase
 
         let thrown = await failure { _ = try await lifecycle.enrollByDeviceCode { _, _ in } }
 
-        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.unknownErrorCode))
+        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.unknownErrorCode, onSuccessStatus: false))
         let calls = await transport.callCount
         XCTAssertEqual(calls, 2, "no further poll is sent")
         try await assertNoKeySurvived(store, lifecycle)
@@ -506,7 +506,7 @@ final class SPFNDeviceCodeEnrollmentTests: XCTestCase
 
             XCTAssertEqual(
                 thrown as? SPFNClientError,
-                .decoding(.notTheDeclaredResponse),
+                .decoding(.notTheDeclaredResponse, onSuccessStatus: true),
                 "'\(body)' was accepted"
             )
             let calls = await transport.callCount

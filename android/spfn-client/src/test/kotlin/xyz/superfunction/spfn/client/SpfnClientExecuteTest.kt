@@ -314,13 +314,13 @@ class SpfnClientExecuteTest
     @Test
     fun a2xxThatIsNotTheDeclaredResponseIsADecodingFailure() = runBlocking {
         val thrown = echoFailing(answer("{\"message\":\"hello\"}"));
-        assertDecoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, thrown);
+        assertDecoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, onSuccessStatus = true, thrown = thrown);
     }
 
     @Test
     fun aBodyThatIsNotCanonicalJsonIsADecodingFailure() = runBlocking {
         val thrown = echoFailing(answer("not json at all"));
-        assertDecoding(SpfnDecodingFailure.NOT_CANONICAL_JSON, thrown);
+        assertDecoding(SpfnDecodingFailure.NOT_CANONICAL_JSON, onSuccessStatus = true, thrown = thrown);
     }
 
     @Test
@@ -341,7 +341,7 @@ class SpfnClientExecuteTest
     @Test
     fun anUnknownErrorCodeIsADecodingFailure() = runBlocking {
         val thrown = echoFailing(answer(ExecuteFixtures.errorEnvelope("TEAPOT"), statusCode = 409));
-        assertDecoding(SpfnDecodingFailure.UNKNOWN_ERROR_CODE, thrown);
+        assertDecoding(SpfnDecodingFailure.UNKNOWN_ERROR_CODE, onSuccessStatus = false, thrown = thrown);
     }
 
     /**
@@ -358,7 +358,7 @@ class SpfnClientExecuteTest
 
         val thrown = failureOf { subject.execute(ExecuteCalls.ECHO, ExecuteFixtures.ECHO_REQUEST) };
 
-        assertDecoding(SpfnDecodingFailure.NOT_AN_ERROR_ENVELOPE, thrown);
+        assertDecoding(SpfnDecodingFailure.NOT_AN_ERROR_ENVELOPE, onSuccessStatus = false, thrown = thrown);
         assertEquals("a status alone never provokes a re-handshake", 2, transport.callCount);
     }
 
@@ -687,7 +687,9 @@ class SpfnClientExecuteTest
 
         val thrown = failureOf { subject.execute(ExecuteCalls.ECHO, ExecuteFixtures.ECHO_REQUEST) };
 
-        assertDecoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, thrown);
+        // The handshake's answer, not the operation's: the request the caller made was
+        // never sent, so the band says nothing was applied.
+        assertDecoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, onSuccessStatus = false, thrown = thrown);
     }
 
     @Test
@@ -697,7 +699,7 @@ class SpfnClientExecuteTest
 
         val thrown = failureOf { subject.execute(ExecuteCalls.ECHO, ExecuteFixtures.ECHO_REQUEST) };
 
-        assertDecoding(SpfnDecodingFailure.NOT_AN_ERROR_ENVELOPE, thrown);
+        assertDecoding(SpfnDecodingFailure.NOT_AN_ERROR_ENVELOPE, onSuccessStatus = false, thrown = thrown);
     }
 
     // ---- nothing else is retried -------------------------------------------
@@ -896,7 +898,7 @@ class SpfnClientExecuteTest
         );
         assertEquals(
             "the response was not what the contract describes: UNKNOWN_ERROR_CODE",
-            SpfnClientError.Decoding(SpfnDecodingFailure.UNKNOWN_ERROR_CODE).message
+            SpfnClientError.Decoding(SpfnDecodingFailure.UNKNOWN_ERROR_CODE, false).message
         );
     }
 
@@ -923,9 +925,10 @@ class SpfnClientExecuteTest
         throw AssertionError("expected a failure");
     }
 
-    private fun assertDecoding(expected: SpfnDecodingFailure, thrown: Throwable?)
+    private fun assertDecoding(expected: SpfnDecodingFailure, onSuccessStatus: Boolean, thrown: Throwable?)
     {
         assertTrue("got $thrown", thrown is SpfnClientError.Decoding);
         assertEquals(expected, (thrown as SpfnClientError.Decoding).failure);
+        assertEquals("the status band the answer arrived on", onSuccessStatus, thrown.onSuccessStatus);
     }
 }

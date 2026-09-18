@@ -469,6 +469,42 @@ minting a second key and hoping. Key TTL comes from the bundle's `keyPolicy`, co
 from generation, which is the client-side moment closest to registration that survives a
 restart.
 
+**A lost answer and an unreadable 2xx both hold a rotation open.** Two outcomes leave the
+server's state unknown, not one. A send with no answer is the obvious one. The other is an
+answer that arrived with a 2xx status and a body this SDK could not read: the server said
+yes, and may well have registered the new key, so reading it as a refusal and destroying
+the candidate is how an install deletes the only key the server still honours and stops
+until a wipe and a fresh enrollment. An unreadable *refusal* is the opposite and is safe to
+discard on — the server answered no, whether or not the SDK could read which no it was.
+Telling the two apart needs the status band, which is why `SPFNClientError.decoding` /
+`SpfnClientError.Decoding` carries one: the failure alone cannot say, since
+`notCanonicalJSON` is raised on both paths.
+
+Every way a rotation can end, and what each leaves behind. One function decides all of it
+on both platforms — `classifyRotationOutcome` — and `rotate()` and `resumeRotation()` both
+read it, so the two entry points cannot drift into two tables that disagree. The state
+column is what `state()` answers after the call.
+
+| Cell | What the attempt met | Candidate | State | On resume |
+| --- | --- | --- | --- | --- |
+| K1 | a 2xx that decoded, naming the key that was sent | promoted | `enrolled` (new) | — |
+| K2 | `.transport`, cancellation aside | kept | `rotationPending` | re-sent |
+| K3 | `.decoding` **on a 2xx** (`notCanonicalJSON`, `notTheDeclaredResponse`) | kept | `rotationPending` | re-sent; `PROOF_INVALID` promotes, because the server already holds the new key |
+| K4 | `.decoding` **on a non-2xx** (`notAnErrorEnvelope`, `unknownErrorCode`) | destroyed | `enrolled` (old) | — |
+| K5 | `.auth(SESSION_REVOKED)` | wiped | `unenrolled` | — |
+| K6 | any other `.auth`, `.server`, `.contract` | destroyed | `enrolled` (old) | — |
+| K7 | `SPFNAuthError` / `SpfnAuthException` — the proof would not assemble | destroyed | `enrolled` (old) | — |
+| K8 | a clock that would not synchronize, a store that would not write — **before the send** | destroyed | `enrolled` (old) | — |
+| K9 | a 2xx naming another key (`serverNamedAnotherKey`) | kept | `rotationPending` | the key id is compared again |
+| K10 | `.transport(.cancelled)` | kept | `rotationPending` | re-sent |
+
+K9 is the second half of the same rule and is why the promotion sits outside the guarded
+region in both files: once a 2xx answer has been read the server has applied the rotation,
+so every way the bookkeeping after it can fail leaves the candidate exactly where it is.
+K8 is the row that used to be missing — an error of neither client type escaped both catch
+clauses, leaving a candidate persisted and `state()` answering `rotationPending` for a
+rotation nothing had sent.
+
 Enrollment and rotation are contract operations, not SDK inventions: `auth.enroll.register`,
 `auth.enroll.login`, `auth.enroll.oauthNative` and `auth.keys.rotate` are the upstream
 `/_auth` surface, exported into the bundle. The three enrollment operations are the

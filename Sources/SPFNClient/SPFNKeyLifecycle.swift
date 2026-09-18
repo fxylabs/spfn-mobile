@@ -18,6 +18,14 @@
 //     │    A transport failure leaves the machine where it was; SESSION_REVOKED
 //     │    wipes everything, because the old key itself is dead.
 //
+// TWO outcomes park a rotation, not one: a send with no answer, and an answer with a 2xx
+// status this SDK could not read. The second is not a failure — the server said yes, and
+// may well have applied the rotation — so destroying the candidate on it would leave an
+// install whose only registered key it has just deleted, stuck until a wipe and a fresh
+// enrollment. `classifyRotationOutcome` is where every one of those rows is decided,
+// once, for both entry points; docs/architecture/README.md carries the same table in
+// prose.
+//
 // The asymmetry between rotate() and resumeRotation() on the same PROOF_INVALID is the
 // point of having both: inside rotate() the request was sent exactly once and refused,
 // so the server did not apply it; on resume the previous send's outcome is unknown, and
@@ -518,7 +526,7 @@ public actor SPFNKeyLifecycle
                 guard let clientID = answer.userId, let passwordChangeRequired = answer.passwordChangeRequired
                 else
                 {
-                    throw SPFNClientError.decoding(.notTheDeclaredResponse)
+                    throw SPFNClientError.decoding(.notTheDeclaredResponse, onSuccessStatus: true)
                 }
                 return SPFNDeviceApproval(clientID: clientID, passwordChangeRequired: passwordChangeRequired)
             }
@@ -589,19 +597,115 @@ public actor SPFNKeyLifecycle
         guard let intervalMillis, intervalMillis > 0
         else
         {
-            throw SPFNClientError.decoding(.notTheDeclaredResponse)
+            throw SPFNClientError.decoding(.notTheDeclaredResponse, onSuccessStatus: true)
         }
         return intervalMillis
     }
 
     // MARK: - M4–M5: rotation
 
+    /// What one failed rotation attempt says about the key the server now honours.
+    ///
+    /// The whole rotation table is decided by this one type, and `rotate()` and
+    /// `resumeRotation()` both read it, so the two paths cannot drift apart into two
+    /// tables that disagree — which is what a second catch list written beside the first
+    /// always becomes.
+    private enum RotationOutcome
+    {
+        /// The outcome is unknown: the candidate stays persisted and the state answers
+        /// `rotationPending`, because the server may already hold the new key.
+        case candidateHeld
+
+        /// The rotation was not applied — refused, or never sent at all — so the
+        /// candidate is destroyed and the old key stays the one signer.
+        case candidateRefused
+
+        /// The old key itself is dead. Every slot goes and the install is unenrolled.
+        case keyDead
+
+        /// The old key is no longer registered, which from here is what an earlier
+        /// attempt having been applied looks like. Reachable on the resume path only.
+        case candidateRegistered
+    }
+
+    /// Which row of the rotation table an error falls on.
+    ///
+    /// Total on purpose. Every error the send can raise lands on a row, including the ones
+    /// neither `SPFNClientError` nor `SPFNAuthError` — a clock that would not synchronize,
+    /// a key store that would not write. Those fail before any request exists, so the
+    /// server cannot have applied anything; an error slipping past instead would leave a
+    /// candidate behind and make `state()` answer `rotationPending` for a rotation nobody
+    /// ever sent.
+    ///
+    /// The one asymmetry between the two callers is `PROOF_INVALID`, and it is the point
+    /// of having both. Inside `rotate()` the request was sent once and refused, so the
+    /// server did not apply it. On a resume the earlier send's outcome is unknown, and a
+    /// well-formed old-key proof failing verification means the old key is gone — which is
+    /// what a completed rotation looks like from the outside.
+    private static func classifyRotationOutcome(_ error: any Error, resuming: Bool) -> RotationOutcome
+    {
+        guard let failure = error as? SPFNClientError
+        else
+        {
+            // K7 and K8: an error this SDK raised before the request went out — proof
+            // assembly, the proof clock, the key store. Nothing was sent.
+            return .candidateRefused
+        }
+        switch failure
+        {
+        // K2 and K10: no response, cancellation included. The server may or may not
+        // have applied it, and a cancelled send is no more settled than a lost one.
+        case .transport:
+            return .candidateHeld
+
+        // K3: the server answered 2xx and this SDK could not read the answer. It said
+        // yes; destroying the candidate here is how an install loses the key the server
+        // moved to and stops until a wipe and a re-enrollment.
+        case .decoding(_, let onSuccessStatus):
+            return onSuccessStatus ? .candidateHeld : .candidateRefused
+
+        case .auth(let refusal) where refusal.code == .sessionRevoked:
+            return .keyDead
+
+        case .auth(let refusal) where refusal.code == .proofInvalid && resuming:
+            return .candidateRegistered
+
+        // K6: a refusal the server authenticated, decided on, or would not answer at
+        // all — and the two refusals this SDK raises without sending anything.
+        case .auth, .server, .contract, .unsupportedOperation, .undeclaredAuthClass:
+            return .candidateRefused
+        }
+    }
+
+    /// Applies a classification to the slots.
+    ///
+    /// `candidateRegistered` is absent from the work rather than from the switch: it is
+    /// the one outcome that answers with a value instead of rethrowing, so the resume path
+    /// reads it before it gets here.
+    private func settle(_ outcome: RotationOutcome) throws
+    {
+        switch outcome
+        {
+        case .candidateHeld, .candidateRegistered:
+            return
+        case .candidateRefused:
+            try store.delete(slot: Self.candidateSlot)
+        case .keyDead:
+            try wipe()
+        }
+    }
+
     /// Replaces the active key: a fresh key is generated, persisted as the candidate,
     /// and registered through `auth.keys.rotate` under the old key's proof. Success
     /// swaps the candidate in; a refusal destroys the candidate and keeps the old key,
-    /// because a refused request was never applied. Only a transport failure leaves
-    /// the machine in `rotationPending` — the one case where the server's state is
-    /// genuinely unknown — and `resumeRotation()` resolves it.
+    /// because a refused request was never applied. A transport failure and a 2xx this
+    /// SDK could not read are the two outcomes where the server's state is genuinely
+    /// unknown — those leave the machine in `rotationPending` for `resumeRotation()`.
+    ///
+    /// The send is guarded and the promotion is not, and that is the second half of the
+    /// rule. Once a 2xx answer has been read the server has applied the rotation, so
+    /// every way the bookkeeping after it can fail — a key id that is not the one sent,
+    /// a store that will not write — leaves the candidate exactly where it is.
     @discardableResult
     public func rotate() async throws -> SPFNEnrollmentResult
     {
@@ -621,50 +725,28 @@ public actor SPFNKeyLifecycle
         }
 
         let candidate = makeKey(newKeyID())
-        try store.save(
-            candidate.record(clientID: old.clientID, createdAtMillis: clock.nowMillis()),
-            slot: Self.candidateSlot
-        )
-
+        let response: SPFNRotateKeyResponse
         do
         {
-            let response = try await send(candidate: candidate, provedBy: old)
-            return try promote(candidate: candidate, clientID: old.clientID, confirmedKeyID: response.keyId)
+            try store.save(
+                candidate.record(clientID: old.clientID, createdAtMillis: clock.nowMillis()),
+                slot: Self.candidateSlot
+            )
+            response = try await send(candidate: candidate, provedBy: old)
         }
-        catch let error as SPFNClientError
+        catch
         {
-            switch error
-            {
-            case .transport:
-                // No response: the server may or may not have applied it. The
-                // candidate stays persisted and the state answers rotationPending.
-                throw error
-            case .auth(let failure) where failure.code == .sessionRevoked:
-                // The old key itself is dead; nothing here can sign anymore (M6).
-                try wipe()
-                throw error
-            default:
-                // A refusal in the same call that sent the one request: not applied.
-                try store.delete(slot: Self.candidateSlot)
-                throw error
-            }
-        }
-        catch let error as SPFNAuthError
-        {
-            // Proof assembly failed before anything was sent, so the server cannot
-            // have applied a request that never existed: the candidate is discarded.
-            try store.delete(slot: Self.candidateSlot)
+            try settle(Self.classifyRotationOutcome(error, resuming: false))
             throw error
         }
+        return try promote(candidate: candidate, clientID: old.clientID, confirmedKeyID: response.keyId)
     }
 
-    /// Resolves a rotation whose outcome was lost to a transport failure.
+    /// Resolves a rotation whose outcome was left unknown.
     ///
-    /// Re-sends the same candidate under the old key's proof. Success completes the
-    /// rotation. `PROOF_INVALID` also completes it: this SDK signed a well-formed
-    /// proof, so the only reading is that the old key is no longer registered — which
-    /// is what the earlier attempt having been applied looks like. `SESSION_REVOKED`
-    /// wipes. Any other refusal discards the candidate and keeps the old key.
+    /// Re-sends the same candidate under the old key's proof, and reads the answer
+    /// through the same table `rotate()` reads — with the one documented asymmetry on
+    /// `PROOF_INVALID`, which completes the rotation here rather than discarding it.
     @discardableResult
     public func resumeRotation() async throws -> SPFNEnrollmentResult
     {
@@ -693,27 +775,23 @@ public actor SPFNKeyLifecycle
             throw SPFNKeyLifecycleError.keyUnloadable
         }
 
+        let response: SPFNRotateKeyResponse
         do
         {
-            let response = try await send(candidate: candidate, provedBy: old)
-            return try promote(candidate: candidate, clientID: clientID, confirmedKeyID: response.keyId)
+            response = try await send(candidate: candidate, provedBy: old)
         }
-        catch let error as SPFNClientError
+        catch
         {
-            switch error
+            let outcome = Self.classifyRotationOutcome(error, resuming: true)
+            guard case .candidateRegistered = outcome
+            else
             {
-            case .transport:
-                throw error
-            case .auth(let failure) where failure.code == .proofInvalid:
-                return try promote(candidate: candidate, clientID: clientID, confirmedKeyID: candidate.keyID)
-            case .auth(let failure) where failure.code == .sessionRevoked:
-                try wipe()
-                throw error
-            default:
-                try store.delete(slot: Self.candidateSlot)
+                try settle(outcome)
                 throw error
             }
+            return try promote(candidate: candidate, clientID: clientID, confirmedKeyID: candidate.keyID)
         }
+        return try promote(candidate: candidate, clientID: clientID, confirmedKeyID: response.keyId)
     }
 
     // MARK: - M6: revocation

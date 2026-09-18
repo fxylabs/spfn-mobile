@@ -267,13 +267,13 @@ final class SPFNClientExecuteTests: XCTestCase
     func testA2xxThatIsNotTheDeclaredResponseIsADecodingFailure() async throws
     {
         let thrown = try await echoFailing(with: .json(200, "{\"message\":\"hello\"}"))
-        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notTheDeclaredResponse))
+        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notTheDeclaredResponse, onSuccessStatus: true))
     }
 
     func testABodyThatIsNotCanonicalJSONIsADecodingFailure() async throws
     {
         let thrown = try await echoFailing(with: .json(200, "not json at all"))
-        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notCanonicalJSON))
+        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notCanonicalJSON, onSuccessStatus: true))
     }
 
     func testAContractErrorCodeOutsideTheAuthFamilyIsAServerFailure() async throws
@@ -293,7 +293,7 @@ final class SPFNClientExecuteTests: XCTestCase
     func testAnUnknownErrorCodeIsADecodingFailure() async throws
     {
         let thrown = try await echoFailing(with: .json(409, ExecuteFixtures.errorEnvelope(code: "TEAPOT")))
-        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.unknownErrorCode))
+        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.unknownErrorCode, onSuccessStatus: false))
     }
 
     /// The classification is on the code, not the status. A 401 an intermediary wrote
@@ -309,7 +309,7 @@ final class SPFNClientExecuteTests: XCTestCase
 
         let thrown = await failure { _ = try await client.execute(ExecuteCalls.echo, request: ExecuteFixtures.echoRequest) }
 
-        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notAnErrorEnvelope))
+        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notAnErrorEnvelope, onSuccessStatus: false))
         let calls = await transport.callCount
         XCTAssertEqual(calls, 2, "a status alone never provokes a re-handshake")
     }
@@ -634,7 +634,9 @@ final class SPFNClientExecuteTests: XCTestCase
 
         let thrown = await failure { _ = try await client.execute(ExecuteCalls.echo, request: ExecuteFixtures.echoRequest) }
 
-        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notTheDeclaredResponse))
+        // The handshake's answer, not the operation's: the request the caller made was
+        // never sent, so the band says nothing was applied.
+        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notTheDeclaredResponse, onSuccessStatus: false))
     }
 
     func testARefusedHandshakeWithoutAnEnvelopeIsADecodingFailure() async throws
@@ -644,7 +646,7 @@ final class SPFNClientExecuteTests: XCTestCase
 
         let thrown = await failure { _ = try await client.execute(ExecuteCalls.echo, request: ExecuteFixtures.echoRequest) }
 
-        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notAnErrorEnvelope))
+        XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notAnErrorEnvelope, onSuccessStatus: false))
     }
 
     // MARK: - Nothing else is retried
@@ -833,8 +835,8 @@ final class SPFNClientExecuteTests: XCTestCase
             "SPFNClientError.server(SPFNServerFailure(code: PROFILE_REJECTED, httpStatus: 400, envelope: redacted))"
         )
         XCTAssertEqual(
-            "\(SPFNClientError.decoding(.unknownErrorCode))",
-            "SPFNClientError.decoding(unknownErrorCode)"
+            "\(SPFNClientError.decoding(.unknownErrorCode, onSuccessStatus: false))",
+            "SPFNClientError.decoding(unknownErrorCode, onSuccessStatus: false)"
         )
     }
 

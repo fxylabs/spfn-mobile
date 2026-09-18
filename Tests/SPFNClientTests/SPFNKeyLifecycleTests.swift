@@ -186,75 +186,6 @@ final class SPFNKeyLifecycleTests: XCTestCase
 
     // MARK: - M5: every way a rotation fails, exactly one signable key
 
-    /// A refusal in the same call that sent the request: the server did not apply it,
-    /// so the candidate is destroyed and the old key stays the one signer.
-    func testARefusedRotationKeepsTheOldKeyAndDiscardsTheCandidate() async throws
-    {
-        let transport = ScriptedTransport([
-            .success(.json(401, ExecuteFixtures.errorEnvelope(code: "PROOF_INVALID"))),
-        ])
-        let store = InMemoryKeyStore()
-        try enrol(store, key: try testKey(), clientID: "client-test-0001")
-        let lifecycle = try makeLifecycle(transport, store: store, keys: [try wrongKey()], keyIDs: ["key-test-0002"])
-
-        let thrown = await failure { _ = try await lifecycle.rotate() }
-
-        guard case .auth(let refusal)? = thrown as? SPFNClientError, refusal.code == .proofInvalid
-        else
-        {
-            return XCTFail("expected the refusal itself, got \(String(describing: thrown))")
-        }
-        XCTAssertEqual(store.loadSync(SPFNKeyLifecycle.activeSlot)?.keyID, "key-test-0001")
-        XCTAssertNil(store.loadSync(SPFNKeyLifecycle.candidateSlot))
-        let state = try await lifecycle.state()
-        XCTAssertEqual(state, .enrolled)
-    }
-
-    /// A transport failure is the one outcome where the server's state is unknown:
-    /// the machine parks in rotationPending, and the old key stays the only signer.
-    func testATransportFailureParksTheRotationWithTheOldKeyActive() async throws
-    {
-        let transport = ScriptedTransport([.failure(SPFNTransportError.timedOut)])
-        let store = InMemoryKeyStore()
-        try enrol(store, key: try testKey(), clientID: "client-test-0001")
-        let lifecycle = try makeLifecycle(transport, store: store, keys: [try wrongKey()], keyIDs: ["key-test-0002"])
-
-        let thrown = await failure { _ = try await lifecycle.rotate() }
-
-        XCTAssertEqual(thrown as? SPFNClientError, .transport(.timedOut))
-        let state = try await lifecycle.state()
-        XCTAssertEqual(state, .rotationPending)
-        let loadedProvider = try await lifecycle.activeProvider()
-        let provider = try XCTUnwrap(loadedProvider)
-        XCTAssertEqual(provider.keyID, "key-test-0001", "the candidate never becomes signable by existing")
-
-        // And while unresolved, no second rotation and no enrollment may start.
-        let rotateAgain = await failure { _ = try await lifecycle.rotate() }
-        XCTAssertEqual(rotateAgain as? SPFNKeyLifecycleError, .rotationUnresolved)
-    }
-
-    /// Resume, case one: the server never saw the first attempt. The re-send succeeds
-    /// and the swap completes as if nothing had died.
-    func testResumeRetriesARotationTheServerNeverApplied() async throws
-    {
-        let transport = ScriptedTransport([
-            .success(.json(200, "{\"keyId\":\"key-test-0002\",\"success\":true}")),
-        ])
-        let store = InMemoryKeyStore()
-        try enrol(store, key: try testKey(), clientID: "client-test-0001")
-        try store.save(
-            try wrongKey().record(clientID: "client-test-0001", createdAtMillis: 1_750_000_000_000),
-            slot: SPFNKeyLifecycle.candidateSlot
-        )
-        let lifecycle = try makeLifecycle(transport, store: store, keys: [], keyIDs: [])
-
-        let result = try await lifecycle.resumeRotation()
-
-        XCTAssertEqual(result.keyID, "key-test-0002")
-        XCTAssertEqual(store.loadSync(SPFNKeyLifecycle.activeSlot)?.keyID, "key-test-0002")
-        XCTAssertNil(store.loadSync(SPFNKeyLifecycle.candidateSlot))
-    }
-
     /// Resume, case two: PROOF_INVALID against a proof this SDK assembled correctly
     /// means the old key is no longer registered — the earlier attempt WAS applied,
     /// and the candidate is the key the server now honours.
@@ -297,24 +228,344 @@ final class SPFNKeyLifecycleTests: XCTestCase
         XCTAssertEqual(calls, 0, "a settled rotation costs no request")
     }
 
-    // MARK: - M6: SESSION_REVOKED wipes
+    // MARK: - M5: the rotation table, one case per cell
 
-    func testSessionRevokedDuringRotationWipesEverything() async throws
+    // Every way a rotation can end, twice: once through `rotate()` and once through
+    // `resumeRotation()`. The two entry points read one classification, and a pair of
+    // cases per row is what keeps that true — a second table growing beside the first is
+    // exactly the drift the shared function exists to prevent. The rows are named K1–K10
+    // here, in docs/architecture/README.md, and in the two implementations.
+
+    /// K1: the answer decoded and named the key that was sent. The swap completes.
+    func test_rotate_K1_decodedAnswerNamingTheKeySent_promotesTheCandidate() async throws
     {
-        let transport = ScriptedTransport([
-            .success(.json(401, ExecuteFixtures.errorEnvelope(code: "SESSION_REVOKED"))),
-        ])
-        let store = InMemoryKeyStore()
-        try enrol(store, key: try testKey(), clientID: "client-test-0001")
-        let lifecycle = try makeLifecycle(transport, store: store, keys: [try wrongKey()], keyIDs: ["key-test-0002"])
+        let install = try rotatingInstall(ScriptedTransport([
+            .success(.json(200, "{\"keyId\":\"key-test-0002\",\"success\":true}")),
+        ]))
 
-        _ = await failure { _ = try await lifecycle.rotate() }
+        let result = try await install.lifecycle.rotate()
 
-        XCTAssertNil(store.loadSync(SPFNKeyLifecycle.activeSlot))
-        XCTAssertNil(store.loadSync(SPFNKeyLifecycle.candidateSlot))
-        let state = try await lifecycle.state()
-        XCTAssertEqual(state, .unenrolled, "the re-enrollment-required signal a caller reads")
+        XCTAssertEqual(result, SPFNEnrollmentResult(clientID: "client-test-0001", keyID: "key-test-0002", isNewUser: false))
+        XCTAssertEqual(try install.store.load(slot: SPFNKeyLifecycle.activeSlot)?.keyID, "key-test-0002")
+        XCTAssertNil(try install.store.load(slot: SPFNKeyLifecycle.candidateSlot))
+        let state = try await install.lifecycle.state()
+        XCTAssertEqual(state, .enrolled)
     }
+
+    /// K2: no answer at all. The server may or may not have applied it.
+    func test_rotate_K2_transportFailure_keepsCandidateAndStaysPending() async throws
+    {
+        let install = try rotatingInstall(ScriptedTransport([.failure(SPFNTransportError.timedOut)]))
+
+        let thrown = await failure { _ = try await install.lifecycle.rotate() }
+
+        XCTAssertEqual(thrown as? SPFNClientError, .transport(.timedOut))
+        try await assertCandidateHeld(install)
+
+        // And while unresolved, no second rotation may start.
+        let rotateAgain = await failure { _ = try await install.lifecycle.rotate() }
+        XCTAssertEqual(rotateAgain as? SPFNKeyLifecycleError, .rotationUnresolved)
+    }
+
+    /// K3: the server answered 2xx and this SDK could not read the answer. It said yes,
+    /// so the candidate is a key it may already honour — the row this suite exists for.
+    func test_rotate_K3_decodingOn2xx_keepsCandidateAndStaysPending() async throws
+    {
+        for (body, expected) in Self.unreadableSuccesses
+        {
+            let install = try rotatingInstall(ScriptedTransport([.success(.json(200, body))]))
+
+            let thrown = await failure { _ = try await install.lifecycle.rotate() }
+
+            XCTAssertEqual(thrown as? SPFNClientError, .decoding(expected, onSuccessStatus: true), "body: \(body)")
+            try await assertCandidateHeld(install)
+        }
+    }
+
+    /// K4: the same unreadability over a REFUSAL. The server answered no, so nothing was
+    /// applied and the candidate goes.
+    func test_rotate_K4_decodingOnNon2xx_discardsCandidateAndKeepsTheOldKey() async throws
+    {
+        for (body, expected) in Self.unreadableRefusals
+        {
+            let install = try rotatingInstall(ScriptedTransport([.success(.json(401, body))]))
+
+            let thrown = await failure { _ = try await install.lifecycle.rotate() }
+
+            XCTAssertEqual(thrown as? SPFNClientError, .decoding(expected, onSuccessStatus: false), "body: \(body)")
+            try await assertCandidateRefused(install)
+        }
+    }
+
+    /// K5: the old key itself is dead (M6).
+    func test_rotate_K5_sessionRevoked_wipesEverySlot() async throws
+    {
+        let install = try rotatingInstall(ScriptedTransport([
+            .success(.json(401, ExecuteFixtures.errorEnvelope(code: "SESSION_REVOKED"))),
+        ]))
+
+        _ = await failure { _ = try await install.lifecycle.rotate() }
+
+        try await assertWiped(install)
+    }
+
+    /// K6: any other refusal the server decided on, whether it authenticated the request
+    /// or refused it on contract grounds.
+    func test_rotate_K6_otherRefusal_discardsCandidateAndKeepsTheOldKey() async throws
+    {
+        for code in ["PROOF_REPLAYED", "VALIDATION_ERROR"]
+        {
+            let install = try rotatingInstall(ScriptedTransport([
+                .success(.json(400, ExecuteFixtures.errorEnvelope(code: code))),
+            ]))
+
+            let thrown = await failure { _ = try await install.lifecycle.rotate() }
+
+            XCTAssertNotNil(thrown as? SPFNClientError, "code: \(code)")
+            try await assertCandidateRefused(install)
+        }
+    }
+
+    /// K7: the proof would not assemble, so no request ever existed.
+    func test_rotate_K7_proofAssemblyFailure_discardsCandidateAndKeepsTheOldKey() async throws
+    {
+        let transport = ScriptedTransport([])
+        let install = try rotatingInstall(transport, clientID: Self.clientIDWithAControlCharacter)
+
+        let thrown = await failure { _ = try await install.lifecycle.rotate() }
+
+        XCTAssertEqual(thrown as? SPFNAuthError, .controlCharacterInProofField("clientId"))
+        XCTAssertNil(try install.store.load(slot: SPFNKeyLifecycle.candidateSlot))
+        let state = try await install.lifecycle.state()
+        XCTAssertEqual(state, .enrolled)
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 0, "an unassembled proof costs no request")
+    }
+
+    /// K8, the clock half: the proof's timestamp could not be anchored, so nothing was
+    /// sent. This is the row that used to escape both catch clauses.
+    func test_rotate_K8_clockSynchronizationFailure_discardsCandidateAndKeepsTheOldKey() async throws
+    {
+        let transport = ScriptedTransport([])
+        let install = try rotatingInstall(
+            transport,
+            proofClock: ScriptedProofClock(1_750_000_000_000, throwing: [SPFNClockSynchronizationError.requestFailed])
+        )
+
+        let thrown = await failure { _ = try await install.lifecycle.rotate() }
+
+        XCTAssertEqual(thrown as? SPFNClockSynchronizationError, .requestFailed)
+        try await assertCandidateRefused(install)
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 0, "a clock that would not answer costs no request")
+    }
+
+    /// K8, the store half: the candidate could not be written, which is the other way a
+    /// rotation fails before a request exists. `rotate()` is the only path with a write
+    /// before the send; a resume's candidate is already on disk.
+    func test_rotate_K8_candidateStoreFailure_leavesNoCandidateAndKeepsTheOldKey() async throws
+    {
+        let transport = ScriptedTransport([])
+        let store = SlotRefusingKeyStore(refusing: SPFNKeyLifecycle.candidateSlot)
+        let install = try rotatingInstall(transport, store: store)
+
+        let thrown = await failure { _ = try await install.lifecycle.rotate() }
+
+        XCTAssertEqual(thrown as? SlotRefusingKeyStore.Refusal, .writeRefused)
+        try await assertCandidateRefused(install)
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 0, "a candidate that could not be persisted is never sent")
+    }
+
+    /// K9: a 2xx that decoded and named a key this call never sent. The server applied
+    /// SOMETHING, so the candidate is held exactly as in K3 rather than destroyed.
+    func test_rotate_K9_serverNamedAnotherKey_keepsCandidateAndStaysPending() async throws
+    {
+        let install = try rotatingInstall(ScriptedTransport([
+            .success(.json(200, "{\"keyId\":\"key-test-0009\",\"success\":true}")),
+        ]))
+
+        let thrown = await failure { _ = try await install.lifecycle.rotate() }
+
+        XCTAssertEqual(
+            thrown as? SPFNKeyLifecycleError,
+            .serverNamedAnotherKey(sent: "key-test-0002", received: "key-test-0009")
+        )
+        try await assertCandidateHeld(install)
+    }
+
+    /// K10: cancellation is a row of its own and not an escape. The request may already
+    /// be with the server, so a withdrawn call settles no more than a lost one.
+    func test_rotate_K10_transportCancelled_keepsCandidateAndStaysPending() async throws
+    {
+        let install = try rotatingInstall(ScriptedTransport([.failure(SPFNTransportError.cancelled)]))
+
+        let thrown = await failure { _ = try await install.lifecycle.rotate() }
+
+        XCTAssertEqual(thrown as? SPFNClientError, .transport(.cancelled))
+        try await assertCandidateHeld(install)
+    }
+
+    /// K1 on resume: the server never saw the first attempt, and the re-send settles it.
+    func test_resume_K1_decodedAnswerNamingTheKeySent_promotesTheCandidate() async throws
+    {
+        let install = try pendingInstall(ScriptedTransport([
+            .success(.json(200, "{\"keyId\":\"key-test-0002\",\"success\":true}")),
+        ]))
+
+        let result = try await install.lifecycle.resumeRotation()
+
+        XCTAssertEqual(result.keyID, "key-test-0002")
+        XCTAssertEqual(try install.store.load(slot: SPFNKeyLifecycle.activeSlot)?.keyID, "key-test-0002")
+        XCTAssertNil(try install.store.load(slot: SPFNKeyLifecycle.candidateSlot))
+    }
+
+    /// K2 on resume: a resume that is lost the same way the first send was leaves the
+    /// machine where it was, ready to be resumed again.
+    func test_resume_K2_transportFailure_keepsCandidateAndStaysPending() async throws
+    {
+        let install = try pendingInstall(ScriptedTransport([.failure(SPFNTransportError.timedOut)]))
+
+        let thrown = await failure { _ = try await install.lifecycle.resumeRotation() }
+
+        XCTAssertEqual(thrown as? SPFNClientError, .transport(.timedOut))
+        try await assertCandidateHeld(install)
+    }
+
+    /// K3 on resume.
+    func test_resume_K3_decodingOn2xx_keepsCandidateAndStaysPending() async throws
+    {
+        for (body, expected) in Self.unreadableSuccesses
+        {
+            let install = try pendingInstall(ScriptedTransport([.success(.json(200, body))]))
+
+            let thrown = await failure { _ = try await install.lifecycle.resumeRotation() }
+
+            XCTAssertEqual(thrown as? SPFNClientError, .decoding(expected, onSuccessStatus: true), "body: \(body)")
+            try await assertCandidateHeld(install)
+        }
+    }
+
+    /// K4 on resume.
+    func test_resume_K4_decodingOnNon2xx_discardsCandidateAndKeepsTheOldKey() async throws
+    {
+        for (body, expected) in Self.unreadableRefusals
+        {
+            let install = try pendingInstall(ScriptedTransport([.success(.json(401, body))]))
+
+            let thrown = await failure { _ = try await install.lifecycle.resumeRotation() }
+
+            XCTAssertEqual(thrown as? SPFNClientError, .decoding(expected, onSuccessStatus: false), "body: \(body)")
+            try await assertCandidateRefused(install)
+        }
+    }
+
+    /// K5 on resume.
+    func test_resume_K5_sessionRevoked_wipesEverySlot() async throws
+    {
+        let install = try pendingInstall(ScriptedTransport([
+            .success(.json(401, ExecuteFixtures.errorEnvelope(code: "SESSION_REVOKED"))),
+        ]))
+
+        _ = await failure { _ = try await install.lifecycle.resumeRotation() }
+
+        try await assertWiped(install)
+    }
+
+    /// K6 on resume. `PROOF_INVALID` is the one auth code that does NOT land here — it
+    /// completes the rotation instead, which is the asymmetry the case below pins.
+    func test_resume_K6_otherRefusal_discardsCandidateAndKeepsTheOldKey() async throws
+    {
+        for code in ["PROOF_REPLAYED", "VALIDATION_ERROR"]
+        {
+            let install = try pendingInstall(ScriptedTransport([
+                .success(.json(400, ExecuteFixtures.errorEnvelope(code: code))),
+            ]))
+
+            let thrown = await failure { _ = try await install.lifecycle.resumeRotation() }
+
+            XCTAssertNotNil(thrown as? SPFNClientError, "code: \(code)")
+            try await assertCandidateRefused(install)
+        }
+    }
+
+    /// K7 on resume.
+    func test_resume_K7_proofAssemblyFailure_discardsCandidateAndKeepsTheOldKey() async throws
+    {
+        let transport = ScriptedTransport([])
+        let install = try pendingInstall(transport, clientID: Self.clientIDWithAControlCharacter)
+
+        let thrown = await failure { _ = try await install.lifecycle.resumeRotation() }
+
+        XCTAssertEqual(thrown as? SPFNAuthError, .controlCharacterInProofField("clientId"))
+        try await assertCandidateRefused(install)
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 0, "an unassembled proof costs no request")
+    }
+
+    /// K8 on resume. Only the clock half is reachable here: a resume writes nothing
+    /// before it sends, because the candidate it re-sends is already on disk.
+    func test_resume_K8_clockSynchronizationFailure_discardsCandidateAndKeepsTheOldKey() async throws
+    {
+        let transport = ScriptedTransport([])
+        let install = try pendingInstall(
+            transport,
+            proofClock: ScriptedProofClock(1_750_000_000_000, throwing: [SPFNClockSynchronizationError.requestFailed])
+        )
+
+        let thrown = await failure { _ = try await install.lifecycle.resumeRotation() }
+
+        XCTAssertEqual(thrown as? SPFNClockSynchronizationError, .requestFailed)
+        try await assertCandidateRefused(install)
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 0, "a clock that would not answer costs no request")
+    }
+
+    /// K9 on resume: the key id is compared again, and disagreeing again settles nothing.
+    func test_resume_K9_serverNamedAnotherKey_keepsCandidateAndStaysPending() async throws
+    {
+        let install = try pendingInstall(ScriptedTransport([
+            .success(.json(200, "{\"keyId\":\"key-test-0009\",\"success\":true}")),
+        ]))
+
+        let thrown = await failure { _ = try await install.lifecycle.resumeRotation() }
+
+        XCTAssertEqual(
+            thrown as? SPFNKeyLifecycleError,
+            .serverNamedAnotherKey(sent: "key-test-0002", received: "key-test-0009")
+        )
+        try await assertCandidateHeld(install)
+    }
+
+    /// K10 on resume.
+    func test_resume_K10_transportCancelled_keepsCandidateAndStaysPending() async throws
+    {
+        let install = try pendingInstall(ScriptedTransport([.failure(SPFNTransportError.cancelled)]))
+
+        let thrown = await failure { _ = try await install.lifecycle.resumeRotation() }
+
+        XCTAssertEqual(thrown as? SPFNClientError, .transport(.cancelled))
+        try await assertCandidateHeld(install)
+    }
+
+    /// The two ways a 2xx can be unreadable, and the failure each is named by. Both are
+    /// K3: the status is what decides the row, not which of them arrived.
+    private static let unreadableSuccesses: [(String, SPFNDecodingFailure)] = [
+        ("{not canonical json", .notCanonicalJSON),
+        ("{}", .notTheDeclaredResponse),
+    ]
+
+    /// The two ways a refusal can be unreadable. Both are K4.
+    private static let unreadableRefusals: [(String, SPFNDecodingFailure)] = [
+        ("{\"error\":{\"nothing\":\"an envelope declares\"}}", .notAnErrorEnvelope),
+        (ExecuteFixtures.errorEnvelope(code: "NO_SUCH_CODE_IN_THIS_CONTRACT"), .unknownErrorCode),
+    ]
+
+    /// A client id the canonical proof input cannot carry: the C0 character would make
+    /// the newline-separated form ambiguous, so the proof is refused before it is signed.
+    private static let clientIDWithAControlCharacter = "client-test-\u{01}-0001"
+
+    // MARK: - M6: SESSION_REVOKED wipes
 
     func testNoteSessionRevokedIsTheSameWipe() async throws
     {
@@ -401,7 +652,7 @@ final class SPFNKeyLifecycleTests: XCTestCase
     }
 
     private func enrol(
-        _ store: InMemoryKeyStore,
+        _ store: any SPFNKeyStore,
         key: SPFNCustodyKey,
         clientID: String,
         createdAt: Int64 = 1_750_000_000_000
@@ -410,12 +661,112 @@ final class SPFNKeyLifecycleTests: XCTestCase
         try store.save(key.record(clientID: clientID, createdAtMillis: createdAt), slot: SPFNKeyLifecycle.activeSlot)
     }
 
+    // MARK: - The rotation table's own assembly
+
+    /// The install every `rotate()` cell starts from: `key-test-0001` enrolled, and
+    /// `key-test-0002` queued as the key the rotation will generate.
+    private func rotatingInstall(
+        _ transport: any SPFNTransport,
+        store: any SPFNKeyStore = InMemoryKeyStore(),
+        clientID: String = "client-test-0001",
+        proofClock: (any SPFNProofClock)? = nil
+    ) throws -> (store: any SPFNKeyStore, lifecycle: SPFNKeyLifecycle)
+    {
+        try enrol(store, key: try testKey(), clientID: clientID)
+        let lifecycle = try makeLifecycle(
+            transport,
+            store: store,
+            keys: [try wrongKey()],
+            keyIDs: ["key-test-0002"],
+            proofClock: proofClock
+        )
+        return (store, lifecycle)
+    }
+
+    /// The install every `resumeRotation()` cell starts from: the same one, with the
+    /// candidate already persisted, as a process death mid-rotation would have left it.
+    private func pendingInstall(
+        _ transport: any SPFNTransport,
+        clientID: String = "client-test-0001",
+        proofClock: (any SPFNProofClock)? = nil
+    ) throws -> (store: any SPFNKeyStore, lifecycle: SPFNKeyLifecycle)
+    {
+        let store = InMemoryKeyStore()
+        try enrol(store, key: try testKey(), clientID: clientID)
+        try store.save(
+            try wrongKey().record(clientID: clientID, createdAtMillis: 1_750_000_000_000),
+            slot: SPFNKeyLifecycle.candidateSlot
+        )
+        let lifecycle = try makeLifecycle(
+            transport,
+            store: store,
+            keys: [],
+            keyIDs: [],
+            proofClock: proofClock
+        )
+        return (store, lifecycle)
+    }
+
+    /// K2, K3, K9, K10: the outcome is unknown, so the candidate survives and the install
+    /// answers `rotationPending` — with the OLD key still the only one that can sign.
+    private func assertCandidateHeld(
+        _ install: (store: any SPFNKeyStore, lifecycle: SPFNKeyLifecycle),
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws
+    {
+        XCTAssertEqual(
+            try install.store.load(slot: SPFNKeyLifecycle.candidateSlot)?.keyID,
+            "key-test-0002",
+            "the server may hold this key; it is not this SDK's to delete",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(try install.store.load(slot: SPFNKeyLifecycle.activeSlot)?.keyID, "key-test-0001", file: file, line: line)
+        let state = try await install.lifecycle.state()
+        XCTAssertEqual(state, .rotationPending, file: file, line: line)
+        let provider = try await install.lifecycle.activeProvider()
+        XCTAssertEqual(provider?.keyID, "key-test-0001", "the candidate never becomes signable by existing", file: file, line: line)
+    }
+
+    /// K4, K6, K7, K8: the rotation was not applied, so the candidate is gone and the old
+    /// key is still the one signer.
+    private func assertCandidateRefused(
+        _ install: (store: any SPFNKeyStore, lifecycle: SPFNKeyLifecycle),
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws
+    {
+        XCTAssertNil(try install.store.load(slot: SPFNKeyLifecycle.candidateSlot), file: file, line: line)
+        XCTAssertEqual(try install.store.load(slot: SPFNKeyLifecycle.activeSlot)?.keyID, "key-test-0001", file: file, line: line)
+        let state = try await install.lifecycle.state()
+        XCTAssertEqual(state, .enrolled, file: file, line: line)
+    }
+
+    /// K5: the old key itself is dead, so nothing signs until a fresh enrollment.
+    private func assertWiped(
+        _ install: (store: any SPFNKeyStore, lifecycle: SPFNKeyLifecycle),
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws
+    {
+        XCTAssertNil(try install.store.load(slot: SPFNKeyLifecycle.activeSlot), file: file, line: line)
+        XCTAssertNil(try install.store.load(slot: SPFNKeyLifecycle.candidateSlot), file: file, line: line)
+        let state = try await install.lifecycle.state()
+        XCTAssertEqual(state, .unenrolled, "the re-enrollment-required signal a caller reads", file: file, line: line)
+    }
+
+    /// - Parameter proofClock: the clock the proof's timestamp is derived from, which is
+    ///   the injected `clock` unless a case needs it to fail on its own — the K8 row is
+    ///   about a synchronization failure, and a clock that always answers cannot produce
+    ///   one.
     private func makeLifecycle(
         _ transport: any SPFNTransport,
-        store: InMemoryKeyStore,
+        store: any SPFNKeyStore,
         keys: [SPFNCustodyKey],
         keyIDs: [String],
         clock: FakeClock = FakeClock(1_750_000_000_000),
+        proofClock: (any SPFNProofClock)? = nil,
         nonces: [String] = []
     ) throws -> SPFNKeyLifecycle
     {
@@ -426,7 +777,7 @@ final class SPFNKeyLifecycleTests: XCTestCase
             store: store,
             baseURL: baseURL,
             clock: clock,
-            proofClock: clock,
+            proofClock: proofClock ?? clock,
             nonceGenerator: ScriptedNonceGenerator(nonces),
             newKeyID: { idQueue.next() ?? "key-unexpected" },
             makeKey: { keyID in keyQueue.next() ?? SPFNCustodyKey.generate(keyID: keyID, preferSecureEnclave: false) }
@@ -449,6 +800,50 @@ final class SPFNKeyLifecycleTests: XCTestCase
         }
         XCTFail("expected a throw", file: file, line: line)
         return nil
+    }
+}
+
+/// A store that reads and deletes like any other and refuses to write one named slot.
+///
+/// The K8 row is about a failure that is neither a client error nor an auth error, and a
+/// store that refused every write could never be enrolled into in the first place — so
+/// the refusal is narrowed to the slot the case is about.
+final class SlotRefusingKeyStore: SPFNKeyStore, @unchecked Sendable
+{
+    /// Its own type, so a case can assert the lifecycle neither wrapped it nor replaced
+    /// it with something from the client taxonomy.
+    enum Refusal: Error, Equatable
+    {
+        case writeRefused
+    }
+
+    private let lock = NSLock()
+    private let refusedSlot: String
+    private var records: [String: SPFNStoredKey] = [:]
+
+    init(refusing refusedSlot: String)
+    {
+        self.refusedSlot = refusedSlot
+    }
+
+    func load(slot: String) throws -> SPFNStoredKey?
+    {
+        lock.withLock { records[slot] }
+    }
+
+    func save(_ record: SPFNStoredKey, slot: String) throws
+    {
+        guard slot != refusedSlot
+        else
+        {
+            throw Refusal.writeRefused
+        }
+        lock.withLock { records[slot] = record }
+    }
+
+    func delete(slot: String) throws
+    {
+        lock.withLock { records[slot] = nil }
     }
 }
 

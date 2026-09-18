@@ -289,12 +289,12 @@ public struct SPFNClient: Sendable
             guard let parsed = try? SPFNCanonicalJSON.parse(response.body)
             else
             {
-                throw SPFNClientError.decoding(.notCanonicalJSON)
+                throw SPFNClientError.decoding(.notCanonicalJSON, onSuccessStatus: false)
             }
             guard let envelope = try? SPFNErrorEnvelope.decode(parsed)
             else
             {
-                throw SPFNClientError.decoding(.notAnErrorEnvelope)
+                throw SPFNClientError.decoding(.notAnErrorEnvelope, onSuccessStatus: false)
             }
             throw refusal(envelope, httpStatus: response.statusCode)
         }
@@ -308,13 +308,13 @@ public struct SPFNClient: Sendable
         guard let parsed = try? SPFNCanonicalJSON.parse(response.body)
         else
         {
-            throw SPFNClientError.decoding(.notCanonicalJSON)
+            throw SPFNClientError.decoding(.notCanonicalJSON, onSuccessStatus: true)
         }
 
         guard let value = try? call.decode(parsed)
         else
         {
-            throw SPFNClientError.decoding(.notTheDeclaredResponse)
+            throw SPFNClientError.decoding(.notTheDeclaredResponse, onSuccessStatus: true)
         }
         return value
     }
@@ -334,12 +334,12 @@ public struct SPFNClient: Sendable
         guard response.statusCode == 204
         else
         {
-            throw SPFNClientError.decoding(.notNoContentOnNoResponseOperation)
+            throw SPFNClientError.decoding(.notNoContentOnNoResponseOperation, onSuccessStatus: true)
         }
         guard response.body.isEmpty
         else
         {
-            throw SPFNClientError.decoding(.bodyOnNoResponseOperation)
+            throw SPFNClientError.decoding(.bodyOnNoResponseOperation, onSuccessStatus: true)
         }
 
         // There is nothing to decode and nothing this function could construct: `Response`
@@ -350,12 +350,16 @@ public struct SPFNClient: Sendable
         guard let value = try? call.decode(.object([:]))
         else
         {
-            throw SPFNClientError.decoding(.notTheDeclaredResponse)
+            throw SPFNClientError.decoding(.notTheDeclaredResponse, onSuccessStatus: true)
         }
         return value
     }
 
     /// Classifies a refusal on the code the envelope declares.
+    ///
+    /// Every answer reaching here is a refusal — a non-2xx response, or a handshake the
+    /// server rejected — so the decoding band it can produce is false: the request was
+    /// answered with a no, whether or not this SDK could read which no it was.
     ///
     /// The status is carried, never consulted. A 401 an intermediary wrote carries no
     /// envelope and never reaches here at all, so it cannot make the client re-handshake
@@ -365,7 +369,7 @@ public struct SPFNClient: Sendable
         guard let code = try? SPFNGeneratedErrorCode.decode(envelope.code)
         else
         {
-            return .decoding(.unknownErrorCode)
+            return .decoding(.unknownErrorCode, onSuccessStatus: false)
         }
         guard code.isAuthFailure
         else
@@ -398,10 +402,12 @@ public struct SPFNClient: Sendable
             return failure
         case .handshakeRejected(let httpStatus, let envelope):
             return refusal(envelope, httpStatus: httpStatus)
+        // The handshake's own answer, not the operation's: the request the caller made
+        // was never sent, so the band is false whichever way the handshake was unreadable.
         case .malformedResponse(let reason) where reason == SPFNSessionError.notAnErrorEnvelope:
-            return SPFNClientError.decoding(.notAnErrorEnvelope)
+            return SPFNClientError.decoding(.notAnErrorEnvelope, onSuccessStatus: false)
         case .malformedResponse:
-            return SPFNClientError.decoding(.notTheDeclaredResponse)
+            return SPFNClientError.decoding(.notTheDeclaredResponse, onSuccessStatus: false)
         }
     }
 
