@@ -137,8 +137,24 @@ sealed class SpfnClientError(message: String, cause: Throwable? = null) : Except
     class Server(val failure: SpfnServerFailure) :
         SpfnClientError("the server refused this request: ${failure.code.wireCode}")
 
-    /** A response arrived that the contract cannot describe. */
-    class Decoding(val failure: SpfnDecodingFailure) :
+    /**
+     * A response arrived that the contract cannot describe.
+     *
+     * [onSuccessStatus] is the status band the unreadable answer arrived on, and it is
+     * carried because the two bands mean opposite things to a caller that changes server
+     * state. A refusal this SDK could not read is still a refusal: nothing was applied. A
+     * 2xx this SDK could not read is not a refusal at all — the server answered success
+     * and may well have done the thing — so a caller that treats it as one undoes work the
+     * server kept. It is a band rather than the status itself: the classification is the
+     * only question anybody asks of it, and a number would invite a second rule decided on
+     * the status, which is what the rest of this file refuses to do.
+     *
+     * The band is not derivable from [failure]: [SpfnDecodingFailure.NOT_CANONICAL_JSON] is
+     * raised on both paths, and the two session-handshake failures are raised where no
+     * operation response exists at all — those carry false, because the request the caller
+     * made was never sent.
+     */
+    class Decoding(val failure: SpfnDecodingFailure, val onSuccessStatus: Boolean) :
         SpfnClientError("the response was not what the contract describes: $failure")
 
     /**

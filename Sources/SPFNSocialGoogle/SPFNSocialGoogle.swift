@@ -158,6 +158,10 @@ public typealias SPFNGooglePresentingContext = NSWindow
 extension SPFNSocialGoogle
 {
     /// The default flow, presented from `context`.
+    ///
+    /// The app configures `GIDSignIn.sharedInstance.configuration` with its own client id
+    /// before the first call; this module holds no client id at all, exactly as the Android
+    /// half takes the server client id from its caller.
     public init(presenting context: @escaping @MainActor @Sendable () -> SPFNGooglePresentingContext)
     {
         self.init(driver: SPFNSocialGoogleSignInDriver(context: context))

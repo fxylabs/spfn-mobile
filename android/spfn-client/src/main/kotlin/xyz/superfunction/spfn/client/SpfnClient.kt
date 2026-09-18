@@ -270,14 +270,14 @@ class SpfnClient(
         // the answer, and an operation with no response body still has error responses.
         if (response.statusCode !in 200..299)
         {
-            val parsed = parseCanonical(response);
+            val parsed = parseCanonical(response, onSuccessStatus = false);
             val envelope = try
             {
                 SpfnErrorEnvelope.decode(parsed)
             }
             catch (_: IllegalArgumentException)
             {
-                throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_AN_ERROR_ENVELOPE);
+                throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_AN_ERROR_ENVELOPE, false);
             };
             throw refusal(envelope, response.statusCode);
         }
@@ -287,14 +287,14 @@ class SpfnClient(
             return readNothing(response, call);
         }
 
-        val parsed = parseCanonical(response);
+        val parsed = parseCanonical(response, onSuccessStatus = true);
         return try
         {
             call.decode(parsed)
         }
         catch (_: IllegalArgumentException)
         {
-            throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE);
+            throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, true);
         };
     }
 
@@ -311,11 +311,11 @@ class SpfnClient(
     {
         if (response.statusCode != 204)
         {
-            throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_NO_CONTENT_ON_NO_RESPONSE_OPERATION);
+            throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_NO_CONTENT_ON_NO_RESPONSE_OPERATION, true);
         }
         if (response.body.isNotEmpty())
         {
-            throw SpfnClientError.Decoding(SpfnDecodingFailure.BODY_ON_NO_RESPONSE_OPERATION);
+            throw SpfnClientError.Decoding(SpfnDecodingFailure.BODY_ON_NO_RESPONSE_OPERATION, true);
         }
 
         // There is nothing to decode and nothing this function could construct: `Resp` is
@@ -329,22 +329,33 @@ class SpfnClient(
         }
         catch (_: IllegalArgumentException)
         {
-            throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE);
+            throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, true);
         };
     }
 
-    /** The body as canonical JSON, or the refusal that says it was not. */
-    private fun parseCanonical(response: SpfnTransportResponse): SpfnCanonicalValue = try
+    /**
+     * The body as canonical JSON, or the refusal that says it was not.
+     *
+     * Both bands reach here, which is why [onSuccessStatus] is a parameter rather than
+     * something this function could work out: the same unreadable body means "the server
+     * refused and this SDK could not read which refusal" above a refusal, and "the server
+     * said yes and this SDK cannot read what it did" above a 2xx.
+     */
+    private fun parseCanonical(response: SpfnTransportResponse, onSuccessStatus: Boolean): SpfnCanonicalValue = try
     {
         SpfnCanonicalJson.parse(response.body)
     }
     catch (_: IllegalArgumentException)
     {
-        throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_CANONICAL_JSON);
+        throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_CANONICAL_JSON, onSuccessStatus);
     }
 
     /**
      * Classifies a refusal on the code the envelope declares.
+     *
+     * Every answer reaching here is a refusal — a non-2xx response, or a handshake the
+     * server rejected — so the decoding band it can produce is false: the request was
+     * answered with a no, whether or not this SDK could read which no it was.
      *
      * The status is carried, never consulted. A 401 an intermediary wrote carries no
      * envelope and never reaches here at all, so it cannot make the client re-handshake
@@ -358,7 +369,7 @@ class SpfnClient(
         }
         catch (_: IllegalArgumentException)
         {
-            return SpfnClientError.Decoding(SpfnDecodingFailure.UNKNOWN_ERROR_CODE);
+            return SpfnClientError.Decoding(SpfnDecodingFailure.UNKNOWN_ERROR_CODE, false);
         };
 
         return if (code.isAuthFailure())
@@ -382,14 +393,16 @@ class SpfnClient(
 
         is SpfnSessionError.HandshakeRejected -> refusal(failure.envelope, failure.httpStatus)
 
+        // The handshake's own answer, not the operation's: the request the caller made was
+        // never sent, so the band is false whichever way the handshake was unreadable.
         is SpfnSessionError.MalformedResponse ->
             if (failure.reason == SpfnSessionError.NOT_AN_ERROR_ENVELOPE)
             {
-                SpfnClientError.Decoding(SpfnDecodingFailure.NOT_AN_ERROR_ENVELOPE)
+                SpfnClientError.Decoding(SpfnDecodingFailure.NOT_AN_ERROR_ENVELOPE, false)
             }
             else
             {
-                SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE)
+                SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, false)
             }
 
         else -> failure

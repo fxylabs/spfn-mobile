@@ -136,8 +136,8 @@ class SpfnSocialGoogleTest
         );
 
         // The same value in the request Credential Manager would really be handed. The
-        // option is Google's own type, built the way the driver builds it, and the
-        // nonce is read back off it rather than off anything this suite constructed.
+        // option is Google's own type, built by the one builder the driver itself calls,
+        // and the nonce is read back off it rather than off anything this suite built.
         val option = SpfnSocialGoogle.googleIdOption("server-client-id-0001", nonce);
         assertEquals(FINGERPRINT, option.nonce);
         assertEquals("server-client-id-0001", option.serverClientId);
@@ -149,6 +149,17 @@ class SpfnSocialGoogleTest
         val request = SpfnSocialGoogle.signInRequest("server-client-id-0001", nonce);
         val carried = request.credentialOptions.filterIsInstance<GetGoogleIdOption>().single();
         assertEquals(FINGERPRINT, carried.nonce);
+
+        // The driver holds a raw request nonce rather than the nonce object, and reaches
+        // the same builder through the String overload. The two must agree, or "one
+        // builder" is two builders with a shared name.
+        val fromDriverSideValue = SpfnSocialGoogle.signInRequest("server-client-id-0001", nonce.requestValue)
+            .credentialOptions
+            .filterIsInstance<GetGoogleIdOption>()
+            .single();
+        assertEquals(carried.nonce, fromDriverSideValue.nonce);
+        assertEquals(carried.serverClientId, fromDriverSideValue.serverClientId);
+        assertEquals(carried.filterByAuthorizedAccounts, fromDriverSideValue.filterByAuthorizedAccounts);
     }
 
     /**

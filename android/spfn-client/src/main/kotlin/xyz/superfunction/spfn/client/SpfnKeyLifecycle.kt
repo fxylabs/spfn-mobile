@@ -18,6 +18,14 @@
 //     │    A transport failure leaves the machine where it was; SESSION_REVOKED
 //     │    wipes everything, because the old key itself is dead.
 //
+// TWO outcomes park a rotation, not one: a send with no answer, and an answer with a 2xx
+// status this SDK could not read. The second is not a failure — the server said yes, and
+// may well have applied the rotation — so destroying the candidate on it would leave an
+// install whose only registered key it has just deleted, stuck until a wipe and a fresh
+// enrollment. `classifyRotationOutcome` is where every one of those rows is decided,
+// once, for both entry points; docs/architecture/README.md carries the same table in
+// prose.
+//
 // The asymmetry between rotate() and resumeRotation() on the same PROOF_INVALID is the
 // point of having both: inside rotate() the request was sent exactly once and refused,
 // so the server did not apply it; on resume the previous send's outcome is unknown, and
@@ -57,6 +65,7 @@ import xyz.superfunction.spfn.generated.SpfnRotateKeyResponse
 import xyz.superfunction.spfn.generated.SpfnStartDeviceAuthRequest
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.io.encoding.Base64
 
 /** The lifecycle's answer to "what key does this install hold". */
@@ -578,7 +587,7 @@ class SpfnKeyLifecycle(
                     val passwordChangeRequired = answer.passwordChangeRequired;
                     if (clientId == null || passwordChangeRequired == null)
                     {
-                        throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE);
+                        throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, true);
                     }
                     return DeviceApproval(clientId, passwordChangeRequired);
                 }
@@ -656,7 +665,7 @@ class SpfnKeyLifecycle(
     {
         if (intervalMillis == null || intervalMillis <= 0)
         {
-            throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE);
+            throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, true);
         }
         return intervalMillis;
     }
@@ -664,12 +673,113 @@ class SpfnKeyLifecycle(
     // ---- M4–M5: rotation ---------------------------------------------------
 
     /**
-     * Replaces the active key: a fresh key is generated, persisted as the candidate,
-     * and registered through `auth.keys.rotate` under the old key's proof. Success
-     * swaps the candidate in; a refusal destroys the candidate and keeps the old key,
-     * because a refused request was never applied. Only a transport failure leaves
-     * the machine in ROTATION_PENDING — the one case where the server's state is
-     * genuinely unknown — and [resumeRotation] resolves it.
+     * What one failed rotation attempt says about the key the server now honours.
+     *
+     * The whole rotation table is decided by this one type, and [rotate] and
+     * [resumeRotation] both read it, so the two paths cannot drift apart into two tables
+     * that disagree — which is what a second catch list written beside the first always
+     * becomes.
+     */
+    private enum class RotationOutcome
+    {
+        /**
+         * The outcome is unknown: the candidate stays persisted and the state answers
+         * ROTATION_PENDING, because the server may already hold the new key.
+         */
+        CANDIDATE_HELD,
+
+        /**
+         * The rotation was not applied — refused, or never sent at all — so the candidate
+         * is destroyed and the old key stays the one signer.
+         */
+        CANDIDATE_REFUSED,
+
+        /** The old key itself is dead. Every slot goes and the install is unenrolled. */
+        KEY_DEAD,
+
+        /**
+         * The old key is no longer registered, which from here is what an earlier attempt
+         * having been applied looks like. Reachable on the resume path only.
+         */
+        CANDIDATE_REGISTERED
+    }
+
+    /**
+     * Which row of the rotation table a failure falls on.
+     *
+     * Total on purpose. Every throwable the send can raise lands on a row, including the
+     * ones that are neither [SpfnClientError] nor [SpfnAuthException] — a clock that would
+     * not synchronize, a key store that would not write. Those fail before any request
+     * exists, so the server cannot have applied anything; a throwable slipping past
+     * instead would leave a candidate behind and make [state] answer ROTATION_PENDING for
+     * a rotation nobody ever sent.
+     *
+     * A `CancellationException` is a row too rather than an escape. It is the caller
+     * withdrawing from a request that may already be in flight, which is the same thing a
+     * lost answer is, so the candidate is held and the exception is rethrown untouched.
+     *
+     * The one asymmetry between the two callers is PROOF_INVALID, and it is the point of
+     * having both. Inside [rotate] the request was sent once and refused, so the server
+     * did not apply it. On a resume the earlier send's outcome is unknown, and a
+     * well-formed old-key proof failing verification means the old key is gone — which is
+     * what a completed rotation looks like from the outside.
+     */
+    private fun classifyRotationOutcome(failure: Throwable, resuming: Boolean): RotationOutcome = when
+    {
+        // Cells K2 and K10: no answer, cancellation included. A cancelled send is no
+        // more settled than a lost one.
+        failure is CancellationException -> RotationOutcome.CANDIDATE_HELD
+
+        failure is SpfnClientError.Transport -> RotationOutcome.CANDIDATE_HELD
+
+        // Cells K3 and K4. A 2xx this SDK could not read is the server saying yes;
+        // destroying the candidate on it is how an install loses the key the server moved
+        // to and stops until a wipe and a re-enrollment. An unreadable REFUSAL is still a
+        // refusal, and nothing was applied.
+        failure is SpfnClientError.Decoding ->
+            if (failure.onSuccessStatus) RotationOutcome.CANDIDATE_HELD else RotationOutcome.CANDIDATE_REFUSED
+
+        failure is SpfnClientError.Auth &&
+            failure.failure.code == SpfnGeneratedErrorCode.SESSION_REVOKED -> RotationOutcome.KEY_DEAD
+
+        failure is SpfnClientError.Auth &&
+            failure.failure.code == SpfnGeneratedErrorCode.PROOF_INVALID &&
+            resuming -> RotationOutcome.CANDIDATE_REGISTERED
+
+        // Cells K6, K7 and K8: a refusal the server decided on, and everything this SDK
+        // refused or could not assemble before a request existed.
+        else -> RotationOutcome.CANDIDATE_REFUSED
+    }
+
+    /**
+     * Applies a classification to the slots.
+     *
+     * CANDIDATE_REGISTERED is absent from the work rather than from the `when`: it is the
+     * one outcome that answers with a value instead of rethrowing, so the resume path
+     * reads it before it gets here.
+     */
+    private fun settle(outcome: RotationOutcome, candidate: SpfnKeystoreCustodyKey)
+    {
+        when (outcome)
+        {
+            RotationOutcome.CANDIDATE_HELD, RotationOutcome.CANDIDATE_REGISTERED -> Unit
+            RotationOutcome.CANDIDATE_REFUSED -> discardCandidate(candidate)
+            RotationOutcome.KEY_DEAD -> wipeLocked()
+        }
+    }
+
+    /**
+     * Replaces the active key: a fresh key is generated, persisted as the candidate, and
+     * registered through `auth.keys.rotate` under the old key's proof. Success swaps the
+     * candidate in; a refusal destroys the candidate and keeps the old key, because a
+     * refused request was never applied. A transport failure and a 2xx this SDK could not
+     * read are the two outcomes where the server's state is genuinely unknown — those
+     * leave the machine in ROTATION_PENDING for [resumeRotation].
+     *
+     * The send is guarded and the promotion is not, and that is the second half of the
+     * rule. Once a 2xx answer has been read the server has applied the rotation, so every
+     * way the bookkeeping after it can fail — a key id that is not the one sent, a store
+     * that will not write — leaves the candidate exactly where it is.
      */
     suspend fun rotate(): SpfnEnrollmentResult = mutex.withLock {
         when (state())
@@ -681,55 +791,27 @@ class SpfnKeyLifecycle(
         val old = activeProvider() ?: throw SpfnKeyLifecycleException.KeyUnloadable();
 
         val candidate = SpfnKeystoreCustodyKey.generate(newKeyId(), engine, preferStrongBox);
-        store.save(CANDIDATE_SLOT, candidate.metadata(clientId = old.clientId, createdAtMillis = clock.nowMillis()));
-
-        try
+        val response = try
         {
-            val response = send(candidate, old);
-            return@withLock promote(candidate, old.clientId, response.keyId);
+            // Inside the guard with the send: the Keystore entry already exists, so a save
+            // that throws would otherwise leave the alias behind with nothing naming it.
+            store.save(CANDIDATE_SLOT, candidate.metadata(clientId = old.clientId, createdAtMillis = clock.nowMillis()));
+            send(candidate, old)
         }
-        catch (failure: SpfnClientError)
+        catch (failure: Throwable)
         {
-            when
-            {
-                failure is SpfnClientError.Transport ->
-                    // No response: the server may or may not have applied it. The
-                    // candidate stays persisted and the state answers ROTATION_PENDING.
-                    throw failure
-
-                failure is SpfnClientError.Auth &&
-                    failure.failure.code == SpfnGeneratedErrorCode.SESSION_REVOKED ->
-                {
-                    // The old key itself is dead; nothing here can sign anymore (M6).
-                    wipeLocked();
-                    throw failure;
-                }
-
-                else ->
-                {
-                    // A refusal in the same call that sent the one request: not applied.
-                    discardCandidate(candidate);
-                    throw failure;
-                }
-            }
-        }
-        catch (failure: SpfnAuthException)
-        {
-            // Proof assembly failed before anything was sent, so the server cannot
-            // have applied a request that never existed: the candidate is discarded.
-            discardCandidate(candidate);
+            settle(classifyRotationOutcome(failure, resuming = false), candidate);
             throw failure;
-        }
+        };
+        return@withLock promote(candidate, old.clientId, response.keyId);
     }
 
     /**
-     * Resolves a rotation whose outcome was lost to a transport failure.
+     * Resolves a rotation whose outcome was left unknown.
      *
-     * Re-sends the same candidate under the old key's proof. Success completes the
-     * rotation. `PROOF_INVALID` also completes it: this SDK signed a well-formed
-     * proof, so the only reading is that the old key is no longer registered — which
-     * is what the earlier attempt having been applied looks like. `SESSION_REVOKED`
-     * wipes. Any other refusal discards the candidate and keeps the old key.
+     * Re-sends the same candidate under the old key's proof, and reads the answer through
+     * the same table [rotate] reads — with the one documented asymmetry on PROOF_INVALID,
+     * which completes the rotation here rather than discarding it.
      */
     suspend fun resumeRotation(): SpfnEnrollmentResult = mutex.withLock {
         val record = store.load(CANDIDATE_SLOT) ?: throw SpfnKeyLifecycleException.NotEnrolled();
@@ -748,35 +830,21 @@ class SpfnKeyLifecycle(
 
         val old = activeProvider() ?: throw SpfnKeyLifecycleException.KeyUnloadable();
 
-        try
+        val response = try
         {
-            val response = send(candidate, old);
-            return@withLock promote(candidate, clientId, response.keyId);
+            send(candidate, old)
         }
-        catch (failure: SpfnClientError)
+        catch (failure: Throwable)
         {
-            when
+            val outcome = classifyRotationOutcome(failure, resuming = true);
+            if (outcome == RotationOutcome.CANDIDATE_REGISTERED)
             {
-                failure is SpfnClientError.Transport -> throw failure
-
-                failure is SpfnClientError.Auth &&
-                    failure.failure.code == SpfnGeneratedErrorCode.PROOF_INVALID ->
-                    return@withLock promote(candidate, clientId, candidate.keyId)
-
-                failure is SpfnClientError.Auth &&
-                    failure.failure.code == SpfnGeneratedErrorCode.SESSION_REVOKED ->
-                {
-                    wipeLocked();
-                    throw failure;
-                }
-
-                else ->
-                {
-                    discardCandidate(candidate);
-                    throw failure;
-                }
+                return@withLock promote(candidate, clientId, candidate.keyId);
             }
-        }
+            settle(outcome, candidate);
+            throw failure;
+        };
+        return@withLock promote(candidate, clientId, response.keyId);
     }
 
     // ---- M6: revocation ----------------------------------------------------

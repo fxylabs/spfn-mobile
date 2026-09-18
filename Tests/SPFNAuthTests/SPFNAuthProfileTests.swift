@@ -31,15 +31,6 @@ final class SPFNAuthProfileTests: XCTestCase
         }
     }
 
-    func testUnknownProfileIsRejectedWithoutFallback() throws
-    {
-        XCTAssertThrowsError(try SPFNAuthPolicy.resolve(profileName: "somethingElseV1"))
-        { error in
-            XCTAssertEqual(error as? SPFNAuthError, .unknownProfileRejected("somethingElseV1"))
-            XCTAssertEqual((error as? SPFNAuthError)?.code, "PROFILE_REJECTED")
-        }
-    }
-
     func testTheProofInputNamesTheProfileItself() throws
     {
         XCTAssertEqual(SPFNClientProof.profileName, "clientProofV1")

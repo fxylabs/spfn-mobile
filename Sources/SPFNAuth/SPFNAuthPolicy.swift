@@ -1,4 +1,12 @@
 // SPFN Mobile — auth profile policy. v1 is single-profile by decision.
+//
+// The allowlist is two constants and no resolver. There used to be a `resolve(profileName:)`
+// that turned a wire name into a profile or refused it, and nothing in the SDK ever called
+// it: no operation names its class as free text — `SPFNGeneratedOperations.authClass(of:)`
+// reads the pinned bundle and `execute` refuses a class it does not know — so the function
+// was answered only by its own test. What holds the boundary is not a function anyway:
+// tools/validate/validate.sh pins the allowlist literal and the profile enum's case count,
+// and neither can be widened by editing one call site.
 
 /// Fixed policy around profile selection.
 public enum SPFNAuthPolicy
@@ -9,22 +17,19 @@ public enum SPFNAuthPolicy
     /// The only profile a client may default to.
     public static let defaultProfile: SPFNAuthProfile = .clientProofV1
 
-    /// An unrecognised profile name is rejected. There is no fallback profile and no
-    /// mixing of profiles within a session (topology artifact §6).
-    public static func resolve(profileName: String) throws -> SPFNAuthProfile
-    {
-        guard let profile = SPFNAuthProfile(rawValue: profileName),
-              allowedProfiles.contains(profile)
-        else
-        {
-            throw SPFNAuthError.unknownProfileRejected(profileName)
-        }
-        return profile
-    }
 }
 
-/// Auth failures. Each carries the contract error code it surfaces as, so a client and
-/// the conformance fixtures name the same outcome.
+/// Auth failures, each carrying the error code it surfaces as — which is not the same as
+/// each carrying a code the contract declares.
+///
+/// `controlCharacterInProofField` is the exception and stays one. Its `PROOF_INPUT_INVALID`
+/// is a LOCAL code: the pinned bundle does not declare it, no server ever sends it, and
+/// nothing reaches a server to be refused by it, because the refusal happens while the
+/// proof input is being assembled. It is spelled in the contract's style so a log reads
+/// the same either way; a conformance fixture will not find it, and should not look.
+///
+/// Every other case does name a code the bundle declares, and is the client-side spelling
+/// of the refusal a server answers with.
 public enum SPFNAuthError: Error, Equatable, Sendable
 {
     /// The server or caller named a profile outside the allowlist.

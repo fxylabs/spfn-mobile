@@ -2,8 +2,10 @@
 //
 // Same shape as the Apple adapter and one deliberate difference: Google's request
 // carries the key fingerprint itself, not its hash. Apple is the exception in this SDK,
-// and the exception lives in one place — SpfnSocialNonce.requestValue, which the nonce
-// reaches for the raw value is doing the ordinary thing rather than the risky one.
+// and the exception lives in one place — `SpfnSocialNonce.requestValue`, which the nonce
+// computed from the provider it was minted for. So both adapters read the same member and
+// neither picks a shape; what an adapter does check is that the nonce it was handed was
+// minted for its own provider.
 //
 // The API is Credential Manager, not the one-tap sign-in surface in play-services-auth,
 // which Google has deprecated. New code on a deprecated API buys nothing and schedules
@@ -119,19 +121,36 @@ class SpfnSocialGoogle(private val driver: SpfnSocialGoogleDriver)
          * Authorized accounts are not filtered: an enrollment is the first time this
          * install meets the user, so filtering to accounts already used with this app
          * would offer an empty list on the one flow that needs a full one.
+         *
+         * This is the only place in the module a Google request is built. An app that
+         * drives Credential Manager itself calls it, and so does
+         * [SpfnSocialGoogleCredentialDriver] — the two used to build the same request
+         * twice, which is two requests as soon as somebody edits one.
          */
-        fun googleIdOption(serverClientId: String, nonce: SpfnSocialNonce): GetGoogleIdOption =
+        fun googleIdOption(serverClientId: String, requestNonce: String): GetGoogleIdOption =
             GetGoogleIdOption.Builder()
                 .setServerClientId(serverClientId)
-                .setNonce(nonce.requestValue)
+                .setNonce(requestNonce)
                 .setFilterByAuthorizedAccounts(false)
                 .build()
 
+        /**
+         * The same option from the nonce itself, which is what an app holds. `requestValue`
+         * is the raw fingerprint here: Apple is the only provider whose request carries a
+         * hash instead.
+         */
+        fun googleIdOption(serverClientId: String, nonce: SpfnSocialNonce): GetGoogleIdOption =
+            googleIdOption(serverClientId, nonce.requestValue)
+
         /** That option as the request Credential Manager takes. */
-        fun signInRequest(serverClientId: String, nonce: SpfnSocialNonce): GetCredentialRequest =
+        fun signInRequest(serverClientId: String, requestNonce: String): GetCredentialRequest =
             GetCredentialRequest.Builder()
-                .addCredentialOption(googleIdOption(serverClientId, nonce))
+                .addCredentialOption(googleIdOption(serverClientId, requestNonce))
                 .build()
+
+        /** The same request from the nonce itself. */
+        fun signInRequest(serverClientId: String, nonce: SpfnSocialNonce): GetCredentialRequest =
+            signInRequest(serverClientId, nonce.requestValue)
 
         /**
          * The token out of the credential Credential Manager returned, or a named
@@ -194,15 +213,7 @@ class SpfnSocialGoogleCredentialDriver(
 {
     override suspend fun identityToken(requestNonce: String): String?
     {
-        val request = GetCredentialRequest.Builder()
-            .addCredentialOption(
-                GetGoogleIdOption.Builder()
-                    .setServerClientId(serverClientId)
-                    .setNonce(requestNonce)
-                    .setFilterByAuthorizedAccounts(false)
-                    .build()
-            )
-            .build();
+        val request = SpfnSocialGoogle.signInRequest(serverClientId, requestNonce);
         val response = CredentialManager.create(activity).getCredential(activity, request);
         return SpfnSocialGoogle.idToken(response.credential);
     }

@@ -10,6 +10,12 @@
 // one rule over the adapter surface, and splitting it in two would let one half be
 // deleted while the other still reports green.
 //
+// Both rows also live in tools/validate/validate.sh section 23, which reads the Android
+// adapter too and runs on every host. This file is not redundant with it: the scan cannot
+// ask what a classification does with a token it was handed, and the C8 case below does.
+// The two lists are meant to agree — section 23's is this one plus the Android entry
+// points — and section 23's comment names every term, so a term added here belongs there.
+//
 // The module under test is Apple-only (`"linux": false` in tools/module-graph.json),
 // so this file is guarded the same way its subject is: on Linux the target compiles
 // to an empty module and there is nothing here to run.

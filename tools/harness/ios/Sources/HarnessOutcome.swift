@@ -102,7 +102,7 @@ enum HarnessOutcome
             return failure.code.rawValue
         case .server(let failure):
             return failure.code.rawValue
-        case .decoding(let failure):
+        case .decoding(let failure, _):
             return "decoding:\(failure.rawValue)"
         // The reason alone. The server's version is in the error and is deliberately not
         // put on a readout a flow asserts on: a readout that carried it would make every
