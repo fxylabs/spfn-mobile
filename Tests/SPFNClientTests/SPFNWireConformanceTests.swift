@@ -78,7 +78,7 @@ final class SPFNWireConformanceTests: XCTestCase
         let transport = ScriptedTransport([
             .success(.json(200, SessionFixtureValues.handshakeResponseBody)),
         ])
-        let session = SPFNSession(
+        let session = try SPFNSession(
             transport: transport,
             keyProvider: try syntheticProvider(),
             baseURL: baseURL,
@@ -110,7 +110,7 @@ final class SPFNWireConformanceTests: XCTestCase
         let transport = ScriptedTransport([
             .success(.json(200, SessionFixtureValues.handshakeResponseBody)),
         ])
-        let session = SPFNSession(
+        let session = try SPFNSession(
             transport: transport,
             keyProvider: try syntheticProvider(),
             baseURL: baseURL,

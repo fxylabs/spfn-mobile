@@ -1308,13 +1308,17 @@ class SwiftEmitter(target: Target)
             "${it.name}: Default${type(it.name, "Service")}(client: client)"
         };
         appendLine("    /// The app against a real server: one transport, one session, one client.");
+        appendLine("    ///");
+        appendLine("    /// Throws `SPFNSessionError.untrustedBaseURL` when `baseURL` is neither https nor");
+        appendLine("    /// http to loopback: the session refuses cleartext at creation, and this is where");
+        appendLine("    /// a generated app creates one.");
         appendLine("    public static func live(");
         appendLine("        transport: any SPFNTransport,");
         appendLine("        keyProvider: any SPFNKeyProvider,");
         appendLine("        baseURL: String");
-        appendLine("    ) -> AppContainer");
+        appendLine("    ) throws -> AppContainer");
         appendLine("    {");
-        appendLine("        let session = SPFNSession(");
+        appendLine("        let session = try SPFNSession(");
         appendLine("            transport: transport,");
         appendLine("            keyProvider: keyProvider,");
         appendLine("            baseURL: baseURL");

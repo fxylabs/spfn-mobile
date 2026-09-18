@@ -9,7 +9,6 @@
 package xyz.superfunction.spfn.client
 
 import android.os.SystemClock
-import java.net.URI
 import java.security.SecureRandom
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -69,9 +68,6 @@ sealed class SpfnClockSynchronizationException(message: String) : IllegalStateEx
 {
     class ContractIncompatible :
         SpfnClockSynchronizationException("the contract does not declare a usable clock operation")
-
-    class UntrustedBaseUrl :
-        SpfnClockSynchronizationException("clock synchronization requires HTTPS or loopback HTTP")
 
     class RequestFailed :
         SpfnClockSynchronizationException("the clock synchronization request failed")
@@ -137,10 +133,6 @@ class SpfnProcessServerClock internal constructor(
             anchors[key]?.let { return derivedTime(it) };
             inFlight[key]?.let { return@withLock it };
 
-            if (!isTrusted(key))
-            {
-                throw SpfnClockSynchronizationException.UntrustedBaseUrl();
-            }
             val operation = operationResolver()
                 ?: throw SpfnClockSynchronizationException.ContractIncompatible();
             if (operation.authProfile != "none" || operation.requiresSession)
@@ -235,25 +227,6 @@ class SpfnProcessServerClock internal constructor(
             throw SpfnClockSynchronizationException.ClockOverflow();
         }
         return anchor.serverTimeMillis + elapsed;
-    }
-
-    private fun isTrusted(baseUrl: String): Boolean
-    {
-        val uri = try
-        {
-            URI(baseUrl);
-        }
-        catch (_: IllegalArgumentException)
-        {
-            return false;
-        };
-        val scheme = uri.scheme?.lowercase() ?: return false;
-        val host = uri.host?.lowercase() ?: return false;
-        if (scheme == "https")
-        {
-            return true;
-        }
-        return scheme == "http" && (host == "localhost" || host == "::1" || host.startsWith("127."));
     }
 
     companion object

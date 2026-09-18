@@ -391,6 +391,11 @@ public struct SPFNClient: Sendable
         }
         switch failure
         {
+        // Unreachable from here: a session that failed this check was never created, so
+        // no client holds one. Named rather than defaulted, so adding a session error
+        // later is a compile error in this switch instead of a silent passthrough.
+        case .untrustedBaseURL:
+            return failure
         case .handshakeRejected(let httpStatus, let envelope):
             return refusal(envelope, httpStatus: httpStatus)
         case .malformedResponse(let reason) where reason == SPFNSessionError.notAnErrorEnvelope:

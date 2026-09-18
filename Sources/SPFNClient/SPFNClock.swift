@@ -74,7 +74,6 @@ public protocol SPFNProofClock: Sendable
 public enum SPFNClockSynchronizationError: Error, Equatable, Sendable
 {
     case contractIncompatible
-    case untrustedBaseURL
     case requestFailed
     case invalidResponse
     case monotonicClockInvalid
@@ -88,7 +87,6 @@ extension SPFNClockSynchronizationError: CustomStringConvertible, CustomDebugStr
         switch self
         {
         case .contractIncompatible: "SPFNClockSynchronizationError.contractIncompatible"
-        case .untrustedBaseURL: "SPFNClockSynchronizationError.untrustedBaseURL"
         case .requestFailed: "SPFNClockSynchronizationError.requestFailed"
         case .invalidResponse: "SPFNClockSynchronizationError.invalidResponse"
         case .monotonicClockInvalid: "SPFNClockSynchronizationError.monotonicClockInvalid"
@@ -195,11 +193,6 @@ public actor SPFNProcessServerClock: SPFNProofClock
         }
         else
         {
-            guard Self.isTrusted(baseURL: key)
-            else
-            {
-                throw SPFNClockSynchronizationError.untrustedBaseURL
-            }
             guard let operation = operationResolver(),
                   operation.authProfile == "none", !operation.requiresSession
             else
@@ -305,22 +298,6 @@ public actor SPFNProcessServerClock: SPFNProofClock
             result.removeLast()
         }
         return result
-    }
-
-    private static func isTrusted(baseURL: String) -> Bool
-    {
-        guard let components = URLComponents(string: baseURL),
-              let scheme = components.scheme?.lowercased(),
-              let host = components.host?.lowercased()
-        else
-        {
-            return false
-        }
-        if scheme == "https"
-        {
-            return true
-        }
-        return scheme == "http" && (host == "localhost" || host == "::1" || host.hasPrefix("127."))
     }
 }
 

@@ -554,12 +554,13 @@ final class SPFNDeviceCodeEnrollmentTests: XCTestCase
     }
 
     /// D20: the other half. A clock that refuses to synchronize at all is not a lost
-    /// fetch — an untrusted base URL and a contract with no usable clock operation answer
-    /// the same on every retry — so retrying would poll until the code expired against a
-    /// deadline this device can never read. It ends the wait and destroys the key.
+    /// fetch — a contract with no usable clock operation and a monotonic source that
+    /// moved backwards answer the same on every retry — so retrying would poll until the
+    /// code expired against a deadline this device can never read. It ends the wait and
+    /// destroys the key.
     func testD20AClockSynchronizationRefusalEndsTheWaitWithoutAPoll() async throws
     {
-        for refusal in [SPFNClockSynchronizationError.untrustedBaseURL, .contractIncompatible]
+        for refusal in [SPFNClockSynchronizationError.contractIncompatible, .monotonicClockInvalid]
         {
             let proofClock = ScriptedProofClock(startedAtMillis, throwing: [refusal])
             let transport = ScriptedTransport([startAnswer(), approvedAnswer()])

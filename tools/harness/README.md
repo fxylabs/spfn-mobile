@@ -162,14 +162,17 @@ loopback and is never exposed to the network.
 
 **Why not the emulator's own alias.** An emulator reaches the host loopback at `10.0.2.2`
 too, and the runner used to rewrite the base URL to it. The SDK will not have that: it
-synchronizes its proof clock over plain HTTP to loopback only — `isTrusted` in
-`android/spfn-client/src/main/kotlin/xyz/superfunction/spfn/client/SpfnClock.kt` admits
-`https`, `localhost`, `::1` and `127.*`, and answers anything else with
-`SpfnClockSynchronizationException.UntrustedBaseUrl`. On the 2d run that split the cells
-in two: registration and resume passed, and every cell needing a proof came back
-`err:clockSynchronization:untrustedBaseURL`. The SDK's rule is the right one — a clock a
-plaintext third party can set is a clock an attacker can set — so the runner gives the
-emulator the same loopback route it gives a phone.
+speaks plain HTTP to loopback only — `isTrusted` in
+`android/spfn-client/src/main/kotlin/xyz/superfunction/spfn/client/SpfnSession.kt` admits
+`https`, `localhost`, `::1` and `127.*`, and refuses anything else at the moment a session
+is created, with `SpfnSessionError.UntrustedBaseUrl` (`err:session:untrustedBaseURL`). On
+the 2d run, when the check still sat on the proof clock, that split the cells in two:
+registration and resume passed, and every cell needing a proof came back
+`err:clockSynchronization:untrustedBaseURL`. The check moved to the session because the
+split was the bug — an enrolment carries no proof and went out over cleartext anyway — so
+today the same address refuses the whole app instead of half of it. The rule is the right
+one either way — a clock a plaintext third party can set is a clock an attacker can set —
+so the runner gives the emulator the same loopback route it gives a phone.
 
 **On Android, that address also has to be the one the build permits.** The app speaks
 plain HTTP to exactly one host — the one `spfn.harness.serverBaseUrl` names — and to

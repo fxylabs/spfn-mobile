@@ -49,8 +49,73 @@ class SpfnSessionTest
         nonceGenerator = ScriptedNonceGenerator(nonces)
     )
 
+    private fun sessionAt(baseUrl: String): SpfnSession = SpfnSession(
+        transport = ScriptedTransport(emptyList()),
+        keyProvider = keyProvider(),
+        baseUrl = baseUrl,
+        clock = FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS),
+        nonceGenerator = ScriptedNonceGenerator(emptyList())
+    )
+
     private fun handshakeAnswer(expiringAt: Long = SessionFixtureValues.EXPIRES_AT_MILLIS): ScriptedTransport.Outcome =
         ScriptedTransport.Outcome.Answer(jsonResponse(200, SessionFixtureValues.handshakeResponse(expiringAt)))
+
+    // ---- the base URL ------------------------------------------------------
+
+    /**
+     * D21. Cleartext to anywhere but loopback is refused where a session is created, which
+     * is the one place every request passes through: the proven path proves against this
+     * URL, the unproven enrolment path sends to it, and the clock synchronizes against it.
+     * `10.0.2.2` is an emulator's route through the host's network stack rather than
+     * loopback, so it is refused with everything else.
+     */
+    @Test
+    fun aSessionIsRefusedForCleartextToAnythingButLoopback()
+    {
+        val refused = listOf(
+            "http://api.example.com",
+            "http://10.0.2.2:8080",
+            "ftp://example.invalid",
+            "/v1",
+            ""
+        );
+
+        for (url in refused)
+        {
+            val thrown = runCatching { sessionAt(url) }.exceptionOrNull();
+            assertTrue("$url gave $thrown", thrown is SpfnSessionError.UntrustedBaseUrl);
+        }
+    }
+
+    @Test
+    fun aSessionIsCreatedForHttpsAndForLoopbackCleartext()
+    {
+        val allowed = listOf(
+            "https://api.example.com",
+            "http://localhost:8080",
+            "http://127.0.0.1",
+            "http://[::1]"
+        );
+
+        for (url in allowed)
+        {
+            assertEquals(url.trimEnd('/'), sessionAt(url).baseUrl);
+        }
+    }
+
+    /**
+     * The URL can carry a nonce in its query, so the refusal names none of it — the same
+     * rule the handshake refusal follows for the envelope.
+     */
+    @Test
+    fun theRefusalCarriesNoPartOfTheUrl()
+    {
+        val thrown = SpfnSessionError.UntrustedBaseUrl();
+        val trace = StringWriter().also { thrown.printStackTrace(PrintWriter(it)) }.toString();
+
+        assertFalse(thrown.toString(), thrown.toString().contains("://"));
+        assertFalse(trace, trace.substringBefore('\n').contains("://"));
+    }
 
     // ---- the handshake request ---------------------------------------------
 

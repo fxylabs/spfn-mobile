@@ -670,13 +670,15 @@ fi
 #
 # The emulator has an alias of its own for the host loopback, 10.0.2.2, and this script
 # used to rewrite the base URL to it. That alias cannot be used, because the SDK will not
-# synchronize its proof clock over plain HTTP to anything but loopback — `isTrusted` in
-# android/spfn-client/.../SpfnClock.kt admits https, `localhost`, `::1` and `127.*` and
-# nothing else. On the 2d run every cell that needs a proof came back
+# speak plain HTTP to anything but loopback — `isTrusted` in
+# android/spfn-client/.../SpfnSession.kt admits https, `localhost`, `::1` and `127.*` and
+# nothing else, and refuses the rest when the session is created. On the 2d run, when the
+# check still sat on the clock, every cell that needs a proof came back
 # `err:clockSynchronization:untrustedBaseURL` while registration and resume passed, which
-# reads as a flow bug and is not one. The SDK's rule is the right one; the alias was the
-# wrong route, and `adb reverse` — which an emulator supports exactly as a phone does —
-# is the one that keeps the address loopback at both ends.
+# reads as a flow bug and is not one. Today that address fails earlier and harder: no
+# session is created at all, so registration does not pass either. The SDK's rule is the
+# right one; the alias was the wrong route, and `adb reverse` — which an emulator supports
+# exactly as a phone does — is the one that keeps the address loopback at both ends.
 #
 # An external target is none of these — the caller named an address that is already
 # reachable — so nothing is rewritten and no route is opened.

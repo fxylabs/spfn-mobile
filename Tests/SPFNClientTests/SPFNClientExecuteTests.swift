@@ -847,7 +847,7 @@ final class SPFNClientExecuteTests: XCTestCase
         clientID: String = SessionFixtureValues.clientID
     ) throws -> SPFNSession
     {
-        SPFNSession(
+        try SPFNSession(
             transport: transport,
             keyProvider: try ExecuteFixtures.syntheticProvider(clientID: clientID),
             baseURL: baseURL,

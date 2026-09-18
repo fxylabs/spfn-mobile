@@ -612,7 +612,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
         }
         let loaded = try await lifecycle.activeProvider()
         let provider = try XCTUnwrap(loaded)
-        return Approver(clientID: enrolled.clientID, client: fixture.client(signingWith: provider))
+        return Approver(clientID: enrolled.clientID, client: try fixture.client(signingWith: provider))
     }
 
     private func waitingDevice(
@@ -732,7 +732,7 @@ final class SPFNReferenceIntegrationTests: XCTestCase
 
             let transport = SPFNURLSessionTransport()
             let proofClock = SPFNProcessServerClock()
-            let session = SPFNSession(
+            let session = try SPFNSession(
                 transport: transport,
                 keyProvider: try SPFNSoftwareKeyProvider(
                     clientID: SPFNReferenceIntegrationTests.clientID,
@@ -755,9 +755,9 @@ final class SPFNReferenceIntegrationTests: XCTestCase
 
         /// A client over a session signing with [provider] — what case f uses to prove
         /// with a key the lifecycle enrolled rather than the pre-registered fixture key.
-        func client(signingWith provider: any SPFNKeyProvider, timeoutMillis: Int64 = 5_000) -> SPFNClient
+        func client(signingWith provider: any SPFNKeyProvider, timeoutMillis: Int64 = 5_000) throws -> SPFNClient
         {
-            let signingSession = SPFNSession(
+            let signingSession = try SPFNSession(
                 transport: transport,
                 keyProvider: provider,
                 baseURL: environment.baseURL,

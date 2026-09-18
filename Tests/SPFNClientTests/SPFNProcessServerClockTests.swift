@@ -14,7 +14,7 @@ final class SPFNProcessServerClockTests: XCTestCase
         ])
         let monotonic = FakeMonotonicClock(10)
         let clock = SPFNProcessServerClock(monotonicClock: monotonic)
-        let session = SPFNSession(
+        let session = try SPFNSession(
             transport: transport,
             keyProvider: SPFNSoftwareKeyProvider(
                 clientID: SessionFixtureValues.clientID,
@@ -61,7 +61,7 @@ final class SPFNProcessServerClockTests: XCTestCase
         let transport = ScriptedTransport([
             .failure(SPFNTransportError.connectivity("offline")),
         ])
-        let session = SPFNSession(
+        let session = try SPFNSession(
             transport: transport,
             keyProvider: SPFNSoftwareKeyProvider(
                 clientID: SessionFixtureValues.clientID,
@@ -200,28 +200,6 @@ final class SPFNProcessServerClockTests: XCTestCase
         catch
         {
             XCTAssertEqual(error as? SPFNClockSynchronizationError, .contractIncompatible)
-        }
-        let calls = await transport.callCount
-        XCTAssertEqual(calls, 0)
-    }
-
-    func testNonLoopbackCleartextIsRejectedBeforeTheNetwork() async throws
-    {
-        let transport = ScriptedTransport([])
-        let clock = SPFNProcessServerClock(monotonicClock: FakeMonotonicClock(10))
-
-        do
-        {
-            _ = try await clock.nowMillis(
-                transport: transport,
-                baseURL: "http://example.invalid",
-                timeoutMillis: 1_000
-            )
-            XCTFail("expected an untrusted base URL")
-        }
-        catch
-        {
-            XCTAssertEqual(error as? SPFNClockSynchronizationError, .untrustedBaseURL)
         }
         let calls = await transport.callCount
         XCTAssertEqual(calls, 0)

@@ -168,16 +168,6 @@ class SpfnProcessServerClockTest
         assertEquals(0, transport.callCount)
     }
 
-    @Test
-    fun nonLoopbackCleartextIsRejectedBeforeTheNetwork() = runBlocking {
-        val transport = ScriptedTransport(emptyList())
-        val clock = SpfnProcessServerClock(FakeMonotonicClock(10)) { generatedClockOperation() }
-
-        val error = failureOf { clock.nowMillis(transport, "http://example.invalid", 1_000) }
-        assertTrue(error is SpfnClockSynchronizationException.UntrustedBaseUrl)
-        assertEquals(0, transport.callCount)
-    }
-
     // ---- discarding an anchor ----------------------------------------------
 
     /**
