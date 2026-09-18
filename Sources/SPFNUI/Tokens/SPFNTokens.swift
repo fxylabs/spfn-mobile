@@ -24,15 +24,18 @@
 //
 // ``dark`` is STRUCTURE ONLY. It carries the light palette's values today, so that every
 // component is already written against a palette it looks up rather than against constants,
-// and the day the dark values arrive they arrive as six numbers in one place. A dark palette
-// that did not exist at all would mean every component had to grow a branch later; a dark
-// palette guessed at now would ship a theme nobody designed.
+// and the day the dark values arrive they arrive as seven numbers in one place. A dark
+// palette that did not exist at all would mean every component had to grow a branch later; a
+// dark palette guessed at now would ship a theme nobody designed. That rule is why
+// ``SPFNPalette/handle`` carries the light value in both palettes and not a light-on-dark
+// one: a single designed value in a palette advertised as undesigned is a half-theme, and
+// the handle joins the dark appearance with the other six.
 
 import SwiftUI
 
-/// The six colours a screen is drawn out of, as one value so that a scheme is one lookup.
+/// The seven colours a screen is drawn out of, as one value so that a scheme is one lookup.
 ///
-/// A struct rather than six statics per scheme: a component asks the environment for the
+/// A struct rather than seven statics per scheme: a component asks the environment for the
 /// scheme once and then reads colours off the answer, which is what makes "the same
 /// component in the dark palette" a different value rather than a different code path.
 public struct SPFNPalette: Sendable
@@ -55,13 +58,27 @@ public struct SPFNPalette: Sendable
     /// The one colour that means "this went wrong".
     public let error: Color
 
+    /// The drag handle on a sheet, over ``surface``.
+    ///
+    /// A colour and therefore a token, which is the whole test (decision S10). Android's
+    /// `Sheet.kt` held this as a constant of its own and was the one hardcoded colour in
+    /// either half of the module; a constant is a value that cannot follow a palette, so a
+    /// light-on-dark theme would have drawn an invisible handle on a dark sheet. The scrim's
+    /// opacity beside it stayed a constant for the opposite reason: it is not a colour.
+    ///
+    /// This platform has no call site — `presentationDragIndicator` is the system's own
+    /// grabber and the system colours it — and carries the key anyway, because the two
+    /// palettes are one key set and section 15 of the validator compares them.
+    public let handle: Color
+
     public init(
         background: Color,
         surface: Color,
         text: Color,
         textSecondary: Color,
         accent: Color,
-        error: Color
+        error: Color,
+        handle: Color
     )
     {
         self.background = background
@@ -70,6 +87,7 @@ public struct SPFNPalette: Sendable
         self.textSecondary = textSecondary
         self.accent = accent
         self.error = error
+        self.handle = handle
     }
 }
 
@@ -83,20 +101,22 @@ public enum SPFNTokens
         text: Color(red: 0.0, green: 0.0, blue: 0.0),
         textSecondary: Color(red: 0.42, green: 0.42, blue: 0.44),
         accent: Color(red: 0.043, green: 0.373, blue: 1.0),
-        error: Color(red: 0.776, green: 0.157, blue: 0.157)
+        error: Color(red: 0.776, green: 0.157, blue: 0.157),
+        handle: Color(.sRGB, red: 0.0, green: 0.0, blue: 0.0, opacity: 0.2)
     )
 
     /// The palette a dark appearance reads, which today is the light one.
     ///
     /// Structure without values, deliberately: see this file's header. Every component
-    /// already resolves a palette, so the dark theme is a change to these six lines.
+    /// already resolves a palette, so the dark theme is a change to these seven lines.
     public static let dark = SPFNPalette(
         background: Color(red: 1.0, green: 1.0, blue: 1.0),
         surface: Color(red: 0.957, green: 0.957, blue: 0.965),
         text: Color(red: 0.0, green: 0.0, blue: 0.0),
         textSecondary: Color(red: 0.42, green: 0.42, blue: 0.44),
         accent: Color(red: 0.043, green: 0.373, blue: 1.0),
-        error: Color(red: 0.776, green: 0.157, blue: 0.157)
+        error: Color(red: 0.776, green: 0.157, blue: 0.157),
+        handle: Color(.sRGB, red: 0.0, green: 0.0, blue: 0.0, opacity: 0.2)
     )
 
     /// The tightest gap: between a label and the thing it labels.

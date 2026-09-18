@@ -94,8 +94,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import xyz.superfunction.spfn.ui.components.LocalFitsContent
-import xyz.superfunction.spfn.ui.components.spfnPalette
 import xyz.superfunction.spfn.ui.tokens.SpfnTokens
+import xyz.superfunction.spfn.ui.tokens.spfnPalette
 
 /** Where a sheet can rest: at the height its detent asked for, or gone. */
 internal enum class SheetAnchor
@@ -320,14 +320,21 @@ private fun Handle(state: AnchoredDraggableState<SheetAnchor>, enabled: Boolean)
             modifier = Modifier
                 .size(width = HANDLE_WIDTH, height = HANDLE_HEIGHT)
                 .clip(RoundedCornerShape(HANDLE_HEIGHT))
-                .background(HANDLE_COLOUR)
+                .background(spfnPalette().handle)
         );
     }
 }
 
-/** How dark the scrim goes at rest. Not a token: it is this component's own arithmetic. */
+/**
+ * How dark the scrim goes at rest.
+ *
+ * Not a token because it is not a COLOUR: it is an opacity applied to black, it is the same
+ * 0.4 whichever palette is in scope, and a palette that carried it would be carrying a number
+ * the design flow replaces per scheme when this one does not change with the scheme at all.
+ * The handle beside it went the other way for the same test — that one is a colour, so it is
+ * `spfnPalette().handle`.
+ */
 private const val SCRIM_OPACITY: Float = 0.4f;
 private val HANDLE_ROW = 48.dp;
 private val HANDLE_WIDTH = 36.dp;
 private val HANDLE_HEIGHT = 4.dp;
-private val HANDLE_COLOUR: Color = Color.Black.copy(alpha = 0.2f);

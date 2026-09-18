@@ -150,6 +150,45 @@ final class HostStackTests: XCTestCase
         XCTAssertEqual(stack.topOwner(), secondId)
     }
 
+    /// The same route value pushed twice is two entries on this list, and one screen on
+    /// Android. The list is right and the device is the layer this suite cannot reach.
+    ///
+    /// `HostStack` is a list and nothing else: two equal values pushed in turn are two
+    /// entries, in the order they arrived, and `shortened(to:)` reports two of them going.
+    /// What draws them does not agree across the two platforms. `NavigationStack(path:)` is
+    /// an ARRAY of values and does not de-duplicate, so this is what the person sees here.
+    /// Compose's `NavDisplay` identifies a back-stack entry by its VALUE — that is how it
+    /// keeps a `NavEntry`'s saved state across a recomposition — so two equal entries are one
+    /// entry to it, and on Android the flow believes it has two screens where the person sees
+    /// one.
+    ///
+    /// The divergence is below what any automated test in this repository touches: no Compose
+    /// runtime in either suite, no instrumented suite at all, and a Maestro cell asserting
+    /// "one screen" or "two" would be asserting against a readout both screens produce. So
+    /// this case documents the list's answer and names the layer that disagrees
+    /// (docs/IMPLEMENTATION-PITFALLS.md P41). A flow that can push the same route value twice
+    /// carries the route's identity in the value — an id, an index — rather than relying on
+    /// the navigator to tell two of them apart.
+    func test_sync_theSameRouteValueTwice_isTwoEntriesOnTheList()
+    {
+        let owner = Owner()
+        let ownerId = ObjectIdentifier(owner)
+
+        var stack = HostStack()
+        stack = stack.sync(owner: ownerId, routes: [Halt(name: "a1")])
+        stack = stack.sync(owner: ownerId, routes: [Halt(name: "a1"), Halt(name: "a1")])
+
+        XCTAssertEqual(
+            stack.entries.map { $0.route },
+            [AnyHashable(Halt(name: "a1")), AnyHashable(Halt(name: "a1"))]
+        )
+        XCTAssertEqual(stack.entries.map { $0.owner }, [ownerId, ownerId])
+        XCTAssertEqual(stack.topOwner(), ownerId)
+        // Both of them go when the platform cuts back to the host's own root, which is the
+        // arithmetic a de-duplicating navigator would have made wrong by one.
+        XCTAssertEqual(stack.shortened(to: 0), [ownerId: 2])
+    }
+
     func test_shortened_cuttingThreeFromTheTail_splitsThemTwoAndOne()
     {
         let first = Owner()

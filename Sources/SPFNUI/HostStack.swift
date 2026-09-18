@@ -25,6 +25,10 @@
 //   `sync`        one flow's routes are replaced by its current stack, leaving every other
 //                 flow's entries where they were. This is how a flow's own state reaches
 //                 the host: the flow stays the single source of truth and the host follows.
+//   `shortened`   the platform cut the tail off — a system back, a swipe — and each flow
+//                 has to be told how many of ITS routes went, because one gesture on one
+//                 stack can only belong to whoever was on top.
+//   `topOwner`    whose `back` a system gesture is, asked before the gesture is claimed.
 //
 // The list is CHRONOLOGICAL: an entry stands where it was pushed, and the two flows on it
 // interleave if that is the order a person put them in. A list grouped by owner instead —
@@ -32,10 +36,6 @@
 // device: with `[a1, b1]` on the stack, a push from the covered flow A would land a2 UNDER
 // b1, so A's own top and the host's top would be two different screens and the system back
 // would go to the flow the person was not looking at.
-//   `shortened`   the platform cut the tail off — a system back, a swipe — and each flow
-//                 has to be told how many of ITS routes went, because one gesture on one
-//                 stack can only belong to whoever was on top.
-//   `topOwner`    whose `back` a system gesture is, asked before the gesture is claimed.
 //
 // Nothing here mutates: every operation answers with a value, and the host is what stores
 // the answer. A second mutable copy of a stack is the exact defect `FlowHost` was built to
@@ -131,6 +131,14 @@ public struct HostStack: Equatable
     ///
     /// What a system back is asked about: only the flow on top can have consumed it, and a
     /// stack with nothing on it has handed the gesture back to the platform already.
+    ///
+    /// On iOS the only callers are this module's tests, and that is the two navigators
+    /// differing rather than a function nobody needs. Compose's `NavDisplay` hands the host
+    /// ONE back event, so `NavigationHost.kt` asks this whose it was; SwiftUI's
+    /// `NavigationStack(path:)` hands it a LENGTH it has already popped to, so
+    /// `NavigationHost.swift` spends ``shortened(to:)`` instead and never has to ask. The
+    /// function is written on both sides because the list is one list written twice, and it
+    /// is what the Swift suite reads to assert the ordering `shortened(to:)` depends on.
     public func topOwner() -> ObjectIdentifier?
     {
         entries.last?.owner

@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
+import xyz.superfunction.spfn.ui.tokens.spfnPalette
 
 /** The mark a back control draws: one chevron, pointing the way it goes. */
 @Composable

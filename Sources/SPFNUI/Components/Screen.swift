@@ -272,30 +272,11 @@ public struct Screen<Content: View>: View
     }
 }
 
-/// How tall the content of the screen on show is, travelling UP to whatever presented it.
-///
-/// A preference and not a binding, because the direction is up and neither end knows the
-/// other: a ``Screen`` knows how tall its content is and nothing about being inside a sheet,
-/// and ``FlowHost``'s sheet knows it needs a height and nothing about which of its routes
-/// drew one. Read by `SheetPresentation`, and by nothing else.
-///
-/// The reduction is the TALLEST reporter rather than the last. A navigation stack has both
-/// screens in the tree during a push, and a sheet that took the smaller of the two would
-/// shrink under a transition and settle back afterwards.
-struct ScreenContentHeightKey: PreferenceKey
-{
-    static let defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat)
-    {
-        value = max(value, nextValue())
-    }
-}
-
 /// Hides the system navigation bar where there is one to hide.
 ///
-/// A modifier rather than an `#if` inside the body's chain: `ToolbarPlacement.navigationBar`
-/// does not exist on macOS, and a platform that has no navigation bar has nothing to hide.
+/// Private to this file and stays here: it is one line of `Screen`'s own body chain, and the
+/// only reason it is a type at all is that `ToolbarPlacement.navigationBar` does not exist on
+/// macOS and a platform with no navigation bar has nothing to hide.
 private struct HiddenNavigationBar: ViewModifier
 {
     func body(content: Content) -> some View
@@ -306,39 +287,6 @@ private struct HiddenNavigationBar: ViewModifier
         content
             .toolbar(.hidden, for: .navigationBar)
     #endif
-    }
-}
-
-/// What a flow tells the screens inside it.
-///
-/// Counterpart of the `LocalScreenChrome` composition local on Android. A `Screen` has to
-/// draw a way out without knowing which flow it is in or how deep, and a `FlowHost` knows
-/// both and does not know which of its routes drew a header. The environment is the one
-/// place those two meet without either of them holding the other.
-///
-/// Both actions are carried even though only one of them is ever drawn: which one that is
-/// changes with the depth of the stack.
-struct ScreenChrome: Sendable
-{
-    var wayOut: WayOut = .none
-    var onBack: @MainActor @Sendable () -> Void = {}
-    var onClose: @MainActor @Sendable () -> Void = {}
-}
-
-private struct ScreenChromeKey: EnvironmentKey
-{
-    /// A `Screen` outside any `FlowHost` — a preview, a host app's own screen — reads this
-    /// and draws no way out at all, which is the honest answer: nothing there knows what
-    /// going back would mean.
-    static let defaultValue = ScreenChrome()
-}
-
-extension EnvironmentValues
-{
-    var screenChrome: ScreenChrome
-    {
-        get { self[ScreenChromeKey.self] }
-        set { self[ScreenChromeKey.self] = newValue }
     }
 }
 #endif

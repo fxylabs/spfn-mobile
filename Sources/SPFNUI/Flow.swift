@@ -52,6 +52,15 @@ public final class Flow<Route: FlowRoute>
     public private(set) var stack: [Route]
 
     /// Whether the flow is open. True exactly when ``stack`` is not empty.
+    ///
+    /// Stored rather than computed, and the reason is parity rather than Observation: a
+    /// computed `!stack.isEmpty` would be observed perfectly well here, because reading it
+    /// reads ``stack`` and that is the access `@Observable` instruments. What it would not
+    /// be is the same property the Kotlin twin has. There `isPresented` is a
+    /// `StateFlow<Boolean>` a collector subscribes to, and deriving one from `stack` needs a
+    /// coroutine scope this plain class has nowhere to get — so the Kotlin half stores it,
+    /// and a public surface written twice is written the same way twice. What the storage
+    /// costs is the invariant ``moveTo(_:)`` holds by hand.
     public private(set) var isPresented: Bool
 
     public init(initial: [Route] = [])
@@ -153,6 +162,12 @@ public final class Flow<Route: FlowRoute>
     /// this", and both answer out of the same rule. An OPEN flow always claims it now, for
     /// the reason ``back(entry:)`` states; a closed one never does, and that is the only
     /// gesture this type hands on.
+    ///
+    /// `entry` is therefore UNREAD, deliberately and not by omission. Dropping it would make
+    /// this the one question of the three a host asks without saying which presentation it
+    /// is asking about, and a host that has to remember which of `handlesBack`, `back` and
+    /// `wayOut` takes the entry is a host that will hand the wrong one to the wrong call.
+    /// The day a presentation refuses a back the parameter is already where it has to be.
     public func handlesBack(entry: FlowEntry) -> Bool
     {
         !stack.isEmpty
@@ -181,13 +196,32 @@ public final class Flow<Route: FlowRoute>
         return .close
     }
 
-    /// The one writer, so the two published properties cannot disagree about whether this
-    /// flow is open. Assigning the state a flow is already in still assigns, which is what
-    /// an `@Observable` property does anyway; nothing downstream distinguishes the two.
+    /// The one writer, so the two stored properties cannot disagree about whether this flow
+    /// is open.
+    ///
+    /// The ORDER of the two writes is the invariant, and it is the order `Flow.kt`'s own
+    /// mover takes: growing writes the stack first and the flag second, emptying writes the
+    /// flag first and the stack second. What it protects is the one combination that has a
+    /// reader — `isPresented == true` beside an empty stack. ``FlowHost``'s `presented`
+    /// binding is read off the flag and the sheet's content is `navigation`, which draws
+    /// nothing at all when `flow.stack.first` is nil, so an observer that read the flag
+    /// before the stack would have a presented sheet with an empty stack inside it. The
+    /// other order is harmless in both directions: a stack that is already full when the
+    /// flag goes up is what the sheet wants to find, and a stack still standing while the
+    /// flag goes down is content for a sheet that is on its way out.
+    ///
+    /// Assigning the state a flow is already in still assigns, which is what an
+    /// `@Observable` property does anyway; nothing downstream distinguishes the two.
     private func moveTo(_ next: [Route])
     {
+        if next.isEmpty
+        {
+            isPresented = false
+            stack = next
+            return
+        }
         stack = next
-        isPresented = !next.isEmpty
+        isPresented = true
     }
 }
 

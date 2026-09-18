@@ -123,6 +123,46 @@ class HostStackTest
         assertEquals(second, stack.topOwner());
     }
 
+    /**
+     * The same route value pushed twice is two entries on this list, and one screen on the
+     * device. The list is right and the device is the layer this suite cannot reach.
+     *
+     * `HostStack` is a list and nothing else: two equal values pushed in turn are two
+     * entries, in the order they arrived, and `shortened` reports two of them going. What
+     * draws them does not agree. Navigation 3's `NavDisplay` identifies a back-stack entry by
+     * its VALUE — that is how it keeps a `NavEntry`'s saved state across a recomposition —
+     * so two equal entries are one entry to it, and the person sees one screen where the flow
+     * believes it has two. The system back then pops the flow to depth 1 while the display
+     * was already showing depth 1, and a screen the person never saw leaves without moving.
+     *
+     * SwiftUI's `NavigationStack(path:)` is an ARRAY of values and does not de-duplicate, so
+     * the iOS half of this flow shows two screens. The divergence is real and it is below
+     * what any automated test in this repository touches: there is no Compose runtime in this
+     * suite, no instrumented suite at all, and a Maestro cell asserting "one screen" or "two"
+     * would be asserting against a readout both screens produce.
+     *
+     * So this case documents the list's answer and names the layer that disagrees
+     * (docs/IMPLEMENTATION-PITFALLS.md P41). A flow that can push the same route value twice
+     * carries the route's identity in the value — an id, an index — rather than relying on
+     * the navigator to tell two of them apart.
+     */
+    @Test
+    fun sync_theSameRouteValueTwice_isTwoEntriesOnTheList()
+    {
+        val owner = Any();
+
+        var stack = HostStack();
+        stack = stack.sync(owner, listOf(Halt("a1")));
+        stack = stack.sync(owner, listOf(Halt("a1"), Halt("a1")));
+
+        assertEquals(listOf<Any>(Halt("a1"), Halt("a1")), stack.entries.map { it.route });
+        assertEquals(listOf(owner, owner), stack.entries.map { it.owner });
+        assertEquals(owner, stack.topOwner());
+        // Both of them go when the platform cuts back to the host's own root, which is the
+        // arithmetic a de-duplicating navigator would have made wrong by one.
+        assertEquals(mapOf(owner to 2), stack.shortened(0));
+    }
+
     @Test
     fun shortened_cuttingThreeFromTheTail_splitsThemTwoAndOne()
     {

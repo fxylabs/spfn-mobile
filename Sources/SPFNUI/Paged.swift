@@ -24,7 +24,7 @@
 // accidentally draw — for a value whose only reader is the model that owns it.
 //
 // ---------------------------------------------------------------------------
-// The transitions are pure, and two of them can refuse
+// The transitions are pure, and one of them can refuse
 // ---------------------------------------------------------------------------
 //
 // Every function below returns a new value and calls nothing. What runs the read is the

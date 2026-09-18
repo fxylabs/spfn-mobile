@@ -46,6 +46,7 @@ private struct Stop: FlowRoute
 
 private let first = Stop(name: "first")
 private let second = Stop(name: "second")
+private let third = Stop(name: "third")
 
 private let push: FlowEntry = .push
 private let modal: FlowEntry = .modal
@@ -299,6 +300,32 @@ final class CloseRulesTests: XCTestCase
             flow.close()
             XCTAssertEqual(flow.stack, [])
             XCTAssertFalse(flow.isPresented)
+        }
+    }
+
+    // --- depth 3, which is the depth-2 row and is asserted once to say so ----
+
+    /// `Flow` branches on `count > 1` and never on the count itself, so every depth above the
+    /// root is one row of the table and not a row per depth. That is a claim about the code
+    /// rather than about the table, which is why it is one case and not twelve: the table has
+    /// six rows, this repository writes one test per cell, and a depth-3 copy of every
+    /// depth-2 cell would be a table that grew without saying anything new.
+    ///
+    /// What the case IS for is the half a reader cannot check by eye — that a pop at depth 3
+    /// lands on depth 2 and stops there, still open and still drawing a back rather than a
+    /// close. A version of `back(entry:)` that closed on anything but the root would pass
+    /// every depth-2 cell above and fail this one.
+    func test_push_depth3_headerBack_pops() async throws
+    {
+        try await onMain
+        {
+            let flow = Flow(initial: [first, second, third])
+            XCTAssertEqual(flow.wayOut(entry: push), WayOut.back)
+            XCTAssertTrue(flow.back(entry: push))
+            XCTAssertEqual(flow.stack, [first, second])
+            XCTAssertTrue(flow.isPresented)
+            // Still above the root, so still the same row: a back, not a close.
+            XCTAssertEqual(flow.wayOut(entry: push), WayOut.back)
         }
     }
 

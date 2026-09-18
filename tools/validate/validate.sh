@@ -3349,6 +3349,67 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+section '22. a screen that draws a PagedView on Android owns no scroll of its own'
+# ---------------------------------------------------------------------------
+# `LazyColumn` is the only lazy list Compose has and it brings its own scroll. Nesting one
+# inside `Screen(scroll = true)`'s `verticalScroll` is not two scrollers arguing — it is a
+# measurement with no answer, because the outer scroll offers infinite height and the inner
+# list asks for all of it. Compose refuses that at RUNTIME, with an IllegalStateException
+# thrown from the layout pass on the frame the screen first appears. Nothing compiles it
+# away, no JVM unit test composes a screen in this repository, and the rule lived only in
+# `PagedView.kt`'s header: "a screen that draws a PagedView declares Screen(scroll = false)".
+#
+# So the rule is read here. The Swift half needs no equivalent and has none: `PagedView`
+# there is a `LazyVStack` INSIDE the caller's scroll view, so `Screen(scroll: true)` is what
+# it wants and this whole section would be backwards on that platform.
+#
+# What this reads is a FILE, not a call. `grep` cannot tell a call from a mention, so a file
+# that names `PagedView(` in a comment counts as one that draws one, and a `scroll = false`
+# belonging to some other `Screen` in the same file satisfies it. Both are deliberate and
+# both are on the loose side: the defect this exists to catch is a screen file that draws a
+# PagedView and says nothing about scroll, and that file fails whichever line the grep found.
+# The one file it reads today is `PagedView.kt` itself, which passes on the sentence in its
+# own header — which is honest about what this check is worth on an empty tree and is why
+# the floor below refuses a read of zero rather than reporting a clean sweep (P7).
+#
+# `grep -nE` only, and no `?` or `+` in the expressions, because this script runs under BSD
+# grep as well as GNU (docs/IMPLEMENTATION-PITFALLS.md P28).
+PAGED_SCROLL_ROOTS='android/spfn-ui examples/android-compose tools/harness/android'
+
+PAGED_SCROLL_READ=0
+PAGED_SCROLL_OFFENDERS=''
+
+for PAGED_SCROLL_ROOT in $PAGED_SCROLL_ROOTS
+do
+    for source in $(find "$PAGED_SCROLL_ROOT" -name '*.kt' 2> /dev/null | sort)
+    do
+        if ! grep -nE 'PagedView\(' "$source" > /dev/null 2>&1
+        then
+            continue
+        fi
+        PAGED_SCROLL_READ=$((PAGED_SCROLL_READ + 1))
+        if ! grep -nE 'scroll = false' "$source" > /dev/null 2>&1
+        then
+            PAGED_SCROLL_OFFENDERS="$PAGED_SCROLL_OFFENDERS $source"
+        fi
+    done
+done
+
+if [ "$PAGED_SCROLL_READ" -ge 1 ]
+then
+    pass "the PagedView reader found $PAGED_SCROLL_READ Kotlin files naming PagedView( under $PAGED_SCROLL_ROOTS"
+else
+    fail "the PagedView reader found no Kotlin file naming PagedView( under $PAGED_SCROLL_ROOTS; nothing to read, so this check did not run"
+fi
+
+if [ -z "$PAGED_SCROLL_OFFENDERS" ]
+then
+    pass 'every Kotlin file that draws a PagedView states scroll = false, so no LazyColumn is measured inside an infinite height'
+else
+    fail "Kotlin files that draw a PagedView without a \`scroll = false\` anywhere in them:$PAGED_SCROLL_OFFENDERS; a LazyColumn inside Screen(scroll = true)'s verticalScroll is measured against an infinite height and throws IllegalStateException on the frame the screen appears"
+fi
+
+# ---------------------------------------------------------------------------
 printf '\n'
 note "swift build / swift test, ./gradlew build,"
 note "./gradlew :contract-codegen:spfnCodegenVerify and pod ipc spec are separate"

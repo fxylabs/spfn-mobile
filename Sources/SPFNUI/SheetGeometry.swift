@@ -16,6 +16,39 @@
 // and every length Compose hands out is a `Float`, and a module that converted at this
 // boundary would be converting on every frame of every drag to make a comment true. The
 // vectors both suites are written against are the same numbers either way.
+//
+// ---------------------------------------------------------------------------
+// Half of this file has no iOS caller, and that is the point of writing it
+// ---------------------------------------------------------------------------
+//
+// `FlowHost.swift` spends `fitHeight` and `fitFallbackFraction` and nothing else: the system
+// draws the sheet, so `half` and `full` are `.medium` and `.large`, the scrim is UIKit's and
+// the dismissal threshold is the gesture recogniser's. `height(for:container:content:)`,
+// `closes(offset:height:)`, `scrim(offset:height:)`, `fullFraction` and `halfFraction`
+// therefore have exactly one caller on this platform — `SheetGeometryTests` — while Android's
+// `Sheet.kt` spends every one of them to lay a sheet out by hand.
+//
+// They are written here anyway because they are what the two platforms AGREE on, and an
+// agreement only one side states is one the other side is free to drift from. A `half` sheet
+// is half of its container on both, and the day iOS stops taking the system's sheet — a
+// custom presentation, a macOS panel, a detent the system does not have — the arithmetic is
+// already here and already held to the same hand-written vectors. A mirror nothing calls is
+// cheap; a number that exists on one platform only is the divergence section 15 of the
+// validator exists to refuse.
+//
+// ---------------------------------------------------------------------------
+// Where the two fractions come from
+// ---------------------------------------------------------------------------
+//
+// `dismissFraction` follows from the gesture — half the sheet's own height is the distance
+// at which a drag reads as a throw rather than a fidget — and `halfFraction` is what the
+// word half means. The other two have no source to cite and this comment will not invent
+// one: `fullFraction` 0.92 and `fitFallbackFraction` 0.32 arrived whole with the module
+// (`cad422b`, PR #51) and nothing in the commit, the decisions or the pitfalls argues them.
+// Arbitrary choices, on stated grounds — 0.92 leaves a strip of the screen under the sheet
+// so that a full sheet still reads as a sheet rather than as a screen, and 0.32 is a third
+// of the window, which is about what a `fit` sheet with a header and a few rows comes to.
+// Both are numbers a design flow is entitled to argue with, and both move in one place.
 
 /// Where a sheet's heights and thresholds come from.
 ///
