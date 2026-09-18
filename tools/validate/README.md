@@ -329,6 +329,35 @@ The probe DELETES the `scroll = false` line from `PagedView.kt` with `grep -v` �
 the defect actually takes, since nobody writes the rule and then deletes half of it — and
 takes the roots away. Three cases, each scoped to section 22's own output.
 
+## Check 23 took two rows off a test that could not run everywhere
+
+Rows C8 and C9 of the adapter case table — no adapter logs, no adapter reads a provider's
+display fields — lived only in `Tests/SPFNSocialAppleTests/SPFNSocialAdapterSurfaceTests.swift`.
+That file sits beside an Apple-only module and is guarded on
+`canImport(AuthenticationServices)`, so on Linux the target compiles to an empty module and
+the rows reported green by not existing; and it scanned two Swift directories, never the
+Android adapter, which is the half with its own logging vocabulary. The check reads all
+three trees on every host. The Swift test stays, because it also proves the classification
+drops a token out of an error VALUE, which is a call rather than a scan.
+
+Every term is matched as a plain substring, which is what the Swift suite does and is the
+decision worth stating: both lists are reached through a receiver — `credential.fullName`,
+`android.util.Log.d` — so a word-boundary rule would refuse the bare spelling and admit the
+qualified one, which is the spelling somebody reaches for after the bare one is refused.
+Comment lines are dropped, because a prohibition has to be describable in the file that
+obeys it, and the floor is per directory: two of the three trees hold one file each, so a
+missing one would otherwise vanish into a total.
+
+```sh
+sh tools/validate/probe-social-surface-rules.sh   # prove each refusal bites
+```
+
+The probe appends one line at a time to each adapter source and reads section 23's own two
+rows rather than the validator's exit code — the exit code today also carries the
+device-receipt rows, and a probe that read it would report green for the wrong reason.
+Both ends of the comment exclusion are pinned, and the last case takes the source trees
+away.
+
 ## Check 2 replaced a Step 1 prohibition
 
 Step 1 failed if a Gradle wrapper existed at all, because the baseline was undecided and

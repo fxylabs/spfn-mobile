@@ -3473,6 +3473,93 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+section '23. no provider adapter logs a token or reads a profile field'
+# ---------------------------------------------------------------------------
+# Rows C8 and C9 of the adapter case table, which until now were a Swift XCTest and nothing
+# else. That file sits beside an Apple-only module and is guarded on
+# `canImport(AuthenticationServices)`, so on Linux it compiles to nothing and the rule
+# reported green by not existing; and it never reached the Android adapter, which is the
+# half with its own logging vocabulary. Here both rows cover all three source trees on
+# every host. The Swift suite stays: it also proves the classification drops a token out of
+# an error value, which is a call and not a scan.
+#
+# Both rows are about ABSENCE, and absence is not observable through a call — an adapter
+# that logs a token logs it wherever it likes, and one that reads a display field reads it
+# in a branch a fake driver never enters. So both are read out of the sources.
+#
+# The logging list is the Swift suite's own C8 list plus the Android entry points it had no
+# reason to name. It is written out here rather than narrowed per language, because a
+# per-call-site judgement is exactly what stops being made later:
+#
+#   Swift   print(  NSLog(  os_log(  debugPrint(  dump(  FileHandle.standardOutput
+#   Kotlin  println  Log.  Timber.  System.out  System.err  printStackTrace(
+#
+# The profile list is C9's, unchanged: this SDK's scope ends at the identity token
+# (decision 1), and an app that wants a display name asks the provider itself.
+# `requestedScopes` is admitted only where the line also carries the empty literal, which is
+# how the Apple adapter asks for none.
+#
+# Every term is matched as a plain substring, the way the Swift suite matches its own. A
+# word boundary would be the obvious refinement and it is the wrong one: both lists are
+# reached through a receiver — `credential.fullName`, `android.util.Log.d` — so a rule that
+# demanded a non-identifier character in front would refuse the bare spelling and wave the
+# qualified one through, which is the spelling somebody reaches for when the bare one is
+# refused.
+#
+# Comments are excluded, the way the Swift suite excludes them: a prohibition has to be
+# describable in the file that obeys it. The scan carries a floor for the P7 reason — a scan
+# that read nothing agrees with a clean one — and the floor is per directory, because two
+# of the three trees hold one file each and a missing one would otherwise vanish quietly.
+SOCIAL_SURFACE_DIRS='Sources/SPFNSocialApple Sources/SPFNSocialGoogle android/spfn-social-google/src/main'
+SOCIAL_LOGGERS='print\(|NSLog\(|os_log\(|debugPrint\(|dump\(|FileHandle\.standardOutput|println|Log\.|Timber\.|System\.out|System\.err|printStackTrace\('
+SOCIAL_PROFILE_FIELDS='fullName|givenName|familyName|nickName|middleName|emailAddress|profileData'
+
+: > "$TMP/social-active.txt"
+SOCIAL_SCANNED=0
+SOCIAL_EMPTY_DIRS=''
+for SOCIAL_DIR in $SOCIAL_SURFACE_DIRS
+do
+    SOCIAL_FILES=$(find "$SOCIAL_DIR" \( -name '*.swift' -o -name '*.kt' \) 2> /dev/null | sort)
+    if [ -z "$SOCIAL_FILES" ]
+    then
+        SOCIAL_EMPTY_DIRS="$SOCIAL_EMPTY_DIRS $SOCIAL_DIR"
+        continue
+    fi
+    for SOCIAL_FILE in $SOCIAL_FILES
+    do
+        SOCIAL_SCANNED=$((SOCIAL_SCANNED + 1))
+        grep -vn '^[[:space:]]*\(//\|/\*\|\*\)' "$SOCIAL_FILE" \
+            | sed "s|^|$SOCIAL_FILE:|" >> "$TMP/social-active.txt"
+    done
+done
+
+if [ -z "$SOCIAL_EMPTY_DIRS" ] && [ "$SOCIAL_SCANNED" -ge 3 ]
+then
+    pass "the adapter surface scan read $SOCIAL_SCANNED sources across every adapter tree"
+else
+    fail "the adapter surface scan found no source under:$SOCIAL_EMPTY_DIRS (read $SOCIAL_SCANNED in all); it did not run"
+fi
+
+SOCIAL_LOG_HITS=$(grep -E "$SOCIAL_LOGGERS" "$TMP/social-active.txt" || true)
+if [ -z "$SOCIAL_LOG_HITS" ]
+then
+    pass 'C8: no adapter source carries a logging call on either platform'
+else
+    fail 'C8: an adapter that can log is an adapter that can log a token:'
+    printf '%s\n' "$SOCIAL_LOG_HITS" | sed 's/^/          /'
+fi
+
+SOCIAL_FIELD_HITS=$(grep -E "$SOCIAL_PROFILE_FIELDS" "$TMP/social-active.txt" || true)
+SOCIAL_SCOPE_HITS=$(grep -E 'requestedScopes' "$TMP/social-active.txt" | grep -vF '[]' || true)
+if [ -z "$SOCIAL_FIELD_HITS" ] && [ -z "$SOCIAL_SCOPE_HITS" ]
+then
+    pass 'C9: no adapter source reads a provider profile field or asks for a scope'
+else
+    fail 'C9: the identity token is the whole of what an adapter reads (decision 1):'
+    printf '%s\n' "$SOCIAL_FIELD_HITS$SOCIAL_SCOPE_HITS" | sed 's/^/          /'
+fi
+
+# ---------------------------------------------------------------------------
 section '24. every action a workflow uses is on the SHA-pinned list (D14)'
 # ---------------------------------------------------------------------------
 # D14, resolved 2026-09-18: a workflow may use an action only if its name AND its commit
