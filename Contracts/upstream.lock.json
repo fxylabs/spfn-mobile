@@ -1,12 +1,12 @@
 {
-  "lockVersion": 2,
+  "lockVersion": 3,
   "status": "RESOLVED_UPSTREAM",
   "provenance": {
     "origin": "spfn-primitives-ci-export",
     "exportedByUpstreamCI": true,
     "statement": "Contracts/spfn-mobile-contract.json is a byte copy of contracts/mobile/spfn-mobile-contract.json as published by SPFN primitives at the commit named below. It is generated there from packages/auth/src/server/client-proof by packages/auth/scripts/export-mobile-contract.ts, and it is not edited here.",
     "whyThisIsAnUpstreamPin": "A digest is only worth pinning when it names a file an independent party produced. This digest names a file SPFN primitives generated from its own route and contract definitions, so it is evidence about the server. The dev bundle it replaces proved only that this repository's generator and both SDKs read the same local bytes, which is self-verification.",
-    "evidence": "Contracts/upstream-provenance.json, copied unmodified from the same upstream commit. tools/validate/validate.sh section 5 checks this lock against that file rather than taking the lock's word for it.",
+    "evidence": "Contracts/upstream-provenance.json, copied unmodified from the same upstream commit. The contract's own facts — name, version, major, supportedRange and bundleSha256 — live there and only there; this lock does not restate them, so there is nothing here to compare against them.",
     "editRule": "This bundle is never edited here. A contract change is made in SPFN primitives, re-exported there, and re-pinned here as a new commit and a new digest.",
     "trackedAs": "docs/OPEN-DECISIONS.md D17"
   },
@@ -27,21 +27,11 @@
   },
   "contract": {
     "name": "spfn-mobile-contract",
-    "version": "0.10.0",
-    "major": 0,
-    "minor": 10,
     "bundlePath": "Contracts/spfn-mobile-contract.json",
-    "manifestSha256": "29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c",
-    "supportedRange": ">=0.10.0 <0.11.0",
-    "rangeRule": "The contract line is 0.x, so the breaking axis is the minor rather than the major. A server contract is supported only when its major AND minor match this pin AND its patch is at or above the pinned patch. Here the lock range and the upstream evidence range are identical, because 0.10.0 is the minor's first release: it adds the five auth.device.* operations, the deviceAuthorization section that governs them, the DeviceAuthPollStatus and KeyPlatform enums, and the four device-code error codes, and it states that an operation declaring no responseType answers 204 with an empty body. They are allowed to differ — the evidence declares the line upstream supports and the lock declares the window this SDK admits, the second contained in the first — and at the 0.4.1 pin they did."
-  },
-  "authProfiles": {
-    "allowed": ["clientProofV1"],
-    "unknownProfilePolicy": "reject",
-    "mixingWithinSession": "prohibited"
+    "pathRule": "Where the vendored copy lives in THIS repository, which is the one contract fact no upstream file can state: the exporter knows its own tree, not the consumer's. Everything else about the contract — version, major, supportedRange, bundleSha256 — is read from Contracts/upstream-provenance.json."
   },
   "digestDiscipline": {
-    "rule": "manifestSha256 must be the real SHA-256 of the file named by contract.bundlePath, and must equal the digest the upstream evidence records for the same bundle. tools/validate/validate.sh recomputes it, and tools/contract-codegen refuses to generate when it does not match, so a tampered bundle fails on both paths rather than producing plausible clients.",
+    "rule": "Contracts/upstream-provenance.json's contract.bundleSha256 must be the real SHA-256 of the file named by contract.bundlePath above. tools/validate/validate.sh recomputes it, and tools/contract-codegen refuses to generate when it does not match, so a tampered bundle fails on both paths rather than producing plausible clients.",
     "verify": "shasum -a 256 Contracts/spfn-mobile-contract.json",
     "enforcedBy": [
       "tools/validate/validate.sh",
@@ -50,7 +40,9 @@
     ]
   },
   "notes": [
-    "Floating branches or URLs are prohibited as a lock source; only an exact repository, commit SHA and exporter version, together with the digest of the file read at that commit.",
+    "lockVersion 3 (2026-09-18) removed contract.version, major, minor, manifestSha256, supportedRange and rangeRule, which restated Contracts/upstream-provenance.json, and authProfiles, which is an SDK policy whose home is SPFNAuthProfile/SpfnAuthProfile and tools/validate/validate.sh section 6. Every reader of a removed value now reads upstream-provenance.json; the checks that compared the two copies are gone because there is no second copy to disagree.",
+    "What is left is what only the consumer knows: which primitives commit was read, which npm versions were published from it, where the vendored bundle sits in this tree, and the rules for editing all three.",
+    "Floating branches or URLs are prohibited as a lock source; only an exact repository, commit SHA and exporter version.",
     "A published contract version and digest are never modified. A mistake becomes a new version.",
     "The bundle carries no secret and no real private key."
   ]

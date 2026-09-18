@@ -7,10 +7,10 @@
 //
 // Zero external dependencies and zero network access at generation time. Its inputs are
 // all on disk: the vendored contract bundle, read through :contract-codegen's own reader
-// rather than through a second copy of it, the screen spec — one JSON file, or the
-// directory holding it beside the contract documents that carry a flow each — the spec's
-// repository-relative path, which every generated header prints, and the lock's contract
-// block, which chooses the bundle file and refuses a run whose digest disagrees with it.
+// (`ContractPin`) rather than through a second copy of it, the screen spec — one JSON
+// file, or the directory holding it beside the contract documents that carry a flow each
+// — the spec's repository-relative path, which every generated header prints, and the pin
+// itself, which chooses the bundle file and refuses a run whose digest disagrees with it.
 
 plugins {
     alias(libs.plugins.kotlin.jvm)

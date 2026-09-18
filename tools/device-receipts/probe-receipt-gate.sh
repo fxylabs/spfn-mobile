@@ -27,7 +27,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$ROOT"
 
 GATE=tools/device-receipts/receipt-gate.sh
-LOCK=Contracts/upstream.lock.json
+PIN=Contracts/upstream-provenance.json
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/spfn-receipt-probe.XXXXXX")
 FAILURES=0
@@ -78,11 +78,11 @@ inblock && match($0, /"version"[[:space:]]*:[[:space:]]*"[^"]*"/) {
     print v
     exit
 }
-' "$LOCK")
+' "$PIN")
 
 if [ -z "$PINNED" ]
 then
-    printf 'probe-receipt-gate.sh could not read contract.version from %s\n' "$LOCK" >&2
+    printf 'probe-receipt-gate.sh could not read contract.version from %s\n' "$PIN" >&2
     exit 1
 fi
 
@@ -148,13 +148,13 @@ write_full_set()
 
 # Runs the gate against a fixture root and asserts it refused for the stated reason.
 #   $1 case name  $2 receipt root  $3 fixed string the output must carry
-#   $4 optional lock path override
+#   $4 optional pin path override
 expect_refusal()
 {
     OUT=$WORK/out.txt
 
     set +e
-    SPFN_RECEIPT_ROOT="$2" SPFN_RECEIPT_LOCK="${4:-$LOCK}" sh "$GATE" > "$OUT" 2>&1
+    SPFN_RECEIPT_ROOT="$2" SPFN_RECEIPT_PIN="${4:-$PIN}" sh "$GATE" > "$OUT" 2>&1
     STATUS=$?
     set -e
 
@@ -338,7 +338,7 @@ expect_refusal 'receipts taken against another contract version are refused' \
 #     and must say so rather than compare against an empty string.
 write_full_set "$WORK/good" "$PINNED"
 expect_refusal 'an unreadable contract pin is refused' \
-    "$WORK/good" 'cannot know which contract to demand' "$WORK/no-such-lock.json"
+    "$WORK/good" 'cannot know which contract to demand' "$WORK/no-such-pin.json"
 
 # ---------------------------------------------------------------------------
 # Every refusal above must be its own sentence.

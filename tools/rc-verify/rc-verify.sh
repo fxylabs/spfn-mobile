@@ -84,8 +84,27 @@ then
 fi
 
 COMMIT=$(git rev-parse HEAD)
-CONTRACT_DIGEST=$(sed -n 's/.*"manifestSha256": *"\([0-9a-f]\{64\}\)".*/\1/p' Contracts/upstream.lock.json | head -1)
-[ -n "$CONTRACT_DIGEST" ] || die 'could not read manifestSha256 from Contracts/upstream.lock.json'
+# The contract's own facts live in the exporter's evidence file and nowhere else, and
+# both are read from inside its "contract" object rather than by first-hit-at-any-depth
+# (P5): the file also carries evidenceVersion and exporterVersion at the top level.
+PROVENANCE=Contracts/upstream-provenance.json
+contract_field()
+{
+    awk -v key="$1" '
+$0 ~ /^[[:space:]]*"contract"[[:space:]]*:[[:space:]]*\{/ { inblock = 1; next }
+inblock && $0 ~ /^[[:space:]]*\}/                         { inblock = 0 }
+inblock && match($0, "\"" key "\"[[:space:]]*:[[:space:]]*\"[^\"]*\"") {
+    value = substr($0, RSTART, RLENGTH)
+    sub("^\"" key "\"[[:space:]]*:[[:space:]]*\"", "", value)
+    sub(/"$/, "", value)
+    print value
+    exit
+}
+' "$PROVENANCE"
+}
+
+CONTRACT_DIGEST=$(contract_field bundleSha256)
+[ -n "$CONTRACT_DIGEST" ] || die "could not read contract.bundleSha256 from $PROVENANCE"
 MAVEN_GROUP=$(sed -n 's/^spfn.maven.group=\(.*\)$/\1/p' gradle.properties)
 [ -n "$MAVEN_GROUP" ] || die 'could not read spfn.maven.group from gradle.properties'
 AGP_VERSION=$(sed -n 's/^agp = "\(.*\)"$/\1/p' gradle/libs.versions.toml)
@@ -238,8 +257,8 @@ RECEIPT_CONTRACT=$(printf '%s' "$RECEIPT_SUMMARY" | sed -n 's/.*contract=\([^ ]*
     || die 'the device receipt gate summary line could not be parsed'
 [ "$RECEIPT_PROVEN" = "$RECEIPT_REQUIRED" ] \
     || die "the device receipt gate exited 0 having proven only $RECEIPT_PROVEN of $RECEIPT_REQUIRED cells"
-[ "$RECEIPT_CONTRACT" = "$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' Contracts/upstream.lock.json | head -1)" ] \
-    || die "the device receipt gate judged against contract $RECEIPT_CONTRACT, which is not the version this candidate's lock pins"
+[ "$RECEIPT_CONTRACT" = "$(contract_field version)" ] \
+    || die "the device receipt gate judged against contract $RECEIPT_CONTRACT, which is not the version this candidate pins"
 
 # --- 1. SwiftPM: local tag resolved by a throwaway consumer ------------------------
 

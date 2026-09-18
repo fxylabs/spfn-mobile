@@ -16,8 +16,8 @@
 // The same two properties the contract generator holds to:
 //   - Zero network. The inputs are the vendored bundle and the spec, both on disk.
 //   - Deterministic. Output is a pure function of the SPEC BYTES, the BUNDLE BYTES, the
-//     spec's repository-relative PATH and the lock's CONTRACT BLOCK: no timestamp, no
-//     host name, no absolute path, no unordered iteration.
+//     spec's repository-relative PATH and the PINNED CONTRACT: no timestamp, no host
+//     name, no absolute path, no unordered iteration.
 //
 // The spec is a PLACE rather than a file. `<specPath>` is either one JSON file or a
 // directory holding the JSON beside the contract documents whose machine blocks carry the
@@ -33,9 +33,10 @@
 // is in every generated header and in the case table's `spec` field, which is what makes
 // it an input rather than an invocation detail — so it is kept repository-relative, and
 // generating the same spec through a path with a `../` in it is a different output. The
-// lock's contract block decides which file the bundle bytes are read from and refuses the
-// whole run when its digest disagrees with them; nothing else of it reaches the output,
-// and the `contractVersion` a header carries is the bundle's own field.
+// pin decides which file the bundle bytes are read from — the lock's `contract.bundlePath`
+// — and refuses the whole run when `Contracts/upstream-provenance.json`'s digest disagrees
+// with them; nothing else of either file reaches the output, and the `contractVersion` a
+// header carries is the bundle's own field.
 //
 // And one more of its own: verification covers the FLOWS and the CASE TABLE as well as
 // the sources. The table is the artefact both runners read, and an unverified table is not
@@ -45,13 +46,7 @@
 package xyz.superfunction.spfn.uicodegen
 
 import java.io.File
-import java.security.MessageDigest
-import xyz.superfunction.spfn.codegen.Bundle
-import xyz.superfunction.spfn.codegen.Json
-import xyz.superfunction.spfn.codegen.number
-import xyz.superfunction.spfn.codegen.obj
-import xyz.superfunction.spfn.codegen.required
-import xyz.superfunction.spfn.codegen.text
+import xyz.superfunction.spfn.codegen.ContractPin
 
 private class GenerationFailure(message: String) : RuntimeException(message)
 
@@ -132,17 +127,18 @@ data class Generated(val files: Map<String, String>, val authoredViews: Set<Stri
  */
 fun generate(repoRoot: File, specPath: String, target: Target): Generated
 {
-    val bundle = loadBundle(repoRoot);
+    val bundle = ContractPin.loadBundle(repoRoot);
     val source = SpecInput.read(repoRoot, specPath, bundle);
     val whole = source.spec;
     // Read whole and narrowed after, so a flow this target does not want is still checked
     // before it is dropped: a target cannot hide a broken flow by not asking for it.
     val spec = whole.narrowedTo(target.flows);
 
-    // The digest gate, in the direction the spec adds. `loadBundle` already refused a
-    // bundle whose bytes disagree with the lock; this refuses a SPEC written against a
-    // different bundle than the one pinned now. Both are needed: they are different
-    // mistakes, and only the second one can arrive with the lock untouched.
+    // The digest gate, in the direction the spec adds. `ContractPin.loadBundle` already
+    // refused a bundle whose bytes disagree with the provenance digest; this refuses a
+    // SPEC written against a different bundle than the one pinned now. Both are needed:
+    // they are different mistakes, and only the second one can arrive with the pin
+    // untouched.
     if (whole.manifestSha256 != bundle.sha256)
     {
         throw GenerationFailure(
@@ -181,55 +177,6 @@ fun generate(repoRoot: File, specPath: String, target: Target): Generated
     // views sit in a directory this run owns: computed from the narrowed spec, they are
     // neither generated nor exempt, which is precisely the state `staleOutputs` deletes.
     return Generated(files, kotlin.authoredViews(whole) + swift.authoredViews(whole));
-}
-
-/**
- * Reads the lock, recomputes the bundle digest and refuses to continue when they
- * disagree — the same gate `tools/contract-codegen` opens with, for the same reason: a
- * generated header that names a digest has to have been produced from a file with it.
- *
- * This is the fourth reader of the pinned digest and the second with a ROLE
- * (docs/IMPLEMENTATION-PITFALLS.md P2): like the contract generator, it is a consumer
- * that recomputes and compares, never a place the value is edited.
- */
-private fun loadBundle(repoRoot: File): Bundle
-{
-    val lockFile = File(repoRoot, "Contracts/upstream.lock.json");
-    if (!lockFile.isFile)
-    {
-        throw GenerationFailure("missing ${lockFile.path}");
-    }
-
-    val lock = Json.parse(lockFile.readText()).obj();
-    val contract = lock.required("contract").obj();
-    val bundlePath = contract.required("bundlePath").text();
-    val expectedDigest = contract.required("manifestSha256").text();
-
-    val bundleFile = File(repoRoot, bundlePath);
-    if (!bundleFile.isFile)
-    {
-        throw GenerationFailure("lock points at $bundlePath, which does not exist");
-    }
-
-    val bytes = bundleFile.readBytes();
-    val actualDigest = sha256Hex(bytes);
-    if (actualDigest != expectedDigest)
-    {
-        throw GenerationFailure(
-            "bundle digest mismatch for $bundlePath\n" +
-                "  lock says: $expectedDigest\n" +
-                "  file is:   $actualDigest\n" +
-                "Refusing to generate."
-        );
-    }
-
-    return Bundle.read(
-        bundleText = String(bytes, Charsets.UTF_8),
-        sha256 = actualDigest,
-        supportedRange = contract.required("supportedRange").text(),
-        contractMajor = contract.required("major").number().toInt(),
-        contractMinor = contract.required("minor").number().toInt()
-    );
 }
 
 private fun write(repoRoot: File, generated: Generated)
@@ -337,16 +284,3 @@ internal fun staleOutputs(repoRoot: File, generated: Generated): List<String>
     return stale;
 }
 
-private fun sha256Hex(bytes: ByteArray): String
-{
-    val digits = "0123456789abcdef";
-    val digest = MessageDigest.getInstance("SHA-256").digest(bytes);
-    val out = StringBuilder(digest.size * 2);
-    for (byte in digest)
-    {
-        val value = byte.toInt() and 0xFF;
-        out.append(digits[value shr 4]);
-        out.append(digits[value and 0x0F]);
-    }
-    return out.toString();
-}
