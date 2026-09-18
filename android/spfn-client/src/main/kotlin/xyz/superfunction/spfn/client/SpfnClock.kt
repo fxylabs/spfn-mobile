@@ -71,6 +71,12 @@ internal fun interface SpfnMonotonicClock
     fun nowNanos(): Long
 }
 
+/**
+ * The platform's sleep-inclusive monotonic source: `elapsedRealtime` counts through deep
+ * sleep, and `uptimeMillis` and `System.nanoTime` do not, so only the first derives a
+ * proof timestamp a device still holds after it slept. SPFNClock.swift reads Darwin's
+ * `CLOCK_MONOTONIC_RAW` for the same reason.
+ */
 internal object SpfnSystemMonotonicClock : SpfnMonotonicClock
 {
     override fun nowNanos(): Long = SystemClock.elapsedRealtimeNanos()

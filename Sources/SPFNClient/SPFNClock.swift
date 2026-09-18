@@ -1,14 +1,24 @@
 // SPFN Mobile — the two ambient inputs a proof depends on.
 //
+// The monotonic source under the proof clock counts through device sleep. Darwin's
+// `DispatchTime.now().uptimeNanoseconds` is `mach_absolute_time`, which stops for the
+// whole of every sleep, so a phone that slept past the server's replay window would
+// derive a proof timestamp that far behind and have every proof it minted refused.
+//
 // A proof carries a timestamp and a nonce, so a session that read the wall clock and
 // the system random generator directly would be untestable: no test could assert that
 // two consecutive proofs carry different nonces, or that a session expires exactly at
 // its expiry instant. Both are injected instead, and every test injects a fake.
 
 import Foundation
-import Dispatch
 import SPFNCore
 import SPFNGenerated
+
+#if canImport(Darwin)
+import Darwin
+#else
+import Glibc
+#endif
 
 /// Milliseconds since the Unix epoch.
 public protocol SPFNClock: Sendable
@@ -78,11 +88,24 @@ protocol SPFNMonotonicClock: Sendable
     func nowNanos() -> UInt64
 }
 
+/// The platform's sleep-inclusive monotonic source.
+///
+/// Darwin's `CLOCK_MONOTONIC_RAW` and Linux's `CLOCK_BOOTTIME` are the two clocks of
+/// their platform that keep counting while the device is suspended; Darwin's
+/// `CLOCK_UPTIME_RAW` — which is what `DispatchTime` and `mach_absolute_time` read —
+/// does not. Android's counterpart is `SystemClock.elapsedRealtimeNanos`, which
+/// `SpfnSystemMonotonicClock` already uses.
 struct SPFNSystemMonotonicClock: SPFNMonotonicClock
 {
     func nowNanos() -> UInt64
     {
-        DispatchTime.now().uptimeNanoseconds
+        #if canImport(Darwin)
+        return clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)
+        #else
+        var now = timespec()
+        clock_gettime(CLOCK_BOOTTIME, &now)
+        return UInt64(now.tv_sec) * 1_000_000_000 + UInt64(now.tv_nsec)
+        #endif
     }
 }
 
