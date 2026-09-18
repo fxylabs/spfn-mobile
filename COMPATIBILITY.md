@@ -18,6 +18,16 @@ A build baseline is not a support commitment. Decision D5 fixed the toolchain th
 repository compiles with; that says what the code was built against, not what it works
 on. Those are different claims, and only the second is one an integrator can rely on.
 
+Since 2026-09-18 the *Linux-runnable* half of each gate below runs on every pull request,
+under the three required checks `swift`, `android` and `contract` (D2, partly resolved).
+That is what moves: the Swift suite on Linux, the Android unit and lint suites, codegen
+determinism and the offline validator. What does not move is every row's status word. The
+macOS half, the emulator, the real device and the published-artifact evidence are exactly
+what CI cannot produce, and they are what these gates are still waiting for. The device
+sign-in row is the sharpest case: `tools/device-receipts/receipt-gate.sh` is red on every
+CI run by design, admitted by name in `tools/ci/validate-known-red.txt`, and it turns green
+only when a person re-runs fifteen cells on two real phones.
+
 | Field | Value to record per release | Gate | Current state |
 | --- | --- | --- | --- |
 | Mobile SDK | version, source commit, tag digest | `VERSION`, tag, changelog and Maven POM agree | published — `0.1.0-alpha.3` (source commit `70781e4`) reached Maven Central via `publish-central.yml` (deployment `b7ae0261`) with the matching SwiftPM tag. Consumption was verified 2026-08-04 from the published coordinates alone by `tools/rc-verify/verify-published.sh`: six modules on repo1.maven.org with matching sha256 sidecars and PGP signatures under key `1CC7BD2E870BC4B2A279EB5BCB666532EB4E568A`, an Android consumer compiled against `mavenCentral()` on a refreshed cache, and the SwiftPM tag resolving to that commit. `0.1.0-alpha.2` (deployment `d0ca11b5`) is superseded: it predates the asymmetric clientProofV1 revision and cannot authenticate against a contract `0.2.0`+ server |

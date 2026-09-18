@@ -27,7 +27,7 @@ model cannot drift apart between them.
 | Canonical JSON | SPFN-CANON-JSON-1, implemented independently on both platforms |
 | Conformance | one fixture directory, two suites, cross-platform digest parity |
 | Offline validator | working, and still the cheapest gate in the repository |
-| CI | five inert manual-only workflow files; none is a gate |
+| CI | three required checks on every pull request — `swift`, `android`, `contract` — and three manual-only files for what D2 leaves outside |
 | Release / publication | disabled by default, and no channel is configured |
 
 ## Layout
@@ -71,6 +71,34 @@ pod ipc spec tools/cocoapods-compat/generated/SPFNMobileCompatFixture.podspec
 
 The Gradle commands need an Android SDK; point `ANDROID_HOME` at it. Each command is
 separate evidence, and the validator never infers or reports the result of the others.
+
+## Continuous integration
+
+Three workflows gate a pull request, and **the checks to mark required are `swift`,
+`android` and `contract`** — branch protection is a repository setting, so no file here
+can turn them on.
+
+Each one calls a script under `tools/ci/` and does nothing else, because a workflow file
+cannot be run on a developer machine and a gate nobody can reproduce locally is a gate
+nobody can fix:
+
+```sh
+sh tools/ci/validate.sh       # the offline validator, judged against tools/ci/validate-known-red.txt
+sh tools/ci/android.sh        # unit tests, lint, codegen verification
+sh tools/ci/swift.sh          # swift build --build-tests, swift test --skip-build
+```
+
+`tools/ci/validate.sh` is the one that needs explaining: the validator exits non-zero
+whenever it counts any failure, and the device-receipt gate has been red on purpose since
+the 2026-09-02 contract re-pin. So the script judges the validator's output against a
+named list of admitted failures instead of obeying its exit code — and a failure that
+stops happening reddens the check too, so the list cannot outlive its reason. See
+[tools/ci/README.md](tools/ci/README.md).
+
+What CI does not run is what D2 leaves outside it: the macOS half of the Swift suite, any
+emulator or real device, the integration run (its `swift-e` cell is Mac-only), and
+anything signed or published. `security.yml`, `release-candidate.yml` and
+`publish-central.yml` stay manual for that reason.
 
 ## Signing a device in with a code
 
