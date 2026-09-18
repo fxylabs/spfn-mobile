@@ -13,6 +13,18 @@
 // refused one field at a time makes a person press submit four times to be told four
 // things, and the four things were all knowable at the first press.
 //
+// The KEY is the answer, and that is what makes `updateValue(_:forKey:)` the spelling this
+// file uses rather than the subscript. `fields` is `[String: FieldError?]` — an optional
+// INSIDE an optional — and `fields[field] = nil` is the one assignment Swift reads as the
+// outer one: it REMOVES the key rather than storing a nil refusal under it. A field that
+// passed and a field nobody checked would then be the same absence, and both ``isValid``
+// and ``edited(_:)`` are written on the key EXISTING: `isValid` is every value being nil
+// over the keys the rules named, and `edited` refuses to invent a key it does not already
+// find. `updateValue(_:forKey:)` is the assignment that reaches the inner optional, so a
+// check that accepted a field still leaves that field's key behind. The Kotlin twin has
+// nothing to say here: `Map<String, FieldError?>` puts a null value under a key like any
+// other, so `fields + (field to null)` is already the right sentence.
+//
 // A refusal is a ``FieldError`` — `required`, `minLength(2)` — and not a sentence. The
 // words a screen shows are the app's, drawn through ``SPFNStrings`` or the screen's own
 // wording, for the same reason ``LoadableView`` classifies an envelope into a key rather
@@ -180,6 +192,8 @@ public struct Form: Sendable, Equatable
                 rule: rule,
                 custom: custom
             )
+            // `updateValue`, not `refusals[field] = refusal`: a nil refusal assigned
+            // through the subscript would delete the key. See this file's header.
             refusals.updateValue(refusal, forKey: field)
         }
         return Form(fields: refusals, submit: .idle)
@@ -194,6 +208,8 @@ public struct Form: Sendable, Equatable
     {
         guard fields[field] != nil else { return self }
         var cleared = fields
+        // `updateValue`, not `cleared[field] = nil`, which would drop the key this line
+        // exists to keep. See this file's header.
         cleared.updateValue(nil, forKey: field)
         return Form(fields: cleared, submit: submit)
     }

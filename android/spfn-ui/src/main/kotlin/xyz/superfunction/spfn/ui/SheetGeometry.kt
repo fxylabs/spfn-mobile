@@ -16,6 +16,24 @@
 // and every length SwiftUI hands out is a `CGFloat`, and a module that converted at this
 // boundary would be converting on every frame of every drag to make a comment true. The
 // vectors both suites are written against are the same numbers either way.
+//
+// Every function here has a caller on THIS platform — `Sheet.kt` lays its sheet out by hand
+// — and on iOS half of them do not, because the system draws that sheet. The Swift twin's
+// header says which half and why it is written anyway.
+//
+// ---------------------------------------------------------------------------
+// Where the two fractions come from
+// ---------------------------------------------------------------------------
+//
+// [DISMISS_FRACTION] follows from the gesture — half the sheet's own height is the distance
+// at which a drag reads as a throw rather than a fidget — and [HALF_FRACTION] is what the
+// word half means. The other two have no source to cite and this comment will not invent
+// one: [FULL_FRACTION] 0.92 and [FIT_FALLBACK_FRACTION] 0.32 arrived whole with the module
+// (`cad422b`, PR #51) and nothing in the commit, the decisions or the pitfalls argues them.
+// Arbitrary choices, on stated grounds — 0.92 leaves a strip of the screen under the sheet
+// so that a full sheet still reads as a sheet rather than as a screen, and 0.32 is a third
+// of the window, which is about what a Fit sheet with a header and a few rows comes to.
+// Both are numbers a design flow is entitled to argue with, and both move in one place.
 
 package xyz.superfunction.spfn.ui
 

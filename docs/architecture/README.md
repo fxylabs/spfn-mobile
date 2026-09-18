@@ -119,10 +119,12 @@ inside the auth module, but only at test time; every main edge is still exactly 
 ### The `ui` module
 
 `ui` holds the UI runtime vocabulary, and it depends on core alone. What it carries is
-five things a screen needs before it holds any screen: `Loadable`
+eight things a screen needs before it holds any screen: `Loadable`
 (loading·ready·empty·error) for one read, `Busy` (idle·busy·error) for one write,
 `FlowRoute`/`Flow` for a stack of routes with a presented flag, `FlowHost`, the one place a
-platform navigator is bound to that stack, and `Screen`, the frame a route is drawn in.
+platform navigator is bound to that stack, `Screen`, the frame a route is drawn in, `Paged`
+for a read that arrives a page at a time, `Form` for a screenful of input, and
+`SheetGeometry`, the heights and thresholds a sheet is made of.
 `Loadable`'s and `Busy`'s error states carry core's own error envelope, which is the whole
 reason for the edge; nothing here needs a transport, a session or a generated operation, so
 an app that only renders state links none of them.
@@ -243,10 +245,13 @@ NOT use `Screen` still owns its own insets, which is the case
 `examples/android-compose` and `tools/harness` are in for their own rows
 (docs/IMPLEMENTATION-PITFALLS.md P25).
 
-There are no design tokens yet, so `Screen` draws in the system font, black on white, and
-every value it draws with is in one `ScreenStyle` object per platform — the token work
-replaces those two files and touches no layout. The touch targets in them are not
-placeholders: 48dp on Android and 44pt on iOS are what P21 is about.
+The design tokens arrived with the module (PR #51) and they hold the colours, the spacing,
+the radii and the fonts: `SPFNTokens`/`SpfnTokens` is one file per platform, the two carry
+the same KEYS, and section 15 of the validator compares the key sets. What is LEFT outside
+them is `Metrics` — four platform-fixed sizes, `touchTarget`, `headerHeight`, `borderWidth`
+and `iconSize` — because a token is a value the design flow replaces (decision S10) and
+these are not. The touch targets are the clearest case: 48dp on Android and 44pt on iOS are
+the platforms' own minimums and are what P21 is about.
 
 The two platforms are asymmetric in `externalDeps` because they are asymmetric in fact.
 SwiftUI and Observation are frameworks the OS ships, so SwiftPM resolves no package for
@@ -255,10 +260,19 @@ any other, so every one of them is named in the graph and pinned in the version
 catalogue. Accepting that cost — Compose's transitive set is what grew
 `gradle/verification-metadata.xml` by 154 components — was part of approving the module.
 
-`Paged` and `Form` are deferred. A paged read is more than a `Loadable` with a cursor
-bolted on and a form is more than a `Busy` per field; neither has a shape this repository
-has had to satisfy yet, and a module is added with behaviour or not at all — which is the
-first of the five rules below.
+`Paged` and `Form` are in (PR #62), and each is what its deferral said it would have to be.
+`Paged` is a `Loadable` for the FIRST page beside a `Busy` for every page after it, plus
+whether the server said there is more: the first page is a read and a further page is a
+write-shaped thing, and one enum over both would have to name `readyButFailing` and a
+screen would forget it. The cursor is not in it — `appending()` keeps only whether there
+WAS one, because a screen never shows a cursor.
+
+`Form` is one refusal per field beside the state of the write. A field's key exists from the
+moment the rules named it, whether or not it was refused, so a view asks about a field
+without asking whether the check has run; `canSubmit` is "no write is in flight" and not
+"and the input is valid", because a person has to be able to press the control to be told
+what is wrong. Both types are free of every toolkit and both transition tables run as
+ordinary unit suites on a JVM and on Linux, the way `Flow`'s does.
 
 ## The example scaffold, and the generator that writes it
 

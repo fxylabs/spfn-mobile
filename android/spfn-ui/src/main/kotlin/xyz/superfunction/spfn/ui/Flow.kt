@@ -134,6 +134,12 @@ public class Flow<R : FlowRoute>(initial: List<R> = emptyList())
      * this", and both answer out of the same rule. An OPEN flow always claims it now, for
      * the reason [back] states; a closed one never does, and that is the only gesture this
      * type hands on.
+     *
+     * [entry] is therefore UNREAD, deliberately and not by omission. Dropping it would make
+     * this the one question of the three a host asks without saying which presentation it is
+     * asking about, and a host that has to remember which of [handlesBack], [back] and
+     * [wayOut] takes the entry is a host that will hand the wrong one to the wrong call. The
+     * day a presentation refuses a back the parameter is already where it has to be.
      */
     public fun handlesBack(entry: FlowEntry): Boolean = mutableStack.value.isNotEmpty()
 
