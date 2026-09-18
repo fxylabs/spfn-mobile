@@ -38,10 +38,30 @@ class SpfnSystemClock : SpfnClock
     override fun nowMillis(): Long = System.currentTimeMillis()
 }
 
-/** A process-local, fail-closed source of clientProofV1 timestamps. */
-fun interface SpfnProofClock
+/**
+ * A process-local, fail-closed source of clientProofV1 timestamps.
+ *
+ * The base URL a read is given has already been checked by the session that owns the
+ * clock: a session cannot be created against anything but https or loopback http, so
+ * there is no cleartext rule to restate here.
+ */
+interface SpfnProofClock
 {
     suspend fun nowMillis(transport: SpfnTransport, baseUrl: String, timeoutMillis: Long): Long
+
+    /**
+     * Forgets whatever anchors [baseUrl], so the next read synchronizes again.
+     *
+     * The one way out of an anchor that has stopped being true — a device that slept
+     * through the server's replay window, or a server whose own clock moved. Without it
+     * an anchor lasts for the life of the process and every proof minted from it is
+     * refused for the same reason as the last.
+     *
+     * A synchronization already in flight is left alone. Its answer is a server time
+     * paired with the instant it arrived, so it is a correct anchor whenever it lands,
+     * and abandoning it would only cost the request that is about to answer.
+     */
+    suspend fun discardAnchor(baseUrl: String)
 }
 
 /** Fixed, non-sensitive reasons the proof clock could not synchronize or advance. */
@@ -104,6 +124,11 @@ class SpfnProcessServerClock internal constructor(
     private val anchors = mutableMapOf<String, Anchor>()
     private val inFlight = mutableMapOf<String, CompletableDeferred<Anchor>>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    override suspend fun discardAnchor(baseUrl: String)
+    {
+        mutex.withLock { anchors.remove(baseUrl.trimEnd('/')) };
+    }
 
     override suspend fun nowMillis(transport: SpfnTransport, baseUrl: String, timeoutMillis: Long): Long
     {

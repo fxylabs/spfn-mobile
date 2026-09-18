@@ -427,6 +427,184 @@ final class SPFNClientExecuteTests: XCTestCase
         XCTAssertEqual(calls, 4, "one re-handshake and one re-send, and then it stops")
     }
 
+    // MARK: - The retry that re-anchors the clock
+
+    /// R1. A proof refused as expired says the anchor the timestamp came from has stopped
+    /// being true — a device that slept through the replay window is the case this exists
+    /// for — so the anchor is discarded and the one retry runs on a re-fetched server time.
+    func testAnExpiredProofResynchronizesTheClockBeforeTheOneRetry() async throws
+    {
+        let clock = AnchoringProofClock(SessionFixtureValues.issuedAtMillis)
+        let transport = ScriptedTransport([
+            .success(.json(200, SessionFixtureValues.handshakeResponseBody)),
+            .success(.json(401, ExecuteFixtures.errorEnvelope(code: "PROOF_EXPIRED"))),
+            .success(.json(200, SessionFixtureValues.handshakeResponseBody)),
+            .success(.json(200, ExecuteFixtures.echoResponseBody)),
+        ])
+        let client = try makeClient(transport, clock: clock)
+
+        let echoed = try await client.execute(ExecuteCalls.echo, request: ExecuteFixtures.echoRequest)
+
+        XCTAssertEqual(echoed, ExecuteFixtures.echoResponse)
+        XCTAssertEqual(clock.synchronizations, 2, "the discarded anchor was fetched again")
+        let operations = await operationCalls(transport)
+        XCTAssertEqual(operations, 2, "one request, refused, and one re-sent")
+    }
+
+    /// R2. The second attempt is classified and thrown, whatever it says. Re-anchoring is
+    /// part of the one retry rather than a reason for another.
+    func testASecondExpiredProofSurfacesInsteadOfResynchronizingAgain() async throws
+    {
+        let clock = AnchoringProofClock(SessionFixtureValues.issuedAtMillis)
+        let transport = ScriptedTransport([
+            .success(.json(200, SessionFixtureValues.handshakeResponseBody)),
+            .success(.json(401, ExecuteFixtures.errorEnvelope(code: "PROOF_EXPIRED"))),
+            .success(.json(200, SessionFixtureValues.handshakeResponseBody)),
+            .success(.json(401, ExecuteFixtures.errorEnvelope(code: "PROOF_EXPIRED"))),
+        ])
+        let client = try makeClient(transport, clock: clock)
+
+        let thrown = await failure { _ = try await client.execute(ExecuteCalls.echo, request: ExecuteFixtures.echoRequest) }
+
+        guard case .auth(let refusal)? = thrown as? SPFNClientError
+        else
+        {
+            return XCTFail("expected an auth failure, got \(String(describing: thrown))")
+        }
+        XCTAssertEqual(refusal.code, .proofExpired)
+        let operations = await operationCalls(transport)
+        XCTAssertEqual(operations, 2, "two requests, and then it stops")
+    }
+
+    /// R3. A revoked session is the other refusal, and the clock is not what was wrong
+    /// with it: the anchor stands and the retry is the re-handshake it always was.
+    func testARevokedSessionDoesNotResynchronizeTheClock() async throws
+    {
+        let clock = AnchoringProofClock(SessionFixtureValues.issuedAtMillis)
+        let transport = ScriptedTransport([
+            .success(.json(200, SessionFixtureValues.handshakeResponseBody)),
+            .success(.json(401, ExecuteFixtures.errorEnvelope(code: "SESSION_REVOKED"))),
+            .success(.json(200, SessionFixtureValues.handshakeResponseBody)),
+            .success(.json(200, ExecuteFixtures.echoResponseBody)),
+        ])
+        let client = try makeClient(transport, clock: clock)
+
+        let echoed = try await client.execute(ExecuteCalls.echo, request: ExecuteFixtures.echoRequest)
+
+        XCTAssertEqual(echoed, ExecuteFixtures.echoResponse)
+        XCTAssertEqual(clock.synchronizations, 1, "the anchor was never discarded")
+        let handshakes = await handshakeCalls(transport)
+        XCTAssertEqual(handshakes, 2, "one re-handshake, as before")
+    }
+
+    /// R4. The handshake mints a proof of its own, so it is refused first when the anchor
+    /// is stale — and it is refused before any session exists to present. The re-anchoring
+    /// branch therefore sits above the rule that a call presenting no session is not
+    /// retried, or a slept device could never open a session again.
+    func testARefusedHandshakeForAnExpiredProofResynchronizesAndOpensOnce() async throws
+    {
+        let clock = AnchoringProofClock(SessionFixtureValues.issuedAtMillis)
+        let transport = ScriptedTransport([
+            .success(.json(401, ExecuteFixtures.errorEnvelope(code: "PROOF_EXPIRED"))),
+            .success(.json(200, SessionFixtureValues.handshakeResponseBody)),
+            .success(.json(200, ExecuteFixtures.echoResponseBody)),
+        ])
+        let client = try makeClient(transport, clock: clock)
+
+        let echoed = try await client.execute(ExecuteCalls.echo, request: ExecuteFixtures.echoRequest)
+
+        XCTAssertEqual(echoed, ExecuteFixtures.echoResponse)
+        XCTAssertEqual(clock.synchronizations, 2)
+        let handshakes = await handshakeCalls(transport)
+        XCTAssertEqual(handshakes, 2, "one refused handshake and one that opened")
+        let operations = await operationCalls(transport)
+        XCTAssertEqual(operations, 1, "the request went out once")
+    }
+
+    /// R5. The same straight line on the handshake path: the second refusal is thrown,
+    /// and the request it was opening a session for is never sent.
+    func testASecondRefusedHandshakeForAnExpiredProofSurfaces() async throws
+    {
+        let clock = AnchoringProofClock(SessionFixtureValues.issuedAtMillis)
+        let transport = ScriptedTransport([
+            .success(.json(401, ExecuteFixtures.errorEnvelope(code: "PROOF_EXPIRED"))),
+            .success(.json(401, ExecuteFixtures.errorEnvelope(code: "PROOF_EXPIRED"))),
+        ])
+        let client = try makeClient(transport, clock: clock)
+
+        let thrown = await failure { _ = try await client.execute(ExecuteCalls.echo, request: ExecuteFixtures.echoRequest) }
+
+        guard case .auth(let refusal)? = thrown as? SPFNClientError
+        else
+        {
+            return XCTFail("expected an auth failure, got \(String(describing: thrown))")
+        }
+        XCTAssertEqual(refusal.code, .proofExpired)
+        let handshakes = await handshakeCalls(transport)
+        XCTAssertEqual(handshakes, 2)
+        let operations = await operationCalls(transport)
+        XCTAssertEqual(operations, 0, "no request is sent without a session")
+    }
+
+    /// R6. An unproven operation carries no proof, so an expired one is not what the
+    /// server refused. It touches no clock and buys no retry, as before.
+    func testAnUnprovenOperationRefusedAsExpiredIsNotRetriedOrResynchronized() async throws
+    {
+        let clock = AnchoringProofClock(SessionFixtureValues.issuedAtMillis)
+        let transport = ScriptedTransport([
+            .success(.json(401, ExecuteFixtures.errorEnvelope(code: "PROOF_EXPIRED"))),
+        ])
+        let client = try makeClient(transport, clock: clock)
+
+        let thrown = await failure
+        {
+            _ = try await client.execute(ExecuteCalls.register, request: ExecuteFixtures.registerRequest)
+        }
+
+        guard case .auth(let refusal)? = thrown as? SPFNClientError
+        else
+        {
+            return XCTFail("expected an auth failure, got \(String(describing: thrown))")
+        }
+        XCTAssertEqual(refusal.code, .proofExpired)
+        XCTAssertEqual(clock.synchronizations, 0, "the unproven path reads no clock at all")
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 1)
+    }
+
+    /// R7. Cancellation still wins, and it wins before the anchor is touched: a retry
+    /// nobody is waiting for should cost neither a request nor a `core.time` fetch.
+    func testCancellationBeforeTheResynchronizedRetrySendsNothingFurther() async throws
+    {
+        let holder = TaskHolder()
+        let clock = AnchoringProofClock(SessionFixtureValues.issuedAtMillis)
+        let transport = ScriptedTransport(
+            [
+                .success(.json(200, SessionFixtureValues.handshakeResponseBody)),
+                .success(.json(401, ExecuteFixtures.errorEnvelope(code: "PROOF_EXPIRED"))),
+                .success(.json(200, SessionFixtureValues.handshakeResponseBody)),
+                .success(.json(200, ExecuteFixtures.echoResponseBody)),
+            ],
+            onCall: { call in
+                if call == 2
+                {
+                    await holder.cancelWhenHeld()
+                }
+            }
+        )
+        let client = try makeClient(transport, clock: clock)
+
+        let running = Task { _ = try await client.execute(ExecuteCalls.echo, request: ExecuteFixtures.echoRequest) }
+        await holder.hold(running)
+
+        let thrown = await failure { try await running.value }
+
+        XCTAssertEqual(thrown as? SPFNClientError, .transport(.cancelled))
+        XCTAssertEqual(clock.synchronizations, 1, "the anchor was never discarded")
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 2, "the re-handshake never happened")
+    }
+
     /// A handshake that is itself refused is surfaced. Re-opening a session in answer to
     /// a refused attempt to open one is the loop this policy exists to not have.
     func testARefusedHandshakeIsSurfacedWithoutAnotherAttempt() async throws
@@ -664,7 +842,7 @@ final class SPFNClientExecuteTests: XCTestCase
 
     private func makeSession(
         _ transport: any SPFNTransport,
-        clock: FakeClock = FakeClock(SessionFixtureValues.issuedAtMillis),
+        clock: any SPFNProofClock = FakeClock(SessionFixtureValues.issuedAtMillis),
         nonces: [String] = [],
         clientID: String = SessionFixtureValues.clientID
     ) throws -> SPFNSession
@@ -680,7 +858,7 @@ final class SPFNClientExecuteTests: XCTestCase
 
     private func makeClient(
         _ transport: any SPFNTransport,
-        clock: FakeClock = FakeClock(SessionFixtureValues.issuedAtMillis),
+        clock: any SPFNProofClock = FakeClock(SessionFixtureValues.issuedAtMillis),
         nonces: [String] = [],
         clientID: String = SessionFixtureValues.clientID,
         timeoutMillis: Int64 = 15_000
@@ -702,6 +880,16 @@ final class SPFNClientExecuteTests: XCTestCase
         ])
         let client = try makeClient(transport)
         return await failure { _ = try await client.execute(ExecuteCalls.echo, request: ExecuteFixtures.echoRequest) }
+    }
+
+    private func operationCalls(_ transport: ScriptedTransport) async -> Int
+    {
+        await transport.received.filter { !$0.url.hasSuffix(SPFNGeneratedOperations.authClientProofHandshake.path) }.count
+    }
+
+    private func handshakeCalls(_ transport: ScriptedTransport) async -> Int
+    {
+        await transport.received.filter { $0.url.hasSuffix(SPFNGeneratedOperations.authClientProofHandshake.path) }.count
     }
 
     private func failure(

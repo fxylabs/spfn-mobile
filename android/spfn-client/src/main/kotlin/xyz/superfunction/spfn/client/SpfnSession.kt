@@ -234,6 +234,18 @@ class SpfnSession(
         );
     }
 
+    /**
+     * Discards the proof clock's anchor for this server, so the next proof is minted
+     * against a server time fetched again rather than derived from the old one.
+     *
+     * The session owns the clock, so the execute path above asks the session rather than
+     * holding a second reference to something it does not otherwise touch.
+     */
+    suspend fun resynchronizeClock()
+    {
+        clock.discardAnchor(baseUrl);
+    }
+
     /** Discards the held session and abandons any handshake still in flight. */
     suspend fun invalidate()
     {

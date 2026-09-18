@@ -991,4 +991,7 @@ struct ServerSampledProofClock: SPFNProofClock
         )
         return try SPFNServerTimeResponse(canonical: try SPFNCanonicalJSON.parse(response.body)).serverTimeMillis
     }
+
+    /// Every read is already a fresh sample, so there is no anchor to discard.
+    func discardAnchor(baseURL _: String) {}
 }

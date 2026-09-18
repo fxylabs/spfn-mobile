@@ -45,6 +45,10 @@ public struct SPFNSystemClock: SPFNClock
 ///
 /// The first read synchronizes through the contract-declared, unproven `core.time`
 /// operation. Implementations fail closed rather than returning device wall-clock time.
+///
+/// The base URL a read is given has already been checked by the session that owns the
+/// clock: a session cannot be created against anything but https or loopback http, so
+/// there is no cleartext rule to restate here.
 public protocol SPFNProofClock: Sendable
 {
     func nowMillis(
@@ -52,6 +56,18 @@ public protocol SPFNProofClock: Sendable
         baseURL: String,
         timeoutMillis: Int64
     ) async throws -> Int64
+
+    /// Forgets whatever anchors `baseURL`, so the next read synchronizes again.
+    ///
+    /// The one way out of an anchor that has stopped being true — a device that slept
+    /// through the server's replay window, or a server whose own clock moved. Without it
+    /// an anchor lasts for the life of the process and every proof minted from it is
+    /// refused for the same reason as the last.
+    ///
+    /// A synchronization already in flight is left alone. Its answer is a server time
+    /// paired with the instant it arrived, so it is a correct anchor whenever it lands,
+    /// and abandoning it would only cost the request that is about to answer.
+    func discardAnchor(baseURL: String) async
 }
 
 /// Why the SDK could not establish or advance the server-anchored proof clock.
@@ -153,6 +169,11 @@ public actor SPFNProcessServerClock: SPFNProofClock
     {
         self.monotonicClock = monotonicClock
         self.operationResolver = operationResolver
+    }
+
+    public func discardAnchor(baseURL: String)
+    {
+        anchors[Self.normalizedBaseURL(baseURL)] = nil
     }
 
     public func nowMillis(
