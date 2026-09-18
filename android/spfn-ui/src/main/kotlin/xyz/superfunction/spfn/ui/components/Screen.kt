@@ -100,7 +100,11 @@ import xyz.superfunction.spfn.ui.tokens.spfnPalette
  *   entirely, which is also how a screen suppresses the flow's own close.
  * @param scroll whether the body scrolls. A body that scrolls also gets out of the
  *   keyboard's way; a body that does not is the caller saying its content always fits,
- *   which is what a screen inside a sheet says (see `Sheet.kt`).
+ *   which is what a screen inside a sheet says (see `Sheet.kt`). A screen that draws a
+ *   [PagedView] passes `scroll = false` and is not being polite about it: that composable
+ *   brings a `LazyColumn`, and a lazy list measured inside this one's `verticalScroll` is
+ *   measured against an infinite height and throws at runtime. Section 22 of
+ *   `tools/validate/validate.sh` reads that rule off the files that draw one.
  *
  * `@JvmSynthetic` for the reason `FlowHost` carries it: a `@Composable` function is a rule
  * the Compose compiler enforces for Kotlin callers and for nobody else, and from Java this

@@ -295,6 +295,40 @@ The probe REMOVES the rectangle line from `Buttons.swift` with `grep -v` — the
 defect actually took, since the fill was always outside the `Button` — and takes the source
 root away. Three cases, each scoped to section 20's own output.
 
+## Check 22 keeps a lazy list out of an infinite height
+
+`LazyColumn` is the only lazy list Compose has and it brings its own scroll. Nesting one
+inside `Screen(scroll = true)`'s `verticalScroll` is not two scrollers arguing — it is a
+measurement with no answer, because the outer scroll offers infinite height and the inner
+list asks for all of it. Compose refuses it at RUNTIME, with an `IllegalStateException`
+thrown from the layout pass on the frame the screen first appears. Nothing compiles it away
+and no JVM unit test in this repository composes a screen, so until this check the rule lived
+in one sentence of `PagedView.kt`'s header: a screen that draws a `PagedView` declares
+`Screen(scroll = false)`.
+
+The Swift half needs no equivalent and has none. `PagedView` there is a `LazyVStack` INSIDE
+the caller's scroll view, so `Screen(scroll: true)` is exactly what it wants and this check
+would be backwards on that platform.
+
+What the check reads is a FILE and not a call: every Kotlin file under `android/spfn-ui`,
+`examples/android-compose` and `tools/harness/android` that names `PagedView(` must also hold
+a `scroll = false`. `grep` cannot tell a call from a mention, so a comment naming the
+composable counts, and a `scroll = false` belonging to some other `Screen` in the same file
+satisfies it. Both are on the loose side deliberately: the defect this catches is a screen
+file that draws a `PagedView` and says nothing about scroll, and such a file fails whichever
+line the grep found. The one file it reads today is `PagedView.kt` itself, which passes on
+the sentence in its own header — which is what the floor is for. A read of zero files fails
+rather than reporting a clean sweep (`docs/IMPLEMENTATION-PITFALLS.md` P7). `grep -nE` only,
+and no `?` or `+` in either expression (P28).
+
+```sh
+sh tools/validate/probe-paged-scroll-rules.sh   # prove each refusal bites
+```
+
+The probe DELETES the `scroll = false` line from `PagedView.kt` with `grep -v` — the shape
+the defect actually takes, since nobody writes the rule and then deletes half of it — and
+takes the roots away. Three cases, each scoped to section 22's own output.
+
 ## Check 2 replaced a Step 1 prohibition
 
 Step 1 failed if a Gradle wrapper existed at all, because the baseline was undecided and
