@@ -131,4 +131,6 @@ To pin a new export:
 ## Style
 
 Follow the surrounding code. Swift and Kotlin here use Allman braces, four-space
-indentation and small single-purpose declarations.
+indentation and small single-purpose declarations. Kotlin statements end with a
+semicolon, which the language does not require and this repository does, so the two
+halves of a type written twice read the same.

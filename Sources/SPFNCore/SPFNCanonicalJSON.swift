@@ -8,6 +8,7 @@
 //   - object keys are ordered by their UTF-8 byte sequence, ascending
 //   - no insignificant whitespace is emitted
 //   - numbers are signed 64-bit integers; a fractional or non-finite number is an error
+//   - leading zeros are refused: `0` and `-0` are numbers, `007` and `00` are not
 //   - `"` and `\` are escaped; C0 controls use \b \f \n \r \t where defined and \u00XX
 //     otherwise; every other scalar is emitted literally as UTF-8
 //   - a duplicate object key is an error rather than a last-one-wins overwrite
@@ -516,6 +517,14 @@ private struct Reader
         return value
     }
 
+    // The scan below is looser than JSON grammar on purpose: it swallows every byte a
+    // number could be made of — digits, `.`, `e`, `E`, `+`, `-` — and only then decides
+    // what the run was. Checking the grammar position by position would report whichever
+    // rule happened to be violated first, so `1.5e3` and `1e3.5` would answer with
+    // different codes depending on the order the rules were written in. Classifying the
+    // whole run instead keeps the code a function of the input, and which input reaches
+    // which code is pinned by Contracts/fixtures/canonical/rejects.json rather than by
+    // reading this loop.
     private mutating func readNumber() throws -> SPFNCanonicalValue
     {
         let start = offset
@@ -557,6 +566,17 @@ private struct Reader
         else
         {
             throw SPFNCanonicalError.nonIntegerNumber(text: text)
+        }
+        // JSON grammar admits one zero digit before the fraction, so `007` and `00` are
+        // not numbers at all. `Int64(text)` reads them as 7 and 0, which would let a
+        // server send the same value under two spellings — and a digest taken over the
+        // canonical form of the second would not match the first. `0` and `-0` are the
+        // forms the grammar does admit, and a lone zero digit is not a leading zero.
+        let digits = text.hasPrefix("-") ? text.dropFirst() : Substring(text)
+        guard digits == "0" || !digits.hasPrefix("0")
+        else
+        {
+            throw SPFNCanonicalError.invalidNumber(text: text)
         }
         guard let number = Int64(text)
         else

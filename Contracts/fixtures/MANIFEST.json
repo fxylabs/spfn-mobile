@@ -9,13 +9,13 @@
   "fixtures": [
     {
       "path": "Contracts/fixtures/canonical/rejects.json",
-      "sha256": "97a59072c99cd493ba07bb50b1bdaff61768ac68e514f58fc714caef45ae2161",
-      "bytes": 1093
+      "sha256": "0cd794466041b207731bb4a267e5977d90f320fa4eaf3217f348e12109b0aec3",
+      "bytes": 1194
     },
     {
       "path": "Contracts/fixtures/canonical/serialization.json",
-      "sha256": "d45fef239fe3431795294bc42875e56bb10e1b4a8e8fd6f18a16c62fe574f7c7",
-      "bytes": 2920
+      "sha256": "9abc14e800fc5f79460bcbb7717e25042673a53be929d523d1ac0a5469452e3c",
+      "bytes": 3277
     },
     {
       "path": "Contracts/fixtures/enrollment/enrollment.json",
