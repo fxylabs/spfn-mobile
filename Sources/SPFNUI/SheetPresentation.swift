@@ -71,7 +71,7 @@ struct ScreenContentHeightKey: PreferenceKey
 /// its container's `full`; SwiftUI clamps a `.height` detent to the sheet's own maximum
 /// itself, so a second, smaller ceiling invented here would only make the sheet shorter than
 /// the platform's own answer.
-private struct SheetPresentation: ViewModifier
+struct SheetPresentation: ViewModifier
 {
     let detent: SheetDetent
 
