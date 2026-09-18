@@ -87,7 +87,7 @@ and moving it later is moving one object between two files.
 
 | Field | Type | Rule |
 | --- | --- | --- |
-| `specVersion` | integer | Exactly `1`. A spec written for a later generator is refused, never partially read. |
+| `specVersion` | integer | `1` or `2`. A spec written for a later generator is refused, never partially read. |
 | `contract.manifestSha256` | string | The sha256 of the contract bundle this spec was written against. |
 | `services` | object | One entry per service. The key is the service name in lowerCamelCase. |
 | `flows` | object | One entry per flow. The key is the flow name in lowerCamelCase. |
@@ -95,6 +95,19 @@ and moving it later is moving one object between two files.
 
 Every one of the five keys is required. There is no default for any of them: a spec that
 omitted `services` is not a spec with no services, it is a spec somebody did not finish.
+
+### The two versions
+
+One reader reads both, because they are the same spec. **Version 2 adds two keys and changes
+nothing else**: `screens.<s>.list`, which makes a read arrive a page at a time, and
+`screens.<s>.inputs.<i>.rules`, which says what a field is checked against. A version 1 file
+generates exactly the files it generated before — `:ui-codegen:spfnUiVerify` is the gate that
+says so, byte for byte.
+
+What the version buys is the refusal in the other direction. A `list` or a `rules` written
+into a file that says `"specVersion": 1` is refused by name (refusal 12), because it is a spec
+whose author expected a screen this generator would not have emitted — the quiet failure the
+whole of this page's strictness is against.
 
 ## `services`
 
@@ -182,6 +195,7 @@ reads and derives a much shorter list for the rest, and a target may narrow to a
 | `header.close` | boolean, optional | Whether the header draws a close. Default: `true` on the root of a `modal` or a `sheet`, `false` everywhere else. |
 | `inputs` | object, optional | What the screen says about the inputs it collects. See below. |
 | `body` | body key, optional | The static prose the screen draws. Refused on a screen with a `source`. See below. |
+| `list` | object, optional, **version 2** | How this screen reads its `source` a page at a time. Refused on a screen without one. See below. |
 | `actions` | object | One entry per control on the screen. |
 
 `title` is **not** required, deliberately. A screen with no title is a screen somebody has not
@@ -228,11 +242,58 @@ So the sheet screens take `lorem.sheet` and the long bodies stay where they can 
 it read; a static one written under it would be a second answer to the same question, and
 the read's would be the one nobody could see.
 
+### `list` (version 2)
+
+```json
+"items": {
+  "flow": "browseItems",
+  "source": "catalogue.list",
+  "scroll": false,
+  "list": {
+    "items": "items",
+    "next": "nextCursor",
+    "cursor": "cursor",
+    "limit": { "field": "limit", "value": 20 }
+  },
+  "actions": { "done": { "then": "close", "role": "text" } }
+}
+```
+
+A screen with a `list` reads its source **a page at a time**, and its state is `Paged<T>`
+rather than `Loadable<T>`. Every one of the four names below is the CONTRACT's own field name,
+checked against the pinned bundle when the spec is read: the emitted model reaches for these
+fields by name, so a field renamed upstream has to be a refusal here rather than a compile
+error in a file nobody wrote.
+
+| Field | Type it must have | Meaning |
+| --- | --- | --- |
+| `items` | a response field declared `array<T>` | The rows. `T` is what the screen's `Paged<T>` is of, and it must be a type the contract declares. |
+| `next` | a response field, **optional** `string` | The cursor of the page after this one. Absent means there is no page after it. |
+| `cursor` | a request field, **optional** `string` | Where to hand that cursor back. |
+| `limit.field` | a request field, `integer` | Where to say how many rows a page is. |
+| `limit.value` | integer | How many rows this screen asks for. |
+
+`limit` is an object and not a bare number because **the field's name is the spec's to say**.
+A contract is free to call a page size `pageSize`, and a generator that hard-coded the word
+`limit` would refuse a contract for spelling one of its own fields differently.
+
+The page size is **not** a route parameter, however required the contract makes the field.
+It is a number the spec wrote down, so a route that carried it would ask every caller of
+`push` to say how long the next screen's pages are, and two pushes of one screen could then
+disagree about what that screen is. The cursor is not a route parameter either, and it is not
+in `Paged`: the model holds it privately, next to the service it hands it back to, because a
+screen shows rows and never a cursor.
+
+A paged screen's own calls are `load`, `loadMore`, `retryMore` and `reload`. An `action` with
+a `call` on one is refused (refusal 12): a write beside the pages would be a second thing
+changing the rows under a person's scroll, with no state to say so.
+
 ### `inputs`
 
 ```json
 "inputs": {
-  "userCode": { "kind": "code", "label": "Code from the device", "submitOnReturn": true, "autofocus": true }
+  "userCode": { "kind": "code", "label": "Code from the device", "submitOnReturn": true, "autofocus": true },
+  "message":  { "kind": "text", "label": "Message", "rules": { "minLength": 2, "maxLength": 140 } }
 }
 ```
 
@@ -246,6 +307,7 @@ is the decoration on top of it, keyed by the derived input's own name.
 | `label` | string | What the field is called on screen. Default: the input's own name. |
 | `submitOnReturn` | boolean | Whether the return key performs the screen's action, and therefore says `go` rather than `done`. Default `false`. |
 | `autofocus` | boolean | Whether the field takes focus when the screen appears. Default `false`. |
+| `rules` | object, **version 2** | What the field is checked against before anything is sent. See below. |
 
 `code` is the strict one and the reason `kind` exists at all. A machine-issued code left as
 ordinary text is capitalised at its first letter, offered a correction for what looks like a
@@ -257,6 +319,45 @@ platforms.
 An entry naming something the screen does not collect is **refused** (refusal 8): the inputs
 come from the contract, so a request field renamed upstream would otherwise leave a stale
 decoration behind and the field would go on being collected as plain text.
+
+#### `rules` (version 2)
+
+| Field | Type | Rule |
+| --- | --- | --- |
+| `required` | boolean | Whether an empty field is a refusal. Default `true`. |
+| `minLength` | integer | The fewest UTF-16 code units the field accepts. |
+| `maxLength` | integer | The most UTF-16 code units the field accepts. |
+| `custom` | string | The spec's name for an extra rule, asked of the screen's `FieldValidator`. |
+
+Every one is optional and `required` is the one default that is not "nothing": a field somebody
+bothered to write rules for is a field they expect to be filled in, and the other default would
+make `"rules": { "minLength": 2 }` a rule that accepts an empty value. `kind` is **not**
+repeated here — it is already `inputs.<i>.kind`, where it decides the keyboard, and the
+generator writes that one value into `FieldRules.kind` as well. A second spelling of it would
+be two answers to one question.
+
+`rules` on a field is what makes the screen check with `Form.check`, on either model. A screen
+with two or more fields is a `Form` and checks all of them at once; a screen with one keeps its
+`Busy` model and checks that one, which is rule R1 said more precisely rather than R1 changed —
+the input is still refused before anything is sent and the screen still carries the refusal, and
+what moves is that the envelope now names the rule beside the field, as `<field>:<rule>`.
+
+`custom` is a name and nothing else; the sentence behind it is the app's. One field naming a
+custom rule makes the model's `validator` a **required** constructor argument, and makes
+`AppContainer` take one per such screen — injected where a service is injected, because a
+validator defaulted to null is a rule that is never asked and a field that is always accepted.
+
+#### A field the contract types as an integer
+
+The screen collects TEXT. `FieldKind.number` checks the SHAPE — an optional sign and at least
+one digit — and says nothing about width, deliberately: this repository's two `Int`s are 32 and
+64 bits, and a check that parsed would accept `3000000000` on one platform and refuse it on the
+other (`docs/IMPLEMENTATION-PITFALLS.md` P9).
+
+So the generated model converts **after** the check and **before** the call, to 32 bits on both
+platforms — Kotlin `text.toIntOrNull()`, Swift `Int32(text)` — and a value the conversion cannot
+hold is refused as `FieldError.kind(.number)` with nothing sent. Any other contract type on an
+input is refused: a boolean, a float or an array is not something a text field collects.
 
 ### `actions`
 
@@ -281,7 +382,7 @@ control the loudest thing on its screen.
 
 An action with neither `call` nor `then` is refused: it is a control that does nothing.
 
-## The nine refusals
+## The thirteen refusals
 
 The generator fails, and generates nothing at all, when:
 
@@ -321,21 +422,53 @@ The generator fails, and generates nothing at all, when:
    shows what it read, and static prose under it is either words nothing draws or words drawn
    over the read the screen exists for. A key outside `BodyText`'s closed set is refused by
    name rather than emitted as an empty screen.
+10. **A `list` on a screen with no `source`.** A page is a page OF a read, and a screen that
+    performs none has nothing to page.
+11. **A `list` field the contract does not declare, or declares as something else.** Every one
+    of the four names reaches the emitted model as a field access or a request argument:
+    `next` naming a field that is not an optional string, or `items` naming something that is
+    not an `array<T>`, would be a compile error in a file nobody wrote — or, worse, rows of a
+    type nobody asked for. The message names the contract type and lists its fields.
+12. **A version 2 key in a version 1 file, and a shape neither screen has.** `list` or
+    `inputs.<i>.rules` written where `specVersion` says `1` is refused rather than ignored: it
+    is a spec whose author expected a screen this generator would not have emitted. Under the
+    same rule, an `action` with a `call` on a paged screen, and a second calling action beside
+    the write that sends a form's fields, are refused — a paged screen's calls are its own
+    four, and a form is one screenful of input and one write that sends it.
+13. **`views: reference` on a flow with a list or a form screen.** Neither can be drawn from a
+    grammar — a list is rows of something, and what a row shows is the whole design of the
+    screen — so the generator has no skeleton to offer and says so rather than emitting one.
+    `authored` is only writable in a contract document, so the two rules together mean a flow
+    of either kind lives in a document that states what its screens must do.
 
 ## How a screen's state type is derived
 
 The screen model's state is not declared in the spec. It follows from `source`, so a
 screen cannot claim a state its read cannot produce:
 
-| `source` | State | States it can be in |
-| --- | --- | --- |
-| `null` | `Busy` | `idle`, `busy`, `error` |
-| an operation whose response is an **object** | `Loadable<Response>` | `loading`, `ready`, `error` |
-| an operation whose response is a **list** | `Loadable<[Response]>` | `loading`, `ready`, `empty`, `error` |
+| `source` | `list` | fields collected | State | States it can be in |
+| --- | --- | --- | --- | --- |
+| `null` | — | 0 or 1 | `Busy` | `idle`, `busy`, `error` |
+| `null` | — | 2 or more | `Form` | `idle`, `busy`, `error`, and one refusal per field |
+| an operation whose response is an **object** | absent | any | `Loadable<Response>` | `loading`, `ready`, `error` |
+| an operation whose response is an **object** | present | any | `Paged<T>` | the first page's `loading`, `ready`, `empty`, `error`, and the footer's `idle`, `busy`, `error` |
 
-`empty` exists only for a list, because "the server answered with no rows" is a state only
-a list can be in. An object response that arrived is a value; there is no such thing as an
-object that arrived and is empty.
+`empty` exists only where there are rows, because "the server answered with no rows" is a
+state only a list can be in. An object response that arrived is a value; there is no such
+thing as an object that arrived and is empty.
+
+**Two fields is the line for a form**, and it is a line rather than a key because a screen's
+fields are the contract's to say: what a screen collects is the required fields of the request
+its action sends, so how many there are is not something a spec could disagree with. One field
+is where the `Busy` model already says everything there is to say — there is no second refusal
+to report beside the first — and `Form` exists because a person pressing submit should be told
+every wrong thing at once. A screen that READS is never a form whatever it collects: its state
+is what it read.
+
+A `Paged<T>` carries a `Loadable` inside it and is not one, which is why the table above
+splits them: `Paged.page` is the FIRST page's read — in flight, rows, none, or failed — and
+`Paged.more` is a `Busy` for every page after it, because a failed append leaves the rows
+already on screen exactly where they are. `Paged.hasMore` is the one fact neither carries.
 
 **1단계 rule: every response is an object.** Whether a response is a list is a fact about
 the contract, and the bundle does not carry it — `tools/contract-codegen/.../Bundle.kt`
@@ -423,7 +556,43 @@ the server felt like saying to whoever is holding the phone (decision C7).
 Selector rules, which both platforms and both runners share:
 
 - a **button** is found by id `<screen>.<action>` — `enterCode.submit`, `reviewDevice.deny`;
+- a **field** is found by id `<screen>.<field>` — `compose.message`;
 - a **readout** is found by its text, `<name>=<value>` — `state=ready`, `stack=2`.
+
+A list screen's own two controls are `<screen>.retry`, which reads the first page again, and
+`<screen>.retryMore`, which asks again for the page the footer failed on. Two ids and not one:
+both can be on screen at once, and a runner asked for one id would refuse to pick. `reload` is
+a third — it is the action a pull or a refresh control calls — and every one of them follows
+`<screen>.<action>` like any other control. **There is no "load more" control**: `PagedView`
+asks for the next page when the end of the rows is laid out, so a runner asks for one by
+scrolling, which is what a person does.
+
+## The fixtures the case table names
+
+A fixture is a seeding the example app installs by hand, named for what the source read does
+under it. This is the vocabulary; `examples/android-compose` and `examples/ios-swiftui` hold
+the seeding itself, and a cell names one.
+
+| Fixture | What every call answers under it |
+| --- | --- |
+| `ready` | Every read and every write answers. |
+| `slow` | Every call waits before answering, so an in-flight state can be observed. |
+| `writeRefused` | Every read answers and every write refuses. |
+| `refused` | Every read refuses. |
+| `sourceRefused` | The first read answers and every later one refuses. |
+| `sourceRefusedOnce` | The first read answers, the second refuses, and the third answers again. |
+| `deepReady` | Every read answers, and the flow is opened at a whole stack rather than pushed onto. |
+| `pagesTwo` | Two pages: three rows and a cursor, then two rows and no cursor after them. |
+| `pagesOne` | One page: three rows and no cursor, so the server said there is nothing after it. |
+| `pagesNone` | A first page with no rows and no cursor. |
+| `firstRefused` | The first page refuses, so nothing ever reaches the screen. |
+| `secondRefused` | The first page answers three rows and a cursor; every page after it refuses. |
+| `secondRefusedOnce` | The same, except that the SECOND ask for the second page answers its two rows. |
+| `slowSecond` | The first page answers at once and the second waits, so an append is visible in flight. |
+
+A paged fixture is named for the SHAPE of its answers and not for its rows: three rows then two
+is `pagesTwo` on every run, so a cell asserting `count=5` is asserting the fixture's arithmetic
+rather than a list somebody may lengthen.
 
 The split is forced by the platforms rather than chosen: an Android resource id is fixed at
 build time, so a control whose identity never changes is found by id, and a readout whose

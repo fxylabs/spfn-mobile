@@ -289,6 +289,17 @@ class CaseTable(target: Target)
             appendLine("    element:");
             appendLine("      id: \"${step.id}\"");
         }
+        // The same command aimed at a READOUT, which is found by text on both platforms
+        // because its value is the thing that moves (SCHEMA.md, the selector rules).
+        is Step.ScrollToReadout -> buildString {
+            appendLine("- scrollUntilVisible:");
+            appendLine("    element:");
+            appendLine("      text: \"${step.pattern}\"");
+        }
+        // One screenful of the rows. This is how a paged cell asks for its next page: there
+        // is no control to press, because `PagedView` asks when the end of the list is laid
+        // out — so a runner that pressed something would be proving a path no finger takes.
+        Step.ScrollRows -> "- scroll\n"
         // Unreachable: a cell carrying one of these has the `manual` runner and no flow file
         // is written for it. Stated as a refusal rather than as a blank line, because a
         // gesture silently dropped from a flow is exactly the failure P22 is about.
@@ -356,6 +367,8 @@ class CaseTable(target: Target)
         Step.HideKeyboard -> "hideKeyboard"
         is Step.SeeId -> "see ${step.id}"
         is Step.ScrollTo -> "scrollTo ${step.id}"
+        is Step.ScrollToReadout -> "scrollTo ${step.pattern}"
+        Step.ScrollRows -> "scrollRows"
         is Step.ByHand -> "byHand ${step.description}"
     }
 

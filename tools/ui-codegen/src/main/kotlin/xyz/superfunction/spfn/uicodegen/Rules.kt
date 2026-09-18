@@ -138,6 +138,31 @@ sealed interface Step
     data class ScrollTo(val id: String) : Step
 
     /**
+     * Scrolls the rows a screenful, which is what asks a paged screen for its next page.
+     *
+     * A paged screen has no "load more" control to press. `PagedView` fires `onLoadMore` when
+     * the end of the rows is laid out, on both platforms, so a runner asks for a page the way
+     * a person does — and a cell that pressed a button instead would be proving something no
+     * finger ever does.
+     *
+     * A screenful rather than `scrollUntilVisible` on the last row, because which rows a
+     * fixture answers with is the fixture's business and what a row is CALLED — the readout
+     * `item=<name>` — is the contract document's. This table names `count=` and nothing else
+     * about the rows.
+     */
+    data object ScrollRows : Step
+
+    /**
+     * Scrolls until a READOUT is on screen, wherever the view put it.
+     *
+     * By text and not by id, because that is how a readout is found on both platforms
+     * (SCHEMA.md, the selector rules): an id is fixed at build time and a readout's whole
+     * point is that its value moves. A no-op when the readout is already visible, which is
+     * why every paged cell carries one rather than the ones whose list happens to be long.
+     */
+    data class ScrollToReadout(val pattern: String) : Step
+
+    /**
      * What a person does, in words, for a cell no runner drives.
      *
      * The one step with no command behind it. A gesture is the class of thing a device
@@ -221,6 +246,34 @@ object Fixtures
 
     /** Every read answers, and the flow is opened at a whole stack rather than pushed onto. */
     const val DEEP_READY: String = "deepReady";
+
+    // ---- what a paged read answers, page by page ---------------------------
+    //
+    // A paged fixture is named for the SHAPE of its answers and not for its rows: three rows
+    // then two is `pagesTwo` on every run, so a cell asserting `count=5` is asserting the
+    // fixture's arithmetic rather than a list somebody may lengthen. The example app writes
+    // these by hand (2c); this is the vocabulary the table asks it for.
+
+    /** Two pages: three rows and a cursor, then two rows and no cursor after them. */
+    const val PAGES_TWO: String = "pagesTwo";
+
+    /** One page: three rows and no cursor, so the server said there is nothing after it. */
+    const val PAGES_ONE: String = "pagesOne";
+
+    /** A first page with no rows and no cursor. */
+    const val PAGES_NONE: String = "pagesNone";
+
+    /** The first page refuses, so nothing ever reaches the screen. */
+    const val FIRST_REFUSED: String = "firstRefused";
+
+    /** The first page answers three rows and a cursor; every page after it refuses. */
+    const val SECOND_REFUSED: String = "secondRefused";
+
+    /** The same, except that the SECOND ask for the second page answers its two rows. */
+    const val SECOND_REFUSED_ONCE: String = "secondRefusedOnce";
+
+    /** The first page answers at once and the second waits, so an append is visible in flight. */
+    const val SLOW_SECOND: String = "slowSecond";
 
     /** The code a fixture answers for. One value, so every cell types the same thing. */
     const val USER_CODE: String = "ABCD-1234";
@@ -317,10 +370,36 @@ object Rules
      */
     fun cells(spec: Spec, bundle: Bundle): List<Cell>
     {
-        val flow = spec.flows.filter { f -> spec.screensOf(f).any { it.isLoadable } }.singleOrNull()
+        val approval = approvalCells(spec, bundle);
+        val paged = pagedCells(spec, bundle);
+        val forms = formCells(spec, bundle);
+        if (approval.isEmpty() && paged.isEmpty() && forms.isEmpty())
+        {
+            throw SpecException(
+                "the case rules cover a flow that reads, a screen that reads a page at a time and a " +
+                    "screen that collects a form; this spec declares none of the three"
+            );
+        }
+        return approval + paged + forms;
+    }
+
+    /**
+     * u1–s2 and the showcase: everything written about the shape 1단계 started from.
+     *
+     * Empty rather than a refusal when no flow reads, because a spec can now be nothing but a
+     * list and a form — those two screens are covered by tables of their own, and a spec that
+     * carries neither this shape nor one of them is what [cells] refuses.
+     */
+    private fun approvalCells(spec: Spec, bundle: Bundle): List<Cell>
+    {
+        val reading = spec.flows.filter { f -> spec.screensOf(f).any { it.isLoadable } };
+        if (reading.isEmpty())
+        {
+            return emptyList();
+        }
+        val flow = reading.singleOrNull()
             ?: throw SpecException(
-                "the case rules cover exactly one flow that reads; this spec declares " +
-                    spec.flows.count { f -> spec.screensOf(f).any { it.isLoadable } }
+                "the case rules cover exactly one flow that reads; this spec declares ${reading.size}"
             );
         val roles = roles(spec, flow);
         if (roles.entry.isLoadable || !roles.detail.isLoadable)
@@ -350,7 +429,11 @@ object Rules
 
         val cells = entryCells(roles, inputId) + detailCells(roles, inputId) + deepEntryCell(roles) +
             keyboardCells(spec, roles, input.name, inputId) + frameCells(flow, spec, roles, inputId);
-        val showcaseFlows = spec.flows.filter { it.name != flow.name };
+        // A flow whose screens are a list or a form is not a showcase flow. Its cells are the
+        // P and F tables below, which say what a paged read and a checked form do; a way-out
+        // cell on top of them would be a third table asserting what the first two already
+        // stand on.
+        val showcaseFlows = spec.flows.filter { it.name != flow.name && !drawnByHand(spec, it, bundle) };
         // One flow speaks for the push entry, the way one flow speaks for each rule row: what
         // a pushed root's way out does is the same rule on all three of them, and three
         // copies of it would be three chances to check one thing and no chance to check
@@ -367,6 +450,10 @@ object Rules
         return cells.map { it.copy(teardown = teardown(roles, depthOf(it))) } +
             showcaseFlows.flatMap { showcase(spec, it, bundle, representsPush = it.name == representative) };
     }
+
+    /** Whether this flow holds a screen whose views a person writes, which is the P/F tables'. */
+    private fun drawnByHand(spec: Spec, flow: FlowDefinition, bundle: Bundle): Boolean =
+        spec.screensOf(flow).any { it.isPaged || ScreenShape.isForm(it, bundle) }
 
     /**
      * One showcase flow's cells: what a runner can prove, then what only a person can.
@@ -1042,6 +1129,321 @@ object Rules
         );
         return cells;
     }
+
+
+    // ---- P1–P9: the screen that reads a page at a time ----------------------
+
+    /**
+     * What a paged screen must do, in nine cells.
+     *
+     * The rules they stand on are `Paged`'s own arithmetic, driven by a model: a first page
+     * that arrives, one that arrives empty, one that fails, an append, a failed append, an
+     * append asked for twice, an append asked for where there is nothing to append, a retry
+     * and a reload. Seven are a runner's, and the two that are not are the two whose subject
+     * is a COUNT OF CALLS rather than anything on screen.
+     *
+     * `calls=` is that count, and it is the one expectation here that is not a screen readout.
+     * A unit cell drives the model against the fake the fixture names and asks it how many
+     * times it was called, which is the only way to state "the second ask was ignored": every
+     * readout is the same whether the ask was ignored or answered twice with the same page.
+     *
+     * `load` is not a step. A screen reads its first page when it appears, however it appeared
+     * (R6), so every cell below starts from a screen that has already asked.
+     */
+    private fun pagedCells(spec: Spec, bundle: Bundle): List<Cell>
+    {
+        val listed = spec.screens.filter { it.isPaged };
+        if (listed.isEmpty())
+        {
+            return emptyList();
+        }
+        val screen = listed.singleOrNull()
+            ?: throw SpecException(
+                "the case rules cover one screen that reads a page at a time; this spec declares " +
+                    listed.joinToString(", ") { it.name } + ", and P1–P9 are one screen's cells"
+            );
+        val name = screen.name;
+        val more = Step.ScrollRows;
+        val toCount = Step.ScrollToReadout("count=.*");
+        val exit = wayOut(screen);
+
+        return listOf(
+            Cell(
+                "P1", name, "loading", "load",
+                "the first page arrived, so its rows are on screen and the cursor that came with " +
+                    "them says there is another",
+                "both", Fixtures.PAGES_TWO,
+                listOf(toCount, Step.Await("count=3")),
+                listOf("state=ready", "more=idle", "count=3", "hasMore=true"),
+                teardown = exit
+            ),
+            Cell(
+                "P2", name, "loading", "load",
+                "a first page with no rows is empty and has no more, whatever cursor came with it",
+                "both", Fixtures.PAGES_NONE,
+                listOf(toCount, Step.Await("count=0")),
+                listOf("state=empty", "count=0", "hasMore=false"),
+                teardown = exit
+            ),
+            Cell(
+                "P3", name, "loading", "load",
+                "the first page failed, so nothing is on screen and there is nothing to append to",
+                "both", Fixtures.FIRST_REFUSED,
+                listOf(Step.Await("state=error")),
+                listOf("state=error", "count=0", "hasMore=false"),
+                teardown = exit
+            ),
+            Cell(
+                "P4", name, "ready", "loadMore",
+                "reaching the end of the rows asks for the next page, and it is appended to the " +
+                    "rows already read",
+                "both", Fixtures.PAGES_TWO,
+                listOf(more, toCount, Step.Await("count=5")),
+                listOf("state=ready", "more=idle", "count=5", "hasMore=false"),
+                teardown = exit
+            ),
+            Cell(
+                "P5", name, "ready", "loadMore",
+                "a further page failed, so the rows already read stay exactly where they are and " +
+                    "only the footer changes",
+                "both", Fixtures.SECOND_REFUSED,
+                listOf(more, Step.Await("more=error"), toCount),
+                listOf("state=ready", "more=error", "count=3"),
+                teardown = exit
+            ),
+            Cell(
+                "P6", name, "ready", "loadMore",
+                "a second ask while the first is in flight is ignored, so an end that comes into " +
+                    "view twice reads one page",
+                "unit", Fixtures.SLOW_SECOND,
+                listOf(more, more),
+                listOf("calls=2", "count=3", "more=busy"),
+                teardown = exit
+            ),
+            Cell(
+                "P7", name, "ready", "loadMore",
+                "a list the server said has no more asks for nothing, however far it is scrolled",
+                "unit", Fixtures.PAGES_ONE,
+                listOf(more),
+                listOf("calls=1", "count=3", "hasMore=false"),
+                teardown = exit
+            ),
+            Cell(
+                "P8", name, "ready", "retryMore",
+                "the footer's own control asks again for the page that failed, and the rows it " +
+                    "brings are appended to the ones that were already there",
+                "both", Fixtures.SECOND_REFUSED_ONCE,
+                listOf(more, Step.Await("more=error"), Step.Tap("$name.retryMore"), toCount, Step.Await("count=5")),
+                listOf("state=ready", "more=idle", "count=5"),
+                teardown = exit
+            ),
+            Cell(
+                "P9", name, "ready", "reload",
+                "a reload reads the first page again, cursor and all, so the list is one page long " +
+                    "and the server says again that there is more",
+                "both", Fixtures.PAGES_TWO,
+                listOf(more, Step.Await("count=5"), Step.Tap("$name.reload"), toCount, Step.Await("count=3")),
+                listOf("state=ready", "count=3", "hasMore=true"),
+                teardown = exit
+            )
+        );
+    }
+
+    // ---- F1–F8: the screen that collects a form -----------------------------
+
+    /**
+     * What a checked form must do, in the eight cells `Form` itself is tested against.
+     *
+     * The ids are the vocabulary suite's (`FormTest.kt`, `FormTests.swift`) and that is the
+     * point: those cells prove the ARITHMETIC on both platforms with no model, no service and
+     * no view, and these prove that the generated model really drives it — the same eight
+     * claims one layer up. A cell here that disagreed with its twin there would be a model
+     * that checks something other than what the vocabulary checks.
+     *
+     * Three of the eight are conditional, for the reason k3–k5 are: F2 asserts a minimum and
+     * exists only where a field declares one, and F3 and F8 assert a SHAPE and exist only
+     * where a field's kind names one. A cell asserting a rule nobody wrote would fail, and
+     * fail as though the model were broken.
+     */
+    private fun formCells(spec: Spec, bundle: Bundle): List<Cell>
+    {
+        val forms = spec.screens.filter { ScreenShape.isForm(it, bundle) };
+        if (forms.isEmpty())
+        {
+            return emptyList();
+        }
+        val screen = forms.singleOrNull()
+            ?: throw SpecException(
+                "the case rules cover one screen that collects a form; this spec declares " +
+                    forms.joinToString(", ") { it.name } + ", and F1–F8 are one screen's cells"
+            );
+        val fields = ScreenShape.inputs(screen, bundle);
+        val submit = ScreenShape.submitAction(screen, bundle);
+        val press = Step.Tap("${screen.name}.${submit.name}");
+        val exit = wayOut(screen);
+        val required = fields.filter { rulesOf(screen, it).required }.map { it.name }.sorted();
+        val cells = mutableListOf(
+            Cell(
+                "F1", screen.name, "idle", submit.name,
+                "F1 and F8 — an empty required field is refused before anything is sent, and every " +
+                    "field is reported rather than the first",
+                "both", Fixtures.READY,
+                listOf(press, Step.Await("fields=" + refusals(required.map { it to "required" }))),
+                listOf("state=idle", "fields=" + refusals(required.map { it to "required" })),
+                teardown = exit
+            )
+        );
+        shorterThanMinimum(screen, fields)?.let { field ->
+            cells += Cell(
+                "F2", screen.name, "idle", submit.name,
+                "F2 — a field shorter than its minimum is refused by that rule and the others pass",
+                "both", Fixtures.READY,
+                typing(screen, fields, field.name to "a") + press,
+                listOf("state=idle", "fields=" + refusals(listOf(field.name to "minLength"))),
+                teardown = exit
+            );
+        };
+        shaped(screen, fields)?.let { field ->
+            cells += Cell(
+                "F3", screen.name, "idle", submit.name,
+                "F3 — a field that is not the shape its kind names is refused by the kind, and " +
+                    "nothing is sent",
+                "both", Fixtures.READY,
+                typing(screen, fields, field.name to unacceptable(screen, field)) + press,
+                listOf("state=idle", "fields=" + refusals(listOf(field.name to "kind"))),
+                teardown = exit
+            );
+        };
+        cells += Cell(
+            "F4", screen.name, "idle", submit.name,
+            "F4 — every field passes, so the write goes out and the flow does what the spec's " +
+                "`then` says",
+            "both", Fixtures.READY,
+            typing(screen, fields) + press + Step.Await(settled(submit).first()),
+            settled(submit),
+            teardown = if (submit.then == Navigation.Close) emptyList() else exit
+        );
+        cells += Cell(
+            "F5", screen.name, "idle", submit.name,
+            "F5 — the write failed, so every field stays accepted and the form can be sent again",
+            "both", Fixtures.REFUSED,
+            typing(screen, fields) + press + Step.Await("state=error"),
+            listOf("state=error", "fields=ok"),
+            teardown = exit
+        );
+        cells += Cell(
+            "F6", screen.name, "busy", submit.name,
+            "F6 and R2 — a second press while the write is in flight is ignored, so one press is " +
+                "one request",
+            "unit", Fixtures.SLOW,
+            typing(screen, fields) + press + press,
+            listOf("calls=1", "state=busy"),
+            teardown = exit
+        );
+        cells += Cell(
+            "F7", screen.name, "error", submit.name,
+            "F7 — editing a field clears that field's refusal and no other, so a person fixing one " +
+                "thing is not told the others are fixed too",
+            "both", Fixtures.READY,
+            listOf(press, Step.Await("fields=" + refusals(required.map { it to "required" }))) +
+                Step.Type("${screen.name}.${fields.first().name}", acceptable(screen, fields.first())),
+            listOf(
+                "state=idle",
+                "fields=" + refusals(required.filter { it != fields.first().name }.map { it to "required" })
+            ),
+            teardown = exit
+        );
+        shaped(screen, fields)?.let { field ->
+            cells += Cell(
+                "F8", screen.name, "idle", submit.name,
+                "F8 — two fields are wrong in two different ways and both are reported; the check " +
+                    "does not stop at the first",
+                "both", Fixtures.READY,
+                listOf(Step.Type("${screen.name}.${field.name}", unacceptable(screen, field)), press),
+                listOf(
+                    "state=idle",
+                    "fields=" + refusals(
+                        required.map { it to if (it == field.name) "kind" else "required" }
+                    )
+                ),
+                teardown = exit
+            );
+        };
+        return cells;
+    }
+
+    /** What a field is checked against, defaulted the way the emitted rules table defaults it. */
+    private fun rulesOf(screen: ScreenDefinition, field: RouteParameters.Parameter): RulesDefinition =
+        screen.inputNamed(field.name).rules ?: RulesDefinition(true, null, null, null)
+
+    /** The `fields=` readout's value: `name:rule` by field name, or `ok`. */
+    private fun refusals(refused: List<Pair<String, String>>): String =
+        if (refused.isEmpty()) "ok"
+        else refused.sortedBy { it.first }.joinToString(",") { "${it.first}:${it.second}" }
+
+    /** Typing every field its acceptable value, with [wrong] overriding one of them. */
+    private fun typing(
+        screen: ScreenDefinition,
+        fields: List<RouteParameters.Parameter>,
+        wrong: Pair<String, String>? = null
+    ): List<Step> = fields.map { field ->
+        val value = if (wrong != null && wrong.first == field.name) wrong.second
+        else acceptable(screen, field);
+        Step.Type("${screen.name}.${field.name}", value);
+    }
+
+    /**
+     * A value this field accepts: the shape its kind names, long enough for its minimum.
+     *
+     * Derived rather than written per cell, because a cell that typed a constant would stop
+     * being a cell about the rule the moment somebody raised the minimum.
+     */
+    private fun acceptable(screen: ScreenDefinition, field: RouteParameters.Parameter): String
+    {
+        val declared = screen.inputNamed(field.name);
+        val minimum = (declared.rules?.minLength ?: 1L).toInt();
+        return when (declared.kind)
+        {
+            "number" -> "12"
+            "email" -> "someone@example.com"
+            "code" -> Fixtures.USER_CODE
+            else -> "ok".padEnd(maxOf(minimum, 2), 'a')
+        };
+    }
+
+    /** A value this field's KIND refuses, which is a different value for each of the two. */
+    private fun unacceptable(screen: ScreenDefinition, field: RouteParameters.Parameter): String =
+        if (screen.inputNamed(field.name).kind == "email") "nope" else "x"
+
+    /** The first field with a minimum worth breaking, or null: F2's subject. */
+    private fun shorterThanMinimum(
+        screen: ScreenDefinition,
+        fields: List<RouteParameters.Parameter>
+    ): RouteParameters.Parameter? =
+        fields.firstOrNull { (screen.inputNamed(it.name).rules?.minLength ?: 0L) > 1L }
+
+    /** The first field whose kind names a shape, or null: F3's and F8's subject. */
+    private fun shaped(
+        screen: ScreenDefinition,
+        fields: List<RouteParameters.Parameter>
+    ): RouteParameters.Parameter? =
+        fields.firstOrNull { screen.inputNamed(it.name).kind in listOf("email", "number") }
+
+    /** Where a successful submit leaves the screen, which is what its `then` says. */
+    private fun settled(submit: ActionDefinition): List<String> =
+        if (submit.then == Navigation.Close) listOf("stack=0") else listOf("state=idle", "fields=ok")
+
+    /**
+     * How a runner leaves a list or a form once its assertions are made.
+     *
+     * The screen's own way out, and only one that NEITHER calls nor depends on the state the
+     * cell left the screen in: a submit that closes is no way out of a form whose fields were
+     * just refused. A screen with no such action gets no teardown, and its flow's cells end
+     * where they stand.
+     */
+    private fun wayOut(screen: ScreenDefinition): List<Step> =
+        screen.actions.firstOrNull { it.call == null && it.then == Navigation.Close }
+            ?.let { listOf(Step.Tap("${screen.name}.${it.name}")) } ?: emptyList()
 
     /** u14: the flow opened on a whole stack at once. */
     private fun deepEntryCell(roles: Roles): List<Cell> = listOf(
