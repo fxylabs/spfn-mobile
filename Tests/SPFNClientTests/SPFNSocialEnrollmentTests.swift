@@ -481,7 +481,7 @@ final class SPFNSocialEnrollmentTests: XCTestCase
 
     private static func enrollResponse(keyID: String, userID: String, isNewUser: Bool) -> String
     {
-        "{\"isNewUser\":\(isNewUser),\"keyId\":\"\(keyID)\",\"userId\":\"\(userID)\"}"
+        "{\"mfaRequired\":false,\"isNewUser\":\(isNewUser),\"keyId\":\"\(keyID)\",\"userId\":\"\(userID)\"}"
     }
 
     private func makeLifecycle(

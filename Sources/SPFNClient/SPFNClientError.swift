@@ -237,9 +237,9 @@ extension SPFNGeneratedErrorCode
         case .profileRejected, .contractUnsupported:
             return false
         case .validationError, .nativeSignInUnsupportedError, .nonceKeyBindingError,
-             .invalidKeyFingerprintError, .unverifiedEmailLinkError, .invalidSocialTokenError,
+             .invalidKeyFingerprintError, .keyAlgorithmMismatchError, .unverifiedEmailLinkError, .invalidSocialTokenError,
              .accountDisabledError, .accountPendingDeletionError, .registrationRejectedError,
-             .keyIdAlreadyRegisteredError, .tooManyRequestsError, .deviceAuthExpiredError,
+             .keyIdAlreadyRegisteredError, .mfaVerificationFailedError, .tooManyRequestsError, .deviceAuthExpiredError,
              .deviceAuthDeniedError, .deviceAuthNotFoundError, .deviceAuthAlreadyHandledError,
              .error:
             return false

@@ -45,7 +45,8 @@ class SpfnReferenceRestOpsTest
             val response = SpfnOauthNativeResponse.decode(enrolled.value());
             assertEquals("user-n1-0001", response.userId);
             assertEquals("key-n1-0001", response.keyId);
-            assertTrue("a first enrollment names a new user", response.isNewUser);
+            assertFalse(response.mfaRequired);
+            assertEquals("a first enrollment names a new user", true, response.isNewUser);
 
             // The registration is real: the enrolled key opens a session under the
             // owner the token named, which is the whole point of enrolling.
@@ -55,7 +56,7 @@ class SpfnReferenceRestOpsTest
             // A second key for the same user is not a new user.
             val second = enroll(harness, newKeyPair(), keyId = "key-n1-0002", userId = "user-n1-0001");
             assertEquals(200, second.statusCode);
-            assertFalse(SpfnOauthNativeResponse.decode(second.value()).isNewUser);
+            assertEquals(false, SpfnOauthNativeResponse.decode(second.value()).isNewUser);
         }
     }
 

@@ -44,13 +44,13 @@ class SpfnKeyLifecycleTest
     // ---- M1 + M2: enrollment sends the fixture bytes and persists the identity
 
     @Test
-    fun enrollSendsTheExactFixtureBytesAndPersistsTheIdentity() = runBlocking {
+    fun testE1_enrollSendsTheExactFixtureBytesAndPersistsTheIdentity() = runBlocking {
         val fixture = enrollmentFixture();
         val oauthNative = fixture.obj("oauthNative");
         val value = oauthNative.obj("value");
 
         val transport = ScriptedTransport(
-            listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
+            listOf(answer("{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
         );
         val store = InMemoryKeyMetadataStore();
         val engine = scriptedEngine(testKeyPair());
@@ -86,6 +86,59 @@ class SpfnKeyLifecycleTest
         assertEquals("user-test-0001", provider?.clientId);
         assertEquals("key-test-0001", provider?.keyId);
         assertEquals(SpfnKeyLifecycleState.ENROLLED, lifecycle.state());
+
+        // An absent isNewUser defaults to false. A challenge does not override the
+        // explicit mfaRequired=false discriminant.
+        val returningTransport = ScriptedTransport(listOf(answer(
+            """{"mfaRequired":false,"keyId":"key-test-0001","userId":"user-test-0001","challenge":{"secret":"unused-challenge","expiresAtMillis":1750000060000}}"""
+        )));
+        val returningStore = InMemoryKeyMetadataStore();
+        val returningEngine = scriptedEngine(testKeyPair());
+        val returning = makeLifecycle(returningTransport, returningStore, returningEngine, keyIds = listOf("key-test-0001"));
+        val returningResult = returning.enroll(provider = "google") { "idtoken-test" };
+        assertEquals(SpfnEnrollmentResult("user-test-0001", "key-test-0001", false), returningResult);
+        assertEquals("key-test-0001", returningStore.load(SpfnKeyLifecycle.ACTIVE_SLOT)?.keyId);
+        assertTrue(returningEngine.contains("spfn-client-key-key-test-0001"));
+    }
+
+    @Test
+    fun testE3_missingEnrollmentIdentityIsRefusedAndStoresNothing() = runBlocking {
+        for (body in listOf(
+            """{"mfaRequired":false,"keyId":"key-test-0001"}""",
+            """{"mfaRequired":false,"userId":"user-test-0001"}"""
+        ))
+        {
+            val transport = ScriptedTransport(listOf(answer(body)));
+            val store = InMemoryKeyMetadataStore();
+            val engine = scriptedEngine(testKeyPair());
+            val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
+            val thrown = failureOf { lifecycle.enroll(provider = "google") { "idtoken-test" } };
+            assertTrue("$thrown", thrown is SpfnClientError.Decoding);
+            val decoding = thrown as SpfnClientError.Decoding;
+            assertEquals(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, decoding.failure);
+            assertTrue(decoding.onSuccessStatus);
+            assertEnrollmentDiscarded(lifecycle, store, engine);
+        }
+    }
+
+    @Test
+    fun testE4_secondFactorIsExplicitlyRefusedAndStoresNothing() = runBlocking {
+        for (body in listOf(
+            """{"mfaRequired":true}""",
+            """{"mfaRequired":true,"challenge":{"secret":"private-challenge","expiresAtMillis":1750000060000}}""",
+            """{"mfaRequired":true,"keyId":"key-test-0001","userId":"user-test-0001","isNewUser":true}"""
+        ))
+        {
+            val transport = ScriptedTransport(listOf(answer(body, 202)));
+            val store = InMemoryKeyMetadataStore();
+            val engine = scriptedEngine(testKeyPair());
+            val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
+            val thrown = failureOf { lifecycle.enroll(provider = "google") { "idtoken-test" } };
+            assertTrue("$thrown", thrown is SpfnKeyLifecycleException.SecondFactorRequired);
+            assertEquals("this SDK version does not finish a second-factor sign-in", thrown?.message);
+            assertFalse(thrown.toString().contains("private-challenge"));
+            assertEnrollmentDiscarded(lifecycle, store, engine);
+        }
     }
 
     /**
@@ -110,21 +163,56 @@ class SpfnKeyLifecycleTest
     // ---- M3: a failed enrollment leaves no orphan --------------------------
 
     @Test
-    fun aFailedEnrollmentDestroysTheGeneratedKey() = runBlocking {
-        val transport = ScriptedTransport(
-            listOf(answer(ExecuteFixtures.errorEnvelope("CONTRACT_UNSUPPORTED"), 409))
+    fun testE5_failedEnrollmentPreservesTheErrorAndDestroysTheKey() = runBlocking {
+        val outcomes = listOf(
+            answer(ExecuteFixtures.errorEnvelope("CONTRACT_UNSUPPORTED"), 409),
+            answer(ExecuteFixtures.errorEnvelope("Error"), 500),
+            ScriptedTransport.Outcome.Failure(SpfnTransportError.TimedOut()),
+            answer("{}"),
+            answer("not-json")
         );
-        val store = InMemoryKeyMetadataStore();
-        val engine = scriptedEngine(testKeyPair());
-        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
-
-        val thrown = failureOf {
-            lifecycle.enroll(provider = "google") { "idtoken-test" };
+        outcomes.forEachIndexed { index, outcome ->
+            val transport = ScriptedTransport(listOf(outcome));
+            val store = InMemoryKeyMetadataStore();
+            val engine = scriptedEngine(testKeyPair());
+            val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
+            val thrown = failureOf { lifecycle.enroll(provider = "google") { "idtoken-test" } };
+            when (index)
+            {
+                0, 1 -> {
+                    assertTrue("$thrown", thrown is SpfnClientError.Server);
+                    val serverFailure = (thrown as SpfnClientError.Server).failure;
+                    assertEquals(if (index == 0) 409 else 500, serverFailure.httpStatus);
+                    assertEquals(if (index == 0) "CONTRACT_UNSUPPORTED" else "Error", serverFailure.code.wireCode);
+                }
+                2 -> {
+                    assertTrue("$thrown", thrown is SpfnClientError.Transport);
+                    assertTrue((thrown as SpfnClientError.Transport).error is SpfnTransportError.TimedOut);
+                }
+                else -> {
+                    assertTrue("$thrown", thrown is SpfnClientError.Decoding);
+                    val decoding = thrown as SpfnClientError.Decoding;
+                    assertEquals(
+                        if (index == 3) SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE else SpfnDecodingFailure.NOT_CANONICAL_JSON,
+                        decoding.failure
+                    );
+                    assertTrue(decoding.onSuccessStatus);
+                }
+            }
+            assertEnrollmentDiscarded(lifecycle, store, engine);
         };
+    }
 
-        assertNotNull(thrown);
-        assertNull("nothing was persisted for a refused enrollment", store.load(SpfnKeyLifecycle.ACTIVE_SLOT));
+    private fun assertEnrollmentDiscarded(
+        lifecycle: SpfnKeyLifecycle,
+        store: InMemoryKeyMetadataStore,
+        engine: ScriptedKeystoreEngine
+    )
+    {
+        assertNull(store.load(SpfnKeyLifecycle.ACTIVE_SLOT));
+        assertNull(store.load(SpfnKeyLifecycle.CANDIDATE_SLOT));
         assertFalse("the Keystore entry was deleted, not orphaned", engine.contains("spfn-client-key-key-test-0001"));
+        assertNull(lifecycle.activeProvider());
         assertEquals(SpfnKeyLifecycleState.UNENROLLED, lifecycle.state());
     }
 
@@ -142,7 +230,7 @@ class SpfnKeyLifecycleTest
     fun anEnrollmentThatCannotPersistDestroysTheGeneratedKey() = runBlocking {
         val refusal = IllegalStateException("the keystore metadata file is unwritable");
         val transport = ScriptedTransport(
-            listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
+            listOf(answer("{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
         );
         val store = RefusingKeyMetadataStore(refusal);
         val engine = scriptedEngine(testKeyPair());
@@ -239,7 +327,7 @@ class SpfnKeyLifecycleTest
     @Test
     fun c4_aSecondEnrollmentDuringTheSignInIsRefused() = runBlocking {
         val transport = ScriptedTransport(
-            listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
+            listOf(answer("{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
         );
         val store = InMemoryKeyMetadataStore();
         val engine = scriptedEngine(testKeyPair(), testKeyPair());
@@ -279,7 +367,7 @@ class SpfnKeyLifecycleTest
     @Test
     fun c4_aFailedEnrollmentReleasesTheClaim() = runBlocking {
         val transport = ScriptedTransport(
-            listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-test-0002\",\"userId\":\"user-test-0001\"}"))
+            listOf(answer("{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0002\",\"userId\":\"user-test-0001\"}"))
         );
         val store = InMemoryKeyMetadataStore();
         val engine = scriptedEngine(testKeyPair(), testKeyPair());
@@ -303,7 +391,7 @@ class SpfnKeyLifecycleTest
     @Test
     fun c20_rotateDuringTheSignInAnswersNotEnrolled() = runBlocking {
         val transport = ScriptedTransport(
-            listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
+            listOf(answer("{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
         );
         val store = InMemoryKeyMetadataStore();
         val engine = scriptedEngine(testKeyPair());
@@ -390,9 +478,9 @@ class SpfnKeyLifecycleTest
      * that confirms another key has not registered the one this device holds.
      */
     @Test
-    fun c9_successNamingAnotherKeyIsRefusedAndStoresNothing() = runBlocking {
+    fun testE2_successNamingAnotherKeyIsRefusedAndStoresNothing() = runBlocking {
         val transport = ScriptedTransport(
-            listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-other-9999\",\"userId\":\"user-test-0001\"}"))
+            listOf(answer("{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-other-9999\",\"userId\":\"user-test-0001\"}"))
         );
         val store = InMemoryKeyMetadataStore();
         val engine = scriptedEngine(testKeyPair());
@@ -401,8 +489,10 @@ class SpfnKeyLifecycleTest
         val thrown = failureOf { lifecycle.enroll(provider = "apple") { "idtoken-apple" } };
 
         assertTrue("$thrown", thrown is SpfnKeyLifecycleException.ServerNamedAnotherKey);
-        assertNull(store.load(SpfnKeyLifecycle.ACTIVE_SLOT));
-        assertFalse(engine.contains("spfn-client-key-key-test-0001"));
+        val mismatch = thrown as SpfnKeyLifecycleException.ServerNamedAnotherKey;
+        assertEquals("key-test-0001", mismatch.sent);
+        assertEquals("key-other-9999", mismatch.received);
+        assertEnrollmentDiscarded(lifecycle, store, engine);
     }
 
     /**
@@ -434,7 +524,7 @@ class SpfnKeyLifecycleTest
         for (provider in listOf("apple", "google", "kakao", "naver"))
         {
             val transport = ScriptedTransport(
-                listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
+                listOf(answer("{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
             );
             val store = InMemoryKeyMetadataStore();
             val engine = scriptedEngine(testKeyPair());
