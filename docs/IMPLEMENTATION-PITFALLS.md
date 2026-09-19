@@ -1975,6 +1975,10 @@ docs/architecture/README.md의 K1~K10이고, 이 함정이 만든 행은 **K3(2x
 `mfaRequired`로 분기하는지 본다. 테스트의 E4는 챌린지 있음·없음과 성공 필드가 있는
 응답을 모두 거부하고, E1은 `mfaRequired=false`에 챌린지가 있어도 정상 등록한다.
 
+새 lifecycle 오류를 추가하면 양 플랫폼 하네스의 `HarnessOutcome` 분기도 함께 확인한다.
+SDK 테스트만으로는 앱의 exhaustive switch 누락을 잡지 못하므로, 하네스 앱 빌드를
+실행해 같은 `secondFactorRequired` 이름으로 분류되는지 확인한다.
+
 ```sh
 rg -n 'mfaRequired|secondFactorRequired|SecondFactorRequired' \
   Sources/SPFNClient/SPFNKeyLifecycle.swift \

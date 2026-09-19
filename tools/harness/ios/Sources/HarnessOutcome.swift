@@ -83,6 +83,8 @@ enum HarnessOutcome
             return "malformedProviderID"
         case .serverNamedAnotherKey:
             return "serverNamedAnotherKey"
+        case .secondFactorRequired:
+            return "secondFactorRequired"
         case .keyUnloadable:
             return "keyUnloadable"
         case .deviceCodeExpired:
