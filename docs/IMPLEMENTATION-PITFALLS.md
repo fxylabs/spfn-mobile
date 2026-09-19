@@ -68,6 +68,7 @@
 | 시계·타임스탬프·경과 시간을 만지는 코드 (증명 시각, 만료 판정, 폴링 간격, 재시도 백오프) | [P40](#p40) [P9](#p9) |
 | 같은 route 값을 두 번 push할 수 있는 흐름 작성, 라우트 타입 설계 (`FlowRoute` 구현) | [P41](#p41) [P31](#p31) [P15](#p15) |
 | 서버 상태를 바꾸는 호출의 오류 처리, 후보·임시 상태를 정리하는 코드 (키 회전, 2단계 등록, 멱등하지 않은 재전송) | [P42](#p42) [P9](#p9) [P19](#p19) |
+| 소셜 등록 응답 분기, MFA 요구 응답 처리 | [P43](#p43) [P15](#p15) [P42](#p42) |
 
 ---
 
@@ -1963,6 +1964,31 @@ docs/architecture/README.md의 K1~K10이고, 이 함정이 만든 행은 **K3(2x
 `.decoding`을 default로 흘려 후보 키를 지웠다. 양 플랫폼이 같은 모양으로 틀렸으므로
 [P9](#p9)가 함께 걸린다. 단위 테스트가 없던 이유도 P9와 같다 — 전송 스텁이 2xx + 깨진 본문을
 낼 수 있었는데 아무도 그 칸을 쓰지 않았다.
+
+## P43. 202는 등록 완료가 아니다 — 판별자로 분기한다 {#p43}
+
+**증상.** 계약 0.13.0의 소셜 등록 응답은 `mfaRequired`를 필수로, 기존 성공 필드를
+선택으로 바꿨다. 2xx이거나 `keyId`·`challenge`가 있다는 이유로 등록 완료로 읽으면
+서버에서 아직 비활성인 키를 서명자로 저장한다.
+
+**탐지.** 양 플랫폼 `enroll`에서 필수 식별자를 읽거나 키를 저장하기 **전에**
+`mfaRequired`로 분기하는지 본다. 테스트의 E4는 챌린지 있음·없음과 성공 필드가 있는
+응답을 모두 거부하고, E1은 `mfaRequired=false`에 챌린지가 있어도 정상 등록한다.
+
+```sh
+rg -n 'mfaRequired|secondFactorRequired|SecondFactorRequired' \
+  Sources/SPFNClient/SPFNKeyLifecycle.swift \
+  android/spfn-client/src/main/kotlin/xyz/superfunction/spfn/client/SpfnKeyLifecycle.kt
+rg -n 'testE[1-5]_' Tests/SPFNClientTests/SPFNKeyLifecycleTests.swift \
+  android/spfn-client/src/test/kotlin/xyz/superfunction/spfn/client/SpfnKeyLifecycleTest.kt
+```
+
+**처방.** MFA 완료를 지원하기 전에는 `mfaRequired=true`를 연관값 없는 명시적
+`secondFactorRequired` 오류로 거부한다. 챌린지는 저장하거나 오류·로그에 싣지 않는다.
+Swift는 저장 전 키 값을 버리고 Android는 Keystore 별칭도 지운다(P15). 이는 등록의
+M3 규칙이며, 결과 불명인 회전 후보를 유지하는 P42 규칙을 바꾸지 않는다.
+
+**나온 곳.** w-gbd1v, 계약 0.13.0 재핀의 E1–E5 표. MFA 완료 흐름은 w-jz6yd로 분리.
 
 ## 원장
 

@@ -5,6 +5,21 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Contract 0.13.0 (planned for 0.1.0-alpha.4)
+
+- Re-pin the unmodified primitives export at `deedc2517cfcf322a901a41eaec0127b55854794`
+  (bundle SHA-256 `bb0373c2…`), matching `@spfn/auth 0.3.0-beta.25` and
+  `@spfn/core 0.3.0-beta.10`. Both generated clients now admit `>=0.13.0 <0.14.0`.
+- Native social enrollment reads the required `mfaRequired` discriminant. A second-factor
+  challenge is refused with the new payload-free `secondFactorRequired` error; the
+  generated key is destroyed. `enroll` keeps its return type. MFA completion remains
+  unsupported; the new verify/status descriptors are generated without a lifecycle flow.
+- Generate the new MFA and key-binding types, and derive shared error fixtures for
+  `KeyAlgorithmMismatchError` and `MfaVerificationFailedError`. Existing enrollment
+  test responses and the reference server now carry `mfaRequired=false`.
+- Allow requestless GET operations in codegen, including `auth.mfa.status`; non-GET
+  operations still require a request type. Regenerate the UI outputs against the new pin.
+
 ### The contract pin has one source
 
 - **`Contracts/upstream.lock.json` is `lockVersion` 3 and carries only what this repository
