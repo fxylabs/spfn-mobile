@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
-// contractVersion: 0.10.0
+// bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
+// contractVersion: 0.13.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -39,12 +39,14 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
     case nativeSignInUnsupportedError = "NativeSignInUnsupportedError"
     case nonceKeyBindingError = "NonceKeyBindingError"
     case invalidKeyFingerprintError = "InvalidKeyFingerprintError"
+    case keyAlgorithmMismatchError = "KeyAlgorithmMismatchError"
     case unverifiedEmailLinkError = "UnverifiedEmailLinkError"
     case invalidSocialTokenError = "InvalidSocialTokenError"
     case accountDisabledError = "AccountDisabledError"
     case accountPendingDeletionError = "AccountPendingDeletionError"
     case registrationRejectedError = "RegistrationRejectedError"
     case keyIdAlreadyRegisteredError = "KeyIdAlreadyRegisteredError"
+    case mfaVerificationFailedError = "MfaVerificationFailedError"
     case tooManyRequestsError = "TooManyRequestsError"
     case error = "Error"
     case deviceAuthExpiredError = "DeviceAuthExpiredError"
@@ -77,6 +79,8 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
             return .rest
         case .invalidKeyFingerprintError:
             return .rest
+        case .keyAlgorithmMismatchError:
+            return .rest
         case .unverifiedEmailLinkError:
             return .rest
         case .invalidSocialTokenError:
@@ -88,6 +92,8 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
         case .registrationRejectedError:
             return .rest
         case .keyIdAlreadyRegisteredError:
+            return .rest
+        case .mfaVerificationFailedError:
             return .rest
         case .tooManyRequestsError:
             return .rest
@@ -128,6 +134,8 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
             return 400
         case .invalidKeyFingerprintError:
             return 400
+        case .keyAlgorithmMismatchError:
+            return 400
         case .unverifiedEmailLinkError:
             return 400
         case .invalidSocialTokenError:
@@ -140,6 +148,8 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
             return 403
         case .keyIdAlreadyRegisteredError:
             return 409
+        case .mfaVerificationFailedError:
+            return 401
         case .tooManyRequestsError:
             return 429
         case .error:
@@ -179,6 +189,8 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
             return false
         case .invalidKeyFingerprintError:
             return false
+        case .keyAlgorithmMismatchError:
+            return false
         case .unverifiedEmailLinkError:
             return false
         case .invalidSocialTokenError:
@@ -190,6 +202,8 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
         case .registrationRejectedError:
             return false
         case .keyIdAlreadyRegisteredError:
+            return false
+        case .mfaVerificationFailedError:
             return false
         case .tooManyRequestsError:
             return true

@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
-// contractVersion: 0.10.0
+// bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
+// contractVersion: 0.13.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -108,6 +108,26 @@ object SpfnGeneratedOperations
         declaresResponse = true
     )
 
+    /** Finishes a sign-in that answered mfaRequired by spending the challenge, which activates the key. */
+    val authMfaVerify: SpfnOperation = SpfnOperation(
+        id = "auth.mfa.verify",
+        method = "POST",
+        path = "/_auth/mfa/verify",
+        authProfile = "none",
+        requiresSession = false,
+        declaresResponse = true
+    )
+
+    /** Reports whether the caller has a second factor, which methods, and how many recovery codes remain. */
+    val authMfaStatus: SpfnOperation = SpfnOperation(
+        id = "auth.mfa.status",
+        method = "GET",
+        path = "/_auth/mfa/status",
+        authProfile = "clientProofV1",
+        requiresSession = false,
+        declaresResponse = true
+    )
+
     /** Replaces the authenticated key with a new client-generated public key before its TTL runs out. */
     val authKeysRotate: SpfnOperation = SpfnOperation(
         id = "auth.keys.rotate",
@@ -207,6 +227,8 @@ object SpfnGeneratedOperations
         authEnrollRegister,
         authEnrollLogin,
         authEnrollOauthNative,
+        authMfaVerify,
+        authMfaStatus,
         authKeysRotate,
         authKeysList,
         authKeysRevoke,

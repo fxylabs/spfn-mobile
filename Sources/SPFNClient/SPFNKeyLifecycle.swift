@@ -132,7 +132,7 @@ public struct SPFNTaskSleeper: SPFNSleeper
 }
 
 /// Everything the lifecycle refuses on its own, before or instead of the network.
-public enum SPFNKeyLifecycleError: Error, Equatable, Sendable
+public enum SPFNKeyLifecycleError: LocalizedError, Equatable, Sendable
 {
     /// Enrollment was asked for while a key exists. Wipe first — implicitly enrolling
     /// over a live key would orphan a registration the server still honours.
@@ -154,6 +154,10 @@ public enum SPFNKeyLifecycleError: Error, Equatable, Sendable
     /// generation on a request the server can only refuse.
     case idTokenMissing
 
+    /// This SDK version does not finish a second-factor sign-in. The generated key
+    /// is discarded; the challenge is never exposed by this error.
+    case secondFactorRequired
+
     /// The provider id cannot be a path segment. The id is substituted into the
     /// operation path before signing, so anything but `[a-z0-9-]` would change the
     /// route — or smuggle one — rather than name a provider.
@@ -172,6 +176,17 @@ public enum SPFNKeyLifecycleError: Error, Equatable, Sendable
     /// the server's own refusal: a client that polled past the expiry it was told would
     /// be asking about a code it already knows is dead.
     case deviceCodeExpired
+
+    public var errorDescription: String?
+    {
+        switch self
+        {
+        case .secondFactorRequired:
+            return "this SDK version does not finish a second-factor sign-in"
+        default:
+            return nil
+        }
+    }
 }
 
 /// Owns the key slots and drives enrollment and rotation over the execute path.
@@ -356,17 +371,29 @@ public actor SPFNKeyLifecycle
             )
         )
 
-        guard response.keyId == key.keyID
+        // The discriminant alone decides the branch. A challenge is not evidence of
+        // enrollment, and this SDK version cannot activate its pending server key.
+        guard !response.mfaRequired
         else
         {
-            throw SPFNKeyLifecycleError.serverNamedAnotherKey(sent: key.keyID, received: response.keyId)
+            throw SPFNKeyLifecycleError.secondFactorRequired
+        }
+        guard let userID = response.userId, let keyID = response.keyId
+        else
+        {
+            throw SPFNClientError.decoding(.notTheDeclaredResponse, onSuccessStatus: true)
+        }
+        guard keyID == key.keyID
+        else
+        {
+            throw SPFNKeyLifecycleError.serverNamedAnotherKey(sent: key.keyID, received: keyID)
         }
 
         try store.save(
-            key.record(clientID: response.userId, createdAtMillis: clock.nowMillis()),
+            key.record(clientID: userID, createdAtMillis: clock.nowMillis()),
             slot: Self.activeSlot
         )
-        return SPFNEnrollmentResult(clientID: response.userId, keyID: key.keyID, isNewUser: response.isNewUser)
+        return SPFNEnrollmentResult(clientID: userID, keyID: key.keyID, isNewUser: response.isNewUser ?? false)
     }
 
     // MARK: - M8: enrollment by device code

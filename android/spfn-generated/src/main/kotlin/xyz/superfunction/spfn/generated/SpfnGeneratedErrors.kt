@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
-// contractVersion: 0.10.0
+// bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
+// contractVersion: 0.13.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -50,12 +50,14 @@ enum class SpfnGeneratedErrorCode(
     NativeSignInUnsupportedError("NativeSignInUnsupportedError", 400, false, SpfnGeneratedErrorSurface.REST),
     NonceKeyBindingError("NonceKeyBindingError", 400, false, SpfnGeneratedErrorSurface.REST),
     InvalidKeyFingerprintError("InvalidKeyFingerprintError", 400, false, SpfnGeneratedErrorSurface.REST),
+    KeyAlgorithmMismatchError("KeyAlgorithmMismatchError", 400, false, SpfnGeneratedErrorSurface.REST),
     UnverifiedEmailLinkError("UnverifiedEmailLinkError", 400, false, SpfnGeneratedErrorSurface.REST),
     InvalidSocialTokenError("InvalidSocialTokenError", 401, false, SpfnGeneratedErrorSurface.REST),
     AccountDisabledError("AccountDisabledError", 403, false, SpfnGeneratedErrorSurface.REST),
     AccountPendingDeletionError("AccountPendingDeletionError", 403, false, SpfnGeneratedErrorSurface.REST),
     RegistrationRejectedError("RegistrationRejectedError", 403, false, SpfnGeneratedErrorSurface.REST),
     KeyIdAlreadyRegisteredError("KeyIdAlreadyRegisteredError", 409, false, SpfnGeneratedErrorSurface.REST),
+    MfaVerificationFailedError("MfaVerificationFailedError", 401, false, SpfnGeneratedErrorSurface.REST),
     TooManyRequestsError("TooManyRequestsError", 429, true, SpfnGeneratedErrorSurface.REST),
     Error("Error", 500, false, SpfnGeneratedErrorSurface.REST),
     DeviceAuthExpiredError("DeviceAuthExpiredError", 400, false, SpfnGeneratedErrorSurface.REST),

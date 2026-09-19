@@ -399,7 +399,28 @@ added with an implementation or not at all, so they arrive when the server half 
 
 `auth.enroll.oauthNative` and `SPFNKeyLifecycle.enroll` already owned everything except
 one gap — obtaining a provider token on the device — and the adapter modules are that
-gap and nothing else. Two things are worth knowing about the surface.
+gap and nothing else.
+
+**Contract 0.13.0 makes the enrollment outcome explicit.** `mfaRequired` is the
+required discriminant; field presence never decides the branch. When it is true,
+the server's 202 has left the key inactive pending a second factor. This SDK version
+refuses that sign-in with `secondFactorRequired` (`SecondFactorRequired` on Android),
+destroys its generated key and remains unenrolled. The error carries no challenge.
+Finishing the second factor is separate work (`w-jz6yd`); `enroll` still returns
+`SPFNEnrollmentResult` / `SpfnEnrollmentResult` on success.
+
+| Cell | Response | Key and state after the call | Result |
+| --- | --- | --- | --- |
+| E1 | 200, `mfaRequired=false`, sent `keyId`, `userId` present | Save active key; enrolled | Original enrollment result; absent `isNewUser` defaults to false |
+| E2 | 200, `mfaRequired=false`, another `keyId`, `userId` present | Destroy key; unenrolled | `serverNamedAnotherKey` |
+| E3 | 200, `mfaRequired=false`, `userId` or `keyId` absent | Destroy key; unenrolled | `notTheDeclaredResponse`, `onSuccessStatus=true` |
+| E4 | 202, `mfaRequired=true`, with or without a challenge | Destroy key; unenrolled | `secondFactorRequired` |
+| E5 | 4xx, 5xx, transport or decoding failure | Destroy key; unenrolled | Existing error unchanged |
+
+`SPFNKeyLifecycleTests` and `SpfnKeyLifecycleTest` each carry `testE1_` through
+`testE5_` for these rows. E3 and E4 check both key slots and the absence of a signer;
+Android additionally checks that the generated Keystore alias was deleted. This is
+enrollment's M3 cleanup rule, not rotation's unknown-outcome policy below.
 
 **The nonce is the key's fingerprint, and enrollment is one call.** The contract's
 `nativeEnrollment.nonceRule` requires the enrollment body's nonce to equal its

@@ -72,7 +72,7 @@ final class SPFNDeviceCodeEnrollmentTests: XCTestCase
     func testD3ASocialEnrollmentInFlightRefusesTheDeviceCodeCall() async throws
     {
         let transport = ScriptedTransport([
-            .success(.json(200, "{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}")),
+            .success(.json(200, "{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}")),
         ])
         let store = InMemoryKeyStore()
         let lifecycle = makeLifecycle(

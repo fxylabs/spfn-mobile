@@ -325,9 +325,9 @@ final class SPFNClientExecuteTests: XCTestCase
             [
                 "PROFILE_REJECTED", "CONTRACT_UNSUPPORTED",
                 "ValidationError", "NativeSignInUnsupportedError", "NonceKeyBindingError",
-                "InvalidKeyFingerprintError", "UnverifiedEmailLinkError", "InvalidSocialTokenError",
+                "InvalidKeyFingerprintError", "KeyAlgorithmMismatchError", "UnverifiedEmailLinkError", "InvalidSocialTokenError",
                 "AccountDisabledError", "AccountPendingDeletionError", "RegistrationRejectedError",
-                "KeyIdAlreadyRegisteredError", "TooManyRequestsError", "Error",
+                "KeyIdAlreadyRegisteredError", "MfaVerificationFailedError", "TooManyRequestsError", "Error",
                 "DeviceAuthExpiredError", "DeviceAuthDeniedError", "DeviceAuthNotFoundError",
                 "DeviceAuthAlreadyHandledError",
             ]

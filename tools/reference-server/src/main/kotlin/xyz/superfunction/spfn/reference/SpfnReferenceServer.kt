@@ -365,6 +365,7 @@ class SpfnReferenceServer(
             is SpfnReferenceRestOps.Result.Refused -> RestAnswer.Refused(result.refusal)
             is SpfnReferenceRestOps.Result.Enrolled -> RestAnswer.Body(
                 SpfnOauthNativeResponse(
+                    mfaRequired = false,
                     userId = result.userId,
                     keyId = result.keyId,
                     isNewUser = result.isNewUser

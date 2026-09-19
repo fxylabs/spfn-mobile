@@ -196,6 +196,9 @@ sealed class SpfnKeyLifecycleException(message: String) : IllegalStateException(
      */
     class IdTokenMissing : SpfnKeyLifecycleException("the sign-in produced no id_token")
 
+    /** The generated key is destroyed; the challenge is never exposed by this error. */
+    class SecondFactorRequired : SpfnKeyLifecycleException("this SDK version does not finish a second-factor sign-in")
+
     /**
      * The provider id cannot be a path segment. The id is substituted into the
      * operation path before signing, so anything but `[a-z0-9-]` would change the
@@ -385,21 +388,31 @@ class SpfnKeyLifecycle(
                         algorithm = ALGORITHM_NAME
                     )
                 );
-                if (response.keyId != key.keyId)
+                // The discriminant alone decides the branch. A challenge is not evidence
+                // of enrollment, and this SDK version cannot activate its pending key.
+                if (response.mfaRequired)
                 {
-                    throw SpfnKeyLifecycleException.ServerNamedAnotherKey(sent = key.keyId, received = response.keyId);
+                    throw SpfnKeyLifecycleException.SecondFactorRequired();
+                }
+                val userId = response.userId
+                    ?: throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, onSuccessStatus = true);
+                val keyId = response.keyId
+                    ?: throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, onSuccessStatus = true);
+                if (keyId != key.keyId)
+                {
+                    throw SpfnKeyLifecycleException.ServerNamedAnotherKey(sent = key.keyId, received = keyId);
                 }
                 // Persisting is inside the same guard as the request, because a save that
                 // throws leaves an enrollment the server accepted with no local metadata
                 // naming it. The key would then outlive the throw as an orphan alias and
                 // the retry would mint a second one.
                 mutex.withLock {
-                    store.save(ACTIVE_SLOT, key.metadata(clientId = response.userId, createdAtMillis = clock.nowMillis()));
+                    store.save(ACTIVE_SLOT, key.metadata(clientId = userId, createdAtMillis = clock.nowMillis()));
                 }
                 return SpfnEnrollmentResult(
-                    clientId = response.userId,
+                    clientId = userId,
                     keyId = key.keyId,
-                    isNewUser = response.isNewUser
+                    isNewUser = response.isNewUser ?: false
                 );
             }
             catch (failure: Throwable)

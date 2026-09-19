@@ -55,8 +55,8 @@ final class SPFNRealServerVerifyTests: XCTestCase
 
         let enrolled = try await fixture.enroll()
 
-        XCTAssertFalse(enrolled.response.userId.isEmpty)
-        XCTAssertFalse(enrolled.response.publicId.isEmpty)
+        XCTAssertFalse(try XCTUnwrap(enrolled.response.userId).isEmpty)
+        XCTAssertFalse(try XCTUnwrap(enrolled.response.publicId).isEmpty)
         XCTAssertEqual(enrolled.response.email, fixture.environment.email)
 
         try fixture.environment.record("swift-r1")
@@ -584,10 +584,12 @@ final class SPFNRealServerVerifyTests: XCTestCase
                 )
             )
 
+            XCTAssertFalse(response.mfaRequired, "the verification account must not require MFA")
+            let userID = try XCTUnwrap(response.userId)
             return Enrolled(
                 key: key,
                 fingerprint: fingerprint,
-                provider: SPFNSecureEnclaveKeyProvider(clientID: response.userId, key: key),
+                provider: SPFNSecureEnclaveKeyProvider(clientID: userID, key: key),
                 response: response
             )
         }

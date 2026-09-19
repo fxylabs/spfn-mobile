@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
-// contractVersion: 0.10.0
+// bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
+// contractVersion: 0.13.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -23,11 +23,11 @@ object SpfnGeneratedContract
 
     /** The pinned bundle these sources were derived from. */
     val BINDING: SpfnContractBinding = SpfnContractBinding(
-        importedVersion = "0.10.0",
-        importedManifestSha256 = "29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c",
-        supportedRange = ">=0.10.0 <0.11.0",
+        importedVersion = "0.13.0",
+        importedManifestSha256 = "bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658",
+        supportedRange = ">=0.13.0 <0.14.0",
         supportedMajor = 0,
-        supportedMinor = 10,
+        supportedMinor = 13,
         origin = "spfn-primitives-ci-export"
     )
 
@@ -46,6 +46,8 @@ object SpfnGeneratedContract
         "auth.enroll.register",
         "auth.enroll.login",
         "auth.enroll.oauthNative",
+        "auth.mfa.verify",
+        "auth.mfa.status",
         "auth.keys.rotate",
         "auth.keys.list",
         "auth.keys.revoke",

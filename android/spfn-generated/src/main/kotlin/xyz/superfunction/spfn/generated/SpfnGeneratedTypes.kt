@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
-// contractVersion: 0.10.0
+// bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
+// contractVersion: 0.13.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -73,6 +73,30 @@ enum class SpfnKeyPlatform(val wireValue: String)
  * because the contract promises no set stays as it is — a value can be added,
  * and one can be withdrawn for a weakness found later.
  */
+enum class SpfnKeyBinding(val wireValue: String)
+{
+    NONE("none"),
+    PASSKEY("passkey");
+
+    fun canonicalValue(): SpfnCanonicalValue = SpfnCanonicalValue.Text(wireValue);
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnKeyBinding
+        {
+            val raw = SpfnDecoding.string(canonical, path);
+            return entries.firstOrNull { it.wireValue == raw }
+                ?: throw SpfnDecodingException("TYPE_MISMATCH", "$path is not a KeyBinding");
+        }
+    }
+}
+
+/**
+ * A value set the contract declares. Decoding is strict: an unknown value is
+ * reported with the raw string preserved rather than mapped onto a member,
+ * because the contract promises no set stays as it is — a value can be added,
+ * and one can be withdrawn for a weakness found later.
+ */
 enum class SpfnDeviceAuthPollStatus(val wireValue: String)
 {
     PENDING("pending"),
@@ -87,6 +111,30 @@ enum class SpfnDeviceAuthPollStatus(val wireValue: String)
             val raw = SpfnDecoding.string(canonical, path);
             return entries.firstOrNull { it.wireValue == raw }
                 ?: throw SpfnDecodingException("TYPE_MISMATCH", "$path is not a DeviceAuthPollStatus");
+        }
+    }
+}
+
+/**
+ * A value set the contract declares. Decoding is strict: an unknown value is
+ * reported with the raw string preserved rather than mapped onto a member,
+ * because the contract promises no set stays as it is — a value can be added,
+ * and one can be withdrawn for a weakness found later.
+ */
+enum class SpfnMfaMethod(val wireValue: String)
+{
+    TOTP("totp"),
+    PASSKEY("passkey");
+
+    fun canonicalValue(): SpfnCanonicalValue = SpfnCanonicalValue.Text(wireValue);
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnMfaMethod
+        {
+            val raw = SpfnDecoding.string(canonical, path);
+            return entries.firstOrNull { it.wireValue == raw }
+                ?: throw SpfnDecodingException("TYPE_MISMATCH", "$path is not a MfaMethod");
         }
     }
 }
@@ -511,11 +559,15 @@ data class SpfnLoginRequest(
 }
 
 data class SpfnLoginResponse(
-    val userId: String,
-    val publicId: String,
+    val mfaRequired: Boolean,
+    val challenge: SpfnMfaChallenge? = null,
+    val userId: String? = null,
+    val publicId: String? = null,
     val email: String? = null,
     val phone: String? = null,
-    val passwordChangeRequired: Boolean
+    val passwordChangeRequired: Boolean? = null,
+    val sessionBinding: SpfnKeyBinding? = null,
+    val keyExpiresAtMillis: Long? = null
 )
 {
     /**
@@ -526,8 +578,19 @@ data class SpfnLoginResponse(
     fun canonicalValue(): SpfnCanonicalValue
     {
         val members = LinkedHashMap<String, SpfnCanonicalValue>();
-        members["userId"] = SpfnCanonicalValue.Text(userId);
-        members["publicId"] = SpfnCanonicalValue.Text(publicId);
+        members["mfaRequired"] = SpfnCanonicalValue.Bool(mfaRequired);
+        if (challenge != null)
+        {
+            members["challenge"] = challenge.canonicalValue();
+        }
+        if (userId != null)
+        {
+            members["userId"] = SpfnCanonicalValue.Text(userId);
+        }
+        if (publicId != null)
+        {
+            members["publicId"] = SpfnCanonicalValue.Text(publicId);
+        }
         if (email != null)
         {
             members["email"] = SpfnCanonicalValue.Text(email);
@@ -536,7 +599,18 @@ data class SpfnLoginResponse(
         {
             members["phone"] = SpfnCanonicalValue.Text(phone);
         }
-        members["passwordChangeRequired"] = SpfnCanonicalValue.Bool(passwordChangeRequired);
+        if (passwordChangeRequired != null)
+        {
+            members["passwordChangeRequired"] = SpfnCanonicalValue.Bool(passwordChangeRequired);
+        }
+        if (sessionBinding != null)
+        {
+            members["sessionBinding"] = sessionBinding.canonicalValue();
+        }
+        if (keyExpiresAtMillis != null)
+        {
+            members["keyExpiresAtMillis"] = SpfnCanonicalValue.Integer(keyExpiresAtMillis);
+        }
         return SpfnCanonicalValue.Obj(members);
     }
 
@@ -546,11 +620,196 @@ data class SpfnLoginResponse(
         {
             val members = SpfnDecoding.obj(canonical, path);
             return SpfnLoginResponse(
-                userId = SpfnDecoding.string(members["userId"], "$path.userId"),
-                publicId = SpfnDecoding.string(members["publicId"], "$path.publicId"),
+                mfaRequired = SpfnDecoding.boolean(members["mfaRequired"], "$path.mfaRequired"),
+                challenge = members["challenge"]?.takeIf { it !is SpfnCanonicalValue.Null }?.let { SpfnMfaChallenge.decode(it, "$path.challenge") },
+                userId = SpfnDecoding.optionalString(members["userId"], "$path.userId"),
+                publicId = SpfnDecoding.optionalString(members["publicId"], "$path.publicId"),
                 email = SpfnDecoding.optionalString(members["email"], "$path.email"),
                 phone = SpfnDecoding.optionalString(members["phone"], "$path.phone"),
-                passwordChangeRequired = SpfnDecoding.boolean(members["passwordChangeRequired"], "$path.passwordChangeRequired")
+                passwordChangeRequired = SpfnDecoding.optionalBoolean(members["passwordChangeRequired"], "$path.passwordChangeRequired"),
+                sessionBinding = members["sessionBinding"]?.takeIf { it !is SpfnCanonicalValue.Null }?.let { SpfnKeyBinding.decode(it, "$path.sessionBinding") },
+                keyExpiresAtMillis = SpfnDecoding.optionalInteger(members["keyExpiresAtMillis"], "$path.keyExpiresAtMillis")
+            );
+        }
+    }
+}
+
+data class SpfnMfaChallenge(
+    val secret: String,
+    val expiresAtMillis: Long
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        members["secret"] = SpfnCanonicalValue.Text(secret);
+        members["expiresAtMillis"] = SpfnCanonicalValue.Integer(expiresAtMillis);
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnMfaChallenge
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnMfaChallenge(
+                secret = SpfnDecoding.string(members["secret"], "$path.secret"),
+                expiresAtMillis = SpfnDecoding.integer(members["expiresAtMillis"], "$path.expiresAtMillis")
+            );
+        }
+    }
+}
+
+data class SpfnMfaVerifyRequest(
+    val challenge: String,
+    val code: String? = null,
+    val recoveryCode: String? = null
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        members["challenge"] = SpfnCanonicalValue.Text(challenge);
+        if (code != null)
+        {
+            members["code"] = SpfnCanonicalValue.Text(code);
+        }
+        if (recoveryCode != null)
+        {
+            members["recoveryCode"] = SpfnCanonicalValue.Text(recoveryCode);
+        }
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnMfaVerifyRequest
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnMfaVerifyRequest(
+                challenge = SpfnDecoding.string(members["challenge"], "$path.challenge"),
+                code = SpfnDecoding.optionalString(members["code"], "$path.code"),
+                recoveryCode = SpfnDecoding.optionalString(members["recoveryCode"], "$path.recoveryCode")
+            );
+        }
+    }
+}
+
+data class SpfnMfaVerifyResponse(
+    val mfaRequired: Boolean,
+    val keyId: String,
+    val challengeHash: String,
+    val userId: String? = null,
+    val publicId: String? = null,
+    val email: String? = null,
+    val phone: String? = null,
+    val passwordChangeRequired: Boolean? = null,
+    val sessionBinding: SpfnKeyBinding? = null,
+    val keyExpiresAtMillis: Long? = null
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        members["mfaRequired"] = SpfnCanonicalValue.Bool(mfaRequired);
+        members["keyId"] = SpfnCanonicalValue.Text(keyId);
+        members["challengeHash"] = SpfnCanonicalValue.Text(challengeHash);
+        if (userId != null)
+        {
+            members["userId"] = SpfnCanonicalValue.Text(userId);
+        }
+        if (publicId != null)
+        {
+            members["publicId"] = SpfnCanonicalValue.Text(publicId);
+        }
+        if (email != null)
+        {
+            members["email"] = SpfnCanonicalValue.Text(email);
+        }
+        if (phone != null)
+        {
+            members["phone"] = SpfnCanonicalValue.Text(phone);
+        }
+        if (passwordChangeRequired != null)
+        {
+            members["passwordChangeRequired"] = SpfnCanonicalValue.Bool(passwordChangeRequired);
+        }
+        if (sessionBinding != null)
+        {
+            members["sessionBinding"] = sessionBinding.canonicalValue();
+        }
+        if (keyExpiresAtMillis != null)
+        {
+            members["keyExpiresAtMillis"] = SpfnCanonicalValue.Integer(keyExpiresAtMillis);
+        }
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnMfaVerifyResponse
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnMfaVerifyResponse(
+                mfaRequired = SpfnDecoding.boolean(members["mfaRequired"], "$path.mfaRequired"),
+                keyId = SpfnDecoding.string(members["keyId"], "$path.keyId"),
+                challengeHash = SpfnDecoding.string(members["challengeHash"], "$path.challengeHash"),
+                userId = SpfnDecoding.optionalString(members["userId"], "$path.userId"),
+                publicId = SpfnDecoding.optionalString(members["publicId"], "$path.publicId"),
+                email = SpfnDecoding.optionalString(members["email"], "$path.email"),
+                phone = SpfnDecoding.optionalString(members["phone"], "$path.phone"),
+                passwordChangeRequired = SpfnDecoding.optionalBoolean(members["passwordChangeRequired"], "$path.passwordChangeRequired"),
+                sessionBinding = members["sessionBinding"]?.takeIf { it !is SpfnCanonicalValue.Null }?.let { SpfnKeyBinding.decode(it, "$path.sessionBinding") },
+                keyExpiresAtMillis = SpfnDecoding.optionalInteger(members["keyExpiresAtMillis"], "$path.keyExpiresAtMillis")
+            );
+        }
+    }
+}
+
+data class SpfnMfaStatusResponse(
+    val enrolled: Boolean,
+    val methods: List<SpfnMfaMethod>,
+    val recoveryCodesRemaining: Long
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        members["enrolled"] = SpfnCanonicalValue.Bool(enrolled);
+        members["methods"] = SpfnCanonicalValue.Arr(methods.map { it.canonicalValue() });
+        members["recoveryCodesRemaining"] = SpfnCanonicalValue.Integer(recoveryCodesRemaining);
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnMfaStatusResponse
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnMfaStatusResponse(
+                enrolled = SpfnDecoding.boolean(members["enrolled"], "$path.enrolled"),
+                methods = SpfnDecoding.array(members["methods"], "$path.methods").map { SpfnMfaMethod.decode(it, "$path.methods") },
+                recoveryCodesRemaining = SpfnDecoding.integer(members["recoveryCodesRemaining"], "$path.recoveryCodesRemaining")
             );
         }
     }
@@ -606,9 +865,11 @@ data class SpfnOauthNativeRequest(
 }
 
 data class SpfnOauthNativeResponse(
-    val userId: String,
-    val keyId: String,
-    val isNewUser: Boolean
+    val mfaRequired: Boolean,
+    val challenge: SpfnMfaChallenge? = null,
+    val userId: String? = null,
+    val keyId: String? = null,
+    val isNewUser: Boolean? = null
 )
 {
     /**
@@ -619,9 +880,23 @@ data class SpfnOauthNativeResponse(
     fun canonicalValue(): SpfnCanonicalValue
     {
         val members = LinkedHashMap<String, SpfnCanonicalValue>();
-        members["userId"] = SpfnCanonicalValue.Text(userId);
-        members["keyId"] = SpfnCanonicalValue.Text(keyId);
-        members["isNewUser"] = SpfnCanonicalValue.Bool(isNewUser);
+        members["mfaRequired"] = SpfnCanonicalValue.Bool(mfaRequired);
+        if (challenge != null)
+        {
+            members["challenge"] = challenge.canonicalValue();
+        }
+        if (userId != null)
+        {
+            members["userId"] = SpfnCanonicalValue.Text(userId);
+        }
+        if (keyId != null)
+        {
+            members["keyId"] = SpfnCanonicalValue.Text(keyId);
+        }
+        if (isNewUser != null)
+        {
+            members["isNewUser"] = SpfnCanonicalValue.Bool(isNewUser);
+        }
         return SpfnCanonicalValue.Obj(members);
     }
 
@@ -631,9 +906,11 @@ data class SpfnOauthNativeResponse(
         {
             val members = SpfnDecoding.obj(canonical, path);
             return SpfnOauthNativeResponse(
-                userId = SpfnDecoding.string(members["userId"], "$path.userId"),
-                keyId = SpfnDecoding.string(members["keyId"], "$path.keyId"),
-                isNewUser = SpfnDecoding.boolean(members["isNewUser"], "$path.isNewUser")
+                mfaRequired = SpfnDecoding.boolean(members["mfaRequired"], "$path.mfaRequired"),
+                challenge = members["challenge"]?.takeIf { it !is SpfnCanonicalValue.Null }?.let { SpfnMfaChallenge.decode(it, "$path.challenge") },
+                userId = SpfnDecoding.optionalString(members["userId"], "$path.userId"),
+                keyId = SpfnDecoding.optionalString(members["keyId"], "$path.keyId"),
+                isNewUser = SpfnDecoding.optionalBoolean(members["isNewUser"], "$path.isNewUser")
             );
         }
     }
@@ -749,7 +1026,11 @@ data class SpfnKeySummary(
     val expiresAtMillis: Long? = null,
     val isExpired: Boolean,
     val isActive: Boolean,
-    val revokedAtMillis: Long? = null
+    val revokedAtMillis: Long? = null,
+    val registeredIp: String? = null,
+    val registeredUserAgent: String? = null,
+    val binding: SpfnKeyBinding? = null,
+    val concurrentUseAtMillis: Long? = null
 )
 {
     /**
@@ -786,6 +1067,22 @@ data class SpfnKeySummary(
         {
             members["revokedAtMillis"] = SpfnCanonicalValue.Integer(revokedAtMillis);
         }
+        if (registeredIp != null)
+        {
+            members["registeredIp"] = SpfnCanonicalValue.Text(registeredIp);
+        }
+        if (registeredUserAgent != null)
+        {
+            members["registeredUserAgent"] = SpfnCanonicalValue.Text(registeredUserAgent);
+        }
+        if (binding != null)
+        {
+            members["binding"] = binding.canonicalValue();
+        }
+        if (concurrentUseAtMillis != null)
+        {
+            members["concurrentUseAtMillis"] = SpfnCanonicalValue.Integer(concurrentUseAtMillis);
+        }
         return SpfnCanonicalValue.Obj(members);
     }
 
@@ -805,7 +1102,11 @@ data class SpfnKeySummary(
                 expiresAtMillis = SpfnDecoding.optionalInteger(members["expiresAtMillis"], "$path.expiresAtMillis"),
                 isExpired = SpfnDecoding.boolean(members["isExpired"], "$path.isExpired"),
                 isActive = SpfnDecoding.boolean(members["isActive"], "$path.isActive"),
-                revokedAtMillis = SpfnDecoding.optionalInteger(members["revokedAtMillis"], "$path.revokedAtMillis")
+                revokedAtMillis = SpfnDecoding.optionalInteger(members["revokedAtMillis"], "$path.revokedAtMillis"),
+                registeredIp = SpfnDecoding.optionalString(members["registeredIp"], "$path.registeredIp"),
+                registeredUserAgent = SpfnDecoding.optionalString(members["registeredUserAgent"], "$path.registeredUserAgent"),
+                binding = members["binding"]?.takeIf { it !is SpfnCanonicalValue.Null }?.let { SpfnKeyBinding.decode(it, "$path.binding") },
+                concurrentUseAtMillis = SpfnDecoding.optionalInteger(members["concurrentUseAtMillis"], "$path.concurrentUseAtMillis")
             );
         }
     }
@@ -1080,11 +1381,14 @@ data class SpfnPollDeviceAuthRequest(
 data class SpfnPollDeviceAuthResponse(
     val status: SpfnDeviceAuthPollStatus,
     val intervalMillis: Long? = null,
+    val mfaRequired: Boolean? = null,
     val userId: String? = null,
     val publicId: String? = null,
     val email: String? = null,
     val phone: String? = null,
-    val passwordChangeRequired: Boolean? = null
+    val passwordChangeRequired: Boolean? = null,
+    val sessionBinding: SpfnKeyBinding? = null,
+    val keyExpiresAtMillis: Long? = null
 )
 {
     /**
@@ -1099,6 +1403,10 @@ data class SpfnPollDeviceAuthResponse(
         if (intervalMillis != null)
         {
             members["intervalMillis"] = SpfnCanonicalValue.Integer(intervalMillis);
+        }
+        if (mfaRequired != null)
+        {
+            members["mfaRequired"] = SpfnCanonicalValue.Bool(mfaRequired);
         }
         if (userId != null)
         {
@@ -1120,6 +1428,14 @@ data class SpfnPollDeviceAuthResponse(
         {
             members["passwordChangeRequired"] = SpfnCanonicalValue.Bool(passwordChangeRequired);
         }
+        if (sessionBinding != null)
+        {
+            members["sessionBinding"] = sessionBinding.canonicalValue();
+        }
+        if (keyExpiresAtMillis != null)
+        {
+            members["keyExpiresAtMillis"] = SpfnCanonicalValue.Integer(keyExpiresAtMillis);
+        }
         return SpfnCanonicalValue.Obj(members);
     }
 
@@ -1131,11 +1447,14 @@ data class SpfnPollDeviceAuthResponse(
             return SpfnPollDeviceAuthResponse(
                 status = SpfnDeviceAuthPollStatus.decode(members["status"] ?: SpfnCanonicalValue.Null, "$path.status"),
                 intervalMillis = SpfnDecoding.optionalInteger(members["intervalMillis"], "$path.intervalMillis"),
+                mfaRequired = SpfnDecoding.optionalBoolean(members["mfaRequired"], "$path.mfaRequired"),
                 userId = SpfnDecoding.optionalString(members["userId"], "$path.userId"),
                 publicId = SpfnDecoding.optionalString(members["publicId"], "$path.publicId"),
                 email = SpfnDecoding.optionalString(members["email"], "$path.email"),
                 phone = SpfnDecoding.optionalString(members["phone"], "$path.phone"),
-                passwordChangeRequired = SpfnDecoding.optionalBoolean(members["passwordChangeRequired"], "$path.passwordChangeRequired")
+                passwordChangeRequired = SpfnDecoding.optionalBoolean(members["passwordChangeRequired"], "$path.passwordChangeRequired"),
+                sessionBinding = members["sessionBinding"]?.takeIf { it !is SpfnCanonicalValue.Null }?.let { SpfnKeyBinding.decode(it, "$path.sessionBinding") },
+                keyExpiresAtMillis = SpfnDecoding.optionalInteger(members["keyExpiresAtMillis"], "$path.keyExpiresAtMillis")
             );
         }
     }

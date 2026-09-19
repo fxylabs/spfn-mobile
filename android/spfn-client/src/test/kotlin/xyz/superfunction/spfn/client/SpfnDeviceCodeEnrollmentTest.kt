@@ -76,7 +76,7 @@ class SpfnDeviceCodeEnrollmentTest
     @Test
     fun d3_aSocialEnrollmentInFlightRefusesTheDeviceCodeCall() = runBlocking {
         val transport = ScriptedTransport(
-            listOf(answer("{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
+            listOf(answer("{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
         );
         val store = InMemoryKeyMetadataStore();
         val engine = scriptedEngine(testKeyPair(), testKeyPair());

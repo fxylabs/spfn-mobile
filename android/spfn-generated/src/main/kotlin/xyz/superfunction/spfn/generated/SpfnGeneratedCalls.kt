@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
-// contractVersion: 0.10.0
+// bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
+// contractVersion: 0.13.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -86,6 +86,22 @@ object SpfnGeneratedCalls
         operation = SpfnGeneratedOperations.authEnrollOauthNative,
         encode = { request -> request.canonicalValue() },
         decode = { value -> SpfnOauthNativeResponse.decode(value) }
+    )
+
+    /** Finishes a sign-in that answered mfaRequired by spending the challenge, which activates the key. */
+    @JvmField
+    val authMfaVerify: SpfnCall<SpfnMfaVerifyRequest, SpfnMfaVerifyResponse> = SpfnCall(
+        operation = SpfnGeneratedOperations.authMfaVerify,
+        encode = { request -> request.canonicalValue() },
+        decode = { value -> SpfnMfaVerifyResponse.decode(value) }
+    )
+
+    /** Reports whether the caller has a second factor, which methods, and how many recovery codes remain. */
+    @JvmField
+    val authMfaStatus: SpfnCall<Unit, SpfnMfaStatusResponse> = SpfnCall(
+        operation = SpfnGeneratedOperations.authMfaStatus,
+        encode = { _ -> SpfnCanonicalValue.Obj(emptyMap()) },
+        decode = { value -> SpfnMfaStatusResponse.decode(value) }
     )
 
     /** Replaces the authenticated key with a new client-generated public key before its TTL runs out. */
