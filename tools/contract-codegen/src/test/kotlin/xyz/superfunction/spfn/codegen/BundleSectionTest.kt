@@ -25,9 +25,9 @@ class BundleSectionTest
     private fun read(text: String): Bundle = Bundle.read(
         bundleText = text,
         sha256 = "unused-under-test",
-        supportedRange = ">=0.10.0 <0.11.0",
+        supportedRange = ">=0.13.0 <0.14.0",
         contractMajor = 0,
-        contractMinor = 10
+        contractMinor = 13
     )
 
     /** Renames one key so `required()` cannot find it, leaving the JSON well-formed. */
@@ -108,12 +108,12 @@ class BundleSectionTest
     }
 
     @Test
-    fun aNonClockOperationWithoutARequestTypeIsRefused()
+    fun aNonGetOperationWithoutARequestTypeIsRefused()
     {
         val marker = "      \"requestType\": \"HandshakeRequest\",\n";
         assertTrue(bundleText.contains(marker));
         assertRefusedSaying(
-            "non-clock requestType",
+            "non-GET requestType",
             bundleText.replace(marker, ""),
             "auth.clientProof.handshake"
         );
@@ -337,7 +337,7 @@ class BundleSectionTest
         val swift = swiftCalls(bundle);
         val kotlin = kotlinCalls(bundle);
 
-        assertEquals(16, bundle.operations.size);
+        assertEquals(18, bundle.operations.size);
         bundle.operations.forEach { operation ->
             val name = Names.lowerCamel(operation.id);
             assertEquals(
@@ -366,8 +366,8 @@ class BundleSectionTest
 
         // Nothing beyond the contract. A descriptor for an operation the bundle does not
         // declare would pass every assertion above.
-        assertEquals(16, Regex("public static let \\w+:").findAll(swift).count());
-        assertEquals(16, Regex("\n    val \\w+:").findAll(kotlin).count());
+        assertEquals(18, Regex("public static let \\w+:").findAll(swift).count());
+        assertEquals(18, Regex("\n    val \\w+:").findAll(kotlin).count());
     }
 
     /**
@@ -416,48 +416,29 @@ class BundleSectionTest
         assertEquals(1, Regex("SpfnCall\\.noResponse\\(").findAll(kotlin).count());
     }
 
-    /**
-     * The clock operation is the one the contract gives no `requestType`. Its descriptor
-     * carries the no-request representation — `Void` / `Unit` — because the caller that
-     * sends it today (`SPFNProcessServerClock` / `SpfnProcessServerClock`) sends no
-     * request value at all.
-     */
+    /** The two requestless GETs use Void / Unit and encode no query fields. */
     @Test
-    fun theRequestlessOperationIsEmittedWithTheNoRequestRepresentation()
+    fun requestlessGetsAreEmittedWithTheNoRequestRepresentation()
     {
         val bundle = read(bundleText);
-        val requestless = bundle.operations.single { it.requestType == null };
-        assertEquals("core.time", requestless.id);
-        val name = Names.lowerCamel(requestless.id);
-        val swiftResponse = Names.swiftType(requestless.responseType!!);
-        val kotlinResponse = Names.kotlinType(requestless.responseType!!);
-
+        val requestless = bundle.operations.filter { it.requestType == null };
+        assertEquals(setOf("core.time", "auth.mfa.status"), requestless.map { it.id }.toSet());
         val swift = swiftCalls(bundle);
-        val swiftBlock = descriptorBlock(swift, "public static let $name:");
-        assertTrue(
-            "the Swift requestless descriptor does not carry Void",
-            swiftBlock.startsWith(" SPFNCall<Void, $swiftResponse> = SPFNCall(")
-        );
-        assertTrue(
-            "the Swift requestless descriptor does not encode an empty canonical object",
-            swiftBlock.contains("encode: { _ in SPFNCanonicalValue.object([:]) },")
-        );
-        // Only that one. Every other operation names a request type the bundle declares,
-        // and an emitter that read a missing key as "no request" everywhere would put a
-        // second Void descriptor in the file.
-        assertEquals(1, Regex("SPFNCall<Void, ").findAll(swift).count());
-
         val kotlin = kotlinCalls(bundle);
-        val kotlinBlock = descriptorBlock(kotlin, "\n    val $name:");
-        assertTrue(
-            "the Kotlin requestless descriptor does not carry Unit",
-            kotlinBlock.startsWith(" SpfnCall<Unit, $kotlinResponse> = SpfnCall(")
-        );
-        assertTrue(
-            "the Kotlin requestless descriptor does not encode an empty canonical object",
-            kotlinBlock.contains("encode = { _ -> SpfnCanonicalValue.Obj(emptyMap()) },")
-        );
-        assertEquals(1, Regex("SpfnCall<Unit, ").findAll(kotlin).count());
+        requestless.forEach { operation ->
+            assertEquals("GET", operation.method);
+            val name = Names.lowerCamel(operation.id);
+            val swiftResponse = Names.swiftType(operation.responseType!!);
+            val kotlinResponse = Names.kotlinType(operation.responseType!!);
+            val swiftBlock = descriptorBlock(swift, "public static let $name:");
+            assertTrue(swiftBlock.startsWith(" SPFNCall<Void, $swiftResponse> = SPFNCall("));
+            assertTrue(swiftBlock.contains("encode: { _ in SPFNCanonicalValue.object([:]) },"));
+            val kotlinBlock = descriptorBlock(kotlin, "\n    val $name:");
+            assertTrue(kotlinBlock.startsWith(" SpfnCall<Unit, $kotlinResponse> = SpfnCall("));
+            assertTrue(kotlinBlock.contains("encode = { _ -> SpfnCanonicalValue.Obj(emptyMap()) },"));
+        };
+        assertEquals(2, Regex("SPFNCall<Void, ").findAll(swift).count());
+        assertEquals(2, Regex("SpfnCall<Unit, ").findAll(kotlin).count());
     }
 
     @Test

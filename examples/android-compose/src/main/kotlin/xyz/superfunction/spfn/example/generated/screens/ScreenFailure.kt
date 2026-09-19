@@ -2,9 +2,9 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-alpha.3
 // spec:            examples/ui-spec
-// specSha256:      b38692ad8d0c5d15f156188561a68042de8ac80f22eb4491a7f84f91c2c3f830
-// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
-// contractVersion: 0.10.0
+// specSha256:      69fbbe100243bdb7d7c98ea11feae130988cff28c517c37bc9bb6942b05023e6
+// bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
+// contractVersion: 0.13.0
 //
 // Regenerate with: ./gradlew :ui-codegen:spfnGenerateUi
 // Verified by:     ./gradlew :ui-codegen:spfnUiVerify
@@ -73,7 +73,7 @@ object ScreenFailure
     {
         VALIDATION -> VALIDATION_KEY
         CALL_FAILED -> NETWORK_KEY
-        "InvalidSocialTokenError", "PROOF_EXPIRED", "PROOF_INVALID", "PROOF_REPLAYED", "SESSION_REVOKED" -> UNAUTHORIZED_KEY
+        "InvalidSocialTokenError", "MfaVerificationFailedError", "PROOF_EXPIRED", "PROOF_INVALID", "PROOF_REPLAYED", "SESSION_REVOKED" -> UNAUTHORIZED_KEY
         "DeviceAuthNotFoundError" -> DEVICE_NOT_FOUND_KEY
         else -> UNEXPECTED_KEY
     };
