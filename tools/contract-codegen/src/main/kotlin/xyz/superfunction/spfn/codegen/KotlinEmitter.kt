@@ -290,7 +290,7 @@ object KotlinEmitter
      * A bodyless operation goes through `noResponse` rather than being handed a decoder
      * written here: the factory is where "there is nothing to decode" is written down
      * once, and a generated copy of that lambda would be one more place for it to drift.
-     * An operation the contract gives no `requestType` — the clock's — carries `Unit`,
+     * A GET the contract gives no `requestType` carries `Unit`,
      * because the caller that sends it today sends no request value at all.
      */
     private fun kotlinCall(operation: Operation): String

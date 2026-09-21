@@ -27,14 +27,14 @@ final class SPFNKeyLifecycleTests: XCTestCase
 
     // MARK: - M1 + M2: enrollment sends the fixture bytes and persists the identity
 
-    func testEnrollSendsTheExactFixtureBytesAndPersistsTheIdentity() async throws
+    func testE1_enrollSendsTheExactFixtureBytesAndPersistsTheIdentity() async throws
     {
         let fixture = try enrollmentFixture()
         let oauthNative = try fixture["oauthNative"].orFail("oauthNative").object()
         let value = try oauthNative["value"].orFail("value").object()
 
         let transport = ScriptedTransport([
-            .success(.json(200, "{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}")),
+            .success(.json(200, "{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}")),
         ])
         let store = InMemoryKeyStore()
         let lifecycle = try makeLifecycle(transport, store: store, keys: [try testKey()], keyIDs: ["key-test-0001"])
@@ -74,6 +74,73 @@ final class SPFNKeyLifecycleTests: XCTestCase
         XCTAssertEqual(provider.keyID, "key-test-0001")
         let state = try await lifecycle.state()
         XCTAssertEqual(state, .enrolled)
+
+        // The optional flag defaults to false. A challenge alongside mfaRequired=false
+        // does not change the branch: only the discriminant decides enrollment.
+        let returningTransport = ScriptedTransport([
+            .success(.json(200, """
+            {"mfaRequired":false,"keyId":"key-test-0001","userId":"user-test-0001",\
+            "challenge":{"secret":"unused-challenge","expiresAtMillis":1750000060000}}
+            """)),
+        ])
+        let returningStore = InMemoryKeyStore()
+        let returning = try makeLifecycle(returningTransport, store: returningStore, keys: [try testKey()], keyIDs: ["key-test-0001"])
+        let returningResult = try await returning.enroll(provider: "google") { _ in "idtoken-test" }
+        XCTAssertEqual(returningResult, SPFNEnrollmentResult(clientID: "user-test-0001", keyID: "key-test-0001", isNewUser: false))
+        XCTAssertEqual(returningStore.loadSync(SPFNKeyLifecycle.activeSlot)?.keyID, "key-test-0001")
+    }
+
+    func testE2_successNamingAnotherKeyIsRefusedAndStoresNothing() async throws
+    {
+        let transport = ScriptedTransport([
+            .success(.json(200, """
+            {"mfaRequired":false,"keyId":"key-other-9999","userId":"user-test-0001"}
+            """)),
+        ])
+        let store = InMemoryKeyStore()
+        let lifecycle = try makeLifecycle(transport, store: store, keys: [try testKey()], keyIDs: ["key-test-0001"])
+        let thrown = await failure { _ = try await lifecycle.enroll(provider: "google") { _ in "idtoken-test" } }
+        XCTAssertEqual(thrown as? SPFNKeyLifecycleError, .serverNamedAnotherKey(sent: "key-test-0001", received: "key-other-9999"))
+        try await assertEnrollmentDiscarded(lifecycle, store: store)
+    }
+
+    func testE3_missingEnrollmentIdentityIsRefusedAndStoresNothing() async throws
+    {
+        for body in [
+            "{\"mfaRequired\":false,\"keyId\":\"key-test-0001\"}",
+            "{\"mfaRequired\":false,\"userId\":\"user-test-0001\"}",
+        ]
+        {
+            let transport = ScriptedTransport([.success(.json(200, body))])
+            let store = InMemoryKeyStore()
+            let lifecycle = try makeLifecycle(transport, store: store, keys: [try testKey()], keyIDs: ["key-test-0001"])
+            let thrown = await failure { _ = try await lifecycle.enroll(provider: "google") { _ in "idtoken-test" } }
+            XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notTheDeclaredResponse, onSuccessStatus: true))
+            try await assertEnrollmentDiscarded(lifecycle, store: store)
+        }
+    }
+
+    func testE4_secondFactorIsExplicitlyRefusedAndStoresNothing() async throws
+    {
+        for body in [
+            "{\"mfaRequired\":true}",
+            """
+            {"mfaRequired":true,"challenge":{"secret":"private-challenge","expiresAtMillis":1750000060000}}
+            """,
+            """
+            {"mfaRequired":true,"keyId":"key-test-0001","userId":"user-test-0001","isNewUser":true}
+            """,
+        ]
+        {
+            let transport = ScriptedTransport([.success(.json(202, body))])
+            let store = InMemoryKeyStore()
+            let lifecycle = try makeLifecycle(transport, store: store, keys: [try testKey()], keyIDs: ["key-test-0001"])
+            let thrown = await failure { _ = try await lifecycle.enroll(provider: "google") { _ in "idtoken-test" } }
+            XCTAssertEqual(thrown as? SPFNKeyLifecycleError, .secondFactorRequired)
+            XCTAssertEqual(thrown?.localizedDescription, "this SDK version does not finish a second-factor sign-in")
+            XCTAssertFalse(String(describing: thrown).contains("private-challenge"))
+            try await assertEnrollmentDiscarded(lifecycle, store: store)
+        }
     }
 
     /// The fingerprint the flow computes must be the fixture's own derivation of the
@@ -96,22 +163,45 @@ final class SPFNKeyLifecycleTests: XCTestCase
 
     // MARK: - M3: a failed enrollment leaves no orphan
 
-    func testAFailedEnrollmentDestroysTheGeneratedKey() async throws
+    func testE5_failedEnrollmentPreservesTheErrorAndDestroysTheKey() async throws
     {
-        let transport = ScriptedTransport([
+        let outcomes: [Result<SPFNTransportResponse, any Error>] = [
             .success(.json(409, ExecuteFixtures.errorEnvelope(code: "CONTRACT_UNSUPPORTED"))),
-        ])
-        let store = InMemoryKeyStore()
-        let lifecycle = try makeLifecycle(transport, store: store, keys: [try testKey()], keyIDs: ["key-test-0001"])
-
-        let thrown = await failure
+            .success(.json(500, ExecuteFixtures.errorEnvelope(code: "Error"))),
+            .failure(SPFNTransportError.timedOut),
+            .success(.json(200, "{}")),
+            .success(.json(200, "not-json")),
+        ]
+        for (index, outcome) in outcomes.enumerated()
         {
-            _ = try await lifecycle.enroll(provider: "google") { _ in "idtoken-test" }
+            let transport = ScriptedTransport([outcome])
+            let store = InMemoryKeyStore()
+            let lifecycle = try makeLifecycle(transport, store: store, keys: [try testKey()], keyIDs: ["key-test-0001"])
+            let thrown = await failure { _ = try await lifecycle.enroll(provider: "google") { _ in "idtoken-test" } }
+            switch index
+            {
+            case 0, 1:
+                guard case .server(let serverFailure) = thrown as? SPFNClientError
+                else { return XCTFail("expected the server error, got \(String(describing: thrown))") }
+                XCTAssertEqual(serverFailure.httpStatus, index == 0 ? 409 : 500)
+                XCTAssertEqual(serverFailure.code.rawValue, index == 0 ? "CONTRACT_UNSUPPORTED" : "Error")
+            case 2:
+                XCTAssertEqual(thrown as? SPFNClientError, .transport(.timedOut))
+            case 3:
+                XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notTheDeclaredResponse, onSuccessStatus: true))
+            default:
+                XCTAssertEqual(thrown as? SPFNClientError, .decoding(.notCanonicalJSON, onSuccessStatus: true))
+            }
+            try await assertEnrollmentDiscarded(lifecycle, store: store)
         }
+    }
 
-        XCTAssertNotNil(thrown)
-        XCTAssertNil(store.loadSync(SPFNKeyLifecycle.activeSlot), "nothing was persisted for a refused enrollment")
+    private func assertEnrollmentDiscarded(_ lifecycle: SPFNKeyLifecycle, store: InMemoryKeyStore) async throws
+    {
+        XCTAssertNil(store.loadSync(SPFNKeyLifecycle.activeSlot))
         XCTAssertNil(store.loadSync(SPFNKeyLifecycle.candidateSlot))
+        let provider = try await lifecycle.activeProvider()
+        XCTAssertNil(provider)
         let state = try await lifecycle.state()
         XCTAssertEqual(state, .unenrolled)
     }
@@ -244,7 +334,7 @@ final class SPFNKeyLifecycleTests: XCTestCase
         let store = InMemoryKeyStore()
         let lifecycle = SPFNKeyLifecycle(
             transport: ScriptedTransport([
-                .success(.json(200, "{\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}")),
+                .success(.json(200, "{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}")),
             ]),
             store: store,
             baseURL: baseURL,

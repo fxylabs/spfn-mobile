@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
-// contractVersion: 0.10.0
+// bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
+// contractVersion: 0.13.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -71,6 +71,32 @@ public enum SPFNKeyPlatform: String, CaseIterable, Sendable
 /// reported with the raw string preserved rather than mapped onto a member,
 /// because the contract promises no set stays as it is — a value can be added,
 /// and one can be withdrawn for a weakness found later.
+public enum SPFNKeyBinding: String, CaseIterable, Sendable
+{
+    case none = "none"
+    case passkey = "passkey"
+
+    public var canonicalValue: SPFNCanonicalValue
+    {
+        .string(rawValue)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let raw = try SPFNDecoding.string(canonical, at: path)
+        guard let value = SPFNKeyBinding(rawValue: raw)
+        else
+        {
+            throw SPFNDecodingError.typeMismatch(path: path, expected: "KeyBinding")
+        }
+        self = value
+    }
+}
+
+/// A value set the contract declares. Decoding is strict: an unknown value is
+/// reported with the raw string preserved rather than mapped onto a member,
+/// because the contract promises no set stays as it is — a value can be added,
+/// and one can be withdrawn for a weakness found later.
 public enum SPFNDeviceAuthPollStatus: String, CaseIterable, Sendable
 {
     case pending = "pending"
@@ -88,6 +114,32 @@ public enum SPFNDeviceAuthPollStatus: String, CaseIterable, Sendable
         else
         {
             throw SPFNDecodingError.typeMismatch(path: path, expected: "DeviceAuthPollStatus")
+        }
+        self = value
+    }
+}
+
+/// A value set the contract declares. Decoding is strict: an unknown value is
+/// reported with the raw string preserved rather than mapped onto a member,
+/// because the contract promises no set stays as it is — a value can be added,
+/// and one can be withdrawn for a weakness found later.
+public enum SPFNMfaMethod: String, CaseIterable, Sendable
+{
+    case totp = "totp"
+    case passkey = "passkey"
+
+    public var canonicalValue: SPFNCanonicalValue
+    {
+        .string(rawValue)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let raw = try SPFNDecoding.string(canonical, at: path)
+        guard let value = SPFNMfaMethod(rawValue: raw)
+        else
+        {
+            throw SPFNDecodingError.typeMismatch(path: path, expected: "MfaMethod")
         }
         self = value
     }
@@ -614,25 +666,37 @@ public struct SPFNLoginRequest: Equatable, Sendable
 
 public struct SPFNLoginResponse: Equatable, Sendable
 {
-    public var userId: String
-    public var publicId: String
+    public var mfaRequired: Bool
+    public var challenge: SPFNMfaChallenge?
+    public var userId: String?
+    public var publicId: String?
     public var email: String?
     public var phone: String?
-    public var passwordChangeRequired: Bool
+    public var passwordChangeRequired: Bool?
+    public var sessionBinding: SPFNKeyBinding?
+    public var keyExpiresAtMillis: Int64?
 
     public init(
-        userId: String,
-        publicId: String,
+        mfaRequired: Bool,
+        challenge: SPFNMfaChallenge? = nil,
+        userId: String? = nil,
+        publicId: String? = nil,
         email: String? = nil,
         phone: String? = nil,
-        passwordChangeRequired: Bool
+        passwordChangeRequired: Bool? = nil,
+        sessionBinding: SPFNKeyBinding? = nil,
+        keyExpiresAtMillis: Int64? = nil
     )
     {
+        self.mfaRequired = mfaRequired
+        self.challenge = challenge
         self.userId = userId
         self.publicId = publicId
         self.email = email
         self.phone = phone
         self.passwordChangeRequired = passwordChangeRequired
+        self.sessionBinding = sessionBinding
+        self.keyExpiresAtMillis = keyExpiresAtMillis
     }
 
     /// The canonical form of this value. An absent optional field is omitted,
@@ -645,8 +709,19 @@ public struct SPFNLoginResponse: Equatable, Sendable
     public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
-        members["userId"] = .string(userId)
-        members["publicId"] = .string(publicId)
+        members["mfaRequired"] = .bool(mfaRequired)
+        if let challenge
+        {
+            members["challenge"] = try challenge.canonicalValue()
+        }
+        if let userId
+        {
+            members["userId"] = .string(userId)
+        }
+        if let publicId
+        {
+            members["publicId"] = .string(publicId)
+        }
         if let email
         {
             members["email"] = .string(email)
@@ -655,18 +730,258 @@ public struct SPFNLoginResponse: Equatable, Sendable
         {
             members["phone"] = .string(phone)
         }
-        members["passwordChangeRequired"] = .bool(passwordChangeRequired)
+        if let passwordChangeRequired
+        {
+            members["passwordChangeRequired"] = .bool(passwordChangeRequired)
+        }
+        if let sessionBinding
+        {
+            members["sessionBinding"] = sessionBinding.canonicalValue
+        }
+        if let keyExpiresAtMillis
+        {
+            members["keyExpiresAtMillis"] = .integer(keyExpiresAtMillis)
+        }
         return .object(members)
     }
 
     public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
     {
         let members = try SPFNDecoding.object(canonical, at: path)
-        self.userId = try SPFNDecoding.string(members["userId"], at: "\(path).userId")
-        self.publicId = try SPFNDecoding.string(members["publicId"], at: "\(path).publicId")
+        self.mfaRequired = try SPFNDecoding.boolean(members["mfaRequired"], at: "\(path).mfaRequired")
+        self.challenge = try members["challenge"].flatMap { $0 == .null ? nil : $0 }.map { try SPFNMfaChallenge(canonical: $0, at: "\(path).challenge") }
+        self.userId = try SPFNDecoding.optionalString(members["userId"], at: "\(path).userId")
+        self.publicId = try SPFNDecoding.optionalString(members["publicId"], at: "\(path).publicId")
         self.email = try SPFNDecoding.optionalString(members["email"], at: "\(path).email")
         self.phone = try SPFNDecoding.optionalString(members["phone"], at: "\(path).phone")
-        self.passwordChangeRequired = try SPFNDecoding.boolean(members["passwordChangeRequired"], at: "\(path).passwordChangeRequired")
+        self.passwordChangeRequired = try SPFNDecoding.optionalBoolean(members["passwordChangeRequired"], at: "\(path).passwordChangeRequired")
+        self.sessionBinding = try members["sessionBinding"].flatMap { $0 == .null ? nil : $0 }.map { try SPFNKeyBinding(canonical: $0, at: "\(path).sessionBinding") }
+        self.keyExpiresAtMillis = try SPFNDecoding.optionalInteger(members["keyExpiresAtMillis"], at: "\(path).keyExpiresAtMillis")
+    }
+}
+
+public struct SPFNMfaChallenge: Equatable, Sendable
+{
+    public var secret: String
+    public var expiresAtMillis: Int64
+
+    public init(
+        secret: String,
+        expiresAtMillis: Int64
+    )
+    {
+        self.secret = secret
+        self.expiresAtMillis = expiresAtMillis
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["secret"] = .string(secret)
+        members["expiresAtMillis"] = .integer(expiresAtMillis)
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.secret = try SPFNDecoding.string(members["secret"], at: "\(path).secret")
+        self.expiresAtMillis = try SPFNDecoding.integer(members["expiresAtMillis"], at: "\(path).expiresAtMillis")
+    }
+}
+
+public struct SPFNMfaVerifyRequest: Equatable, Sendable
+{
+    public var challenge: String
+    public var code: String?
+    public var recoveryCode: String?
+
+    public init(
+        challenge: String,
+        code: String? = nil,
+        recoveryCode: String? = nil
+    )
+    {
+        self.challenge = challenge
+        self.code = code
+        self.recoveryCode = recoveryCode
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["challenge"] = .string(challenge)
+        if let code
+        {
+            members["code"] = .string(code)
+        }
+        if let recoveryCode
+        {
+            members["recoveryCode"] = .string(recoveryCode)
+        }
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.challenge = try SPFNDecoding.string(members["challenge"], at: "\(path).challenge")
+        self.code = try SPFNDecoding.optionalString(members["code"], at: "\(path).code")
+        self.recoveryCode = try SPFNDecoding.optionalString(members["recoveryCode"], at: "\(path).recoveryCode")
+    }
+}
+
+public struct SPFNMfaVerifyResponse: Equatable, Sendable
+{
+    public var mfaRequired: Bool
+    public var keyId: String
+    public var challengeHash: String
+    public var userId: String?
+    public var publicId: String?
+    public var email: String?
+    public var phone: String?
+    public var passwordChangeRequired: Bool?
+    public var sessionBinding: SPFNKeyBinding?
+    public var keyExpiresAtMillis: Int64?
+
+    public init(
+        mfaRequired: Bool,
+        keyId: String,
+        challengeHash: String,
+        userId: String? = nil,
+        publicId: String? = nil,
+        email: String? = nil,
+        phone: String? = nil,
+        passwordChangeRequired: Bool? = nil,
+        sessionBinding: SPFNKeyBinding? = nil,
+        keyExpiresAtMillis: Int64? = nil
+    )
+    {
+        self.mfaRequired = mfaRequired
+        self.keyId = keyId
+        self.challengeHash = challengeHash
+        self.userId = userId
+        self.publicId = publicId
+        self.email = email
+        self.phone = phone
+        self.passwordChangeRequired = passwordChangeRequired
+        self.sessionBinding = sessionBinding
+        self.keyExpiresAtMillis = keyExpiresAtMillis
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["mfaRequired"] = .bool(mfaRequired)
+        members["keyId"] = .string(keyId)
+        members["challengeHash"] = .string(challengeHash)
+        if let userId
+        {
+            members["userId"] = .string(userId)
+        }
+        if let publicId
+        {
+            members["publicId"] = .string(publicId)
+        }
+        if let email
+        {
+            members["email"] = .string(email)
+        }
+        if let phone
+        {
+            members["phone"] = .string(phone)
+        }
+        if let passwordChangeRequired
+        {
+            members["passwordChangeRequired"] = .bool(passwordChangeRequired)
+        }
+        if let sessionBinding
+        {
+            members["sessionBinding"] = sessionBinding.canonicalValue
+        }
+        if let keyExpiresAtMillis
+        {
+            members["keyExpiresAtMillis"] = .integer(keyExpiresAtMillis)
+        }
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.mfaRequired = try SPFNDecoding.boolean(members["mfaRequired"], at: "\(path).mfaRequired")
+        self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
+        self.challengeHash = try SPFNDecoding.string(members["challengeHash"], at: "\(path).challengeHash")
+        self.userId = try SPFNDecoding.optionalString(members["userId"], at: "\(path).userId")
+        self.publicId = try SPFNDecoding.optionalString(members["publicId"], at: "\(path).publicId")
+        self.email = try SPFNDecoding.optionalString(members["email"], at: "\(path).email")
+        self.phone = try SPFNDecoding.optionalString(members["phone"], at: "\(path).phone")
+        self.passwordChangeRequired = try SPFNDecoding.optionalBoolean(members["passwordChangeRequired"], at: "\(path).passwordChangeRequired")
+        self.sessionBinding = try members["sessionBinding"].flatMap { $0 == .null ? nil : $0 }.map { try SPFNKeyBinding(canonical: $0, at: "\(path).sessionBinding") }
+        self.keyExpiresAtMillis = try SPFNDecoding.optionalInteger(members["keyExpiresAtMillis"], at: "\(path).keyExpiresAtMillis")
+    }
+}
+
+public struct SPFNMfaStatusResponse: Equatable, Sendable
+{
+    public var enrolled: Bool
+    public var methods: [SPFNMfaMethod]
+    public var recoveryCodesRemaining: Int64
+
+    public init(
+        enrolled: Bool,
+        methods: [SPFNMfaMethod],
+        recoveryCodesRemaining: Int64
+    )
+    {
+        self.enrolled = enrolled
+        self.methods = methods
+        self.recoveryCodesRemaining = recoveryCodesRemaining
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        members["enrolled"] = .bool(enrolled)
+        members["methods"] = .array(methods.map { $0.canonicalValue })
+        members["recoveryCodesRemaining"] = .integer(recoveryCodesRemaining)
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.enrolled = try SPFNDecoding.boolean(members["enrolled"], at: "\(path).enrolled")
+        self.methods = try SPFNDecoding.array(members["methods"], at: "\(path).methods").map { try SPFNMfaMethod(canonical: $0, at: "\(path).methods") }
+        self.recoveryCodesRemaining = try SPFNDecoding.integer(members["recoveryCodesRemaining"], at: "\(path).recoveryCodesRemaining")
     }
 }
 
@@ -737,16 +1052,22 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
 
 public struct SPFNOauthNativeResponse: Equatable, Sendable
 {
-    public var userId: String
-    public var keyId: String
-    public var isNewUser: Bool
+    public var mfaRequired: Bool
+    public var challenge: SPFNMfaChallenge?
+    public var userId: String?
+    public var keyId: String?
+    public var isNewUser: Bool?
 
     public init(
-        userId: String,
-        keyId: String,
-        isNewUser: Bool
+        mfaRequired: Bool,
+        challenge: SPFNMfaChallenge? = nil,
+        userId: String? = nil,
+        keyId: String? = nil,
+        isNewUser: Bool? = nil
     )
     {
+        self.mfaRequired = mfaRequired
+        self.challenge = challenge
         self.userId = userId
         self.keyId = keyId
         self.isNewUser = isNewUser
@@ -762,18 +1083,34 @@ public struct SPFNOauthNativeResponse: Equatable, Sendable
     public func canonicalValue() throws -> SPFNCanonicalValue
     {
         var members: [String: SPFNCanonicalValue] = [:]
-        members["userId"] = .string(userId)
-        members["keyId"] = .string(keyId)
-        members["isNewUser"] = .bool(isNewUser)
+        members["mfaRequired"] = .bool(mfaRequired)
+        if let challenge
+        {
+            members["challenge"] = try challenge.canonicalValue()
+        }
+        if let userId
+        {
+            members["userId"] = .string(userId)
+        }
+        if let keyId
+        {
+            members["keyId"] = .string(keyId)
+        }
+        if let isNewUser
+        {
+            members["isNewUser"] = .bool(isNewUser)
+        }
         return .object(members)
     }
 
     public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
     {
         let members = try SPFNDecoding.object(canonical, at: path)
-        self.userId = try SPFNDecoding.string(members["userId"], at: "\(path).userId")
-        self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
-        self.isNewUser = try SPFNDecoding.boolean(members["isNewUser"], at: "\(path).isNewUser")
+        self.mfaRequired = try SPFNDecoding.boolean(members["mfaRequired"], at: "\(path).mfaRequired")
+        self.challenge = try members["challenge"].flatMap { $0 == .null ? nil : $0 }.map { try SPFNMfaChallenge(canonical: $0, at: "\(path).challenge") }
+        self.userId = try SPFNDecoding.optionalString(members["userId"], at: "\(path).userId")
+        self.keyId = try SPFNDecoding.optionalString(members["keyId"], at: "\(path).keyId")
+        self.isNewUser = try SPFNDecoding.optionalBoolean(members["isNewUser"], at: "\(path).isNewUser")
     }
 }
 
@@ -909,6 +1246,10 @@ public struct SPFNKeySummary: Equatable, Sendable
     public var isExpired: Bool
     public var isActive: Bool
     public var revokedAtMillis: Int64?
+    public var registeredIp: String?
+    public var registeredUserAgent: String?
+    public var binding: SPFNKeyBinding?
+    public var concurrentUseAtMillis: Int64?
 
     public init(
         keyId: String,
@@ -921,7 +1262,11 @@ public struct SPFNKeySummary: Equatable, Sendable
         expiresAtMillis: Int64? = nil,
         isExpired: Bool,
         isActive: Bool,
-        revokedAtMillis: Int64? = nil
+        revokedAtMillis: Int64? = nil,
+        registeredIp: String? = nil,
+        registeredUserAgent: String? = nil,
+        binding: SPFNKeyBinding? = nil,
+        concurrentUseAtMillis: Int64? = nil
     )
     {
         self.keyId = keyId
@@ -935,6 +1280,10 @@ public struct SPFNKeySummary: Equatable, Sendable
         self.isExpired = isExpired
         self.isActive = isActive
         self.revokedAtMillis = revokedAtMillis
+        self.registeredIp = registeredIp
+        self.registeredUserAgent = registeredUserAgent
+        self.binding = binding
+        self.concurrentUseAtMillis = concurrentUseAtMillis
     }
 
     /// The canonical form of this value. An absent optional field is omitted,
@@ -973,6 +1322,22 @@ public struct SPFNKeySummary: Equatable, Sendable
         {
             members["revokedAtMillis"] = .integer(revokedAtMillis)
         }
+        if let registeredIp
+        {
+            members["registeredIp"] = .string(registeredIp)
+        }
+        if let registeredUserAgent
+        {
+            members["registeredUserAgent"] = .string(registeredUserAgent)
+        }
+        if let binding
+        {
+            members["binding"] = binding.canonicalValue
+        }
+        if let concurrentUseAtMillis
+        {
+            members["concurrentUseAtMillis"] = .integer(concurrentUseAtMillis)
+        }
         return .object(members)
     }
 
@@ -990,6 +1355,10 @@ public struct SPFNKeySummary: Equatable, Sendable
         self.isExpired = try SPFNDecoding.boolean(members["isExpired"], at: "\(path).isExpired")
         self.isActive = try SPFNDecoding.boolean(members["isActive"], at: "\(path).isActive")
         self.revokedAtMillis = try SPFNDecoding.optionalInteger(members["revokedAtMillis"], at: "\(path).revokedAtMillis")
+        self.registeredIp = try SPFNDecoding.optionalString(members["registeredIp"], at: "\(path).registeredIp")
+        self.registeredUserAgent = try SPFNDecoding.optionalString(members["registeredUserAgent"], at: "\(path).registeredUserAgent")
+        self.binding = try members["binding"].flatMap { $0 == .null ? nil : $0 }.map { try SPFNKeyBinding(canonical: $0, at: "\(path).binding") }
+        self.concurrentUseAtMillis = try SPFNDecoding.optionalInteger(members["concurrentUseAtMillis"], at: "\(path).concurrentUseAtMillis")
     }
 }
 
@@ -1315,29 +1684,38 @@ public struct SPFNPollDeviceAuthResponse: Equatable, Sendable
 {
     public var status: SPFNDeviceAuthPollStatus
     public var intervalMillis: Int64?
+    public var mfaRequired: Bool?
     public var userId: String?
     public var publicId: String?
     public var email: String?
     public var phone: String?
     public var passwordChangeRequired: Bool?
+    public var sessionBinding: SPFNKeyBinding?
+    public var keyExpiresAtMillis: Int64?
 
     public init(
         status: SPFNDeviceAuthPollStatus,
         intervalMillis: Int64? = nil,
+        mfaRequired: Bool? = nil,
         userId: String? = nil,
         publicId: String? = nil,
         email: String? = nil,
         phone: String? = nil,
-        passwordChangeRequired: Bool? = nil
+        passwordChangeRequired: Bool? = nil,
+        sessionBinding: SPFNKeyBinding? = nil,
+        keyExpiresAtMillis: Int64? = nil
     )
     {
         self.status = status
         self.intervalMillis = intervalMillis
+        self.mfaRequired = mfaRequired
         self.userId = userId
         self.publicId = publicId
         self.email = email
         self.phone = phone
         self.passwordChangeRequired = passwordChangeRequired
+        self.sessionBinding = sessionBinding
+        self.keyExpiresAtMillis = keyExpiresAtMillis
     }
 
     /// The canonical form of this value. An absent optional field is omitted,
@@ -1354,6 +1732,10 @@ public struct SPFNPollDeviceAuthResponse: Equatable, Sendable
         if let intervalMillis
         {
             members["intervalMillis"] = .integer(intervalMillis)
+        }
+        if let mfaRequired
+        {
+            members["mfaRequired"] = .bool(mfaRequired)
         }
         if let userId
         {
@@ -1375,6 +1757,14 @@ public struct SPFNPollDeviceAuthResponse: Equatable, Sendable
         {
             members["passwordChangeRequired"] = .bool(passwordChangeRequired)
         }
+        if let sessionBinding
+        {
+            members["sessionBinding"] = sessionBinding.canonicalValue
+        }
+        if let keyExpiresAtMillis
+        {
+            members["keyExpiresAtMillis"] = .integer(keyExpiresAtMillis)
+        }
         return .object(members)
     }
 
@@ -1383,11 +1773,14 @@ public struct SPFNPollDeviceAuthResponse: Equatable, Sendable
         let members = try SPFNDecoding.object(canonical, at: path)
         self.status = try SPFNDeviceAuthPollStatus(canonical: members["status"] ?? .null, at: "\(path).status")
         self.intervalMillis = try SPFNDecoding.optionalInteger(members["intervalMillis"], at: "\(path).intervalMillis")
+        self.mfaRequired = try SPFNDecoding.optionalBoolean(members["mfaRequired"], at: "\(path).mfaRequired")
         self.userId = try SPFNDecoding.optionalString(members["userId"], at: "\(path).userId")
         self.publicId = try SPFNDecoding.optionalString(members["publicId"], at: "\(path).publicId")
         self.email = try SPFNDecoding.optionalString(members["email"], at: "\(path).email")
         self.phone = try SPFNDecoding.optionalString(members["phone"], at: "\(path).phone")
         self.passwordChangeRequired = try SPFNDecoding.optionalBoolean(members["passwordChangeRequired"], at: "\(path).passwordChangeRequired")
+        self.sessionBinding = try members["sessionBinding"].flatMap { $0 == .null ? nil : $0 }.map { try SPFNKeyBinding(canonical: $0, at: "\(path).sessionBinding") }
+        self.keyExpiresAtMillis = try SPFNDecoding.optionalInteger(members["keyExpiresAtMillis"], at: "\(path).keyExpiresAtMillis")
     }
 }
 

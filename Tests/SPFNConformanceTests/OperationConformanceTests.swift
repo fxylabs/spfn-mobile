@@ -106,7 +106,7 @@ final class OperationConformanceTests: XCTestCase
         let responseType: String?
     }
 
-    /// The sixteen operations contract 0.10.0 declares, in bundle order. The last five
+    /// The eighteen operations contract 0.13.0 declares, in bundle order. The last five
     /// arrived with 0.10.0; `auth.device.deny` is the one that names no response type,
     /// which `restOperations.responseBody` defines as answering 204 with an empty body.
     static let declaredOperations: [DeclaredOperation] = [
@@ -117,6 +117,8 @@ final class OperationConformanceTests: XCTestCase
         DeclaredOperation(id: "auth.enroll.register", method: "POST", path: "/_auth/register", authProfile: "none", requiresSession: false, since: "0.3.0", requestType: "RegisterRequest", responseType: "RegisterResponse"),
         DeclaredOperation(id: "auth.enroll.login", method: "POST", path: "/_auth/login", authProfile: "none", requiresSession: false, since: "0.3.0", requestType: "LoginRequest", responseType: "LoginResponse"),
         DeclaredOperation(id: "auth.enroll.oauthNative", method: "POST", path: "/_auth/oauth/{provider}/native", authProfile: "none", requiresSession: false, since: "0.3.0", requestType: "OauthNativeRequest", responseType: "OauthNativeResponse"),
+        DeclaredOperation(id: "auth.mfa.verify", method: "POST", path: "/_auth/mfa/verify", authProfile: "none", requiresSession: false, since: "0.13.0", requestType: "MfaVerifyRequest", responseType: "MfaVerifyResponse"),
+        DeclaredOperation(id: "auth.mfa.status", method: "GET", path: "/_auth/mfa/status", authProfile: "clientProofV1", requiresSession: false, since: "0.13.0", requestType: nil, responseType: "MfaStatusResponse"),
         DeclaredOperation(id: "auth.keys.rotate", method: "POST", path: "/_auth/keys/rotate", authProfile: "clientProofV1", requiresSession: false, since: "0.3.0", requestType: "RotateKeyRequest", responseType: "RotateKeyResponse"),
         DeclaredOperation(id: "auth.keys.list", method: "POST", path: "/_auth/keys/list", authProfile: "clientProofV1", requiresSession: false, since: "0.4.1", requestType: "ListKeysRequest", responseType: "ListKeysResponse"),
         DeclaredOperation(id: "auth.keys.revoke", method: "POST", path: "/_auth/keys/revoke", authProfile: "clientProofV1", requiresSession: false, since: "0.4.1", requestType: "RevokeKeyRequest", responseType: "RevokeKeyResponse"),
@@ -137,7 +139,7 @@ final class OperationConformanceTests: XCTestCase
         ).members()
         let declared = try bundle.list("operations").map { try $0.members() }
 
-        XCTAssertEqual(declared.count, 16, "contract 0.10.0 declares sixteen operations")
+        XCTAssertEqual(declared.count, 18, "contract 0.13.0 declares eighteen operations")
         XCTAssertEqual(declared.count, Self.declaredOperations.count)
 
         for (entry, expected) in zip(declared, Self.declaredOperations)
@@ -250,24 +252,22 @@ final class OperationConformanceTests: XCTestCase
         let binding = SPFNGeneratedContract.binding
         XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: binding.importedVersion))
 
-        // A later patch on the pinned minor is additive and admitted: 0.10.1 would carry
-        // everything 0.10.0 does. This is the direction the lower bound must not close.
-        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.10.1"))
-        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.10.9"))
+        // A later patch on the pinned minor is additive and admitted: 0.13.1 would carry
+        // everything 0.13.0 does. This is the direction the lower bound must not close.
+        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.13.1"))
+        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.13.9"))
 
         // The lower bound is the pinned version and not the minor floor. That rule was
         // written for the 0.4.1 pin, where 0.4.0 was the same minor and a major-and-minor
         // comparison would have admitted it — while the SDK called auth.keys.list,
         // auth.keys.revoke and auth.keys.revokeAll, which 0.4.1 added and a 0.4.0 server
-        // does not serve. At this pin 0.10.0 is the minor's first release, so no
+        // does not serve. At this pin 0.13.0 is the minor's first release, so no
         // same-minor-lower-patch case exists to name; the rule is unchanged and the case
         // list simply has nothing to put there.
         //
-        // The neighbouring minors are breaking in both directions on a 0.x line, so 0.9.x
-        // sits below and 0.11.0 above. Contract 0.9.0 has none of the auth.device.*
-        // operations this pin declares, and 0.9.x is where the device sign-in receipts
-        // were taken — admitting it would let evidence about the old wire stand for the new.
-        for version in ["0.1.0", "0.4.1", "0.6.0", "0.7.0", "0.8.0", "0.9.0", "0.9.9", "0.11.0", "1.0.0", "1.9.0", "2.0.0"]
+        // Neighbouring minors break compatibility on a 0.x line: 0.12.x sits below,
+        // 0.14.0 above. The previous 0.10.0 pin lacks the required MFA discriminant.
+        for version in ["0.1.0", "0.4.1", "0.6.0", "0.7.0", "0.8.0", "0.9.0", "0.9.9", "0.10.0", "0.11.0", "0.12.9", "0.14.0", "1.0.0", "1.9.0", "2.0.0"]
         {
             XCTAssertThrowsError(try binding.requireSupported(serverContractVersion: version))
             { error in

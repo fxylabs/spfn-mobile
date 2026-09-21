@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    29c26160b5b62d3e40f76bbf81785c8b6808c85690fe047c715e3f348801d92c
-// contractVersion: 0.10.0
+// bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
+// contractVersion: 0.13.0
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -70,6 +70,20 @@ public enum SPFNGeneratedCalls
         operation: SPFNGeneratedOperations.authEnrollOauthNative,
         encode: { try $0.canonicalValue() },
         decode: { try SPFNOauthNativeResponse(canonical: $0) }
+    )
+
+    /// Finishes a sign-in that answered mfaRequired by spending the challenge, which activates the key.
+    public static let authMfaVerify: SPFNCall<SPFNMfaVerifyRequest, SPFNMfaVerifyResponse> = SPFNCall(
+        operation: SPFNGeneratedOperations.authMfaVerify,
+        encode: { try $0.canonicalValue() },
+        decode: { try SPFNMfaVerifyResponse(canonical: $0) }
+    )
+
+    /// Reports whether the caller has a second factor, which methods, and how many recovery codes remain.
+    public static let authMfaStatus: SPFNCall<Void, SPFNMfaStatusResponse> = SPFNCall(
+        operation: SPFNGeneratedOperations.authMfaStatus,
+        encode: { _ in SPFNCanonicalValue.object([:]) },
+        decode: { try SPFNMfaStatusResponse(canonical: $0) }
     )
 
     /// Replaces the authenticated key with a new client-generated public key before its TTL runs out.

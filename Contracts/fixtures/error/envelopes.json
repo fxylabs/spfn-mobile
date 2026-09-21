@@ -92,6 +92,15 @@
       "sha256": "274872bfb3d776d88a40eb1518caa1f7d30ee61f96ebd808347e356c6034ef6f"
     },
     {
+      "name": "key-algorithm-mismatch-error",
+      "wire": "{\"error\":{\"code\":\"KeyAlgorithmMismatchError\",\"message\":\"test vector for KeyAlgorithmMismatchError\",\"requestId\":\"req-key-algorithm-mismatch-error\"}}",
+      "code": "KeyAlgorithmMismatchError",
+      "httpStatus": 400,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "c57d43533dbc8a8e93f10aba67e988f66d2d17dbf634d7d6ae12d6c6bbe74065"
+    },
+    {
       "name": "unverified-email-link-error",
       "wire": "{\"error\":{\"code\":\"UnverifiedEmailLinkError\",\"message\":\"test vector for UnverifiedEmailLinkError\",\"requestId\":\"req-unverified-email-link-error\"}}",
       "code": "UnverifiedEmailLinkError",
@@ -144,6 +153,15 @@
       "retryable": false,
       "surface": "rest",
       "sha256": "fca851bdbe10034e3f5bd1b5c7f2acbd9dffb434160429917afeb8de53dbcf52"
+    },
+    {
+      "name": "mfa-verification-failed-error",
+      "wire": "{\"error\":{\"code\":\"MfaVerificationFailedError\",\"message\":\"test vector for MfaVerificationFailedError\",\"requestId\":\"req-mfa-verification-failed-error\"}}",
+      "code": "MfaVerificationFailedError",
+      "httpStatus": 401,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "08323004c5e38b40a3747a9aefc8f8b076f6429f3ae04f8d3daa0d2c2eeb26ba"
     },
     {
       "name": "too-many-requests-error",

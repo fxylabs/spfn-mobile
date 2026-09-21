@@ -77,6 +77,7 @@ object HarnessOutcome
         is SpfnKeyLifecycleException.IdTokenMissing -> "idTokenMissing"
         is SpfnKeyLifecycleException.MalformedProviderId -> "malformedProviderID"
         is SpfnKeyLifecycleException.ServerNamedAnotherKey -> "serverNamedAnotherKey"
+        is SpfnKeyLifecycleException.SecondFactorRequired -> "secondFactorRequired"
         is SpfnKeyLifecycleException.KeyUnloadable -> "keyUnloadable"
         is SpfnKeyLifecycleException.DeviceCodeExpired -> "deviceCodeExpired"
     };

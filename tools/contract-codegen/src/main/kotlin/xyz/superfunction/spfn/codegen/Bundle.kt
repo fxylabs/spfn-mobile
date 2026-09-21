@@ -293,9 +293,8 @@ data class Bundle(
         /**
          * Resolves every operation type and closes the two intentional body gaps.
          *
-         * A missing request type is valid only for the exact operation the synchronization
-         * policy names, whose requestBody is `none`; every other omission is a contract
-         * error rather than a bodyless operation inferred by the generator.
+         * A GET may omit its request type when it has no query fields (core.time and,
+         * since 0.13.0, auth.mfa.status). A non-GET still has to declare its request.
          *
          * A missing response type is valid anywhere, because contract 0.10.0 gave it a
          * meaning every operation can carry: one that declares no responseType answers 204
@@ -324,7 +323,7 @@ data class Bundle(
                         throw JsonException("operation '${operation.id}' references unknown request type '$requestType'");
                     }
                 }
-                else if (operation.id != clockOperationId)
+                else if (operation.method != "GET")
                 {
                     throw JsonException("operation '${operation.id}' is missing required key 'requestType'");
                 }
