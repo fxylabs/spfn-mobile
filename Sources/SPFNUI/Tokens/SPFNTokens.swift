@@ -35,10 +35,10 @@ import SwiftUI
 
 /// The seven colours a screen is drawn out of, as one value so that a scheme is one lookup.
 ///
-/// A struct rather than seven statics per scheme: a component asks the environment for the
-/// scheme once and then reads colours off the answer, which is what makes "the same
+/// A struct rather than seven statics per scheme: a component asks its theme for the
+/// scheme's palette once and then reads colours off the answer, which is what makes "the same
 /// component in the dark palette" a different value rather than a different code path.
-public struct SPFNPalette: Sendable
+public struct SPFNPalette: Sendable, Equatable
 {
     /// The surface a screen stands on.
     public let background: Color
@@ -91,7 +91,12 @@ public struct SPFNPalette: Sendable
     }
 }
 
-/// What every SPFN component draws with.
+/// The values ``SPFNTheme/default`` is built from.
+///
+/// No component reads these directly — each reads the ``SPFNTheme`` in its environment, and
+/// section 15 of the validator refuses one that does not — so an app gives the components
+/// its own look by injecting a theme, and replacing a value here moves only what the app
+/// that injects nothing draws.
 public enum SPFNTokens
 {
     /// The palette a light appearance reads.
@@ -154,22 +159,6 @@ public enum SPFNTokens
 
     /// Anything whose characters have to line up: a code, a readout.
     public static let mono: Font = .system(size: 13, design: .monospaced)
-}
-
-/// The palette for `scheme`.
-///
-/// Not a token and deliberately not in the key set: it is HOW a palette is chosen, and the
-/// two platforms choose one by different mechanisms — a SwiftUI environment value here, a
-/// Compose `isSystemInDarkTheme` there. A key that could not mean the same thing on both
-/// sides has no business in a set the two sides are compared on.
-///
-/// A free function rather than an `EnvironmentValues` extension, because `@Environment`
-/// tracks a key path into a STORED value: a computed property over `colorScheme` reads
-/// correctly and invalidates on more than it needs to. Every component holds
-/// `@Environment(\.colorScheme)` and calls this, which is one line more and no ambiguity.
-func spfnPalette(for scheme: ColorScheme) -> SPFNPalette
-{
-    scheme == .dark ? SPFNTokens.dark : SPFNTokens.light
 }
 
 #endif

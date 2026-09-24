@@ -37,7 +37,10 @@ internal object Metrics
     /** The header's height before the status bar inset is added to it. */
     val HEADER_HEIGHT: Dp = 56.dp;
 
-    /** How thick a field's or an outlined control's border is drawn. */
+    /**
+     * How thick a field's border is drawn, and the default theme's outlined-button border; an
+     * app's theme may draw its own buttons' outline at another width.
+     */
     val BORDER_WIDTH: Dp = 1.dp;
 
     /** How big a header's own mark is drawn, inside a [TOUCH_TARGET]-sized frame. */

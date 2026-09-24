@@ -27,8 +27,6 @@
 
 package xyz.superfunction.spfn.ui.tokens
 
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -40,9 +38,9 @@ import androidx.compose.ui.unit.sp
 /**
  * The seven colours a screen is drawn out of, as one value so that a scheme is one lookup.
  *
- * A data class rather than seven constants per scheme: a component asks for the palette once
- * and then reads colours off the answer, which is what makes "the same component in the dark
- * palette" a different value rather than a different code path.
+ * A data class rather than seven constants per scheme: a component asks its theme for the
+ * scheme's palette once and then reads colours off the answer, which is what makes "the same
+ * component in the dark palette" a different value rather than a different code path.
  */
 public data class SpfnPalette(
     /** The surface a screen stands on. */
@@ -79,7 +77,14 @@ public data class SpfnPalette(
     public val handle: Color
 )
 
-/** What every SPFN component draws with. */
+/**
+ * The values [SpfnTheme.Default] is built from.
+ *
+ * No component reads these directly — each reads [LocalSpfnTheme], and section 15 of the
+ * validator refuses one that does not — so an app gives the components its own look by
+ * injecting a theme, and replacing a value here moves only what the app that injects nothing
+ * draws.
+ */
 public object SpfnTokens
 {
     /** The palette a light appearance reads. */
@@ -145,21 +150,3 @@ public object SpfnTokens
     /** Anything whose characters have to line up: a code, a readout. */
     public val mono: TextStyle = TextStyle(fontSize = 13.sp, fontFamily = FontFamily.Monospace);
 }
-
-/**
- * The palette for the appearance in scope.
- *
- * Not a token and deliberately not in the key set: it is HOW a palette is chosen, and the two
- * platforms choose one by different mechanisms — `isSystemInDarkTheme` here, a SwiftUI
- * environment value there. A key that could not mean the same thing on both sides has no
- * business in a set the two sides are compared on.
- *
- * It stands beside what it selects rather than in `components/Metrics.kt`, where it used to:
- * `Metrics` is the four sizes the tokens do NOT hold, and a palette selector living there
- * made the one file whose whole subject is "not a token" the door onto every token there is.
- * The Swift twin puts its own `spfnPalette(for:)` in `Tokens/SPFNTokens.swift` for the same
- * reason, and the two files are read as a pair.
- */
-@Composable
-internal fun spfnPalette(): SpfnPalette =
-    if (isSystemInDarkTheme()) SpfnTokens.dark else SpfnTokens.light

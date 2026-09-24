@@ -28,9 +28,13 @@
 package xyz.superfunction.spfn.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,19 +46,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import xyz.superfunction.spfn.ui.tokens.SpfnPalette
-import xyz.superfunction.spfn.ui.tokens.SpfnTokens
-import xyz.superfunction.spfn.ui.tokens.spfnPalette
+import xyz.superfunction.spfn.ui.tokens.LocalSpfnTheme
 
 /** The one thing this screen is for. */
 @JvmSynthetic
@@ -123,7 +127,7 @@ public fun TextButton(
  * so the touch area is the 48dp box rather than a line of text Compose then expands past its
  * neighbours.
  *
- * The label is CENTRED and drawn in the role's own foreground, which is the Swift twin's
+ * The label is CENTRED and drawn in the role's own content colour, which is the Swift twin's
  * `HStack` inside a `.frame(maxWidth: .infinity)` under a `.foregroundStyle(foreground)`.
  * Neither was true here until 3f, and both showed: the row filled the width with no
  * arrangement, so every label sat against the left padding, and the label went through
@@ -134,8 +138,11 @@ public fun TextButton(
  * `BasicText` with the role's type token rather than a colour argument on `SpfnText`. The
  * component set is one vocabulary written twice (validate.sh section 15) and a `color:`
  * parameter added on this side only would leave `SpfnText` spelled the same and meaning
- * something different from its Swift twin. `styleOf` is the same token either way, and it
- * is already this package's own.
+ * something different from its Swift twin. `styleOf` is the same token either way.
+ *
+ * Every colour, the radius and the outline are the injected theme's `SpfnButtonAppearance`
+ * for this role; the 48dp minimum around them is not the theme's and cannot be made smaller
+ * by one.
  */
 @Composable
 private fun RoleButton(
@@ -148,13 +155,16 @@ private fun RoleButton(
     onTap: () -> Unit
 )
 {
-    val palette = spfnPalette();
+    val theme = LocalSpfnTheme.current;
+    val appearance = theme.buttons.appearanceFor(role);
+    val colors = appearance.colors(isSystemInDarkTheme());
     // A busy control is disabled as well as spinning: the model would ignore the second
     // press anyway, and a control that accepts a press it discards says nothing to the
     // person who made it.
     val live = enabled && !busy;
-    val shape = RoundedCornerShape(SpfnTokens.radiusSmall);
-    val foreground = foreground(role, palette, live);
+    val shape = RoundedCornerShape(appearance.cornerRadius);
+    val interaction = remember { MutableInteractionSource() };
+    val pressed by interaction.collectIsPressedAsState();
 
     Row(
         modifier = modifier
@@ -162,49 +172,40 @@ private fun RoleButton(
             .widthIn(min = Metrics.TOUCH_TARGET)
             .heightIn(min = Metrics.TOUCH_TARGET)
             .testTag(id)
-            .background(color = background(role, palette, live), shape = shape)
-            .border(
-                width = if (role == ControlRole.Secondary) Metrics.BORDER_WIDTH else 0.dp,
-                color = if (role == ControlRole.Secondary) foreground else Color.Transparent,
-                shape = shape
+            .background(color = colors.fill(live, pressed), shape = shape)
+            .outline(appearance.borderWidth, colors.outline(live), shape)
+            // The indication `clickable` would have picked for itself; the interaction source
+            // is spelled out only so the fill above can follow the press.
+            .clickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                enabled = live,
+                onClick = onTap
             )
-            .clickable(enabled = live, onClick = onTap)
-            .padding(horizontal = SpfnTokens.space4),
-        horizontalArrangement = Arrangement.spacedBy(SpfnTokens.space2, Alignment.CenterHorizontally),
+            .padding(horizontal = theme.spacing.space4),
+        horizontalArrangement = Arrangement.spacedBy(theme.spacing.space2, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically
     )
     {
         if (busy)
         {
-            Spinner(colour = foreground);
+            Spinner(colour = colors.label(live));
         }
-        BasicText(text = title, style = styleOf(TextRole.Body).copy(color = foreground));
+        BasicText(
+            text = title,
+            style = theme.typography.styleOf(TextRole.Body).copy(color = colors.label(live))
+        );
     }
 }
 
-/** What the label and, for an outlined control, the border are drawn in. */
-private fun foreground(role: ControlRole, palette: SpfnPalette, live: Boolean): Color
-{
-    if (!live)
-    {
-        return palette.textSecondary;
-    }
-    return when (role)
-    {
-        ControlRole.Primary, ControlRole.Destructive -> palette.background
-        ControlRole.Secondary -> palette.text
-        ControlRole.Text -> palette.accent
-    };
-}
-
-/** What the control stands on. */
-private fun background(role: ControlRole, palette: SpfnPalette, live: Boolean): Color = when (role)
-{
-    ControlRole.Primary -> if (live) palette.accent else palette.surface
-    ControlRole.Destructive -> if (live) palette.error else palette.surface
-    ControlRole.Secondary -> palette.surface
-    ControlRole.Text -> Color.Transparent
-}
+/**
+ * The appearance's outline, or nothing when it has none.
+ *
+ * Nothing rather than a zero-width border: Compose reads `0.dp` as `Dp.Hairline`, one pixel,
+ * so a theme that asked for no outline in a visible colour would get one.
+ */
+private fun Modifier.outline(width: Dp, colour: Color, shape: Shape): Modifier =
+    if (width > 0.dp) border(width = width, color = colour, shape = shape) else this;
 
 /**
  * A turning arc, drawn rather than animated.

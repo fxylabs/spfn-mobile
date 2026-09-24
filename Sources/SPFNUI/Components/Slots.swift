@@ -23,9 +23,11 @@ import SwiftUI
 /// Something is in flight: a spinner and the SDK's own word for it.
 struct LoadingLine: View
 {
+    @Environment(\.spfnTheme) private var theme
+
     var body: some View
     {
-        HStack(spacing: SPFNTokens.space2)
+        HStack(spacing: theme.spacing.space2)
         {
             ProgressView()
                 .controlSize(.small)
@@ -46,9 +48,20 @@ struct FailureLine: View
     let retryIdentifier: String
     let onRetry: (() -> Void)?
 
+    @Environment(\.spfnTheme) private var theme
+
+    /// Written out because a private stored property — the theme above — would otherwise make
+    /// the memberwise initializer private to this file.
+    init(text: String, retryIdentifier: String, onRetry: (() -> Void)?)
+    {
+        self.text = text
+        self.retryIdentifier = retryIdentifier
+        self.onRetry = onRetry
+    }
+
     var body: some View
     {
-        VStack(alignment: .leading, spacing: SPFNTokens.space3)
+        VStack(alignment: .leading, spacing: theme.spacing.space3)
         {
             StatusText(kind: .error, text: text)
             if let onRetry = onRetry

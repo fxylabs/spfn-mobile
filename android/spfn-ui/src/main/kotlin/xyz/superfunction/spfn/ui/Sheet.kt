@@ -94,7 +94,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import xyz.superfunction.spfn.ui.components.LocalFitsContent
-import xyz.superfunction.spfn.ui.tokens.SpfnTokens
+import xyz.superfunction.spfn.ui.tokens.LocalSpfnTheme
 import xyz.superfunction.spfn.ui.tokens.spfnPalette
 
 /** Where a sheet can rest: at the height its detent asked for, or gone. */
@@ -179,6 +179,7 @@ internal fun Sheet(
         val full = SheetGeometry.height(SheetDetent.Full, container, 0f);
         val hidden = state.anchors.positionOf(SheetAnchor.Hidden);
         val offset = state.offset;
+        val corner = LocalSpfnTheme.current.radius.large;
 
         Scrim(
             opacity = if (offset.isNaN() || hidden.isNaN()) 0f else SheetGeometry.scrim(offset, hidden),
@@ -204,7 +205,7 @@ internal fun Sheet(
                 // detent: the fallback is what a reader sees if a measurement is ever late,
                 // and a sheet flashing at full height is the exact defect above.
                 .offset { IntOffset(x = 0, y = sheetY(state.offset, container)) }
-                .clip(RoundedCornerShape(topStart = SpfnTokens.radiusLarge, topEnd = SpfnTokens.radiusLarge))
+                .clip(RoundedCornerShape(topStart = corner, topEnd = corner))
                 .background(spfnPalette().background)
                 .consumeWindowInsets(WindowInsets.statusBars)
                 .testTag("sheet")

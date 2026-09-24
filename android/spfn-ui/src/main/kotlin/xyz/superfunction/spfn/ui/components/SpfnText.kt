@@ -19,8 +19,7 @@ package xyz.superfunction.spfn.ui.components
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.TextStyle
-import xyz.superfunction.spfn.ui.tokens.SpfnTokens
+import xyz.superfunction.spfn.ui.tokens.LocalSpfnTheme
 import xyz.superfunction.spfn.ui.tokens.spfnPalette
 
 /**
@@ -48,15 +47,6 @@ public fun SpfnText(
     BasicText(
         text = text,
         modifier = modifier,
-        style = styleOf(role).copy(color = if (secondary) palette.textSecondary else palette.text)
+        style = LocalSpfnTheme.current.typography.styleOf(role).copy(color = if (secondary) palette.textSecondary else palette.text)
     );
-}
-
-/** The token a role resolves to. Written once so no component picks a font of its own. */
-internal fun styleOf(role: TextRole): TextStyle = when (role)
-{
-    TextRole.Title -> SpfnTokens.title
-    TextRole.Body -> SpfnTokens.body
-    TextRole.Caption -> SpfnTokens.caption
-    TextRole.Mono -> SpfnTokens.mono
 }

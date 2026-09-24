@@ -253,6 +253,13 @@ and `iconSize` — because a token is a value the design flow replaces (decision
 these are not. The touch targets are the clearest case: 48dp on Android and 44pt on iOS are
 the platforms' own minimums and are what P21 is about.
 
+No component reads the tokens directly any more. They are the source of
+`SPFNTheme.default`/`SpfnTheme.Default`, and every component reads the theme in its
+environment (`\.spfnTheme`) or composition (`LocalSpfnTheme`), so an app gives the SDK its
+own look by injecting a theme rather than by forking it; section 15 compares the two theme
+types' keys and refuses a UI source that reads the tokens past the theme
+(docs/UI-IMPLEMENTATION-GUIDE.md §7).
+
 The two platforms are asymmetric in `externalDeps` because they are asymmetric in fact.
 SwiftUI and Observation are frameworks the OS ships, so SwiftPM resolves no package for
 them and the Swift allowlist is empty; Compose and Navigation 3 are Maven artifacts like
