@@ -3311,9 +3311,9 @@ section '20. every plain-styled Button in SPFNUI gives its label a hit shape'
 # and the label is the one part that worked. The 35 device cells are green either way, which
 # is the same blindness P36 has and the reason `pushTour-buttonEdge` is a person's cell.
 #
-# `RoleButton` spends its plain style as `PlainButtonStyle().makeBody` inside a style of its
-# own, which is the only place a press can recolour its fill; the label it styles is the same
-# label, hit-tested the same way, so that spelling is counted as the same spend.
+# `RoleButton` draws `configuration.label` inside a style of its own, which is the only place
+# a press can recolour its fill; the label it styles is the same label, hit-tested the same
+# way, so that spelling is counted as the same spend.
 #
 # Counted per file with `grep -cE`, so a file may not spend more `.plain` than it buys
 # rectangles. Screen.swift buys two and spends one: its other rectangle is the ancestor that
@@ -3339,7 +3339,7 @@ for source in $(find "$HIT_SHAPE_SOURCE_ROOT" -name '*.swift' 2> /dev/null | sor
 do
     # `|| true` on both: grep exits nonzero when it counted nothing, and `set -e` would take
     # the script down on the first Swift file that styles no button at all.
-    PLAIN_COUNT=$(grep -cE '\.buttonStyle\(\.plain\)|PlainButtonStyle\(\)\.makeBody' "$source" || true)
+    PLAIN_COUNT=$(grep -cE '\.buttonStyle\(\.plain\)|return configuration\.label' "$source" || true)
     SHAPE_COUNT=$(grep -cE '\.contentShape\(Rectangle\(\)\)' "$source" || true)
     if [ "$PLAIN_COUNT" -eq 0 ]
     then
