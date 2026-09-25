@@ -5,6 +5,33 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The offline validator keeps only the checks nothing else can make
+
+- `tools/validate/validate.sh` went from 24 sections and 3,729 lines to 16 sections and
+  about 2,300 lines. Kept unchanged in meaning: toolchain checksums, forbidden artifacts,
+  version consistency, the contract lock, the auth boundary, generated-source provenance,
+  the toolchain baseline, the UI vocabulary and theme parity, the consuming apps'
+  generated boundary, adapter surface and SHA-pinned actions. Section numbers are stable;
+  `tools/validate/README.md` has a row for every removed rule saying where it went.
+- Sections 11 and 12 (ownership and status prose) are gone. Sections 1, 7 and 8 keep only
+  what a Gradle or SwiftPM build would not catch.
+- The UI rules moved out of grep: the predictive-back manifest flag is
+  `PredictiveBackManifestTest` in both Android apps; blanket pointer consumption,
+  `NavDisplay` transitions and a `PagedView` inside a scrolling `Screen` are Android Lint
+  checks in the new `tools/ui-lint`, run on `:spfn-ui` and both apps; the closing-sheet
+  branch order is the pure function `flowDrawing`, tested by `FlowDrawingTest`; authored
+  views are held by `:ui-codegen:spfnUiVerify`; SPFNUI's button styles set their own hit
+  shape, and section 20 keeps only the ban on `.plain`.
+- The device-receipt gate is no longer a validator row, and `tools/ci/validate-known-red.txt`
+  and the allowlist judge in `tools/ci/validate.sh` are deleted: CI obeys the validator's exit
+  code. The gate is a manual pre-release command, documented in `COMPATIBILITY.md`.
+- The validator no longer needs python3.
+- The build-script and workflow security rules stay, as section 7a: no committed
+  credential, literal username or password, signing outside the root or remote URL in a
+  build script; the root's signing and staging-gate pins; declared workflow triggers only,
+  gates running only `tools/ci` scripts, the publish workflow's secret and host
+  allowlists, and inputs reaching the shell only through `env`.
+
 ### The components take their look from an injectable theme
 
 - **`SPFNTheme` / `SpfnTheme`** hold the light and dark palettes, the four type roles, the

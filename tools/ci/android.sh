@@ -16,8 +16,12 @@
 # are read from the directories under `android/`, which is the same rule the root build
 # script uses to pick `sdkModules`. A module added there is linted without editing this.
 #
-# The three build tools (`:contract-codegen`, `:ui-codegen`, `:reference-server`) are JVM
-# modules, so `testDebugUnitTest` never reaches them; their unit suites are named
+# The two applications are linted too, but only for this repository's own UI checks: each
+# declares `lint { checkOnly }` over the issues tools/ui-lint registers, because a screen an
+# app draws is where those rules are broken and the built-in checks stay the SDK's.
+#
+# The four build tools (`:contract-codegen`, `:ui-codegen`, `:reference-server`, `:ui-lint`)
+# are JVM modules, so `testDebugUnitTest` never reaches them; their unit suites are named
 # explicitly. `:reference-server:test` excludes its integration cases by its own
 # configuration — those bind a socket and are `spfnIntegrationTest`, which CI does not run
 # (tools/reference-server/run-integration.sh needs a Mac for the swift-e cell).
@@ -64,7 +68,8 @@ printf 'CI-ANDROID: lint tasks:%s\n' "$LINT_TASKS"
 exec ./gradlew --console=plain \
     testDebugUnitTest \
     $LINT_TASKS \
-    :contract-codegen:test :ui-codegen:test :reference-server:test \
+    :example-compose:lint :harness-android:lint \
+    :contract-codegen:test :ui-codegen:test :reference-server:test :ui-lint:test \
     :contract-codegen:spfnCodegenVerify \
     :ui-codegen:spfnUiVerify \
     :ui-codegen:spfnHarnessUiVerify

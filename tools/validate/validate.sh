@@ -1,26 +1,25 @@
 #!/bin/sh
 # SPFN Mobile — offline repository validator.
 #
-# Zero external dependencies beyond POSIX sh, grep, sed, awk, find, a SHA-256
-# utility (`shasum` or `sha256sum`) and — for section 21 alone — python3. No network, no
-# package manager, no toolchain. python3 is what reads a flow's `views` out of its contract
-# document, for the reason `examples/ui-spec/run-cells.sh` states about the case table: the
-# two keys that answer the question live in two objects, and a line-based reader pairs them
-# by proximity. A host without it fails that section rather than skipping it.
+# Zero external dependencies beyond POSIX sh, grep, sed, awk, find and a SHA-256 utility
+# (`shasum` or `sha256sum`). No network, no package manager, no toolchain.
 #
 #   sh tools/validate/validate.sh
 #
-# What it deliberately does NOT do: pretend to validate things it cannot reach.
-# Swift compilation is `swift build` / `swift test`. Android compilation and the Kotlin
-# conformance suite are `./gradlew build`. Codegen determinism is
-# `./gradlew :contract-codegen:spfnCodegenVerify`. Podspec parsing is `pod ipc spec`.
-# Those are separate commands with separate evidence; this script never fakes them.
+# What it deliberately does NOT do: pretend to validate things it cannot reach, or repeat
+# a check something stronger already makes. Swift compilation is `swift build` /
+# `swift test`. Android compilation, the Kotlin suites and the UI lint checks are
+# `tools/ci/android.sh`. Codegen determinism is `./gradlew :contract-codegen:spfnCodegenVerify`
+# and `:ui-codegen:spfnUiVerify`. Podspec parsing is `pod ipc spec`. Those are separate
+# commands with separate evidence; this script never fakes them.
 #
-# Step 2 changed what honesty requires here. Decision D5 fixed the toolchain baseline,
-# so rules that used to read "no wrapper may exist" now read "the wrapper must match the
-# checksum Gradle publishes". Nothing was relaxed: publication stays disabled, the auth
-# boundary stays single-profile, and the contract lock gained a stricter rule than it
-# had, because a resolved lock can lie in ways a placeholder cannot.
+# What is left here is what nothing else can check: pinned toolchain checksums, forbidden
+# artifacts, the contract lock, generated-source provenance, the declared baselines, the
+# secrets and commands build scripts and workflows may hold, the module graph against the
+# manifests, and the few cross-platform and Swift-only rules no build, test or lint on
+# this host can read. The section numbers are stable identifiers; the gaps are sections
+# that moved to a stronger home or were dropped, and tools/validate/README.md says where
+# each one went.
 
 set -eu
 
@@ -100,17 +99,6 @@ contains()
     fi
 }
 
-# Asserts a file contains a fixed string, ignoring case.
-contains_i()
-{
-    if [ -f "$1" ] && grep -qiF -- "$2" "$1"
-    then
-        pass "$3"
-    else
-        fail "$3"
-    fi
-}
-
 # Asserts a file does NOT contain an extended regex.
 lacks()
 {
@@ -174,35 +162,6 @@ strip_linux_products()
     printf '%s' "$STRIPPED"
 }
 
-# Every import in one file that reaches a named framework with nothing making it
-# conditional, as `path:line ` pairs.
-#
-# The `#if` nesting is tracked rather than pattern-matched: an import can sit at any
-# depth inside a guard, and a line-anchored read would call every one of them
-# unguarded. Only `#if canImport(...)` counts as a guard — `#if os(iOS)` and a trait
-# condition say WHEN to compile, not WHETHER the framework is there — and the `#else`
-# arm of a canImport guard stays admitted, because that arm is the platform that
-# does not have it.
-unguarded_imports()
-{
-    awk -v frameworks="$2" '
-        BEGIN { depth = 0; guarded = 0 }
-        /^[[:space:]]*#if/ {
-            depth++
-            canimport[depth] = ($0 ~ /#if[[:space:]]*canImport\(/) ? 1 : 0
-            guarded += canimport[depth]
-            next
-        }
-        /^[[:space:]]*#endif/ {
-            if (depth > 0) { guarded -= canimport[depth]; depth-- }
-            next
-        }
-        guarded == 0 && $0 ~ ("^[[:space:]]*import[[:space:]]+(" frameworks ")[[:space:]]*$") {
-            printf "%s:%d ", FILENAME, FNR
-        }
-    ' "$1"
-}
-
 printf 'SPFN Mobile — offline repository validation\n'
 printf 'root: %s\n' "$ROOT"
 
@@ -220,58 +179,18 @@ KOTLIN_GENERATED=android/spfn-generated/src/main/kotlin/xyz/superfunction/spfn/g
 SURFACE_DIRS='Sources Tests android Contracts examples .github'
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 section '1. required layout'
 # ---------------------------------------------------------------------------
+# Only what no build reads. A missing manifest, build script, source root or generated
+# directory fails `swift build` (tools/ci/swift.sh) or any `./gradlew` run
+# (tools/ci/android.sh) before it could fail here, and every file a later section reads —
+# the wrapper and its pins, VERSION, the contract lock and bundle, the module graph, the
+# version catalogue, the verification metadata — fails that section when it is missing.
+# What is left is the documents a public repository owes its readers, which nothing
+# executes, and the scripts the workflows run, which only the CI service reads.
 for path in \
-    Package.swift settings.gradle.kts build.gradle.kts gradle.properties \
-    gradle/libs.versions.toml gradle/verification-metadata.xml \
-    gradlew gradlew.bat gradle/wrapper/gradle-wrapper.jar \
-    gradle/wrapper/gradle-wrapper.properties gradle/wrapper/WRAPPER-PINS.json \
-    VERSION COMPATIBILITY.md CHANGELOG.md RELEASE.md SECURITY.md CONTRIBUTING.md \
-    LICENSE CODEOWNERS README.md .gitignore \
-    Contracts/upstream.lock.json Contracts/spfn-mobile-contract.json \
-    Contracts/auth-profiles/clientProofV1.schema.json Contracts/fixtures/MANIFEST.json \
-    tools/module-graph.json tools/conformance/semver-range-vectors.json \
-    tools/contract-codegen/README.md \
-    tools/contract-codegen/build.gradle.kts \
-    tools/ui-codegen/README.md \
-    tools/ui-codegen/build.gradle.kts \
-    examples/ui-spec/device-approval.json examples/ui-spec/SCHEMA.md \
-    examples/ui-spec/CONTRACT.md examples/ui-spec/contracts/approveDevice.md \
-    examples/ui-spec/generated/device-approval.cases.json \
-    examples/ui-spec/generated/device-approval.cases.md \
-    examples/android-compose/README.md examples/ios-swiftui/README.md \
-    tools/validate/validate.sh tools/validate/d11-forbidden.ere \
-    tools/validate/d11-policy.lock.json tools/validate/probe-d11-guardrail.sh \
-    tools/validate/probe-publishing-gate.sh \
-    tools/validate/probe-publication-rules.sh \
-    tools/validate/probe-social-adapter-rules.sh \
-    tools/validate/probe-ui-vocabulary-rules.sh \
-    tools/validate/probe-example-scaffold-rules.sh \
-    tools/validate/probe-authored-view-rules.sh \
-    tools/validate/probe-ci-actions-rules.sh \
-    tools/validate/probe-contract-lock-rules.sh \
-    tools/validate/probe-social-surface-rules.sh \
-    tools/validate/probe-paged-scroll-rules.sh \
-    tools/validate/probe-sheet-exit-rules.sh \
-    tools/validate/probe-flow-transitions-rules.sh \
-    tools/validate/probe-pointer-consumption-rules.sh \
-    tools/validate/probe-predictive-back-rules.sh \
-    tools/validate/probe-button-hit-shape-rules.sh \
-    tools/ci/README.md tools/ci/validate.sh tools/ci/validate-known-red.txt \
-    tools/ci/android.sh tools/ci/swift.sh \
-    tools/ci/install-swift.sh tools/ci/install-android-sdk.sh \
-    tools/ci/swift-toolchain.lock tools/ci/actions-allowlist.txt \
-    tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
-    tools/rc-verify/probe-trap-exit.sh tools/rc-verify/local-signed-run.sh \
-    tools/device-receipts/receipt-gate.sh tools/device-receipts/probe-receipt-gate.sh \
-    tools/cocoapods-compat/generate-podspec.sh \
-    tools/verify-server/run.sh tools/verify-server/probe-refusals.sh \
-    tools/verify-server/README.md tools/verify-server/spfn-versions.sh \
-    docs/SCAFFOLD-STATUS.md docs/OPEN-DECISIONS.md docs/IMPLEMENTATION-PITFALLS.md \
-    .github/workflows/contract.yml .github/workflows/swift.yml \
-    .github/workflows/android.yml .github/workflows/security.yml \
-    .github/workflows/release-candidate.yml .github/workflows/publish-central.yml
+    README.md LICENSE SECURITY.md CONTRIBUTING.md COMPATIBILITY.md RELEASE.md CHANGELOG.md
 do
     if [ -f "$path" ]
     then
@@ -281,19 +200,21 @@ do
     fi
 done
 
-for path in \
-    Sources Tests android Contracts/fixtures tools examples/ios-swiftui \
-    examples/android-compose examples/ui-spec examples/ui-spec/contracts \
-    examples/ui-spec/generated/flows \
-    examples/ios-swiftui/Generated docs/architecture docs/migration docs/security \
-    tools/device-receipts tools/device-receipts/runs \
-    Tests/SPFNConformanceTests "$SWIFT_GENERATED" "$KOTLIN_GENERATED"
+# A workflow names its scripts by path, and a renamed or deleted script fails on the runner
+# and nowhere a person runs anything. Every `sh tools/…` a workflow names must exist.
+WORKFLOW_SCRIPTS=$(grep -hoE 'sh tools/[A-Za-z0-9_./-]+\.sh' .github/workflows/*.yml 2>/dev/null \
+    | sed 's/^sh //' | sort -u)
+if [ -z "$WORKFLOW_SCRIPTS" ]
+then
+    fail 'no workflow under .github/workflows names a tools/ script; the reader did not run'
+fi
+for script in $WORKFLOW_SCRIPTS
 do
-    if [ -d "$path" ]
+    if [ -f "$script" ]
     then
-        pass "dir  $path"
+        pass "workflow script $script"
     else
-        fail "missing dir $path"
+        fail "a workflow runs $script, which does not exist"
     fi
 done
 
@@ -816,37 +737,119 @@ fi
 # ---------------------------------------------------------------------------
 section '7. publication disabled, dependency sources constrained'
 # ---------------------------------------------------------------------------
+# Two properties, each held by the fewest checks that hold it.
+#
+# PUBLICATION IS DISABLED when the committed flag says false, the root build refuses to
+# configure unless it does (tools/validate/probe-publishing-gate.sh proves that refusal
+# bites), no module script can publish on its own, and nothing pushes a pod to trunk.
 contains gradle.properties 'spfn.publishing.enabled=false' 'Gradle publishing disabled'
-contains gradle.properties 'spfn.maven.group.verified=true' \
-    'Maven namespace recorded as Central-verified (D4, resolved 2026-08-03)'
-contains gradle.properties 'spfn.maven.group=xyz.superfunction.spfn' \
-    'the D4-verified Maven group is the committed coordinate'
+contains build.gradle.kts 'require(committedPublishingEnabled == "false")' \
+    'the root build reads the COMMITTED publishing flag and requires false'
 
-# No committed property may ever hold a credential or key. The active keys in
-# gradle.properties are version, gate flags, group and Gradle tuning — anything
-# credential-shaped is a value that belongs in a per-run environment, never in a file.
+# DEPENDENCY SOURCES ARE CONSTRAINED when the only repositories are the three the toolchain
+# needs, the one other repository block is the root's gated staging target, every artifact
+# resolved carries a recorded checksum, and every Swift package is one the module graph
+# declares. tools/validate/probe-publication-rules.sh proves each refusal here bites.
+GRADLE_FILES=$(find . -path ./.git -prune -o -path ./.gradle -prune -o -path './*/build' -prune -o \
+    -name '*.gradle.kts' -print)
+PUBLISHING_SCRIPTS=''
+MAVEN_SCRIPTS=''
+for file in $GRADLE_FILES
+do
+    if [ "$file" = "./build.gradle.kts" ]
+    then
+        continue
+    fi
+    grep -vE '^[[:space:]]*(//|#)' "$file" > "$TMP/gradle-active.txt" || true
+    if grep -qE '(maven-publish|^[[:space:]]*publishing[[:space:]]*\{)' "$TMP/gradle-active.txt"
+    then
+        PUBLISHING_SCRIPTS="$PUBLISHING_SCRIPTS $file"
+    fi
+    if grep -qE 'maven[[:space:]]*\{' "$TMP/gradle-active.txt"
+    then
+        MAVEN_SCRIPTS="$MAVEN_SCRIPTS $file"
+    fi
+done
+
+if [ -z "$PUBLISHING_SCRIPTS" ]
+then
+    pass 'no build script outside the gated root configures publication'
+else
+    fail "publication configured outside the gated root:$PUBLISHING_SCRIPTS"
+fi
+
+TRUNK=$(grep -rIl 'pod trunk push' . --exclude-dir=.git --exclude-dir=.build --exclude-dir=.gradle --exclude=validate.sh 2>/dev/null || true)
+if [ -z "$TRUNK" ]
+then
+    pass 'no CocoaPods trunk publication command anywhere'
+else
+    fail "CocoaPods trunk publication command present in: $TRUNK"
+fi
+
+REPOS=$(grep -hoE '^[[:space:]]*(google|mavenCentral|gradlePluginPortal|mavenLocal|jcenter)\(\)' $GRADLE_FILES 2>/dev/null \
+    | tr -d ' ' | sort -u)
+UNEXPECTED_REPOS=$(printf '%s\n' "$REPOS" | grep -vE '^(google|mavenCentral|gradlePluginPortal)\(\)$' || true)
+if [ -z "$UNEXPECTED_REPOS" ]
+then
+    pass 'only google(), mavenCentral() and gradlePluginPortal() are declared'
+else
+    fail "unexpected dependency repositories: $UNEXPECTED_REPOS"
+fi
+
+if [ -z "$MAVEN_SCRIPTS" ]
+then
+    pass 'no build script outside the root declares a maven repository'
+else
+    fail "an arbitrary maven repository is declared in:$MAVEN_SCRIPTS"
+fi
+
+ROOT_MAVEN_BLOCKS=$(grep -vE '^[[:space:]]*(//|#)' build.gradle.kts \
+    | grep -cE 'maven[[:space:]]*\{' || true)
+equals "$ROOT_MAVEN_BLOCKS" "1" \
+    'the root declares exactly one maven repository block, the staging target'
+contains build.gradle.kts 'url = stagingUri' \
+    'the root maven repository is the gated staging directory'
+
+contains gradle/verification-metadata.xml '<verify-metadata>true</verify-metadata>' \
+    'Gradle dependency verification is enabled'
+
+# The graph is read line by line: `externalDeps` holds one array per platform, and a
+# whole-file read would return the first module's list for every module (P5).
+grep '"swiftTarget"' "$GRAPH" > "$TMP/graph-lines.txt" || true
+sed -n 's/.*"externalDeps": {"swift": \[\([^]]*\)\].*/\1/p' "$TMP/graph-lines.txt" \
+    | tr ',' '\n' | tr -d '" ' | grep -v '^$' | sort -u > "$TMP/declared-swift.txt" || true
+grep -E '^[[:space:]]*\.package\(' Package.swift \
+    | sed -E 's#.*\.package\(url:[[:space:]]*"[^"]*/([^/"]+)".*#\1#' \
+    | sort -u > "$TMP/manifest-package-names.txt" || true
+
+UNDECLARED_SWIFT=$(comm -23 "$TMP/manifest-package-names.txt" "$TMP/declared-swift.txt" || true)
+if [ -z "$UNDECLARED_SWIFT" ]
+then
+    pass 'every external package in Package.swift is declared in the module graph'
+else
+    fail "Package.swift depends on packages the module graph does not declare: $(printf '%s' "$UNDECLARED_SWIFT" | tr '\n' ' ')"
+fi
+
+# ---------------------------------------------------------------------------
+section '7a. build scripts and workflows hold no secrets and run only reviewed commands'
+# ---------------------------------------------------------------------------
+# Section 7 keeps publication off; this section keeps the paths that would turn it on,
+# or leak what it needs, closed. No build or test can make these checks: a build script
+# holding a literal password builds, and a workflow with an extra trigger or an
+# interpolated input only misbehaves on the CI service. Every refusal here is proven to
+# bite by tools/validate/probe-publication-rules.sh.
+#
+# BUILD SCRIPTS HOLD NO SECRETS. No committed property may hold a credential or key —
+# the active keys in gradle.properties are version, gate flags, group and Gradle tuning.
+# Credentials are banned in BOTH syntactic forms, the `credentials { }` block and the
+# call `credentials(...)`, unless the same line is a pure lookup, and a literal username
+# or password value fails wherever it appears.
 lacks_active gradle.properties '[Ss]igning|[Tt]oken|[Pp]assword|[Ss]ecret|[Cc]redential|[Kk]ey' \
     'gradle.properties commits no credential-shaped key'
 
-# The publication transition (D3/D4/D7) narrowed these rules again without weakening
-# them. The root build script — and only the root build script — holds publication and
-# signing configuration. What it may hold is pinned below: publication exists only
-# behind the per-run gate towards the local staging directory, and signing exists only
-# as an in-memory key looked up from the per-run environment. Credentials are banned
-# in BOTH syntactic forms — the `credentials { }` block and the call form
-# `credentials(...)` — unless the same line is a pure lookup, and a literal username
-# or password value fails wherever it appears. Central itself is never a Gradle
-# repository: the upload is a bundle POST done by the manual workflow, so any remote
-# publication URL in a build script is still a failure.
-# tools/validate/probe-publication-rules.sh proves each of these refusals bites.
-GRADLE_FILES=$(find . -path ./.git -prune -o -path ./.gradle -prune -o -path './*/build' -prune -o \
-    -name '*.gradle.kts' -print)
 CREDENTIAL_LOOKUPS='environmentVariable\(|gradleProperty\(|System\.getenv\(|PasswordCredentials::class'
 for file in $GRADLE_FILES
 do
-    # Both credential forms, block and call. A hit is legal only when the same line is
-    # one of the approved lookup shapes; any other hit — above all a literal value —
-    # fails.
     CREDENTIAL_HITS=$(grep -vE '^[[:space:]]*(//|#)' "$file" \
         | grep -E 'credentials[[:space:]]*[({]' \
         | grep -vE "$CREDENTIAL_LOOKUPS" || true)
@@ -867,62 +870,21 @@ do
         fail "literal credential value committed in $file: $LITERAL_SECRETS"
     fi
 
-    if [ "$file" = "./build.gradle.kts" ]
+    if [ "$file" != "./build.gradle.kts" ]
     then
-        continue
+        lacks_active "$file" '(id\("signing"\)|apply\("signing"\)|apply\(plugin[[:space:]]*=[[:space:]]*"signing"\)|SigningExtension|useInMemoryPgpKeys|^[[:space:]]*signing[[:space:]]*(\{|$))' \
+            "no signing configuration outside the gated root script in $file"
+        lacks_active "$file" 'https?://' "no URL literal outside the root build script in $file"
     fi
-
-    lacks_active "$file" '(id\("signing"\)|apply\("signing"\)|apply\(plugin[[:space:]]*=[[:space:]]*"signing"\)|SigningExtension|useInMemoryPgpKeys|^[[:space:]]*signing[[:space:]]*(\{|$))' \
-        "no signing configuration outside the gated root script in $file"
-    lacks_active "$file" '(maven-publish|^[[:space:]]*publishing[[:space:]]*\{)' \
-        "no publication block in $file"
-    lacks_active "$file" 'https?://' \
-        "no URL literal outside the root build script in $file"
-    # Repositories are now legal, because D5 approved a toolchain that has to come from
-    # somewhere. Only the three sources needed for that toolchain are allowed, and a
-    # hand-written `maven { url ... }` still fails: an arbitrary repository is exactly
-    # how an unreviewed artifact enters a build.
-    lacks_active "$file" 'maven[[:space:]]*\{' "no arbitrary maven repository in $file"
 done
 
-# Signing in the root: lookup-only, in memory, per run. The admission is pinned as the
-# exact mechanism; every path that would put key material or key identity in the tree
-# is refused.
-contains build.gradle.kts 'useInMemoryPgpKeys(signingKey' \
-    'root signing admits only the in-memory key mechanism'
-contains build.gradle.kts 'providers.gradleProperty("spfnSigningInMemoryKey")' \
-    'the signing key arrives as a per-run property lookup (ORG_GRADLE_PROJECT_*)'
-lacks_active build.gradle.kts '(secretKeyRingFile|signing\.keyId|\.gpg|\.asc|secring|pubring)' \
-    'root signing names no key file, keyring or key identity'
-
-# The root build script's publication gate, held by its load-bearing lines. These are
-# fixed strings on purpose: each one is a refusal the probe script exercises, and an
-# edit that removes the refusal removes the string.
-contains build.gradle.kts 'require(committedPublishingEnabled == "false")' \
-    'root gate reads the COMMITTED publishing flag from the file and requires false'
-contains build.gradle.kts 'if (publishingEnabled)' \
-    'root publication configuration exists only behind the per-run enablement gate'
-contains build.gradle.kts 'require(candidate.isAbsolute)' \
-    'root gate requires an absolute staging path'
-contains build.gradle.kts '!canonical.path.startsWith(repoRoot.path + File.separator)' \
-    'root gate refuses a staging path inside the repository'
-contains build.gradle.kts 'url = stagingUri' \
-    'the only publication repository in the root is the gated staging directory'
-
-ROOT_MAVEN_BLOCKS=$(grep -vE '^[[:space:]]*(//|#)' build.gradle.kts \
-    | grep -cE 'maven[[:space:]]*\{' || true)
-equals "$ROOT_MAVEN_BLOCKS" "1" \
-    'the root declares exactly one maven repository block, the staging target'
-
-# Remote addresses are judged notation-neutrally: every URL LITERAL in the root is
-# extracted — whether it rides in `url = …`, `url.set(…)`, `setUrl(…)` or a plain
-# string — and held to the exact allowlist of the POM's own metadata addresses. A
-# repository URL can therefore never be remote in any spelling, and `setUrl` is
-# additionally banned outright because a variable passed through it could point a
-# repository anywhere without a literal appearing.
-ROOT_URLS=$(grep -vE '^[[:space:]]*(//|#)' build.gradle.kts \
-    | grep -oE 'https?://[^"[:space:]]*' | sort -u || true)
-UNEXPECTED_ROOT_URLS=$(printf '%s\n' "$ROOT_URLS" | grep -v '^$' \
+# NO REMOTE PUBLICATION URL. Central is never a Gradle repository — the upload is a
+# bundle POST made by the manual workflow — so every URL LITERAL in the root is held to
+# the POM's own metadata addresses, whatever carries it (`url = …`, `url.set(…)`, a
+# plain string). `setUrl` is banned outright because a variable passed through it could
+# point a repository anywhere without a literal appearing.
+UNEXPECTED_ROOT_URLS=$(grep -vE '^[[:space:]]*(//|#)' build.gradle.kts \
+    | grep -oE 'https?://[^"[:space:]]*' | sort -u \
     | grep -vE '^https://(opensource\.org/license/mit/|github\.com/fxylabs/spfn-mobile(\.git)?|superfunction\.xyz)$' || true)
 if [ -z "$UNEXPECTED_ROOT_URLS" ]
 then
@@ -930,286 +892,37 @@ then
 else
     fail "URL literals outside the POM metadata allowlist in build.gradle.kts: $(printf '%s' "$UNEXPECTED_ROOT_URLS" | tr '\n' ' ')"
 fi
-
 lacks_active build.gradle.kts 'setUrl' \
     'the root never uses setUrl; the staging repository is assigned once, visibly'
 
-REPOS=$(grep -hoE '^[[:space:]]*(google|mavenCentral|gradlePluginPortal|mavenLocal|jcenter)\(\)' $GRADLE_FILES 2>/dev/null \
-    | tr -d ' ' | sort -u)
-UNEXPECTED_REPOS=$(printf '%s\n' "$REPOS" | grep -vE '^(google|mavenCentral|gradlePluginPortal)\(\)$' || true)
-if [ -z "$UNEXPECTED_REPOS" ]
-then
-    pass 'only google(), mavenCentral() and gradlePluginPortal() are declared'
-else
-    fail "unexpected dependency repositories: $UNEXPECTED_REPOS"
-fi
+# SIGNING AND STAGING ARE PINNED in the root by their load-bearing lines. Signing exists
+# only as an in-memory key looked up from the per-run environment, and every path that
+# would put key material or key identity in the tree is refused. Publication exists only
+# behind the per-run gate, towards an absolute staging directory outside the repository;
+# section 7 holds the committed-flag line and the staging URL. Fixed strings on purpose:
+# an edit that removes a refusal removes its string.
+contains build.gradle.kts 'useInMemoryPgpKeys(signingKey' \
+    'root signing admits only the in-memory key mechanism'
+contains build.gradle.kts 'providers.gradleProperty("spfnSigningInMemoryKey")' \
+    'the signing key arrives as a per-run property lookup (ORG_GRADLE_PROJECT_*)'
+lacks_active build.gradle.kts '(secretKeyRingFile|signing\.keyId|\.gpg|\.asc|secring|pubring)' \
+    'root signing names no key file, keyring or key identity'
+contains build.gradle.kts 'if (publishingEnabled)' \
+    'root publication configuration exists only behind the per-run enablement gate'
+contains build.gradle.kts 'require(candidate.isAbsolute)' \
+    'root gate requires an absolute staging path'
+contains build.gradle.kts '!canonical.path.startsWith(repoRoot.path + File.separator)' \
+    'root gate refuses a staging path inside the repository'
 
-contains gradle/verification-metadata.xml '<verify-metadata>true</verify-metadata>' \
-    'Gradle dependency verification is enabled'
-VERIFIED_COMPONENTS=$(grep -c '<component ' gradle/verification-metadata.xml || printf '0')
-if [ "$VERIFIED_COMPONENTS" -gt 0 ]
-then
-    pass "dependency verification records $VERIFIED_COMPONENTS components with real checksums"
-else
-    fail 'dependency verification has no components while dependencies are declared'
-fi
-
-# ---------------------------------------------------------------------------
-# External dependencies: only what the module graph declares.
-# ---------------------------------------------------------------------------
-# The rule here used to be "zero", and it was true until a provider adapter needed the
-# provider's own SDK. Zero is not the property worth keeping — REVIEWED is. So the rule
-# became an allowlist: tools/module-graph.json names, per module and per platform, what
-# may be pulled in, and both build systems are held to it in both directions. An
-# undeclared dependency fails, and a declared one no manifest uses fails too, because an
-# allowance nobody exercises is an allowance nobody is watching.
-#
-# tools/validate/probe-social-adapter-rules.sh proves each refusal here bites, in both
-# directions and in the notations that would otherwise slip past.
-#
-# The graph is read line by line, never with json_string: `externalDeps` holds one
-# array per platform and a whole-file "first hit at any depth" read would return the
-# first module's list for every module (P5). Each module object is one line by the
-# graph's own canonical format, which is what makes a line-scoped read exact.
-grep '"swiftTarget"' "$GRAPH" > "$TMP/graph-lines.txt" || true
-GRAPH_MODULES=$(wc -l < "$TMP/graph-lines.txt" | tr -d ' ')
-
-# Since schemaVersion 3 a module can have no Android half at all: `androidModule` is
-# either a name or the literal null, and null is a DECLARATION, not an omission. Every
-# Android-side check below and in sections 8 and 10 skips a null-declared module, so the
-# skip is what has to be kept narrow — a reader that also skips a line it simply failed
-# to parse reports a clean graph having read nothing (P7).
-#
-# The bucketing is the guard. Each module line lands in exactly one of two buckets, and
-# the two must add up to the number of module lines; a line that lands in neither was
-# not understood, and being not understood is a failure rather than a skip.
-# The name must be non-empty: `"androidModule": ""` is a value nobody wrote on purpose,
-# and bucketing it as Android-backed would turn a malformed line into a module whose
-# directory is merely missing.
-grep '"androidModule": "[^"]' "$TMP/graph-lines.txt" > "$TMP/graph-android.txt" || true
-grep '"androidModule": null' "$TMP/graph-lines.txt" > "$TMP/graph-ios-only.txt" || true
-GRAPH_ANDROID=$(wc -l < "$TMP/graph-android.txt" | tr -d ' ')
-GRAPH_IOS_ONLY=$(wc -l < "$TMP/graph-ios-only.txt" | tr -d ' ')
-
-if [ "$((GRAPH_ANDROID + GRAPH_IOS_ONLY))" = "$GRAPH_MODULES" ]
-then
-    pass "every one of the $GRAPH_MODULES graph modules declares its Android half or declares it absent ($GRAPH_ANDROID backed, $GRAPH_IOS_ONLY iOS-only)"
-else
-    fail "$((GRAPH_MODULES - GRAPH_ANDROID - GRAPH_IOS_ONLY)) module lines in $GRAPH declare neither an androidModule nor null; they were not read"
-fi
-
-# A graph nobody could read yields an empty allowlist, and an empty allowlist agrees
-# with an empty manifest scan: two zeroes match, and the whole section reports green
-# without having looked at anything. The floors make that impossible, and there are two
-# of them because the two platforms no longer carry the same modules — one number
-# covering both would pass with an entire platform at zero (P7).
-if [ "$GRAPH_MODULES" -ge 4 ]
-then
-    pass "the external-dependency allowlist read $GRAPH_MODULES Swift modules from the graph"
-else
-    fail "the external-dependency allowlist read $GRAPH_MODULES Swift modules from $GRAPH; it could not run"
-fi
-
-if [ "$GRAPH_ANDROID" -ge 4 ]
-then
-    pass "the external-dependency allowlist read $GRAPH_ANDROID Android modules from the graph"
-else
-    fail "the external-dependency allowlist read $GRAPH_ANDROID Android modules from $GRAPH; it could not run"
-fi
-
-sed -n 's/.*"externalDeps": {"swift": \[\([^]]*\)\].*/\1/p' "$TMP/graph-lines.txt" \
-    | tr ',' '\n' | tr -d '" ' | grep -v '^$' | sort -u > "$TMP/declared-swift.txt" || true
-DECLARED_SWIFT=$(wc -l < "$TMP/declared-swift.txt" | tr -d ' ')
-
-grep -E '^[[:space:]]*\.package\(' Package.swift > "$TMP/manifest-packages.txt" || true
-MANIFEST_PACKAGES=$(wc -l < "$TMP/manifest-packages.txt" | tr -d ' ')
-sed -E 's#.*\.package\(url:[[:space:]]*"[^"]*/([^/"]+)".*#\1#' "$TMP/manifest-packages.txt" \
-    | sort -u > "$TMP/manifest-package-names.txt"
-
-if [ "$MANIFEST_PACKAGES" = "$DECLARED_SWIFT" ]
-then
-    pass "Package.swift declares $MANIFEST_PACKAGES external packages, the number the module graph allows"
-else
-    fail "Package.swift declares $MANIFEST_PACKAGES external packages; the module graph allows $DECLARED_SWIFT"
-fi
-
-UNDECLARED_SWIFT=$(comm -23 "$TMP/manifest-package-names.txt" "$TMP/declared-swift.txt" || true)
-if [ -z "$UNDECLARED_SWIFT" ]
-then
-    pass 'every external package in Package.swift is declared in the module graph'
-else
-    fail "Package.swift depends on packages the module graph does not declare: $(printf '%s' "$UNDECLARED_SWIFT" | tr '\n' ' ')"
-fi
-
-UNUSED_SWIFT=$(comm -13 "$TMP/manifest-package-names.txt" "$TMP/declared-swift.txt" || true)
-if [ -z "$UNUSED_SWIFT" ]
-then
-    pass 'every Swift package the module graph allows is actually declared'
-else
-    fail "the module graph allows Swift packages nothing depends on: $(printf '%s' "$UNUSED_SWIFT" | tr '\n' ' ')"
-fi
-
-# An external package may only be reached through the trait its module declares, so a
-# trait-off consumer resolves nothing. The condition is what makes that true; the
-# declaration alone would still put the package in every consumer's resolution.
-for trait in $(sed -n 's/.*"swiftTrait": "\([^"]*\)".*/\1/p' "$TMP/graph-lines.txt")
-do
-    contains Package.swift ".trait(name: \"$trait\"" "Package.swift declares the trait $trait"
-done
-contains Package.swift '.default(enabledTraits: [])' \
-    'no trait is enabled by default, so a consumer resolves an adapter SDK only on request'
-
-# Android: the same allowlist, per module. Every dependency line in an SDK module must
-# be either a project edge or a catalogue alias the graph names for that module, and a
-# line in any other shape fails outright — a coordinate string is exactly how an
-# unreviewed artifact enters a build, and no name extraction would recognise it.
-#
-# The loop runs over the ANDROID-BACKED bucket, so a module that declares no Android
-# half is out of scope by declaration rather than by accident. Inside the bucket
-# nothing is skipped: a build script that is missing is a problem, not a reason to move
-# on, because "the file was not there" and "the file was clean" must never share an
-# outcome.
-ANDROID_SCANNED=0
-ANDROID_PROBLEMS=''
-while IFS= read -r graph_line
-do
-    android_module=$(printf '%s' "$graph_line" | sed -n 's/.*"androidModule": "\([^"]*\)".*/\1/p')
-    script="android/$android_module/build.gradle.kts"
-    ANDROID_SCANNED=$((ANDROID_SCANNED + 1))
-    if [ ! -f "$script" ]
-    then
-        ANDROID_PROBLEMS="$ANDROID_PROBLEMS $android_module:no-build-script"
-        continue
-    fi
-
-    printf '%s' "$graph_line" \
-        | sed -n 's/.*"externalDeps": {[^}]*"android": \[\([^]]*\)\].*/\1/p' \
-        | tr ',' '\n' | tr -d '" ' | grep -v '^$' | sort -u > "$TMP/declared-android.txt" || true
-
-    # Every OCCURRENCE is judged, not every line: a dependency can share its line with
-    # the block that opens it, and a line-anchored read walks straight past that one
-    # (P13, the notation-bypass class). Comment lines are dropped first, and the
-    # capitalised `testImplementation` / `androidTestImplementation` spellings fall
-    # outside the alternation on purpose — test configurations describe how this
-    # repository is checked, not what a consumer links.
-    grep -vE '^[[:space:]]*(//|#)' "$script" \
-        | grep -oE '(^|[^A-Za-z0-9_.])(api|implementation|compileOnly|runtimeOnly)\([^,)]*' \
-        | sed -E 's/.*(api|implementation|compileOnly|runtimeOnly)\(//' \
-        > "$TMP/module-deps.txt" || true
-
-    UNKNOWN_SHAPE=$(grep -vE '^(libs\.[A-Za-z0-9.]+|project\(":[a-z-]+"|$)' "$TMP/module-deps.txt" || true)
-    if [ -n "$UNKNOWN_SHAPE" ]
-    then
-        ANDROID_PROBLEMS="$ANDROID_PROBLEMS $android_module:unrecognised-dependency-form"
-    fi
-
-    grep -E '^libs\.' "$TMP/module-deps.txt" \
-        | sed 's/^libs\.//' | tr '.' '-' | sort -u > "$TMP/module-external.txt" || true
-
-    UNDECLARED=$(comm -23 "$TMP/module-external.txt" "$TMP/declared-android.txt" || true)
-    UNUSED=$(comm -13 "$TMP/module-external.txt" "$TMP/declared-android.txt" || true)
-    if [ -n "$UNDECLARED" ]
-    then
-        ANDROID_PROBLEMS="$ANDROID_PROBLEMS $android_module:undeclared($(printf '%s' "$UNDECLARED" | tr '\n' ','))"
-    fi
-    if [ -n "$UNUSED" ]
-    then
-        ANDROID_PROBLEMS="$ANDROID_PROBLEMS $android_module:declared-but-unused($(printf '%s' "$UNUSED" | tr '\n' ','))"
-    fi
-done < "$TMP/graph-android.txt"
-
-if [ "$ANDROID_SCANNED" = "$GRAPH_ANDROID" ]
-then
-    pass "the external-dependency allowlist was applied to all $ANDROID_SCANNED Android-backed modules"
-else
-    fail "the external-dependency allowlist reached $ANDROID_SCANNED of $GRAPH_ANDROID Android-backed modules"
-fi
-
-if [ -z "$ANDROID_PROBLEMS" ]
-then
-    pass 'every Android module depends on exactly the external artifacts the module graph declares'
-else
-    fail "Android external dependencies disagree with the module graph:$ANDROID_PROBLEMS"
-fi
-
-TRUNK=$(grep -rIl 'pod trunk push' . --exclude-dir=.git --exclude-dir=.build --exclude-dir=.gradle --exclude=validate.sh 2>/dev/null || true)
-if [ -z "$TRUNK" ]
-then
-    pass 'no CocoaPods trunk publication command anywhere'
-else
-    fail "CocoaPods trunk publication command present in: $TRUNK"
-fi
-
-# Workflows come in three kinds now, and each kind is held to its own shape.
-#
-# THREE ARE GATES (D2, partly resolved 2026-09-18): swift, android and contract run every
-# Linux-runnable check on every pull request. They trigger automatically, they check the
-# source out, and every command they run is a script under tools/ci/ — because a workflow
-# file cannot be run on a developer machine, and a gate nobody can reproduce locally is a
-# gate nobody can fix.
-#
-# ONE MAY SPEAK PUBLICATION: publish-central.yml, the manual Central path the publication
-# transition opened. What it may do is pinned right after the loop: named secrets only,
-# one remote endpoint only, held-for-confirmation upload only.
-#
-# THE REST STAY MANUAL AND INERT: security.yml and release-candidate.yml describe what D2
-# leaves outside CI — macOS, real devices, signing and publication — and perform nothing.
-#
-# The trigger check is an ALLOW-list over the parsed `on:` set, not a deny-list of trigger
-# names: a deny-list misses the flow-style forms (`on: [push, ...]`, `on: push`,
-# `on: {push: …}`) and every trigger nobody thought to name — workflow_run,
-# repository_dispatch, merge_group, a future one. The trigger set of every workflow is
-# extracted, whichever YAML style declares it, and compared against the set its kind
-# allows; a workflow declaring no trigger fails either way.
-PUBLISH_WORKFLOW=.github/workflows/publish-central.yml
-GATE_WORKFLOWS=' .github/workflows/swift.yml .github/workflows/android.yml .github/workflows/contract.yml '
-for workflow in .github/workflows/*.yml
-do
-    [ -f "$workflow" ] || continue
-
-    case "$GATE_WORKFLOWS" in
-        *" $workflow "*) IS_GATE=yes ;;
-        *) IS_GATE=no ;;
-    esac
-
-    # Actions allow-list, per workflow. publish-central.yml may use exactly one action —
-    # the SHA-pinned log-artifact uploader that carries failure evidence out of the
-    # runner. A gate workflow may use exactly one too: the SHA-pinned checkout, because a
-    # job needs the source. Everything else uses none. A tag- or branch-pinned form of
-    # even an admitted action fails, because a movable ref is how an unreviewed action
-    # enters a workflow. Section 24 is the other half of this: it holds every one of these
-    # lines to the SHAs recorded in tools/ci/actions-allowlist.txt.
-    if [ "$workflow" = "$PUBLISH_WORKFLOW" ]
-    then
-        # Non-anchored on purpose: `uses:` can open a step (`- uses:`) or ride in a
-        # flow-style map, and an anchored extraction reads right past both. Only
-        # full-line comments are exempt; the admitted shape allows the list-item
-        # dash and nothing else.
-        UNEXPECTED_USES=$(grep -E 'uses:' "$workflow" \
-            | grep -vE '^[[:space:]]*#' \
-            | grep -vE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*actions/upload-artifact@[0-9a-f]{40}([[:space:]]+#.*)?$' || true)
-        if [ -z "$UNEXPECTED_USES" ]
-        then
-            pass "$workflow uses only the commit-SHA-pinned upload-artifact action"
-        else
-            fail "$workflow uses an action outside the SHA-pinned allowlist: $UNEXPECTED_USES"
-        fi
-    elif [ "$IS_GATE" = yes ]
-    then
-        UNEXPECTED_USES=$(grep -E 'uses:' "$workflow" \
-            | grep -vE '^[[:space:]]*#' \
-            | grep -vE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*actions/checkout@[0-9a-f]{40}([[:space:]]+#.*)?$' || true)
-        if [ -z "$UNEXPECTED_USES" ]
-        then
-            pass "$workflow uses only the commit-SHA-pinned checkout action"
-        else
-            fail "$workflow uses an action outside the SHA-pinned allowlist: $UNEXPECTED_USES"
-        fi
-    else
-        lacks_active "$workflow" 'uses:' "$workflow uses no third-party action, so there is nothing to pin"
-    fi
-
-    TRIGGERS=$(awk '
+# WORKFLOWS RUN ONLY WHEN AND WHAT WAS REVIEWED. The three gates trigger on pull_request
+# and push; every other workflow is manual. The trigger check is an ALLOW-list over the
+# parsed `on:` set, whichever YAML style declares it — a deny-list misses the flow forms
+# (`on: [push]`, `on: {push: …}`) and every trigger nobody thought to name. A line at
+# trigger depth the parser cannot read is refused rather than skipped, because a parser
+# that skips what it does not understand admits exactly the trigger it could not see.
+workflow_triggers()
+{
+    awk '
         /^on:/ {
             inline = $0
             sub(/^on:[[:space:]]*/, "", inline)
@@ -1232,10 +945,6 @@ do
             blockindent = -1
             next
         }
-        # Fail closed: a line at trigger depth the parser cannot read as a plain key
-        # (a quoted key, an anchor, anything unforeseen) is reported as a sentinel and
-        # refused below. A parser that skips what it does not understand would admit
-        # exactly the trigger it could not see.
         inblock {
             if ($0 ~ /^[^[:space:]#]/) { inblock = 0 }
             else if ($0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*#/) { }
@@ -1259,15 +968,29 @@ do
                 }
             }
         }
-    ' "$workflow")
-    if [ "$IS_GATE" = yes ]
-    then
-        ADMITTED_TRIGGERS='^(pull_request|push)$'
-        TRIGGER_DESCRIPTION='pull_request and push, and nothing else'
-    else
-        ADMITTED_TRIGGERS='^workflow_dispatch$'
-        TRIGGER_DESCRIPTION='workflow_dispatch and nothing else'
-    fi
+    ' "$1"
+}
+
+# A gate runs scripts, never commands of its own: the runner and a developer's terminal
+# must execute the same text, and section 1 holds that each script it names exists.
+# Only a manual workflow may request a secret or speak publication, and of those only
+# publish-central.yml, whose boundary is pinned after the loop.
+PUBLISH_WORKFLOW=.github/workflows/publish-central.yml
+GATE_WORKFLOWS=' .github/workflows/swift.yml .github/workflows/android.yml .github/workflows/contract.yml '
+for workflow in .github/workflows/*.yml
+do
+    case "$GATE_WORKFLOWS" in
+        *" $workflow "*)
+            ADMITTED_TRIGGERS='^(pull_request|push)$'
+            TRIGGER_DESCRIPTION='pull_request and push, and nothing else'
+            ;;
+        *)
+            ADMITTED_TRIGGERS='^workflow_dispatch$'
+            TRIGGER_DESCRIPTION='workflow_dispatch and nothing else'
+            ;;
+    esac
+
+    TRIGGERS=$(workflow_triggers "$workflow")
     UNEXPECTED_TRIGGERS=$(printf '%s\n' "$TRIGGERS" | grep -vE "$ADMITTED_TRIGGERS" | grep -v '^$' || true)
     if printf '%s\n' "$TRIGGERS" | grep -q '^SPFN_UNPARSEABLE_TRIGGER$'
     then
@@ -1282,43 +1005,32 @@ do
         fail "$workflow declares triggers beyond $TRIGGER_DESCRIPTION: $(printf '%s' "$UNEXPECTED_TRIGGERS" | tr '\n' ' ')"
     fi
 
-    if [ "$IS_GATE" = yes ]
+    case "$GATE_WORKFLOWS" in
+        *" $workflow "*)
+            UNEXPECTED_RUNS=$(grep -nE '^[[:space:]]*(-[[:space:]]*)?run:' "$workflow" \
+                | grep -vE '^[0-9]+:[[:space:]]*(-[[:space:]]*)?run:[[:space:]]*sh tools/ci/[a-z-]+\.sh[[:space:]]*$' || true)
+            if [ -z "$UNEXPECTED_RUNS" ]
+            then
+                pass "$workflow runs tools/ci scripts and nothing else, so its gate is reproducible off a runner"
+            else
+                fail "$workflow runs a command that is not a tools/ci script: $UNEXPECTED_RUNS"
+            fi
+            ;;
+    esac
+
+    if [ "$workflow" != "$PUBLISH_WORKFLOW" ]
     then
-        # A gate runs scripts, never commands of its own. The whole point of tools/ci is
-        # that the runner and a developer's terminal execute the same text; a `run:` that
-        # named a gradle or swift invocation directly would be a second gate nobody can
-        # reproduce. Only `sh tools/ci/<name>.sh` is admitted as a run command.
-        UNEXPECTED_RUNS=$(grep -nE '^[[:space:]]*run:' "$workflow" \
-            | grep -vE '^[0-9]+:[[:space:]]*run:[[:space:]]*sh tools/ci/[a-z-]+\.sh[[:space:]]*$' || true)
-        if [ -z "$UNEXPECTED_RUNS" ]
-        then
-            pass "$workflow runs tools/ci scripts and nothing else, so its gate is reproducible off a runner"
-        else
-            fail "$workflow runs a command that is not a tools/ci script: $UNEXPECTED_RUNS"
-        fi
-
-        contains "$workflow" 'A required check' "$workflow states that it is a required check"
-        contains "$workflow" 'timeout-minutes' "$workflow bounds its own runtime"
-        lacks_active "$workflow" 'runs-on:[[:space:]]*[a-z-]*latest' \
-            "$workflow names an exact runner image rather than a moving 'latest'"
-    else
-        contains "$workflow" 'NOT A GATE' "$workflow states that it is not a gate"
-        contains "$workflow" 'workflow_dispatch' "$workflow is manual-only"
+        lacks_active "$workflow" '(secrets\.|publish|deploy|upload-artifact|trunk|registry)' \
+            "$workflow requests no secret and performs no publication"
     fi
-
-    if [ "$workflow" = "$PUBLISH_WORKFLOW" ]
-    then
-        continue
-    fi
-
-    lacks_active "$workflow" '(secrets\.|publish|deploy|upload-artifact|trunk|registry)' \
-        "$workflow requests no secret and performs no publication"
 done
 
-# The publish workflow's own boundary. Secrets by NAME only, from a fixed allowlist —
-# a new secret name is a new decision, not an edit. The only remote hosts it may
-# address are the Central Portal and github.com (its own clone), and the upload must
-# be held for a person (USER_MANAGED), never auto-released.
+# The publish workflow's own boundary. Secrets by NAME only, from a fixed allowlist — a
+# new secret name is a new decision, not an edit. The only hosts it may address are the
+# Central Portal and github.com (its own clone). The host allowlist sees only URL
+# literals and a network command needs no scheme, so every network-capable command must
+# itself name an allowlisted host; backslash continuations are joined first so a command
+# split across lines is judged as one.
 UNEXPECTED_SECRETS=$(grep -oE 'secrets\.[A-Za-z0-9_]+' "$PUBLISH_WORKFLOW" 2>/dev/null | sort -u \
     | grep -vE '^secrets\.(CENTRAL_PORTAL_TOKEN|SIGNING_IN_MEMORY_KEY|SIGNING_IN_MEMORY_KEY_PASSWORD|GITHUB_TOKEN)$' || true)
 if [ -z "$UNEXPECTED_SECRETS" ]
@@ -1338,26 +1050,12 @@ else
     fail "publish-central.yml addresses unexpected hosts: $UNEXPECTED_HOSTS"
 fi
 
-contains "$PUBLISH_WORKFLOW" 'central.sonatype.com/api/v1/publisher/upload' \
-    'the Central upload goes through the Portal publisher API'
-contains "$PUBLISH_WORKFLOW" 'publishingType=USER_MANAGED' \
-    'the uploaded deployment is held for explicit human confirmation'
-contains "$PUBLISH_WORKFLOW" 'useInMemoryPgpKeys' \
-    'publish-central.yml documents the in-memory key custody (no key file on disk)'
-
-# The host allowlist above only sees URL literals, and a network command needs no
-# scheme — `curl evil.example` walks straight past it. So every line that invokes a
-# network-capable command must itself name an allowlisted host, and pushing anything
-# back from a publish run is banned outright.
-# Backslash continuations are joined first, so a command split across lines is judged
-# as the one command it is.
-NETWORK_LINES=$(awk '
+UNPINNED_NETWORK=$(awk '
     /\\[[:space:]]*$/ { sub(/\\[[:space:]]*$/, "", $0); buf = buf $0 " "; next }
     { print buf $0; buf = "" }
 ' "$PUBLISH_WORKFLOW" \
     | grep -vE '^[[:space:]]*#' \
-    | grep -E '(curl|wget|git clone|git fetch|git pull|ssh |scp |nc )' || true)
-UNPINNED_NETWORK=$(printf '%s\n' "$NETWORK_LINES" | grep -v '^$' \
+    | grep -E '(curl|wget|git clone|git fetch|git pull|ssh |scp |nc )' \
     | grep -vE '(central\.sonatype\.com|github\.com)' || true)
 if [ -z "$UNPINNED_NETWORK" ]
 then
@@ -1365,18 +1063,15 @@ then
 else
     fail "network commands without an allowlisted host in publish-central.yml: $UNPINNED_NETWORK"
 fi
-
 lacks_active "$PUBLISH_WORKFLOW" 'git (push|remote)' \
     'a publish run never pushes or rewires a remote'
 
-# Expression injection: a workflow input interpolated into run text executes as
-# script. Inputs may reach the shell ONLY as an env assignment, and the commit input
-# must be machine-validated as exactly 40 hex characters before any use. The net is
-# any mention of inputs inside an expression — `inputs.x`, the legacy
-# `github.event.inputs.x`, the bracket form, or an indirection through format() —
-# and the one admitted shape is a plain `NAME: ${{ inputs.x }}` env assignment.
-RAW_INPUT_USES=$(grep -nE '\$\{\{.*inputs' "$PUBLISH_WORKFLOW" \
-    | grep -vE '^[0-9]+:[[:space:]]*[A-Z_][A-Z_0-9]*:[[:space:]]*\$\{\{[[:space:]]*inputs\.[A-Za-z_]+[[:space:]]*\}\}[[:space:]]*$' || true)
+# Expression injection: a workflow input interpolated into run text executes as script.
+# The net is any mention of inputs inside an expression — `inputs.x`, the legacy
+# `github.event.inputs.x`, the bracket form, an indirection through format() — in every
+# workflow, and the one admitted shape is a plain `NAME: ${{ inputs.x }}` env assignment.
+RAW_INPUT_USES=$(grep -HnE '\$\{\{.*inputs' .github/workflows/*.yml \
+    | grep -vE '^[^:]+:[0-9]+:[[:space:]]*[A-Z_][A-Z_0-9]*:[[:space:]]*\$\{\{[[:space:]]*inputs\.[A-Za-z_]+[[:space:]]*\}\}[[:space:]]*$' || true)
 if [ -z "$RAW_INPUT_USES" ]
 then
     pass 'workflow inputs reach the shell only through env assignments'
@@ -1384,23 +1079,38 @@ else
     fail "workflow inputs interpolated outside an env assignment: $RAW_INPUT_USES"
 fi
 
+# The commit input names what gets built and published, so it is machine-validated as
+# exactly 40 lowercase hex characters before any use.
 contains "$PUBLISH_WORKFLOW" '*[!0-9a-f]*' \
     'the commit input is refused unless it is lowercase hex'
 contains "$PUBLISH_WORKFLOW" '-ne 40' \
     'the commit input is refused unless it is exactly 40 characters'
-contains "$PUBLISH_WORKFLOW" 'if: failure()' \
-    'log surfacing and the log artifact exist only on the failure path'
-contains "$PUBLISH_WORKFLOW" 'rc-out/logs' \
-    'observability is confined to the rc-out/logs directory'
 
 # ---------------------------------------------------------------------------
 section '8. module graph coherence'
 # ---------------------------------------------------------------------------
-grep '"swiftTarget"' "$GRAPH" > "$TMP/modules.txt"
+# What a build cannot see: whether the modules and edges it builds are the ones
+# tools/module-graph.json declares. A build compiles whatever the manifests say, so an
+# undeclared module or an extra edge compiles fine. What a build DOES catch is not
+# repeated here: a graph target with no source directory fails `swift build`, an
+# unguarded Apple-only import (CryptoKit included) fails the Linux `swift build` in
+# tools/ci/swift.sh, a Gradle mapping to a project nobody included fails configuration,
+# and the CocoaPods fixture's subspecs are section 9's to hold, because it regenerates the
+# fixture from this graph and refuses any difference.
+grep '"swiftTarget"' "$GRAPH" > "$TMP/modules.txt" || true
 MODULE_COUNT=$(wc -l < "$TMP/modules.txt" | tr -d ' ')
 MODULES_WITH_ANDROID=0
 MODULES_IOS_ONLY=0
 MODULES_UNREADABLE=0
+
+# A graph nobody could read yields no module lines, and every per-module check below then
+# passes by never running (P7).
+if [ "$MODULE_COUNT" -ge 4 ]
+then
+    pass "the module graph read $MODULE_COUNT modules"
+else
+    fail "the module graph read $MODULE_COUNT modules from $GRAPH; it could not run"
+fi
 
 while IFS= read -r line
 do
@@ -1409,29 +1119,16 @@ do
     swift_deps=$(printf '%s' "$line" | sed -n 's/.*"swiftDependsOn": \[\([^]]*\)\].*/\1/p')
     android_deps=$(printf '%s' "$line" | sed -n 's/.*"androidDependsOn": \[\([^]]*\)\].*/\1/p')
 
-    if [ -d "Sources/$swift_target" ] && [ -n "$(find "Sources/$swift_target" -name '*.swift' -print -quit)" ]
-    then
-        pass "Sources/$swift_target exists with Swift sources"
-    else
-        fail "Sources/$swift_target missing or empty"
-    fi
-
     contains Package.swift ".library(name: \"$swift_target\", targets: [\"$swift_target\"])" \
         "Package.swift exposes product $swift_target"
 
     if [ -z "$swift_deps" ]
     then
-        # A module with no graph edges used to be held to the literal
-        # `.target(name: "X")`, and that was the whole check. It may now carry an
-        # external product — SPFNCore hashes with swift-crypto where there is no
-        # CryptoKit — so two shapes are admitted: the bare target, and a dependency
-        # list holding nothing but products the graph allows THIS module, each behind
-        # `.when(platforms: [.linux])`.
-        #
-        # Section 7 holds the package NAME to `externalDeps`; what is held here is that
-        # nothing else rode in on the relaxation. An unconditional product is not
-        # erased and fails, and so does a product allowed to some other module — which
-        # is the refusal tools/validate/probe-social-adapter-rules.sh exercises.
+        # A module with no graph edges may still carry an external product — SPFNCore
+        # hashes with swift-crypto where there is no CryptoKit — so two shapes are
+        # admitted: the bare target, and a dependency list holding nothing but products the
+        # graph allows THIS module, each behind `.when(platforms: [.linux])`. An
+        # unconditional product, or one allowed to another module, is not erased and fails.
         NO_EDGE_LINE=$(grep -F ".target(name: \"$swift_target\"" Package.swift | head -1)
         NO_EDGE_REST=$(strip_linux_products "$NO_EDGE_LINE" "$swift_target")
         if [ "$NO_EDGE_REST" = ".target(name: \"$swift_target\")" ] \
@@ -1442,34 +1139,20 @@ do
             fail "Package.swift target $swift_target has no graph edges but declares: $NO_EDGE_REST"
         fi
     else
-        # The graph's edges are the LEADING dependencies of the target, in order, and
-        # the closing bracket is deliberately not part of the match: a target may carry
-        # a trait-gated external product after them, which section 7 holds to
-        # `externalDeps` instead.
-        rendered=$(printf '%s' "$swift_deps" | sed 's/, /, /g')
-        contains Package.swift ".target(name: \"$swift_target\", dependencies: [$rendered" \
+        # The graph's edges are the LEADING dependencies of the target, in order; a
+        # trait-gated external product may follow them.
+        contains Package.swift ".target(name: \"$swift_target\", dependencies: [$swift_deps" \
             "Package.swift target $swift_target dependency edge matches the graph"
     fi
 
-    # The Android half is checked when the graph names one. A module that declares
-    # `androidModule: null` has none by decision, and the three states are kept apart
-    # here: a name is checked, a null is counted as iOS-only, and a line that is neither
-    # is a line this loop did not understand — which fails rather than passing quietly.
+    # Three states, kept apart: a name is checked, a null is counted as iOS-only, and a
+    # line that is neither is a line this loop did not understand.
     if [ -n "$android_module" ]
     then
         MODULES_WITH_ANDROID=$((MODULES_WITH_ANDROID + 1))
 
-        contains settings.gradle.kts "\":$android_module\"" "settings.gradle.kts includes :$android_module"
         contains settings.gradle.kts "project(\":$android_module\").projectDir = file(\"android/$android_module\")" \
             ":$android_module maps to android/$android_module"
-
-        if [ -f "android/$android_module/build.gradle.kts" ] \
-            && [ -n "$(find "android/$android_module/src/main/kotlin" -name '*.kt' -print -quit 2>/dev/null)" ]
-        then
-            pass "android/$android_module has a build script and Kotlin sources"
-        else
-            fail "android/$android_module missing build script or Kotlin sources"
-        fi
 
         if [ -z "$android_deps" ]
         then
@@ -1479,19 +1162,14 @@ do
         fi
         contains "android/$android_module/build.gradle.kts" "$expected" \
             "android/$android_module dependency edge matches the graph"
-
         contains "android/$android_module/build.gradle.kts" "extra[\"spfnSwiftCounterpart\"] = \"$swift_target\"" \
             "android/$android_module declares its Swift counterpart $swift_target"
     elif printf '%s' "$line" | grep -q '"androidModule": null'
     then
         MODULES_IOS_ONLY=$((MODULES_IOS_ONLY + 1))
 
-        # A declared-absent Android half must really be absent, or the train would ship
-        # an Android artifact nothing in the graph describes — the same drift the graph
-        # exists to prevent, pointing the other way. The link is looked up rather than
-        # derived from the target name: every Android module names its Swift counterpart
-        # in its own build script, so the question "does an Android module for this
-        # target exist" has an exact answer that no naming convention has to supply.
+        # A declared-absent Android half must really be absent. Every Android module names
+        # its Swift counterpart in its own build script, so the question has an exact answer.
         ORPHAN=$(grep -l "extra\[\"spfnSwiftCounterpart\"\] = \"$swift_target\"" \
             android/*/build.gradle.kts 2>/dev/null || true)
         if [ -z "$ORPHAN" ]
@@ -1504,20 +1182,8 @@ do
         MODULES_UNREADABLE=$((MODULES_UNREADABLE + 1))
         fail "the graph line for $swift_target declares neither an androidModule nor null"
     fi
-
-    contains "$PODSPEC" "s.subspec '$swift_target'" "CocoaPods fixture has subspec $swift_target"
-    printf '%s\n' "$swift_deps" | tr ',' '\n' | sed 's/[" ]//g' > "$TMP/deps.txt"
-    while IFS= read -r dep
-    do
-        [ -n "$dep" ] || continue
-        contains "$PODSPEC" "sp.dependency 'SPFNMobileCompatFixture/$dep'" \
-            "CocoaPods fixture edge $swift_target -> $dep"
-    done < "$TMP/deps.txt"
 done < "$TMP/modules.txt"
 
-# What the loop above did with each line, counted independently of what it checked. The
-# two buckets have to account for every module: a line the loop skipped without
-# understanding would otherwise leave no trace at all.
 if [ "$((MODULES_WITH_ANDROID + MODULES_IOS_ONLY))" = "$MODULE_COUNT" ] && [ "$MODULES_UNREADABLE" = "0" ]
 then
     pass "the coherence loop read all $MODULE_COUNT modules ($MODULES_WITH_ANDROID Android-backed, $MODULES_IOS_ONLY iOS-only)"
@@ -1525,22 +1191,12 @@ else
     fail "the coherence loop read $MODULES_WITH_ANDROID + $MODULES_IOS_ONLY of $MODULE_COUNT modules and could not read $MODULES_UNREADABLE"
 fi
 
-# ---------------------------------------------------------------------------
-# The Linux half of the graph (schemaVersion 4).
-# ---------------------------------------------------------------------------
-# `linux` is ABSENT on a module that builds on Linux and the literal false on a module
-# that has no Linux half at all. The three-state rule `androidModule` follows applies
-# here for the same reason: an absent key, a declared false and a value nobody could
-# read are three different events, and a reader that folds the third into either of the
-# first two reports a clean graph having read nothing (P7). So every module line is
-# bucketed and the two buckets must add up; a line carrying `"linux":` followed by
-# anything but false lands in neither and fails as unread.
-#
-# SwiftPM cannot condition a TARGET on a platform, so `linux: false` is not something
-# Package.swift can state. The mechanism is in the sources: every file of such a module
-# is guarded whole — first line of code to last — so the target compiles to an empty
-# module. That is what is checked below, file by file, and so is the other direction:
-# a module WITHOUT the key may not reach an Apple-only framework outside a guard.
+# `linux` is ABSENT on a module that builds on Linux and the literal false on one that has
+# no Linux half. SwiftPM cannot condition a TARGET on a platform, so what makes `false`
+# true is a guard around every file of the module, which then compiles to nothing on
+# Linux. A build cannot tell an empty module from one that merely compiles there, so the
+# guard is read here: the first line of code is `#if canImport(...)` and the last is its
+# `#endif`. A line carrying `"linux":` with anything but false lands in neither bucket.
 grep '"linux": false' "$TMP/modules.txt" > "$TMP/linux-absent.txt" || true
 grep -v '"linux":' "$TMP/modules.txt" > "$TMP/linux-capable.txt" || true
 LINUX_ABSENT=$(wc -l < "$TMP/linux-absent.txt" | tr -d ' ')
@@ -1553,11 +1209,6 @@ else
     fail "$((MODULE_COUNT - LINUX_ABSENT - LINUX_CAPABLE)) module lines in $GRAPH carry a \"linux\" key that is not false; they were not read"
 fi
 
-# A module that declares no Linux half must really have none, and the only thing that
-# makes that true is the guard on each of its files. Both ends are checked: the first
-# line of code is `#if canImport(...)`, and the last is its `#endif`. Checking only the
-# first would admit a guard closed early, which leaves whatever trails it — a final
-# extension, a helper type — compiling on Linux inside a module that claims to be empty.
 GUARD_SCANNED=0
 GUARD_PROBLEMS=''
 while IFS= read -r line
@@ -1575,13 +1226,11 @@ do
         do
             GUARD_SCANNED=$((GUARD_SCANNED + 1))
             grep -vE '^[[:space:]]*(//|$)' "$source" > "$TMP/guard-body.txt" || true
-            FIRST_CODE=$(head -1 "$TMP/guard-body.txt")
-            LAST_CODE=$(tail -1 "$TMP/guard-body.txt")
-            case $FIRST_CODE in
+            case $(head -1 "$TMP/guard-body.txt") in
                 '#if canImport('*) ;;
                 *) GUARD_PROBLEMS="$GUARD_PROBLEMS $source:opens-with-unguarded-code" ;;
             esac
-            if [ "$LAST_CODE" != '#endif' ]
+            if [ "$(tail -1 "$TMP/guard-body.txt")" != '#endif' ]
             then
                 GUARD_PROBLEMS="$GUARD_PROBLEMS $source:guard-closes-before-the-end"
             fi
@@ -1589,8 +1238,6 @@ do
     done
 done < "$TMP/linux-absent.txt"
 
-# The floor. A loop that visited nothing reports the same empty problem list as a loop
-# that found everything guarded, and the two must not share an outcome.
 if [ "$GUARD_SCANNED" -ge 3 ]
 then
     pass "the whole-file guard scan read $GUARD_SCANNED sources across the $LINUX_ABSENT modules that declare no Linux half"
@@ -1605,112 +1252,19 @@ else
     fail "a module declaring no Linux half has sources that are not guarded whole:$GUARD_PROBLEMS"
 fi
 
-# The other direction. Every Swift file that is NOT part of a declared-absent module has
-# to compile on Linux, so an Apple-only framework may only be reached from inside a
-# `#if canImport(` guard. The file list is the whole tree minus those modules, rather
-# than the module directories the graph names, so the test targets that belong to no
-# module — conformance, repository, integration, verify — are covered too.
-find Sources Tests -name '*.swift' | sort > "$TMP/all-swift.txt"
-cp "$TMP/all-swift.txt" "$TMP/linux-swift-files.txt"
-while IFS= read -r line
-do
-    absent_target=$(printf '%s' "$line" | sed -n 's/.*"swiftTarget": "\([^"]*\)".*/\1/p')
-    grep -v "^Sources/$absent_target/" "$TMP/linux-swift-files.txt" \
-        | grep -v "^Tests/${absent_target}Tests/" > "$TMP/linux-swift-kept.txt" || true
-    mv "$TMP/linux-swift-kept.txt" "$TMP/linux-swift-files.txt"
-done < "$TMP/linux-absent.txt"
-
-# SwiftUI joined this list with the `ui` module. It is Apple-only and `SPFNUI` builds on
-# Linux, so the one file that imports it — FlowHost.swift — is guarded whole, and this is
-# what makes that a rule rather than a habit.
-APPLE_ONLY_FRAMEWORKS='AuthenticationServices|UIKit|AppKit|LocalAuthentication|Security|SwiftUI'
-APPLE_IMPORT_SCANNED=0
-APPLE_IMPORT_HITS=''
-while IFS= read -r source
-do
-    APPLE_IMPORT_SCANNED=$((APPLE_IMPORT_SCANNED + 1))
-    APPLE_IMPORT_HITS="$APPLE_IMPORT_HITS$(unguarded_imports "$source" "$APPLE_ONLY_FRAMEWORKS")"
-done < "$TMP/linux-swift-files.txt"
-
-if [ "$APPLE_IMPORT_SCANNED" -ge 20 ]
-then
-    pass "the Apple-framework import scan read $APPLE_IMPORT_SCANNED sources outside the modules that declare no Linux half"
-else
-    fail "the Apple-framework import scan read only $APPLE_IMPORT_SCANNED sources; it did not run"
-fi
-
-if [ -z "$APPLE_IMPORT_HITS" ]
-then
-    pass 'no module that builds on Linux imports an Apple-only framework outside a canImport guard'
-else
-    fail "an Apple-only framework is imported unconditionally in a module that builds on Linux: $APPLE_IMPORT_HITS"
-fi
-
-# CryptoKit is the one framework the rule covers everywhere, including inside the
-# modules that declare no Linux half. It is the SDK's cryptography, swift-crypto is the
-# same API where CryptoKit is absent, and the swap is an import: a file that imports
-# CryptoKit unconditionally is a file that has no Linux half and did not say so.
-CRYPTO_IMPORT_SCANNED=0
-CRYPTO_IMPORT_HITS=''
-while IFS= read -r source
-do
-    CRYPTO_IMPORT_SCANNED=$((CRYPTO_IMPORT_SCANNED + 1))
-    CRYPTO_IMPORT_HITS="$CRYPTO_IMPORT_HITS$(unguarded_imports "$source" 'CryptoKit')"
-done < "$TMP/all-swift.txt"
-
-if [ "$CRYPTO_IMPORT_SCANNED" -ge 20 ]
-then
-    pass "the CryptoKit import scan read all $CRYPTO_IMPORT_SCANNED Swift sources"
-else
-    fail "the CryptoKit import scan read only $CRYPTO_IMPORT_SCANNED sources; it did not run"
-fi
-
-if [ -z "$CRYPTO_IMPORT_HITS" ]
-then
-    pass 'every CryptoKit import is behind a canImport guard, so swift-crypto can stand in where CryptoKit is absent'
-else
-    fail "CryptoKit is imported outside a canImport guard: $CRYPTO_IMPORT_HITS"
-fi
-
-# The two platforms no longer carry the same modules, so they are counted against
-# different numbers. One number covering both would have let an entire Android tree
-# disappear while the Swift side kept the count right.
+# An undeclared module compiles as happily as a declared one, so the module directories and
+# the Gradle project mappings are counted against the graph. The two platforms carry
+# different modules and are counted against different numbers.
 SOURCE_DIRS=$(find Sources -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')
 ANDROID_DIRS=$(find android -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')
-SUBSPECS=$(grep -c 's.subspec ' "$PODSPEC" || printf '0')
-
-for actual_pair in "Sources:$SOURCE_DIRS:$MODULE_COUNT" "android:$ANDROID_DIRS:$MODULES_WITH_ANDROID" "podspec subspecs:$SUBSPECS:$MODULE_COUNT"
-do
-    label=${actual_pair%%:*}
-    rest=${actual_pair#*:}
-    actual=${rest%:*}
-    expected=${rest#*:}
-    if [ "$actual" = "$expected" ]
-    then
-        pass "$label count is $expected, matching module-graph.json"
-    else
-        fail "$label count is $actual but module-graph.json declares $expected (undeclared module?)"
-    fi
-done
-
-# A Gradle include outlives the directory it points at without anything above noticing:
-# the per-module checks only look at the modules the graph names, and the directory
-# count only sees directories. Counting the project mappings is what closes that gap.
 SETTINGS_PROJECTS=$(grep -cE '^project\(":[a-z-]+"\)\.projectDir = file\("android/' settings.gradle.kts || printf '0')
-if [ "$SETTINGS_PROJECTS" = "$MODULES_WITH_ANDROID" ]
-then
-    pass "settings.gradle.kts maps $SETTINGS_PROJECTS Android projects, one per Android-backed module"
-else
-    fail "settings.gradle.kts maps $SETTINGS_PROJECTS Android projects but the graph declares $MODULES_WITH_ANDROID"
-fi
+equals "$SOURCE_DIRS" "$MODULE_COUNT" 'the Sources directory count matches module-graph.json'
+equals "$ANDROID_DIRS" "$MODULES_WITH_ANDROID" 'the android directory count matches module-graph.json'
+equals "$SETTINGS_PROJECTS" "$MODULES_WITH_ANDROID" 'settings.gradle.kts maps one Android project per Android-backed module'
 
-# A module exists here only once it carries an implementation. The persistence/sync and
-# hybrid modules were declared in the Step 1 scaffold from the approved layout, never
-# implemented, and published as empty coordinates through 0.1.0-alpha.3 — a reservation
-# that a consumer reads as a promise. Stub vocabulary in SDK sources is how that starts,
-# so it is refused outright: a module is added with behaviour or not at all. Examples,
-# tools and documentation are excluded, since a placeholder example is honest about
-# being one.
+# A module exists here only once it carries an implementation: the persistence/sync and
+# hybrid modules were declared, never implemented, and published as empty coordinates
+# through 0.1.0-alpha.3. Stub vocabulary in SDK sources is how that starts.
 STUB_TERMS='notImplemented|not implemented|plannedStep|planned step|TODO|FIXME'
 STUB_HITS=$(grep -rIniE --exclude-dir=build "($STUB_TERMS)" \
     Sources android/*/src/main 2>/dev/null || true)
@@ -1722,28 +1276,10 @@ else
     printf '%s\n' "$STUB_HITS" | sed 's/^/          /'
 fi
 
-# And no module is built on an API its own vendor has already retired. Suppressing a
-# deprecation warning in new SDK code buys nothing: the migration still has to happen,
-# only later, on someone else's schedule, with consumers already on the old surface. The
-# Google adapter was written this way once — on the deprecated one-tap sign-in API,
-# behind two `@Suppress("DEPRECATION")` — and moving it to Credential Manager cost a day
-# it would not have cost if the suppression had never been available.
-#
-# The refusal is the whole point: a suppression is exactly what makes this invisible in
-# a build log, so the build log is not where it can be caught. Deprecating something of
-# our own is a different act and stays legal — this refuses SILENCING a vendor's notice.
-# Test sources are included: a suppression there is a suppression.
-DEPRECATION_SCANNED=$(find Sources android/*/src -type f \( -name '*.swift' -o -name '*.kt' \) 2>/dev/null | wc -l | tr -d ' ')
+# No module is built on an API its own vendor has already retired. A suppression is exactly
+# what makes this invisible in a build log, so the build log is not where it can be caught.
 DEPRECATION_HITS=$(grep -rIn --exclude-dir=build '@Suppress' Sources android/*/src 2>/dev/null \
     | grep -i 'DEPRECAT' || true)
-
-if [ "$DEPRECATION_SCANNED" -ge 20 ]
-then
-    pass "the deprecation-suppression scan read $DEPRECATION_SCANNED SDK sources"
-else
-    fail "the deprecation-suppression scan read only $DEPRECATION_SCANNED SDK sources; it did not run"
-fi
-
 if [ -z "$DEPRECATION_HITS" ]
 then
     pass 'no SDK source silences a deprecation warning: new code is not written on a retired API'
@@ -1848,172 +1384,14 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-section '11. unresolved ownership and support are represented honestly'
-# ---------------------------------------------------------------------------
-if grep -vE '^[[:space:]]*(#|$)' CODEOWNERS | grep -q '@'
-then
-    fail 'CODEOWNERS contains an active owner entry; real handles and teams are undecided'
-else
-    pass 'CODEOWNERS has no invented owner identities'
-fi
-
-contains LICENSE 'MIT License' 'LICENSE is the MIT license decided in D8 (2026-08-01)'
-contains LICENSE 'FXY Inc.' 'LICENSE names the decided copyright holder'
-contains COMPATIBILITY.md 'UNRESOLVED' 'compatibility matrix still marks unresolved support rows'
-contains docs/OPEN-DECISIONS.md 'OS/toolchain baseline' 'open decisions still record the OS/toolchain baseline entry'
-contains docs/OPEN-DECISIONS.md 'Maven' 'open decisions record the Maven namespace question'
-# D17 asked for an upstream export and now has one. The assertion follows the decision
-# rather than being deleted with it: what has to stay recorded is that the contract comes
-# from upstream, since that is the claim every other provenance check depends on.
-contains docs/OPEN-DECISIONS.md 'Upstream contract export tooling | **RESOLVED' \
-    'open decisions record D17 as resolved by a real upstream export'
-# D11 decided that CocoaPods is not supported and deliberately recorded no activation
-# condition. Wording that names a route to turn it on makes "not supported" read as
-# "available on request", which is the one reading the decision exists to prevent.
-#
-# The gate is the digest, not a blocklist. A blocklist can only refuse the phrasings
-# somebody thought of, and a policy sentence can be rewritten in unbounded ways; pinning
-# the text means any edit fails until the lock is updated on purpose. The blocklist
-# further down stays as a second, best-effort net over the REST of the fixture README,
-# where free prose is legitimate and a digest would be too rigid.
-D11_LOCK=tools/validate/d11-policy.lock.json
-D11_SECTION=$(json_string "$D11_LOCK" section)
-D11_PINNED=$(json_string "$D11_LOCK" sha256)
-D11_ROW_PREFIX=$(json_string "$D11_LOCK" rowPrefix)
-D11_ROW_PINNED=$(json_string "$D11_LOCK" rowSha256)
-
-# The decision is written in two places and both are pinned whole. A substring check on
-# the row's state cell would pass while the rest of the row said the opposite.
-grep "^$D11_ROW_PREFIX" docs/OPEN-DECISIONS.md > "$TMP/d11-row.txt"
-D11_ROW_COUNT=$(grep -c "^$D11_ROW_PREFIX" docs/OPEN-DECISIONS.md)
-if [ "$D11_ROW_COUNT" != "1" ]
-then
-    fail "docs/OPEN-DECISIONS.md carries $D11_ROW_COUNT rows starting '$D11_ROW_PREFIX', expected exactly 1"
-else
-    equals "$(sha256_of "$TMP/d11-row.txt")" "$D11_ROW_PINNED" \
-        'the whole D11 decision row is byte-identical to the row pinned in d11-policy.lock.json'
-fi
-awk -v heading="$D11_SECTION" \
-    '$0 == heading {f = 1; print; next} f && /^## / {f = 0} f {print}' \
-    tools/cocoapods-compat/README.md > "$TMP/d11-section.txt"
-if [ ! -s "$TMP/d11-section.txt" ]
-then
-    fail "the D11 policy section '$D11_SECTION' is missing from the CocoaPods fixture README"
-else
-    equals "$(sha256_of "$TMP/d11-section.txt")" "$D11_PINNED" \
-        'the D11 policy statement is byte-identical to the text pinned in d11-policy.lock.json'
-fi
-
-D11_FORBIDDEN=$(grep -v '^#' tools/validate/d11-forbidden.ere | grep -v '^$')
-if [ -z "$D11_FORBIDDEN" ]
-then
-    fail 'tools/validate/d11-forbidden.ere carries no pattern'
-elif grep -qiE "$D11_FORBIDDEN" tools/cocoapods-compat/README.md
-then
-    fail 'the CocoaPods fixture README reopens D11 with proposal or activation wording'
-else
-    pass 'the CocoaPods fixture README states D11 as decided, with no activation condition'
-fi
-
-# A negative check earns its line only if it bites. The probe holds the pinned section
-# and the blocklist to both sides — what each must catch, and what each must spare.
-if sh tools/validate/probe-d11-guardrail.sh > /dev/null 2>&1
-then
-    pass 'the D11 guardrail probe passes on both its positive and negative samples'
-else
-    fail 'tools/validate/probe-d11-guardrail.sh fails; the D11 guardrail no longer holds'
-fi
-
-# The real-server runner's whole value is what it declines to run. Those refusals fire
-# only when a setup is already wrong, which is exactly when nobody is watching them, so
-# they are exercised here rather than left to the day they are needed. The probe builds
-# its own fixture apps and needs no verify app of its own.
-if sh tools/verify-server/probe-refusals.sh > /dev/null 2>&1
-then
-    pass 'the verify-server runner refuses every setup it claims to, and passes a correct one'
-else
-    fail 'tools/verify-server/probe-refusals.sh fails; the real-server runner no longer fails closed'
-fi
-
-# The device receipts are the only evidence in this repository that a person ever held a
-# phone, and the gate over them is the only thing standing between "no device run
-# happened" and a published candidate. Both are checked here rather than only inside
-# rc-verify, because rc-verify needs a Swift toolchain, an Android SDK and a clean tree,
-# and a check that only runs on a release day is a check nobody is watching.
-if sh tools/device-receipts/probe-receipt-gate.sh > "$TMP/receipt-probe.txt" 2>&1
-then
-    pass 'the device receipt gate refuses every way its evidence can be missing, unreadable or wrong'
-else
-    fail 'tools/device-receipts/probe-receipt-gate.sh fails; the device receipt gate no longer fails closed'
-    sed 's/^/          /' "$TMP/receipt-probe.txt"
-fi
-
-# And the committed evidence must actually clear it. The probe proves the gate bites;
-# this proves the repository is on the passing side of it, which is what a reader of
-# COMPATIBILITY.md is being asked to believe.
-if sh tools/device-receipts/receipt-gate.sh > "$TMP/receipt-gate.txt" 2>&1
-then
-    RECEIPT_LINE=$(grep '^RECEIPT-GATE-SUMMARY ' "$TMP/receipt-gate.txt" || true)
-    if [ -z "$RECEIPT_LINE" ]
-    then
-        fail 'the device receipt gate passed without reporting what it counted'
-    else
-        pass "the committed device receipts clear the gate ($RECEIPT_LINE)"
-    fi
-else
-    fail 'the committed device receipts do not clear tools/device-receipts/receipt-gate.sh'
-    sed 's/^/          /' "$TMP/receipt-gate.txt"
-fi
-
-# The gate only guards publication if the publication path actually calls it, and only
-# guards it honestly if a shell variable cannot redirect it elsewhere. Both are pinned
-# as fixed strings: an edit that removes the refusal removes the string.
-contains tools/rc-verify/rc-verify.sh 'sh tools/device-receipts/receipt-gate.sh' \
-    'rc-verify runs the device receipt gate before it will verify a candidate'
-contains tools/rc-verify/rc-verify.sh 'unset SPFN_RECEIPT_ROOT SPFN_RECEIPT_LOCK' \
-    'rc-verify clears the gate overrides, so no environment variable can point it at hand-written evidence'
-
-# A build/parity baseline is not a support commitment, and neither is a proven sign-in
-# path. The iOS and Android rows name whole-platform gates — lifecycle cells and release
-# evidence — that the 2026-09-01 device run did not meet, so they must not quietly
-# acquire a support claim from evidence that is narrower than they are.
-if grep -E '^\| (iOS|Android) \|' COMPATIBILITY.md | grep -q 'UNRESOLVED'
-then
-    pass 'iOS and Android support rows stay UNRESOLVED pending device evidence'
-else
-    fail 'an iOS or Android support row claims support without real-device evidence'
-fi
-
-# The one row that DOES claim something must point at the evidence and at the gate that
-# judges it, so the claim and its proof cannot drift apart silently.
-contains COMPATIBILITY.md 'tools/device-receipts/receipt-gate.sh' \
-    'the device sign-in row names the gate that enforces it'
-contains COMPATIBILITY.md 'tools/device-receipts/runs/2026-09-01/' \
-    'the device sign-in row names the receipts it rests on'
-
-# ---------------------------------------------------------------------------
-section '12. repository status is stated, not implied'
-# ---------------------------------------------------------------------------
-for doc in README.md docs/SCAFFOLD-STATUS.md CONTRIBUTING.md RELEASE.md SECURITY.md
-do
-    contains_i "$doc" 'scaffold' "$doc states this is still a scaffold"
-done
-
-contains README.md 'no public support' 'README refuses to promise public support'
-# Releases exist now, so the doc must name the current train rather than deny every
-# release: the literal this replaced ("No release has been made") stayed pinned after
-# 0.1.0-alpha.2 shipped, which made the check enforce a false sentence. Reading the
-# version from VERSION is what keeps it honest — the next version bump fails here until
-# RELEASE.md records what happened to it.
-contains RELEASE.md "$(tr -d '[:space:]' < VERSION)" 'RELEASE.md names the current version'
-contains RELEASE.md 'UNRESOLVED' 'RELEASE.md still claims no device support'
-contains Sources/SPFNCore/SPFNScaffold.swift 'isScaffold: Bool = true' 'the built library declares itself a scaffold'
-contains android/spfn-core/src/main/kotlin/xyz/superfunction/spfn/core/SpfnScaffold.kt 'IS_SCAFFOLD: Boolean = true' \
-    'the Android library declares itself a scaffold'
-
-# ---------------------------------------------------------------------------
 section '13. the ui vocabulary is one vocabulary on both platforms'
 # ---------------------------------------------------------------------------
+# Why this is still a validator rule rather than a test: a comparison between the Swift
+# and the Kotlin declarations needs both trees at once, and no build, test or lint on either
+# platform reads the other's sources — the same reason section 15 stays. The `dismiss`
+# refusal at the end is Swift-only, and this repository has no Swift lint and this host no
+# Swift toolchain; it is a fixed-string ban that does not depend on how the code is shaped.
+#
 # `Loadable`, `Busy`, `Flow`, `Paged` and `Form` are written twice, once per platform, and
 # the only thing that keeps the two copies the same vocabulary is that somebody compares
 # them. A screen built against `Loadable.empty` on one platform and a `Loadable` that has no
@@ -2342,9 +1720,8 @@ find "$UI_SWIFT_DIR" -name '*.swift' | sort > "$TMP/ui-dismiss-files.txt" 2>/dev
 while IFS= read -r source
 do
     UI_DISMISS_SCANNED=$((UI_DISMISS_SCANNED + 1))
-    # Comment lines are dropped first, exactly as `lacks_active` does it everywhere else
-    # in this script: a prohibition has to be statable in the file that implements it, and
-    # FlowHost.swift says in its header why `dismiss` is refused.
+    # Comment lines are dropped first: a prohibition has to be statable in the file that
+    # implements it, and FlowHost.swift says in its header why `dismiss` is refused.
     UI_DISMISS_HITS="$UI_DISMISS_HITS$(grep -n 'dismiss)' "$source" | grep -vE '^[0-9]+:[[:space:]]*(//|\*)' | sed "s#^#$source:#" | tr '\n' ' ')"
 done < "$TMP/ui-dismiss-files.txt"
 
@@ -2993,572 +2370,30 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-section '16. the Android apps declare the back gesture the SDK animates'
+section '20. no Button in SPFNUI is styled plain'
 # ---------------------------------------------------------------------------
-# `NavigationHost` states a `predictivePopTransitionSpec` — what is drawn while a back
-# gesture is being HELD, before the person has decided to finish it — and that spec can only
-# run if the system hands the process the gesture's PROGRESS. Whether it does is a property
-# of the window, and the window belongs to the host app: it is turned on by
-# `android:enableOnBackInvokedCallback="true"` on `<application>` and by nothing the SDK can
-# do from inside.
+# A style draws its label as the part of a button a tap lands on, and `.plain` leaves the
+# label's hit shape at the pixels it drew: a role button answered only over its letters and
+# a 20pt header glyph only over itself inside its 44pt frame (P39). SPFNUI's two styles —
+# `RoleButtonStyle` and `HeaderControlStyle` — now set `.contentShape(Rectangle())` on the
+# label they are handed, so the rule holds wherever they are used.
 #
-# It is off by default on Android 13, 14 and 15 whatever the app targets — the target-SDK
-# default only flips at Android 16 — and undeclared it fails in the one way nothing catches.
-# The back still works: androidx's OnBackPressedDispatcher receives the completed gesture,
-# the flow pops, every cell that asserts a stack depth is green. What is missing is the
-# animation, which no assertion in this repository reads. On a Galaxy Z Flip4 the screen
-# being popped sat still under the held gesture with only the system's arrow over it
-# (docs/IMPLEMENTATION-PITFALLS.md P35).
-#
-# So both Android apps are held to it by NAME rather than by a glob. Two apps consume this
-# SDK's navigation and a rule that read whichever manifests a find happened to return would
-# stop covering an app the day one was added somewhere this pattern did not reach — and it
-# would say nothing about it. The count is checked against the same list for the reason every
-# reader in this file states what it read: a list that resolved to nothing agrees with a
-# clean tree (docs/IMPLEMENTATION-PITFALLS.md P7).
-#
-# One path per line, and the blank first line is deliberate, exactly as
-# DESCRIPTOR_EXEMPT_FILES above: every entry sits on a line of its own, which is what lets a
-# probe take one entry away without touching the quoting around it.
-PREDICTIVE_BACK_MANIFESTS='
-examples/android-compose/src/main/AndroidManifest.xml
-tools/harness/android/src/main/AndroidManifest.xml
-'
-
-PREDICTIVE_READ=0
-PREDICTIVE_MISSING=''
-for manifest in $PREDICTIVE_BACK_MANIFESTS
-do
-    if [ ! -f "$manifest" ]
-    then
-        PREDICTIVE_MISSING="$PREDICTIVE_MISSING $manifest:absent"
-        continue
-    fi
-    PREDICTIVE_READ=$((PREDICTIVE_READ + 1))
-    # The DECLARATION and not merely the word: a manifest that named the attribute in its
-    # own comment — and both of these explain themselves at length — would otherwise satisfy
-    # a check that only grepped for it. So the comments come out first, in awk rather than in
-    # a sed range, because a range needs the two delimiters on lines of their own and an
-    # `s///` that inserted them would need a `\n` in its replacement, which GNU sed accepts
-    # and BSD sed does not (docs/IMPLEMENTATION-PITFALLS.md P28).
-    awk '
-        /<!--/ { comment = 1 }
-        comment == 0 { print }
-        /-->/ { comment = 0 }
-    ' "$manifest" > "$TMP/manifest-code.txt"
-    if grep -qE 'android:enableOnBackInvokedCallback[[:space:]]*=[[:space:]]*"true"' "$TMP/manifest-code.txt"
-    then
-        continue
-    fi
-    PREDICTIVE_MISSING="$PREDICTIVE_MISSING $manifest:undeclared"
-done
-
-if [ "$PREDICTIVE_READ" -ge 2 ]
+# What they cannot do is stop the next button from reaching for `.plain` again, and nothing
+# else can either: a SwiftUI hit shape is not a value a Swift test can read, this repository
+# has no Swift lint, and the validator host has no Swift toolchain. So the one spelling that
+# brings the defect back is refused by name, which does not depend on how the code around it
+# is shaped.
+PLAIN_READ=$(find Sources/SPFNUI -name '*.swift' | wc -l | tr -d ' ')
+PLAIN_HITS=$(grep -rnE '\.buttonStyle\(\.plain\)|PlainButtonStyle\(' Sources/SPFNUI 2>/dev/null \
+    | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' || true)
+if [ "$PLAIN_READ" -ge 10 ] && [ -z "$PLAIN_HITS" ]
 then
-    pass "the predictive-back reader read $PREDICTIVE_READ Android manifests"
+    pass "none of the $PLAIN_READ SPFNUI sources styles a Button plain; every button's label is hit-tested whole"
+elif [ "$PLAIN_READ" -lt 10 ]
+then
+    fail "the plain-style scan read $PLAIN_READ SPFNUI sources; it did not run"
 else
-    fail "the predictive-back reader read $PREDICTIVE_READ Android manifests, fewer than the 2 apps that consume this SDK; it did not run"
-fi
-
-if [ -z "$PREDICTIVE_MISSING" ]
-then
-    pass 'both Android apps declare android:enableOnBackInvokedCallback, so the SDK predictive-back transition receives progress'
-else
-    fail "Android manifests without android:enableOnBackInvokedCallback=\"true\" on <application>:$PREDICTIVE_MISSING; the pop still works and NavigationHost's predictivePopTransitionSpec never animates"
-fi
-
-# The other half of the same sentence: the SDK has to SAY this, because nothing an app does
-# wrong here fails a build or a cell. A spec with no consumer documentation is a rule that
-# exists only in the two manifests that already happen to obey it.
-PREDICTIVE_HOST=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/NavigationHost.kt
-if grep -q 'enableOnBackInvokedCallback' "$PREDICTIVE_HOST"
-then
-    pass "$PREDICTIVE_HOST tells a host app to declare the flag its predictive back depends on"
-else
-    fail "$PREDICTIVE_HOST asks for a predictive back transition without telling a host app what its manifest has to declare"
-fi
-
-# ---------------------------------------------------------------------------
-section '17. no pointer input in the UI module consumes every change it is handed'
-# ---------------------------------------------------------------------------
-# A Compose modifier that answers `pointerInput` by consuming EVERY change it sees takes
-# the press out of the controls underneath it — but only for a person. `clickable` does not
-# decide a press on the down: androidx.compose.foundation 1.11.4's
-# `ClickableNode.onPointerEvent` handles down and up on the Main pass and calls
-# `checkForCancellation` on the FINAL pass, which cancels the press the moment any change
-# other than its own down reports `isConsumed` (checked with javap). Final runs parent
-# before child, so a parent that consumed on Main arrives at that check as a cancel.
-#
-# What makes it worth a check rather than a review note is WHO can see it. A finger always
-# produces MOVE events — a few pixels of tremor is a MOVE — and every runner this
-# repository owns synthesises a DOWN and an UP with nothing between them. So a modal flow
-# whose cover consumed everything was green in all 35 device cells, green in Maestro, green
-# under `adb shell input tap`, and dead under a thumb on a Galaxy Z Flip4
-# (docs/IMPLEMENTATION-PITFALLS.md P36). Nothing automatic in this repository can fail on
-# it, which is exactly the shape section 16 guards and the same reason it is guarded here:
-# a rule no test can reach is worth what its static check is worth.
-#
-# The rule is about BLANKET consumption and not about consumption. A gesture detector that
-# claims the change it recognised is how Compose gestures work and is not this. What is
-# refused is a loop that hands every change in an event to `consume`, which is a decision
-# taken before anything is known about the change.
-#
-# The file is read as TEXT, comments and all. A comment-stripper for Kotlin would have to
-# be right about nesting and about string literals, and one that is wrong hides code — the
-# opposite mistake to section 16's, where prose about a manifest flag could be read as a
-# declaration. The cost of reading everything is that this module may not quote the
-# forbidden spelling in its own prose either. That cost is paid deliberately and is stated
-# here so a reader who trips it knows why: describe the mechanism, do not print the line.
-#
-# Newlines become spaces before the match, because the spelling is not a line. Written
-# across three lines it is the same defect, and a line-based reader would report the module
-# clean.
-POINTER_SOURCE_ROOT=android/spfn-ui/src/main
-
-# Each entry is a NAME and an extended regex, one pair per line, so the failure says which
-# spelling was found. `*` and never `?` or `+`: BSD grep -E takes all three, but this
-# repository has been bitten by the GNU-only spellings once already
-# (docs/IMPLEMENTATION-PITFALLS.md P28).
-POINTER_BLANKET_BLOCK='changes[[:space:]]*\.(forEach|fastForEach|onEach|map|fastMap)[[:space:]]*\{[^}]*consume\(\)'
-POINTER_BLANKET_CALL='changes[[:space:]]*\.(forEach|fastForEach|onEach|map|fastMap)[[:space:]]*\([^)]*consume'
-
-# The module holds 22 Kotlin sources today. The floor sits just under that so a file being
-# renamed or retired is not a false failure, while a reader that resolved to nothing — a
-# moved module, a typo in the path above — is caught rather than reported as a clean module
-# (docs/IMPLEMENTATION-PITFALLS.md P7).
-POINTER_SOURCE_FLOOR=20
-
-POINTER_READ=0
-POINTER_OFFENDERS=''
-for source in $(find "$POINTER_SOURCE_ROOT" -name '*.kt' 2>/dev/null | sort)
-do
-    POINTER_READ=$((POINTER_READ + 1))
-    tr '\n' ' ' < "$source" > "$TMP/pointer-joined.txt"
-    if grep -qE "$POINTER_BLANKET_BLOCK" "$TMP/pointer-joined.txt"
-    then
-        POINTER_OFFENDERS="$POINTER_OFFENDERS $source:blanket-block"
-    fi
-    if grep -qE "$POINTER_BLANKET_CALL" "$TMP/pointer-joined.txt"
-    then
-        POINTER_OFFENDERS="$POINTER_OFFENDERS $source:blanket-call"
-    fi
-done
-
-if [ "$POINTER_READ" -ge "$POINTER_SOURCE_FLOOR" ]
-then
-    pass "the pointer consumption reader read $POINTER_READ Kotlin sources under $POINTER_SOURCE_ROOT"
-else
-    fail "the pointer consumption reader read $POINTER_READ Kotlin sources under $POINTER_SOURCE_ROOT, fewer than the $POINTER_SOURCE_FLOOR that module holds; it did not run"
-fi
-
-if [ -z "$POINTER_OFFENDERS" ]
-then
-    pass "no pointer input under $POINTER_SOURCE_ROOT consumes every change it is handed, so a control inside a cover still receives a finger's press"
-else
-    fail "pointer input that consumes every change it is handed:$POINTER_OFFENDERS; the Final pass reads that as a cancel and only a FINGER can see it — every injected tap is a DOWN and an UP with no MOVE between them"
-fi
-
-# ---------------------------------------------------------------------------
-section '18. every navigator in the UI module is handed the same three transitions'
-# ---------------------------------------------------------------------------
-# `NavDisplay` takes a forward, a pop and a predictive-pop transition spec, and defaults all
-# three when they are not given. The defaults are reasonable and they are not this platform's:
-# read out of navigation3-ui 1.1.7 with javap, the forward step and the pop are both
-# `fadeIn(tween(700)) togetherWith fadeOut(tween(700))` and the predictive pop is
-# `fadeIn(spring(1f, 1600f)) togetherWith scaleOut(0.7f)`.
-#
-# So a module that states them at one call site and not at the others ships one app with two
-# opinions about what a screen arriving means. That is what happened: `NavigationHost` stated
-# its three and `InlineStack` — a sheet's stack, a modal's cover, a pushed flow with no host —
-# did not, and on a phone `next` inside a modal FADED while the same tap in a pushed flow slid
-# in from the right, and a back inside that modal SHRANK the screen away where a back in a push
-# slid it off to the right (docs/IMPLEMENTATION-PITFALLS.md P37).
-#
-# Nothing automatic could see it. `NavDisplay` is a composable and its arguments are not
-# readable from outside a composition, so the JVM suite can check that `FlowTransitions` holds
-# three values and that two of them are one value (`FlowTransitionsTest`) and cannot check that
-# any stack was HANDED them. This is the half that reads the call sites.
-#
-# There is nothing to compare on the other platform, which is why this is not part of section
-# 15: a `.fullScreenCover` and a `NavigationStack` inside a sheet push and pop on the system's
-# own slide, so SwiftUI states no spec and has no name for one.
-#
-# Each call's ARGUMENTS are taken to run from its own `NavDisplay(` to the next one in the same
-# file, or to the end of that file. No regex is involved — the reader is `index`/`substr`, which
-# has no BSD-versus-GNU spelling to get wrong (docs/IMPLEMENTATION-PITFALLS.md P28) — and
-# newlines become spaces first, because an argument list is not a line. The file is read as
-# text, comments and all, for section 17's reason: a Kotlin comment-stripper that is wrong
-# about nesting hides code.
-TRANSITION_SOURCE_ROOT=android/spfn-ui/src/main
-
-# The module builds two today: the host app's own navigation and the flow's own inline stack.
-# The floor is what tells a reader that read nothing from a module that is clean (P7).
-TRANSITION_CALL_FLOOR=2
-
-TRANSITION_REPORT="$TMP/nav-display-calls.txt"
-: > "$TRANSITION_REPORT"
-
-for source in $(find "$TRANSITION_SOURCE_ROOT" -name '*.kt' 2>/dev/null | sort)
-do
-    tr '\n' ' ' < "$source" > "$TMP/transitions-joined.txt"
-    awk -v source="$source" '
-        {
-            rest = $0;
-            while ((start = index(rest, "NavDisplay(")) > 0)
-            {
-                rest = substr(rest, start + 11);
-                next_call = index(rest, "NavDisplay(");
-                arguments = (next_call > 0) ? substr(rest, 1, next_call - 1) : rest;
-                complete = index(arguments, "FlowTransitions") > 0 &&
-                           index(arguments, "transitionSpec") > 0 &&
-                           index(arguments, "popTransitionSpec") > 0 &&
-                           index(arguments, "predictivePopTransitionSpec") > 0;
-                printf "%s %s\n", (complete ? "ok" : "bare"), source;
-            }
-        }
-    ' "$TMP/transitions-joined.txt" >> "$TRANSITION_REPORT"
-done
-
-TRANSITION_CALLS=$(wc -l < "$TRANSITION_REPORT" | tr -d ' ')
-TRANSITION_OFFENDERS=$(awk '$1 == "bare" { printf " %s", $2 }' "$TRANSITION_REPORT")
-
-if [ "$TRANSITION_CALLS" -ge "$TRANSITION_CALL_FLOOR" ]
-then
-    pass "the transition reader found $TRANSITION_CALLS NavDisplay calls under $TRANSITION_SOURCE_ROOT"
-else
-    fail "the transition reader found $TRANSITION_CALLS NavDisplay calls under $TRANSITION_SOURCE_ROOT, fewer than the $TRANSITION_CALL_FLOOR that module builds; it did not run"
-fi
-
-if [ -z "$TRANSITION_OFFENDERS" ]
-then
-    pass "every NavDisplay under $TRANSITION_SOURCE_ROOT states its three transitions from FlowTransitions, so a modal and a push move the same way"
-else
-    fail "NavDisplay calls that leave a transition to the library's default:$TRANSITION_OFFENDERS; the default pop SCALES the screen away where a push slides it, and one app cannot mean both"
-fi
-
-section '19. a sheet that is closing is still drawn'
-# ---------------------------------------------------------------------------
-# `FlowHost`'s `when` decides what a flow is drawn as, and it is a `when` with no subject, so
-# the branches are read TOP TO BOTTOM and the first true one wins. Two of its lines can both be
-# true at once — `entry is FlowEntry.Sheet` and `routes.isEmpty()` — and that pair is exactly
-# what a closing sheet looks like: `Flow.close` empties the stack in one step, and the sheet it
-# was drawn as still has a slide to run.
-#
-# With the empty-stack line first, the sheet drops out of the composition on the frame the
-# stack empties and the sheet DISAPPEARS where iOS's `.sheet` slides it away. That is what a
-# person saw on a Galaxy Z Flip4 (docs/IMPLEMENTATION-PITFALLS.md P38): the X, the system back
-# and the scrim all removed the sheet instantly, and only the handle — which is settled at
-# Hidden before the flow is told anything — animated.
-#
-# Nothing else in this repository can see it. The order of two branches is not a value any test
-# can read, the JVM suite has no Compose runtime to compose the host in, and a Maestro cell
-# waits for an element to become visible or to stop being visible and never asks how it got
-# there — the 35 example cells are green under either order. What is left is reading the file,
-# which is this check, and a person watching a phone.
-#
-# Line numbers, compared. `grep -nE` only, and no `?` or `+` in the expressions, because this
-# script runs under BSD grep as well as GNU (docs/IMPLEMENTATION-PITFALLS.md P28).
-SHEET_ORDER_SOURCE=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/FlowHost.kt
-
-SHEET_BRANCH_LINE=$(grep -nE '^ *entry is FlowEntry\.Sheet ->' "$SHEET_ORDER_SOURCE" 2> /dev/null | head -1 | cut -d: -f1)
-EMPTY_BRANCH_LINE=$(grep -nE '^ *routes\.isEmpty\(\) -> Unit' "$SHEET_ORDER_SOURCE" 2> /dev/null | head -1 | cut -d: -f1)
-
-if [ -n "$SHEET_BRANCH_LINE" ] && [ -n "$EMPTY_BRANCH_LINE" ]
-then
-    pass "both branches were found in $SHEET_ORDER_SOURCE, the sheet at line $SHEET_BRANCH_LINE and the empty stack at line $EMPTY_BRANCH_LINE"
-elif [ -z "$SHEET_BRANCH_LINE" ] && [ -z "$EMPTY_BRANCH_LINE" ]
-then
-    fail "neither the sheet branch nor the empty-stack branch was found in $SHEET_ORDER_SOURCE; the order reader has nothing to compare and it did not run"
-elif [ -z "$SHEET_BRANCH_LINE" ]
-then
-    fail "the sheet branch was not found in $SHEET_ORDER_SOURCE; the order reader has nothing to compare and it did not run"
-else
-    fail "the empty-stack branch was not found in $SHEET_ORDER_SOURCE; the order reader has nothing to compare and it did not run"
-fi
-
-if [ -n "$SHEET_BRANCH_LINE" ] && [ -n "$EMPTY_BRANCH_LINE" ] && [ "$SHEET_BRANCH_LINE" -lt "$EMPTY_BRANCH_LINE" ]
-then
-    pass "the sheet branch is read before the empty-stack branch, so a sheet whose flow has closed is still drawn while it slides away"
-elif [ -n "$SHEET_BRANCH_LINE" ] && [ -n "$EMPTY_BRANCH_LINE" ]
-then
-    fail "$SHEET_ORDER_SOURCE reads the empty-stack branch (line $EMPTY_BRANCH_LINE) before the sheet branch (line $SHEET_BRANCH_LINE); a closing sheet leaves the composition on the frame its stack empties and vanishes instead of sliding away"
-fi
-
-section '20. every plain-styled Button in SPFNUI gives its label a hit shape'
-# ---------------------------------------------------------------------------
-# `.buttonStyle(.plain)` hands the tap to the LABEL, and a view's default hit shape is the
-# part of it that DREW something. So a plain button whose label is transparent — an `HStack`
-# holding text, an icon inside a frame — answers only over its letters or its glyph pixels,
-# and every point of the fill around them is dead.
-#
-# That is what shipped. `RoleButton`'s fill, radius and border were attached OUTSIDE its
-# `Button`, which is where they belonged for the style they drew and exactly where a hit test
-# never looks: on an iPhone 14 Pro a person had to hit the words to press a primary button,
-# and the coloured rectangle around them did nothing. The header's X and back are the same
-# shape one step smaller — a 20pt glyph inside the 44pt frame section 15 requires — so the
-# frame reported a target its own label refused (docs/IMPLEMENTATION-PITFALLS.md P39).
-#
-# The fix is one modifier and its POSITION is the whole rule: `.contentShape(Rectangle())`
-# inside the label chain. The same modifier written after `.buttonStyle(.plain)` applies to
-# the styled view, which nothing hit-tests for the press, and reads as a fix while changing
-# nothing. A per-file count cannot tell those two apart by position, and it does not have to:
-# a file that spends a `.plain` and buys no rectangle has not paid for one anywhere.
-#
-# Nothing else in this repository sees it. Android is not affected — `Box.clickable` takes
-# the whole box, which is why P21 is about size rather than shape — so the cross-platform
-# section 15 has nothing to compare. And a runner cannot see it either: Maestro's `tapOn`
-# presses the CENTRE of the element it resolved, the centre of these buttons is the label,
-# and the label is the one part that worked. The 35 device cells are green either way, which
-# is the same blindness P36 has and the reason `pushTour-buttonEdge` is a person's cell.
-#
-# `RoleButton` draws `configuration.label` inside a style of its own, which is the only place
-# a press can recolour its fill; the label it styles is the same label, hit-tested the same
-# way, so that spelling is counted as the same spend.
-#
-# Counted per file with `grep -cE`, so a file may not spend more `.plain` than it buys
-# rectangles. Screen.swift buys two and spends one: its other rectangle is the ancestor that
-# puts the keyboard away (P27), and a check that demanded equality would have to know which
-# rectangle was which. Neither expression uses `?` or `+`, because this script runs under BSD
-# grep as well as GNU (docs/IMPLEMENTATION-PITFALLS.md P28).
-HIT_SHAPE_SOURCE_ROOT=Sources/SPFNUI
-
-# The module styles two buttons this way today — the role button and the header control — and
-# they sit in two files. Both floors are stated, because either one alone goes quiet in a way
-# the other catches: a root that resolved to nothing reads as zero files AND zero occurrences,
-# and a file that lost its `.plain` to a refactor keeps the file count while dropping the
-# occurrence count. A reader that read nothing must say so rather than agree with a clean tree
-# (docs/IMPLEMENTATION-PITFALLS.md P7).
-HIT_SHAPE_FILE_FLOOR=2
-HIT_SHAPE_STYLE_FLOOR=2
-
-HIT_SHAPE_FILES=0
-HIT_SHAPE_STYLES=0
-HIT_SHAPE_OFFENDERS=''
-
-for source in $(find "$HIT_SHAPE_SOURCE_ROOT" -name '*.swift' 2> /dev/null | sort)
-do
-    # `|| true` on both: grep exits nonzero when it counted nothing, and `set -e` would take
-    # the script down on the first Swift file that styles no button at all.
-    PLAIN_COUNT=$(grep -cE '\.buttonStyle\(\.plain\)|return configuration\.label' "$source" || true)
-    SHAPE_COUNT=$(grep -cE '\.contentShape\(Rectangle\(\)\)' "$source" || true)
-    if [ "$PLAIN_COUNT" -eq 0 ]
-    then
-        continue
-    fi
-    HIT_SHAPE_FILES=$((HIT_SHAPE_FILES + 1))
-    HIT_SHAPE_STYLES=$((HIT_SHAPE_STYLES + PLAIN_COUNT))
-    if [ "$PLAIN_COUNT" -gt "$SHAPE_COUNT" ]
-    then
-        HIT_SHAPE_OFFENDERS="$HIT_SHAPE_OFFENDERS $source:$PLAIN_COUNT-plain-$SHAPE_COUNT-rectangle"
-    fi
-done
-
-if [ "$HIT_SHAPE_FILES" -ge "$HIT_SHAPE_FILE_FLOOR" ] && [ "$HIT_SHAPE_STYLES" -ge "$HIT_SHAPE_STYLE_FLOOR" ]
-then
-    pass "the hit-shape reader found $HIT_SHAPE_STYLES plain button styles in $HIT_SHAPE_FILES files under $HIT_SHAPE_SOURCE_ROOT"
-else
-    fail "the hit-shape reader found $HIT_SHAPE_STYLES plain button styles in $HIT_SHAPE_FILES files under $HIT_SHAPE_SOURCE_ROOT, under the floor of $HIT_SHAPE_STYLE_FLOOR styles in $HIT_SHAPE_FILE_FLOOR files that module writes; it did not run"
-fi
-
-if [ -z "$HIT_SHAPE_OFFENDERS" ]
-then
-    pass "every file under $HIT_SHAPE_SOURCE_ROOT that styles a Button plain states at least as many contentShape rectangles, so the coloured part of a button is part of the button"
-else
-    fail "files that style a Button plain without a contentShape rectangle to match:$HIT_SHAPE_OFFENDERS; a plain button is tapped on its LABEL's drawn pixels, so the fill around the words takes no press"
-fi
-
-# ---------------------------------------------------------------------------
-section '21. authored views are written by hand'
-# ---------------------------------------------------------------------------
-# A flow's `views` says who draws its screens. `reference` is the generator, which emits a
-# skeleton out of SPFNUI's components; `authored` is a person, writing from the flow's
-# contract document, and for those the generator neither writes the file nor deletes it as
-# stale (decision 2026-09-09, UI D2). That exemption is the whole risk: a view file inside a
-# directory the generator owns, which the generator has promised to leave alone.
-#
-# Two ways it goes wrong and neither fails a build. An authored view that still carries the
-# `GENERATED FILE` header is a file nobody has written yet — the flow was switched over and
-# the skeleton left in place, so the screens on the phone are the grammar's and the document
-# says otherwise. And an authored view that is MISSING is the failure the generator cannot
-# see at all: it does not emit that path, so `spfnUiVerify` has nothing to miss, and the
-# first evidence is a compiler that cannot find a symbol the flow host imports.
-#
-# Read from the CONTRACT DOCUMENTS rather than from a list here, because which flows are
-# authored is a fact the documents state and a second copy of it would drift. The reader is
-# python3 for the reason `examples/ui-spec/run-cells.sh` states about its own: a flow's
-# `views` and a screen's `flow` are two keys in two objects, and pairing them by proximity
-# is how a reader ends up confident about a screen it never saw.
-#
-# The EXAMPLE app's two view roots are what is read. It is the target that takes every flow
-# the spec declares, so it is the one app where every screen has a view; the harness is
-# narrowed to one flow (`--flows`, a target field), and a reader pointed at it would report
-# eight of the nine flows as absent files.
-AUTHORED_SPEC=examples/ui-spec
-AUTHORED_KOTLIN_VIEWS=examples/android-compose/src/main/kotlin/xyz/superfunction/spfn/example/generated/views
-AUTHORED_SWIFT_VIEWS=examples/ios-swiftui/Generated/Views
-
-# The spec declares fourteen screens today. The floor is what tells a reader that read
-# nothing from a spec whose every view is in order (docs/IMPLEMENTATION-PITFALLS.md P7).
-AUTHORED_SCREEN_FLOOR=14
-
-: > "$TMP/authored-views.txt"
-if command -v python3 > /dev/null 2>&1
-then
-    # Failures inside the reader — a document with two machine blocks, a piece that is not
-    # JSON — leave the file empty and are reported by the floor below, which is the same
-    # answer the generator gives to the same input one refusal earlier.
-    python3 - "$AUTHORED_SPEC" > "$TMP/authored-views.txt" 2> /dev/null <<'VIEWS' || true
-import json
-import os
-import sys
-
-root = sys.argv[1]
-
-
-def machine_block(text):
-    """The one ```json spfn-ui block of a contract document, by the generator's own rule."""
-    body = []
-    blocks = 0
-    inside = False
-    for line in text.replace("\r\n", "\n").split("\n"):
-        if not inside and line.rstrip() == "```json spfn-ui":
-            inside = True
-            blocks += 1
-        elif inside and line.rstrip() == "```":
-            inside = False
-        elif inside and blocks == 1:
-            body.append(line)
-    if blocks != 1 or inside:
-        raise ValueError("%s spfn-ui blocks" % blocks)
-    return "\n".join(body)
-
-
-def pieces():
-    for name in sorted(os.listdir(root)):
-        if name.endswith(".json"):
-            with open(os.path.join(root, name)) as handle:
-                yield handle.read()
-    documents = os.path.join(root, "contracts")
-    for name in sorted(os.listdir(documents)):
-        if name.endswith(".md"):
-            with open(os.path.join(documents, name)) as handle:
-                yield machine_block(handle.read())
-
-
-lines = []
-for piece in pieces():
-    spec = json.loads(piece)
-    written_by = dict((flow, body.get("views", "reference")) for flow, body in spec["flows"].items())
-    for screen, body in sorted(spec["screens"].items()):
-        lines.append("%s %s" % (screen, written_by[body["flow"]]))
-
-print("\n".join(lines))
-VIEWS
-fi
-
-AUTHORED_READ=0
-AUTHORED_OFFENDERS=''
-while read -r AUTHORED_SCREEN AUTHORED_BY
-do
-    if [ -z "$AUTHORED_SCREEN" ]
-    then
-        continue
-    fi
-    AUTHORED_READ=$((AUTHORED_READ + 1))
-    # The emitters' own spelling: `views/<Screen>Screen.kt` and `Views/<Screen>View.swift`,
-    # off a screen name that is lowerCamel in the spec and Pascal in both languages.
-    AUTHORED_PASCAL=$(printf '%s' "$AUTHORED_SCREEN" | cut -c1 | tr '[:lower:]' '[:upper:]')$(printf '%s' "$AUTHORED_SCREEN" | cut -c2-)
-    for AUTHORED_VIEW in "$AUTHORED_KOTLIN_VIEWS/${AUTHORED_PASCAL}Screen.kt" "$AUTHORED_SWIFT_VIEWS/${AUTHORED_PASCAL}View.swift"
-    do
-        if [ ! -f "$AUTHORED_VIEW" ]
-        then
-            AUTHORED_OFFENDERS="$AUTHORED_OFFENDERS $AUTHORED_VIEW:absent"
-        elif grep -qE 'GENERATED FILE' "$AUTHORED_VIEW"
-        then
-            if [ "$AUTHORED_BY" = authored ]
-            then
-                AUTHORED_OFFENDERS="$AUTHORED_OFFENDERS $AUTHORED_VIEW:still-generated"
-            fi
-        elif [ "$AUTHORED_BY" = reference ]
-        then
-            AUTHORED_OFFENDERS="$AUTHORED_OFFENDERS $AUTHORED_VIEW:no-generated-header"
-        fi
-    done
-done < "$TMP/authored-views.txt"
-
-if [ "$AUTHORED_READ" -ge "$AUTHORED_SCREEN_FLOOR" ]
-then
-    pass "the authored-view reader read $AUTHORED_READ screens out of $AUTHORED_SPEC and its contract documents"
-else
-    fail "the authored-view reader read $AUTHORED_READ screens out of $AUTHORED_SPEC and its contract documents, fewer than the $AUTHORED_SCREEN_FLOOR that spec declares; it did not run"
-fi
-
-if [ -z "$AUTHORED_OFFENDERS" ]
-then
-    pass 'every authored flow'"'"'s views are written by hand and every reference flow'"'"'s carry the generated header'
-else
-    fail "views that disagree with the flow's own \`views\` key:$AUTHORED_OFFENDERS; an authored view still carrying the generated header is a screen nobody has written, and an absent one is a symbol the generated flow host imports and nothing defines"
-fi
-
-# ---------------------------------------------------------------------------
-section '22. a screen that draws a PagedView on Android owns no scroll of its own'
-# ---------------------------------------------------------------------------
-# `LazyColumn` is the only lazy list Compose has and it brings its own scroll. Nesting one
-# inside `Screen(scroll = true)`'s `verticalScroll` is not two scrollers arguing — it is a
-# measurement with no answer, because the outer scroll offers infinite height and the inner
-# list asks for all of it. Compose refuses that at RUNTIME, with an IllegalStateException
-# thrown from the layout pass on the frame the screen first appears. Nothing compiles it
-# away, no JVM unit test composes a screen in this repository, and the rule lived only in
-# `PagedView.kt`'s header: "a screen that draws a PagedView declares Screen(scroll = false)".
-#
-# So the rule is read here. The Swift half needs no equivalent and has none: `PagedView`
-# there is a `LazyVStack` INSIDE the caller's scroll view, so `Screen(scroll: true)` is what
-# it wants and this whole section would be backwards on that platform.
-#
-# What this reads is a FILE, not a call. `grep` cannot tell a call from a mention, so a file
-# that names `PagedView(` in a comment counts as one that draws one, and a `scroll = false`
-# belonging to some other `Screen` in the same file satisfies it. Both are deliberate and
-# both are on the loose side: the defect this exists to catch is a screen file that draws a
-# PagedView and says nothing about scroll, and that file fails whichever line the grep found.
-# The one file it reads today is `PagedView.kt` itself, which passes on the sentence in its
-# own header — which is honest about what this check is worth on an empty tree and is why
-# the floor below refuses a read of zero rather than reporting a clean sweep (P7).
-#
-# `grep -nE` only, and no `?` or `+` in the expressions, because this script runs under BSD
-# grep as well as GNU (docs/IMPLEMENTATION-PITFALLS.md P28).
-PAGED_SCROLL_ROOTS='android/spfn-ui examples/android-compose tools/harness/android'
-
-PAGED_SCROLL_READ=0
-PAGED_SCROLL_OFFENDERS=''
-
-for PAGED_SCROLL_ROOT in $PAGED_SCROLL_ROOTS
-do
-    for source in $(find "$PAGED_SCROLL_ROOT" -name '*.kt' 2> /dev/null | sort)
-    do
-        if ! grep -nE 'PagedView\(' "$source" > /dev/null 2>&1
-        then
-            continue
-        fi
-        PAGED_SCROLL_READ=$((PAGED_SCROLL_READ + 1))
-        if ! grep -nE 'scroll = false' "$source" > /dev/null 2>&1
-        then
-            PAGED_SCROLL_OFFENDERS="$PAGED_SCROLL_OFFENDERS $source"
-        fi
-    done
-done
-
-if [ "$PAGED_SCROLL_READ" -ge 1 ]
-then
-    pass "the PagedView reader found $PAGED_SCROLL_READ Kotlin files naming PagedView( under $PAGED_SCROLL_ROOTS"
-else
-    fail "the PagedView reader found no Kotlin file naming PagedView( under $PAGED_SCROLL_ROOTS; nothing to read, so this check did not run"
-fi
-
-if [ -z "$PAGED_SCROLL_OFFENDERS" ]
-then
-    pass 'every Kotlin file that draws a PagedView states scroll = false, so no LazyColumn is measured inside an infinite height'
-else
-    fail "Kotlin files that draw a PagedView without a \`scroll = false\` anywhere in them:$PAGED_SCROLL_OFFENDERS; a LazyColumn inside Screen(scroll = true)'s verticalScroll is measured against an infinite height and throws IllegalStateException on the frame the screen appears"
+    fail "SPFNUI styles a Button plain, which hit-tests only the pixels its label drew: $(printf '%s' "$PLAIN_HITS" | tr '\n' ' ')"
 fi
 
 # ---------------------------------------------------------------------------
@@ -3652,8 +2487,7 @@ fi
 section '24. every action a workflow uses is on the SHA-pinned list (D14)'
 # ---------------------------------------------------------------------------
 # D14, resolved 2026-09-18: a workflow may use an action only if its name AND its commit
-# SHA are written down in tools/ci/actions-allowlist.txt. The per-workflow rules in
-# section 8 already say WHICH action each file may name; this section is the register
+# SHA are written down in tools/ci/actions-allowlist.txt. This section is the register
 # those SHAs are read from, so bumping an action is an edit to a reviewed list rather than
 # a character change inside a YAML file nobody diffs.
 #
@@ -3727,3 +2561,4 @@ fi
 
 printf 'RESULT: FAIL\n'
 exit 1
+

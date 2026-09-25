@@ -287,6 +287,52 @@ class InvocationTest
         }
     }
 
+    /**
+     * An authored flow's views are the one output `verify` cannot compare, and what it asks
+     * of them instead is that they exist and that none is a generated skeleton.
+     *
+     * The spec is the synthetic paged-and-form one, because the example spec authors no flow
+     * and a case run against it would pass with nothing to check. The set of authored views
+     * is read back from the run and required to be non-empty for the same reason: a verify
+     * that was handed no authored views accepts every tree.
+     */
+    @Test
+    fun `verify requires every authored view written, and written by hand`()
+    {
+        val spec = "tools/ui-codegen/src/test/resources/paged-form";
+        val root = fixtureRoot("authored-views", spec);
+        val call = listOf(
+            "--target=probe",
+            "--swift-root=out/Generated",
+            "--kotlin-root=out/kotlin",
+            "--kotlin-package=probe.generated",
+            "--app-id=probe.app",
+            "--generate-task=:ui-codegen:spfnGenerateProbeUi",
+            "--verify-task=:ui-codegen:spfnProbeUiVerify"
+        );
+        execute((listOf(root.path, spec, "write") + call).toTypedArray());
+
+        val authored = generate(root, spec, Target.parse(call)).handWritten.sorted();
+        assertTrue("the paged-and-form spec authors no view", "out/kotlin/views/ItemsScreen.kt" in authored);
+        assertTrue("no Swift view is authored", "out/Generated/Views/ItemsView.swift" in authored);
+
+        // Nothing wrote them: write leaves an authored view to a person.
+        assertExecuteRefused(listOf(root.path, spec, "verify") + call, "out/kotlin/views/ItemsScreen.kt is missing");
+
+        authored.forEach { path ->
+            val view = File(root, path);
+            view.parentFile.mkdirs();
+            view.writeText("// written from the contract document\n");
+        };
+        execute((listOf(root.path, spec, "verify") + call).toTypedArray());
+
+        // The skeleton left in place: the header is what says nobody wrote it.
+        File(root, authored.first()).writeText("// ${Header.MARK}\n");
+        assertExecuteRefused(
+            listOf(root.path, spec, "verify") + call,
+            "${authored.first()} still carries the generated header"
+        );
+    }
 
     /**
      * The generator's own version is an input, and a run that was not given one refuses.
@@ -330,7 +376,7 @@ class InvocationTest
      * beside it, the bundle they describe between them, and the spec. Built rather than
      * pointed at the real tree, because `write` writes.
      */
-    private fun fixtureRoot(name: String): File
+    private fun fixtureRoot(name: String, spec: String = specPath): File
     {
         val root = File(repoRoot, "tools/ui-codegen/build/$name");
         root.deleteRecursively();
@@ -341,7 +387,7 @@ class InvocationTest
             "Contracts/upstream.lock.json",
             "Contracts/upstream-provenance.json",
             bundlePath,
-            specPath
+            spec
         ).forEach { relative ->
             val destination = File(root, relative);
             destination.parentFile?.mkdirs();

@@ -24,9 +24,9 @@ That is what moves: the Swift suite on Linux, the Android unit and lint suites, 
 determinism and the offline validator. What does not move is every row's status word. The
 macOS half, the emulator, the real device and the published-artifact evidence are exactly
 what CI cannot produce, and they are what these gates are still waiting for. The device
-sign-in row is the sharpest case: `tools/device-receipts/receipt-gate.sh` is red on every
-CI run by design, admitted by name in `tools/ci/validate-known-red.txt`, and it turns green
-only when a person re-runs fifteen cells on two real phones.
+sign-in row is the sharpest case: `tools/device-receipts/receipt-gate.sh` is not run by CI
+at all, because only a person re-running fifteen cells on two real phones can turn it
+green. It is run by hand before a release — see "Device sign-in evidence" below.
 
 | Field | Value to record per release | Gate | Current state |
 | --- | --- | --- | --- |
@@ -44,14 +44,41 @@ only when a person re-runs fifteen cells on two real phones.
 A compatibility matrix is read as a support commitment. A custody reading, a partial
 lifecycle run or a proven sign-in path is narrower than the platform gate and cannot
 establish an OS support range. The rows stay unresolved until the whole named gate
-passes, and `tools/validate/validate.sh` fails if the iOS or Android row ever loses the
-word UNRESOLVED.
+passes. Keeping them so is review's job: no check reads this file.
 
 The device sign-in row is the shape a resolved row is meant to have: a gate small enough
-to enumerate, evidence committed beside it, and a machine that re-reads the evidence
-against the gate on every run. It also shows what such a row may not do — it names the
+to enumerate, evidence committed beside it, and a command that re-reads the evidence
+against the gate before every release. It also shows what such a row may not do — it names the
 two phones it was proven on and refuses to name anything about the Android one that the
 run did not record, because a matrix that guesses a model number is worse than one that
 says the run never wrote it down.
+
+## Device sign-in evidence
+
+The device-receipt gate is a manual command, run by the person preparing a release, and
+not part of CI or of the offline validator: it can only go green on evidence two real
+phones and a real server produce, and a check that is red on every pull request by design
+is a check people learn to ignore.
+
+Before a release candidate:
+
+```sh
+sh tools/device-receipts/probe-receipt-gate.sh   # the gate still refuses every broken input
+sh tools/device-receipts/receipt-gate.sh         # the committed receipts clear the pinned contract
+```
+
+1. Drive the fifteen cells — {iOS × Apple, iOS × Google, Android × Google} ×
+   {first-enroll, re-login, user-cancel, network-failure, server-reject} — on real phones
+   against a real SPFN server running the pinned contract, with the harness apps
+   (`tools/harness/README.md`).
+2. Commit the receipts the harness wrote under `tools/device-receipts/runs/<date>/`, all of
+   them, retries and failed attempts included.
+3. Run the two commands above. The probe must print `RESULT: PASS`; the gate must print
+   `RECEIPT-GATE-SUMMARY` and exit 0. The gate reads the pinned contract version itself,
+   so receipts taken against an earlier pin are refused.
+4. Update the Device sign-in row with the run's date, hardware and receipt directory.
+
+`tools/rc-verify/rc-verify.sh` runs the same gate before it verifies a candidate, so a
+release cannot skip step 3 — but it needs a Mac, and finding out on release day is late.
 
 Open decisions behind these rows are tracked in [docs/OPEN-DECISIONS.md](docs/OPEN-DECISIONS.md).

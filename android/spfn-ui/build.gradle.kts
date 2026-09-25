@@ -91,4 +91,8 @@ dependencies {
     implementation(libs.androidx.navigation3.ui)
 
     testImplementation(libs.junit)
+
+    // The UI rules a compiler cannot hold — how pointer input consumes, what a NavDisplay is
+    // handed — as Android Lint checks, run by this module's `lint` (tools/ui-lint).
+    lintChecks(project(":ui-lint"))
 }

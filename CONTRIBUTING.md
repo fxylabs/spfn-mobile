@@ -52,7 +52,9 @@ pod ipc spec tools/cocoapods-compat/generated/SPFNMobileCompatFixture.podspec
 sh tools/reference-server/run-integration.sh         # both SDKs against a local server
 ```
 
-The validator needs no network, no package manager and no credentials. The Gradle
+The validator needs no network, no package manager and no credentials, and it holds only
+what nothing else can check — `tools/validate/README.md` says where every other rule lives.
+UI rules on Android are Lint checks (`tools/ui-lint`), run by `./gradlew build`. The Gradle
 commands need an Android SDK; point `ANDROID_HOME` at it. Gradle itself comes from the
 committed wrapper, whose distribution and jar are pinned to checksums published by
 gradle.org.
@@ -69,7 +71,7 @@ than to rediscover it in review. If a review here finds something that can recur
 in — as a new entry, or as a sharpening of the entry that already covers it. Duplicates
 are what kill a document like that one.
 
-## Rules that the validator enforces
+## Rules the checks enforce
 
 - **Never hand-edit a generated file.** `tools/cocoapods-compat/generated/`,
   `Sources/SPFNGenerated/Generated/` and
@@ -80,14 +82,17 @@ are what kill a document like that one.
   SwiftPM manifest, Gradle settings and generated fixture agree.
 - **Never invent a value to fill a placeholder.** Digests, commits, provenance, owner
   handles, licenses and signing identities stay unresolved until a person decides them.
-  This is the single rule that matters most here.
+  This is the single rule that matters most here. The validator holds the digests,
+  commits and provenance; the rest is review's.
 - **Never claim provenance you do not have.** The pinned bundle is an SPFN primitives
   export and is never edited here. The lock's upstream claim is checked field by field
   against `Contracts/upstream-provenance.json`, the file the exporter itself wrote.
-- **Never widen the auth surface.** `clientProofV1` is the only profile. Redirect-based
-  browser auth vocabulary anywhere in the API surface fails the build.
-- **Never enable publication.** No registry, no credential block, no signing plugin, no
-  trunk publication command.
+- **Never widen the auth surface.** `clientProofV1` is the only profile, and WebView or
+  JavaScript-bridge vocabulary anywhere in the API surface fails the validator.
+- **Never enable publication.** No registry beyond the three the toolchain needs, no
+  publication block outside the gated root script, no trunk publication command. Never
+  commit a credential either; the validator refuses key files, credential configuration
+  and literal usernames or passwords.
 - **No new binaries.** The Gradle wrapper jar is the only one, and only because its
   digest matches the artifact gradle.org publishes.
 
@@ -128,7 +133,8 @@ To pin a new export:
    add Kotlin sources.
 4. Regenerate the CocoaPods fixture:
    `sh tools/cocoapods-compat/generate-podspec.sh --write`.
-5. Run the validator. It cross-checks all four representations against each other.
+5. Run the validator. It cross-checks the graph against the SwiftPM manifest and the Gradle
+   settings, and section 9 regenerates the podspec from the graph.
 
 ## Style
 

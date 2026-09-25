@@ -206,9 +206,6 @@ private struct RoleButton: View
             }
             .frame(maxWidth: .infinity, minHeight: Metrics.touchTarget)
             .padding(.horizontal, theme.spacing.space4)
-            // Inside the LABEL, because `.plain` takes the tap on the label's own hit shape and
-            // an HStack that drew nothing but text answers only over the letters (P39).
-            .contentShape(Rectangle())
         }
         .buttonStyle(RoleButtonStyle(appearance: theme.buttons.appearance(for: role), live: live))
         .frame(minWidth: Metrics.touchTarget, minHeight: Metrics.touchTarget)
@@ -219,10 +216,15 @@ private struct RoleButton: View
 
 /// The press, which only a `ButtonStyle` is told about, and the appearance drawn around it.
 ///
-/// The label is drawn as given — its `contentShape` is what answers a finger (P39) — and
-/// dimmed while pressed, the feedback the plain style gave before a theme could colour one.
-/// What this adds is the fill, the outline and the radius, with the fill following
-/// ``SPFNButtonColors/pressedContainer`` while a finger is down.
+/// The label is hit-tested over its whole frame and dimmed while pressed, the feedback the
+/// plain style gave before a theme could colour one. What this adds is the fill, the outline
+/// and the radius, with the fill following ``SPFNButtonColors/pressedContainer`` while a
+/// finger is down.
+///
+/// The hit shape is set HERE, on the label the style is handed, and not at the call site: a
+/// style draws its label as the part of the button a tap lands on, and a label that drew
+/// nothing but text answers only over its letters — the coloured rectangle around them took
+/// no press on an iPhone 14 Pro until this moved inside the style (P39).
 private struct RoleButtonStyle: ButtonStyle
 {
     let appearance: SPFNButtonAppearance
@@ -249,6 +251,7 @@ private struct RoleButtonBody: View
         let colors = appearance.colors(for: scheme)
         let shape = RoundedRectangle(cornerRadius: appearance.cornerRadius)
         return configuration.label
+            .contentShape(Rectangle())
             .opacity(configuration.isPressed ? 0.7 : 1)
             .foregroundStyle(colors.label(live: live))
             .background(shape.fill(colors.fill(live: live, pressed: configuration.isPressed)))

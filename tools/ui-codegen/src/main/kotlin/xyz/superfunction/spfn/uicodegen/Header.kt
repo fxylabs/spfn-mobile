@@ -35,8 +35,11 @@ object Header
                 "spfn.version is where the Gradle tasks read it from"
         );
 
+    /** The first line of every header, and what tells a generated file from a written one. */
+    const val MARK: String = "GENERATED FILE — DO NOT EDIT.";
+
     fun lines(inputs: Inputs): List<String> = listOf(
-        "GENERATED FILE — DO NOT EDIT.",
+        MARK,
         "",
         "generator:       $GENERATOR",
         "spec:            ${inputs.specPath}",

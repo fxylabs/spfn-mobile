@@ -47,6 +47,10 @@ androidx-navigation3 = "1.1.7"
 # its own on Android, and the multiplatform `androidx.compose.ui.backhandler` package is
 # not in the 1.12.0 Android artifact (checked by listing it). Latest stable 2026-09-02.
 androidx-activity-compose = "1.12.4"
+# The Lint API the UI rules in tools/ui-lint are written against. Lint is versioned with AGP
+# (AGP 9.2.1 runs lint 32.2.1), and a check compiled against another line than the one that
+# loads it is a check lint warns about and may not load, so this moves with `agp`.
+lint = "32.2.1"
 
 # Numeric baselines consumed by the module build scripts.
 jdk-toolchain = "21"
@@ -79,6 +83,8 @@ androidx-compose-foundation = { module = "androidx.compose.foundation:foundation
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity-compose" }
 androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "androidx-navigation3" }
 androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "androidx-navigation3" }
+lint-api = { module = "com.android.tools.lint:lint-api", version.ref = "lint" }
+lint-tests = { module = "com.android.tools.lint:lint-tests", version.ref = "lint" }
 
 [plugins]
 android-library = { id = "com.android.library", version.ref = "agp" }

@@ -105,18 +105,54 @@ public fun <R : FlowRoute> FlowHost(flow: Flow<R>, entry: FlowEntry, content: @C
     val routes: List<R> = flow.stack.collectAsState().value;
     val host = LocalNavigationHost.current;
 
-    when
+    when (val drawing = flowDrawing(entry, hosted = host != null, empty = routes.isEmpty()))
     {
-        entry is FlowEntry.Push && host != null -> Appended(host, flow, routes, content)
-        entry is FlowEntry.Modal -> ModalCover(flow, routes, content)
-        // Before the empty-stack line, and that order is the rule rather than a preference: a
-        // sheet's stack is empty for the whole of its exit, and a branch reached by an empty
-        // stack draws nothing. validate.sh section 19 refuses the other order.
-        entry is FlowEntry.Sheet -> SheetCover(flow, entry, routes, content)
-        routes.isEmpty() -> Unit
-        else -> InlineStack(flow, entry, routes, Modifier, content)
+        FlowDrawing.Appended -> Appended(host!!, flow, routes, content)
+        FlowDrawing.Modal -> ModalCover(flow, routes, content)
+        is FlowDrawing.Sheet -> SheetCover(flow, drawing.entry, routes, content)
+        FlowDrawing.Blank -> Unit
+        FlowDrawing.Inline -> InlineStack(flow, entry, routes, Modifier, content)
     };
 }
+
+/** What [FlowHost] draws a flow as: the answer [flowDrawing] gives, one case per branch. */
+internal sealed interface FlowDrawing
+{
+    /** A registration with the surrounding [NavigationHost], and nothing drawn here. */
+    data object Appended : FlowDrawing
+
+    /** The cover a modal flow stands on, open or sliding away. */
+    data object Modal : FlowDrawing
+
+    /** The sheet a sheet flow stands on, open or sliding away. */
+    data class Sheet(val entry: FlowEntry.Sheet) : FlowDrawing
+
+    /** Nothing at all: a closed flow with no exit of its own left to run. */
+    data object Blank : FlowDrawing
+
+    /** The flow's own navigator, for a pushed flow that found no host. */
+    data object Inline : FlowDrawing
+}
+
+/**
+ * What a flow entered by [entry] is drawn as, given whether a host is there to append to and
+ * whether its stack is empty.
+ *
+ * A pure function so the order of its lines is something a JVM test can hold. Two of them are
+ * true at once for a sheet whose flow has just closed — it is a sheet, and its stack is empty
+ * — and the sheet must win: `Flow.close` empties the stack in one step, and a sheet answered
+ * with nothing leaves the composition on that frame and vanishes where iOS's `.sheet` slides
+ * it away (docs/IMPLEMENTATION-PITFALLS.md P38). A modal's cover is the same case, and the
+ * empty-stack line is reached only by a flow with no exit of its own to run.
+ */
+internal fun flowDrawing(entry: FlowEntry, hosted: Boolean, empty: Boolean): FlowDrawing = when
+{
+    entry is FlowEntry.Push && hosted -> FlowDrawing.Appended
+    entry is FlowEntry.Modal -> FlowDrawing.Modal
+    entry is FlowEntry.Sheet -> FlowDrawing.Sheet(entry)
+    empty -> FlowDrawing.Blank
+    else -> FlowDrawing.Inline
+};
 
 /**
  * A pushed flow inside a [NavigationHost]: no navigator of its own, and nothing drawn here.

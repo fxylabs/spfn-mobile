@@ -50,14 +50,14 @@ flow host per flow, a model per screen plus a use case for each screen that asks
 one shared screen failure, a view skeleton per screen a flow has not taken back, and the
 container. How many that is, is the spec's answer and not a constant: the example target
 generates 41 files per platform from nine flows, and the harness — narrowed to one flow —
-generates 9 (section 21 of `tools/validate/validate.sh` counts both).
+generates 9 (`spfnUiVerify` and `spfnHarnessUiVerify` read back both).
 
 The view skeleton is the one file a flow can take back. A flow whose `views` are
 `authored` has its screens written by hand from its contract document, and this generator
 then neither writes those files nor deletes them as stale — the deletion rule below would
-otherwise eat the work on the next run. Section 21 of `tools/validate/validate.sh` is what
-holds an authored view to being written and a reference view to being generated; nothing
-here can, because an authored path is not a file this generator emits.
+otherwise eat the work on the next run. What `verify` still asks of an authored view of a
+flow the target draws is that it exists and does not carry the generated header — a
+skeleton left in place is a screen nobody wrote (`handWrittenProblems` in `Main.kt`).
 
 The case table and the Maestro flows go to the ONE target that declares a table root. They
 name cells, fixtures and expectations, and `examples/` holds the only app that installs

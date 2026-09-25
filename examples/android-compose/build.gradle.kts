@@ -77,6 +77,13 @@ android {
             it.systemProperty("spfn.repoRoot", rootDir.absolutePath)
         }
     }
+
+    // Lint here runs this repository's UI checks and nothing else: the built-in checks are
+    // for the SDK modules under android/ (docs/architecture/README.md), and a screen this app
+    // draws is where a PagedView inside a scrolling Screen would be written (tools/ui-lint).
+    lint {
+        checkOnly += setOf("SpfnPagedViewInScrollingScreen", "SpfnBlanketPointerConsumption", "SpfnNavDisplayTransitions")
+    }
 }
 
 kotlin {
@@ -111,4 +118,6 @@ dependencies {
     // and none of them needs a device (the same reason spfn-ui's Flow suite is one).
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+
+    lintChecks(project(":ui-lint"))
 }

@@ -45,6 +45,7 @@ include(
     ":contract-codegen",
     ":ui-codegen",
     ":reference-server",
+    ":ui-lint",
     ":harness-android",
     ":example-compose"
 )
@@ -65,6 +66,12 @@ project(":contract-codegen").projectDir = file("tools/contract-codegen")
 // JSON file into the two example apps' scaffolds, the case table and the Maestro flows;
 // it is a build tool beside the contract generator and shares its toolchain.
 project(":ui-codegen").projectDir = file("tools/ui-codegen")
+
+// Not an SDK module and never published either. The Android Lint checks that hold the UI
+// rules a compiler cannot — how a pointer change is consumed, what a navigator is handed,
+// which screen may draw a lazy list — run inside `lint` for the modules that apply them
+// through `lintChecks`, and nowhere else.
+project(":ui-lint").projectDir = file("tools/ui-lint")
 
 // Also not an SDK module and never published. The reference server implements the
 // pinned contract so both SDKs can be exercised over real HTTP on a developer machine.

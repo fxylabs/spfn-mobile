@@ -11,15 +11,16 @@ below.
 
 ## The scripts
 
-**`validate.sh`** runs `tools/validate/validate.sh`, prints its whole output and its exit
-code, and then decides its own exit code from the output. The validator exits non-zero
-whenever it counts any failure, and this repository has failures it keeps on purpose, so
-obeying that exit code would make the check red forever and ignoring it with `|| true`
-would make it green forever. Neither happens: the exit code is reported, and the judgement
-is the allowlist rule below.
+**`validate.sh`** runs `tools/validate/validate.sh`, and the validator's exit code is the
+gate's. No failure is admitted. There used to be an allowlist of rows red on purpose — the
+device-receipt gate — and a judge over the output; the receipt gate is now a manual
+pre-release command (`COMPATIBILITY.md`, "Device sign-in evidence"), so the allowlist and the
+judge are gone with it.
 
 **`android.sh`** runs unit tests across every Android module, lint across the SDK modules
-under `android/`, the three build tools' JVM suites, and the codegen determinism tasks
+under `android/`, lint on the two applications restricted to the checks `tools/ui-lint`
+registers, the four build tools' JVM suites (`:ui-lint` among them), and the codegen
+determinism tasks
 `:contract-codegen:spfnCodegenVerify`, `:ui-codegen:spfnUiVerify` and
 `:ui-codegen:spfnHarnessUiVerify`. The lint task list is read from the directories under
 `android/` — the same rule the root build script uses to pick its SDK modules — so a module
@@ -45,28 +46,6 @@ two component directories exist afterwards rather than trusting the exit code.
 The two installers are the only scripts here that are never run on the development VM: the
 toolchains are already installed there, and a gigabyte of download proving a download works
 is not evidence. They are held to `sh -n` and to their pinned digests instead.
-
-## The allowlist rule
-
-`validate-known-red.txt` holds the validator failures CI admits, one per line, each the
-exact text a failed row prints after its `  FAIL  ` prefix.
-
-- A judged row is a line beginning with exactly `  FAIL  `. That is what the validator's
-  `fail()` prints and nothing else in the output has that shape.
-- A **deeper-indented** FAIL line is the captured output of a sub-tool one of those rows
-  ran — the receipt gate prints its own fifteen-cell table, which the validator re-indents
-  underneath the row. It belongs to the row above it and is admitted with it.
-- A judged row that is not in the file fails the check.
-- A line in the file that is not a judged row **also** fails the check. A known failure
-  that stopped failing means the file has outlived its reason, and a stale allowlist is how
-  a real failure gets admitted six months later. Emptying the file is the fix.
-- The validator's own `N checks, M failures` count must match the number of rows that were
-  read. A mismatch means a failure was reported in a shape this script cannot judge, and
-  judging the rest would be a false green.
-
-Today the file holds two lines, both the device-receipt gate, red on purpose since the
-2026-09-02 re-pin to contract `0.10.0`. Clearing them needs fifteen cells driven by a
-person on two real phones — the kind of evidence D2 leaves outside CI.
 
 ## Pinning
 

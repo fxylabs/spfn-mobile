@@ -113,10 +113,13 @@ target only an absolute staging directory outside the repository —
 `tools/validate/probe-publishing-gate.sh` proves each refusal.
 `tools/validate/validate.sh` fails if the committed flag flips, a publication or
 signing block appears outside the gated root script, a credential value or
-credential-shaped property is committed, a key file enters the tree, a repository
-outside the approved three appears, any workflow's parsed trigger set contains
-anything but `workflow_dispatch` (flow-style and block-style alike, unknown trigger
-kinds included), the publish workflow names an unlisted secret, addresses a host other
-than the Central Portal with or without a URL scheme, interpolates an input into run
-text, or a CocoaPods trunk publication command is added anywhere —
-`tools/validate/probe-publication-rules.sh` proves each of those refusals bites.
+credential-shaped property is committed, a key file enters the tree, a repository outside
+the approved three appears, dependency verification is switched off, any workflow's
+parsed trigger set holds anything beyond what its kind declares, the publish workflow
+names an unlisted secret, addresses a host other than the Central Portal with or without
+a URL scheme, or an input is interpolated into run text, or a CocoaPods trunk publication
+command is added anywhere — `tools/validate/probe-publication-rules.sh` proves each of
+those refusals bites. The held-for-confirmation upload is held by review.
+
+Before a candidate, run the device-receipt gate by hand
+([COMPATIBILITY.md](COMPATIBILITY.md#device-sign-in-evidence)); CI does not.

@@ -15,7 +15,7 @@ already use with the SPFN maintainers.
 | Boundary | Enforcement |
 | --- | --- |
 | `clientProofV1` is the only auth profile | `SPFNAuthProfile` has exactly one case; the validator asserts the count, both allowlists, and that every generated operation names that profile |
-| No redirect-based browser auth surface | the validator fails on redirect-auth vocabulary anywhere in `Sources/`, `Tests/`, `android/`, `Contracts/`, `examples/` or `.github/` |
+| No redirect-based browser auth surface | the auth-profile allowlist is exactly `clientProofV1` on both platforms, and the validator fails on WebView or JavaScript-bridge vocabulary anywhere in `Sources/`, `Tests/`, `android/`, `Contracts/`, `examples/` or `.github/` — a browser flow needs one or the other, or a provider library the module graph has not reviewed |
 | No unknown-profile fallback | `SPFNAuthPolicy.resolve` throws; the lock records `unknownProfilePolicy: reject` |
 | No unknown-error-code fallback | the generated error enum refuses an unrecognised code and preserves the raw string instead of rounding it to a neighbour |
 | No generic JavaScript bridge | the hybrid bridge allowlist is empty on both platforms |

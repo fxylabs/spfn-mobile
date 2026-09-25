@@ -8,7 +8,7 @@
 //
 // Guarded whole, first line of code to last, the way every SwiftUI file in this repository
 // is (docs/IMPLEMENTATION-PITFALLS.md P20): SwiftUI is Apple's, `SPFNUI` builds on Linux,
-// and validate.sh section 8 holds the guard to the file rather than to the import.
+// and the Linux `swift build` in tools/ci/swift.sh fails on an import left outside it.
 //
 // ---------------------------------------------------------------------------
 // The two halves are not written the same way, because the platforms are not
@@ -262,14 +262,27 @@ public struct Screen<Content: View>: View
         {
             icon()
                 .frame(minWidth: Metrics.touchTarget, minHeight: Metrics.touchTarget)
-                // Inside the LABEL, because `.plain` takes the tap on the label's own hit shape
-                // and a glyph answers only over the pixels it drew; the 44 above would report a
-                // rectangle nothing could tap without this line (P39).
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(HeaderControlStyle())
         .accessibilityIdentifier(identifier)
         .accessibilityLabel(label)
+    }
+}
+
+/// A header control's press: the icon as drawn, hit-tested over its whole 44pt frame, and
+/// dimmed while a finger is down.
+///
+/// A style of its own rather than `.plain`, because `.plain` takes the tap on the label's own
+/// hit shape — the pixels a 20pt glyph drew — and the 44pt frame around it then reports a
+/// rectangle nothing can tap (P39). The shape is set on the label the style is handed, so no
+/// call site has to remember it.
+private struct HeaderControlStyle: ButtonStyle
+{
+    func makeBody(configuration: Configuration) -> some View
+    {
+        configuration.label
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
 
