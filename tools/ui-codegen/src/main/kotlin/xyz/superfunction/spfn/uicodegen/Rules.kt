@@ -587,6 +587,11 @@ object Rules
     /**
      * C2 — the second of iOS's two back gestures, the one that starts in the content.
      *
+     * iOS 26 and later only: `interactiveContentPopGestureRecognizer` is new in iOS 26, and on
+     * an iOS 17 or 18 runtime this cell fails by design, because a swipe in the content does
+     * nothing there. The package's floor is iOS 17, so a run on an older runtime reads this
+     * row's failure as the platform's, not the SDK's.
+     *
      * Stood at depth two and not on the root, because on the root the gesture has the host's
      * screen under it and that is C3's subject (`rootSystemBack`). Android has no content
      * gesture, so its half of the same flow file is the system back, which is C9 again from a
@@ -601,9 +606,10 @@ object Rules
         return listOf(
             Cell(
                 "${tour.flow.name}-contentSwipe", tour.chain[1].name, "idle", "contentSwipe",
-                "C2 — on iOS a back swipe that starts in the content rather than at the edge is " +
-                    "the system's own second back gesture, and it pops one route; on Android the " +
-                    "system back does the same",
+                "C2 — on iOS 26 and later a back swipe that starts in the content rather than at " +
+                    "the edge is the system's own second back gesture, and it pops one route (an " +
+                    "iOS 17 or 18 runtime has no such gesture); on Android the system back does " +
+                    "the same",
                 "maestro", Fixtures.READY,
                 walk(tour).take(1) + Step.ContentSwipe,
                 expect(1, "idle"),

@@ -527,7 +527,7 @@
       "screen": "tourTwo",
       "state": "idle",
       "action": "contentSwipe",
-      "rule": "C2 \u2014 on iOS a back swipe that starts in the content rather than at the edge is the system's own second back gesture, and it pops one route; on Android the system back does the same",
+      "rule": "C2 \u2014 on iOS 26 and later a back swipe that starts in the content rather than at the edge is the system's own second back gesture, and it pops one route (an iOS 17 or 18 runtime has no such gesture); on Android the system back does the same",
       "runner": "maestro",
       "fixture": "ready",
       "steps": ["tap tourOne.next", "contentSwipe"],

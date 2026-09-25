@@ -117,6 +117,7 @@ public struct FlowHost<Route: FlowRoute, Content: View>: View
                         content(route)
                     }
             }
+            .modifier(ThemeTint())
             .environment(\.screenChrome, chrome)
         }
     }

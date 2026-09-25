@@ -136,6 +136,7 @@ public struct Screen<Content: View>: View
             // field takes its own tap and this never sees it, while a tap the scroll view
             // merely sat under arrives here. `contentShape` is what makes the empty parts of
             // the frame answer the hit test in the first place.
+            .modifier(ThemeTint())
             .contentShape(Rectangle())
             .onTapGesture { SPFNKeyboard.dismiss() }
             .modifier(
@@ -228,6 +229,25 @@ public struct Screen<Content: View>: View
             Color.clear
                 .preference(key: ScreenContentHeightKey.self, value: proxy.size.height)
         }
+    }
+}
+
+/// The injected theme's accent as SwiftUI's tint: the colour of a plain button and of a bar
+/// item that draws no colour of its own.
+///
+/// A `Screen` applies it to itself, and each host applies it to its `NavigationStack` as well.
+/// The stack's is the one that reaches the system back button: on iOS 18 and earlier the back
+/// is drawn in the stack's tint, and a tint set on the destination view does not reach it, so
+/// without this the back stays the platform's blue whatever the theme says. On iOS 26 the back
+/// is a glass button in the bar's own ink and the tint changes nothing on it.
+struct ThemeTint: ViewModifier
+{
+    @Environment(\.spfnTheme) private var theme
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View
+    {
+        content.tint(theme.palette(for: scheme).accent)
     }
 }
 

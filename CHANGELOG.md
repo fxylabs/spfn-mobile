@@ -24,6 +24,10 @@ Entries under an unreleased heading describe repository state, not shipped softw
   `Screen(title:leading:principal:trailing:scroll:content:)`, Android
   `Screen(title, leading, principal, trailing, header, scroll, content)`. Calls that name
   their arguments compile unchanged.
+- **iOS: the system back follows the theme's accent.** The injected theme's `accent` is the
+  tint of every `Screen` and of the `NavigationStack` that `NavigationHost` and `FlowHost`
+  build, so on iOS 18 and earlier the system back is drawn in it rather than the platform's
+  blue. On iOS 26 the back is a glass button in the bar's own ink either way.
 - **Android: `header: ScreenHeader`** — `Standard` (the default, unchanged) or `None`, which
   draws no SDK header and leaves the status bar inset to the content.
 - **New, both: `ScreenWayOut`**, the read-only way out of the screen being drawn — `wayOut`,
