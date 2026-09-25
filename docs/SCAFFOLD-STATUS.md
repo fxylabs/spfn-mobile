@@ -65,11 +65,10 @@ Each of these is missing because supplying it would mean inventing an approval.
 - a generated source file names a digest the lock does not pin, or a hand-written file
   appears in a generated directory
 - publication is enabled, or a dependency repository outside the approved three appears
-- redirect-based auth vocabulary appears in the API surface, contract data, examples or CI
-- the generated CocoaPods fixture drifts from its generator
-- the Swift targets, Android modules and podspec subspecs disagree with `tools/module-graph.json`
-- an iOS or Android compatibility row claims support
-- CODEOWNERS gains an invented owner, or a binary appears that is not the verified wrapper jar
+- WebView or JavaScript-bridge vocabulary appears in the API surface, contract data, examples or CI
+- the generated CocoaPods fixture drifts from its generator, which reads `tools/module-graph.json`
+- the Swift targets and Android modules disagree with `tools/module-graph.json`
+- a binary appears that is not the verified wrapper jar
 
 `sh tools/reference-server/run-integration.sh` adds one more, which the validator cannot
 reach because it needs a socket: an integration suite that skipped every case is reported

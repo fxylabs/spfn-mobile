@@ -10,38 +10,71 @@ check passed.
 
 ## What it checks
 
+The section numbers are stable identifiers, so the gaps are real: a missing number is a
+check that moved to a stronger home or was dropped (see "Where the other checks went").
+
 | # | Check |
 | --- | --- |
-| 1 | required files and directories exist |
+| 1 | the documents a public repository owes its readers exist, and every `sh tools/…` script a workflow runs exists |
 | 2 | the committed Gradle wrapper jar and distribution match the checksums gradle.org publishes |
 | 3 | no fabricated binaries, credentials, keystores or private keys |
 | 4 | `VERSION` agrees with Swift, Kotlin, Gradle, the podspec and the changelog |
 | 5 | contract lock discipline, in every direction |
-| 6 | no redirect-based browser auth surface; the allowlist is exactly `clientProofV1`; no JS bridge |
-| 7 | publication disabled, dependency repositories limited to the approved three, verification metadata populated, workflows inert |
-| 8 | module graph coherence across `module-graph.json`, SwiftPM, Gradle settings, module directories and the podspec |
-| 9 | generated sources are traceable: every one declares itself generated and names the digest the lock pins |
+| 6 | the auth allowlist is exactly `clientProofV1`; no WebView or JavaScript-bridge surface |
+| 7 | publication disabled; dependency sources limited to the approved three repositories, the gated staging target, verified checksums and graph-declared Swift packages |
+| 8 | module graph coherence: SwiftPM products and edges, Gradle mappings and edges, iOS-only and Linux-absent declarations, module counts, no stubs, no silenced deprecations |
+| 9 | generated sources are traceable: every one declares itself generated and names the digest the lock pins; the CocoaPods fixture is what its generator writes from the graph |
 | 10 | the D5 toolchain baseline is declared explicitly rather than inherited |
-| 11 | ownership, license, resolved decisions and every compatibility support row are represented honestly |
-| 12 | the repository declares its own status, in docs and in both built libraries |
-| 13 | the `ui` module's `Loadable`, `Busy` and `Flow` names are the same on both platforms, and `SPFNUI` never reaches the SwiftUI dismiss environment value |
+| 13 | the `ui` module's state, flow, host, paged and form vocabularies are the same names on both platforms, and `SPFNUI` never reaches the SwiftUI dismiss environment value |
 | 14 | the apps that consume the scaffold hold the generated boundary: descriptors only in generated services, no `dismiss`, every cell covered, every cell seedable |
-| 15 | the visual vocabulary — tokens, strings, components and the minimum touch target — is the same set on both platforms |
-| 16 | both Android apps declare `android:enableOnBackInvokedCallback`, which is what gives the SDK's predictive-back transition any progress to animate |
-| 17 | no pointer input under `android/spfn-ui/src/main` consumes every change it is handed, which is what cancels a finger's press on the controls underneath it |
-| 18 | every `NavDisplay` under `android/spfn-ui/src/main` states its three transitions from `FlowTransitions`, so a modal flow and a pushed flow move the same way |
+| 15 | the visual vocabulary — tokens, strings, components, the minimum touch target and the theme keys — is the same set on both platforms, and no UI source reads the tokens past the theme |
+| 20 | no Button in `SPFNUI` is styled `.plain` |
+| 23 | no provider adapter logs a token or reads a profile field |
+| 24 | every action a workflow uses is on the SHA-pinned list |
 
 ## What it does not check
 
 It compiles nothing, and it never reports a result it did not produce. These are
-separate commands with separate evidence:
+separate commands with separate evidence, and a check one of them makes is not repeated
+here:
 
 ```sh
-swift build && swift test
-./gradlew build
-./gradlew :contract-codegen:spfnCodegenVerify
+swift build && swift test                 # tools/ci/swift.sh on Linux
+sh tools/ci/android.sh                    # unit tests, lint (tools/ui-lint included), codegen verify
 pod ipc spec tools/cocoapods-compat/generated/SPFNMobileCompatFixture.podspec
+sh tools/device-receipts/receipt-gate.sh  # before a release, by a person (COMPATIBILITY.md)
 ```
+
+## Where the other checks went
+
+On 2026-09-25 the validator was cut back to the checks nothing else can make. Most of what
+left were regular expressions over UI code, which broke whenever that code changed shape;
+each went to the strongest home that would hold it.
+
+| Was | Rule | Now |
+| --- | --- | --- |
+| 1 | a Swift/Gradle manifest, build script, source root or generated directory exists | `swift build` and any `./gradlew` run fail without it |
+| 1 | the wrapper, its pins, `VERSION`, the lock, the bundle, the module graph, the catalogue and the verification metadata exist | the section that reads each one (2, 4, 5, 7, 8) fails when it is missing |
+| 1 | the tool scripts, probes, CI scripts, docs, examples READMEs and receipt runs exist | the check that a workflow's scripts exist; the rest dropped — a missing tool fails when it is run |
+| 7 | the Maven group is recorded as Central-verified | the root build `require`s it on every run |
+| 7 | no credential-shaped key, credential block, literal username/password, signing configuration, URL literal or `setUrl` in a build script; root signing is in-memory only | dropped; section 3 still refuses key files and private key material in the tree |
+| 7 | the root staging gate's four load-bearing lines | `tools/validate/probe-publishing-gate.sh` runs the gate itself; section 7 keeps the committed-flag line |
+| 7 | Android dependencies are exactly the graph's per-module allowlist; Swift traits; graph allowances nobody uses | dropped; Gradle dependency verification refuses any artifact `verification-metadata.xml` does not record, and section 7 keeps the Swift package rule |
+| 7 | workflow kinds, triggers, `run:` lines, timeouts, runner images, publish-workflow secrets, hosts, inputs and network commands | dropped; section 24 still holds every action to the SHA-pinned list |
+| 8 | every graph target has a Swift source directory; settings `include`s each Android module; each has a build script | `swift build`; Gradle configuration; the edge check fails on a missing script |
+| 8 | the podspec's subspecs and edges match the graph | section 9 regenerates the podspec from the graph and refuses any difference |
+| 8 | no Apple-only framework (CryptoKit included) is imported unguarded in a Linux-capable module | the Linux `swift build` in `tools/ci/swift.sh` |
+| 11 | CODEOWNERS, LICENSE, OPEN-DECISIONS rows, the D11 policy digest and blocklist, COMPATIBILITY rows stay UNRESOLVED | dropped — ownership and status prose (operator decision 2026-09-25) |
+| 11 | `tools/verify-server/probe-refusals.sh` passes | dropped from the validator; it is the verify-server's own probe, run with that tool |
+| 11 | the device-receipt gate and its probe pass; rc-verify calls the gate | the gate is a manual pre-release command (`COMPATIBILITY.md`), and `tools/rc-verify/rc-verify.sh` still runs it before it verifies a candidate |
+| 12 | docs, both libraries and `RELEASE.md` state scaffold status | dropped — status prose |
+| 16 | both Android apps declare `android:enableOnBackInvokedCallback="true"` | `PredictiveBackManifestTest` in `:example-compose` and `:harness-android`, which parse the manifest |
+| 17 | no pointer input consumes every change it is handed | Android Lint `SpfnBlanketPointerConsumption` (`tools/ui-lint`) |
+| 18 | every `NavDisplay` is handed the three `FlowTransitions` | Android Lint `SpfnNavDisplayTransitions` |
+| 19 | a closing sheet is still drawn | `flowDrawing` in `FlowHost.kt` is a pure function, held by `FlowDrawingTest` |
+| 20 | every plain-styled Button gives its label a hit shape | `RoleButtonStyle` and `HeaderControlStyle` set the hit shape themselves; section 20 keeps only the ban on `.plain` |
+| 21 | authored views are written by hand, reference views carry the header | `:ui-codegen:spfnUiVerify` / `spfnHarnessUiVerify` (`handWrittenProblems`), tested in `InvocationTest` |
+| 22 | a screen that draws a `PagedView` passes `scroll = false` | Android Lint `SpfnPagedViewInScrollingScreen`, run on `:spfn-ui` and both apps |
 
 ## Check 5 is the reason this validator exists
 
@@ -72,39 +105,10 @@ against the real validator on temporarily mutated, cp-backed files.
 The digest and fixture checks are shared by both resolved states rather than living
 inside the dev-bundle branch, so moving the lock upstream cannot quietly drop them.
 
-## Check 11 pins a decision rather than blocklisting its opposite
-
-D11 settled that CocoaPods is not supported and recorded no activation condition on
-purpose. The first attempt to hold that shut was a list of forbidden phrasings, and
-review took it apart twice: "may be enabled after a separate approval", then "could
-return as an optional distribution channel". A policy sentence can be reopened in
-unbounded ways, so no enumeration converges.
-
-The gate is therefore a digest. `d11-policy.lock.json` pins the exact text of the
-decision in both places it is written down — the policy section of
-`tools/cocoapods-compat/README.md` and the D11 row of `docs/OPEN-DECISIONS.md` — and any
-edit to either fails the build until somebody updates the lock. Reopening the decision
-becomes a visible act instead of a sentence nobody noticed. The row is pinned whole
-because the check that preceded it read only the row's first three cells: review showed
-a row could keep the word RESOLVED and say "CocoaPods is supported through an approved
-release path" in the cells after it. `d11-forbidden.ere` survives as a second,
-best-effort net over the rest of the fixture README, where prose is legitimate and a
-digest would be too rigid.
-
-`probe-d11-guardrail.sh` holds all of it to its claims: each pinned digest must move on
-the smallest edit that reverses its meaning, the section extraction must stop at the
-next heading rather than swallowing the document, exactly one D11 row may exist,
-fourteen reopening sentences must be caught, twelve descriptive ones must be spared, the
-validator must read both files instead of carrying its own copy, and every file the
-guardrail depends on must be tracked by git. The validator runs the probe as part of
-check 11.
-
-```sh
-sh tools/validate/probe-d11-guardrail.sh                  # prove the guardrail
-sh tools/validate/probe-d11-guardrail.sh --print-digest   # after an approved edit
-```
-
 ## Check 13 compares two source trees rather than one
+
+It stays a validator check because the comparison needs both trees at once, and no build,
+test or lint on either platform reads the other platform's sources.
 
 `Loadable`, `Busy` and `Flow` are written twice, once per platform, and nothing but a
 comparison keeps the two copies one vocabulary. An app built against `Loadable.empty` on
@@ -135,206 +139,21 @@ sh tools/validate/probe-ui-vocabulary-rules.sh   # prove each refusal bites
 
 The probe renames a case on each side, removes a `Flow` method from each side, writes the
 Swift cases on one line and then renames one inside that line, takes each extraction's
-input away, plants a `dismiss`, and drops the `canImport(SwiftUI)` guard. Twelve cases,
-each scoped to section 13's own output.
+input away, and plants a `dismiss`, each case scoped to section 13's own output.
 
-## Check 16 guards something no assertion in this repository reads
+## Check 20 is the part of a Swift rule no type can hold
 
-`NavigationHost` states a `predictivePopTransitionSpec`: what is drawn while a back gesture
-is being **held**, before the person has decided to finish it. It runs only if the system
-hands this process the gesture's progress, and whether it does is a property of the
-**window** — so it is declared by whoever owns the window, which is the host app:
-
-```xml
-<application android:enableOnBackInvokedCallback="true">
-```
-
-On Android 13, 14 and 15 the flag is off unless a manifest says otherwise, whatever the app
-targets; the target-SDK default only flips at Android 16. Undeclared, the gesture goes down
-the legacy back path, `OnBackPressedDispatcher` receives the completed back, and the flow
-pops correctly — every cell that asserts a stack depth stays green. What is missing is the
-progress, so the transition never runs. Nothing here asserts an animation, which is why this
-is a check rather than a cell.
-
-Both Android apps are named rather than globbed, and the count is checked against that same
-list: a pattern that stopped matching an app would say nothing, and a list that resolved to
-nothing would agree with a clean tree. The SDK's own file is held to the other half of the
-sentence — `NavigationHost.kt` has to tell a host app what to declare, or the rule lives
-only in the two manifests that already obey it.
+`.buttonStyle(.plain)` hit-tests a button's label over the pixels it drew, so a role button
+answered only over its letters and a 20pt header glyph only over itself inside its 44pt
+frame (docs/IMPLEMENTATION-PITFALLS.md P39). The fix now lives in the API: SPFNUI's two
+button styles, `RoleButtonStyle` and `HeaderControlStyle`, set `.contentShape(Rectangle())`
+on the label they are handed, so no call site has to remember it. What a style cannot do is
+stop the next button reaching for `.plain` again, and a SwiftUI hit shape is not a value a
+test can read — so that one spelling, and `PlainButtonStyle()`, are refused by name.
 
 ```sh
-sh tools/validate/probe-predictive-back-rules.sh   # prove each refusal bites
+sh tools/validate/probe-button-hit-shape-rules.sh   # prove the refusal bites
 ```
-
-The probe takes the declaration out of each manifest separately, turns one to `"false"`,
-leaves the attribute in a comment and nowhere else, takes the manifest list away, and strips
-the flag from the SDK's documentation. Seven cases, each scoped to section 16's own output.
-
-## Check 17 guards something only a person can see
-
-A Compose modifier that answers `pointerInput` by consuming **every** change takes the press
-out of the controls underneath it — but only for a finger. `clickable` does not decide a
-press on the down. `ClickableNode.onPointerEvent` handles down and up on the Main pass and
-calls `checkForCancellation` on the **Final** pass, which cancels the press the moment any
-change other than its own down reports `isConsumed`; Final runs parent before child, so a
-parent that consumed on Main arrives there as a cancel.
-
-What makes it a check rather than a review note is who can see it. A finger always produces
-MOVE events — a few pixels of tremor is a MOVE — and every runner here synthesises a DOWN
-and an UP with nothing between them. A modal cover that consumed everything was green in all
-35 device cells, green in Maestro, green under `adb shell input tap`, and dead under a thumb
-on a Galaxy Z Flip4 (`docs/IMPLEMENTATION-PITFALLS.md` P36).
-
-The rule is about **blanket** consumption. A gesture detector that claims the change it
-recognised is how Compose gestures work and is not this; what is refused is a loop that
-hands every change in an event to `consume` before anything about the change is known.
-
-Newlines become spaces before the match, because the spelling is not a line — written across
-three it is the same defect. The file is read as text, comments and all: a Kotlin
-comment-stripper that is wrong about nesting or string literals hides code, and the price of
-not writing one is that this module may not quote the forbidden line in its own prose
-either.
-
-```sh
-sh tools/validate/probe-pointer-consumption-rules.sh   # prove each refusal bites
-```
-
-The probe plants the block spelling in one file and the call spelling in another, spreads
-the block spelling over three lines, leaves it in a comment and nowhere else, and takes the
-source root away. Six cases, each scoped to section 17's own output.
-
-## Check 18 keeps one app from holding two opinions
-
-`NavDisplay` takes a forward, a pop and a predictive-pop transition spec and defaults all
-three when they are not given. Read out of navigation3-ui 1.1.7 with javap, the defaults are
-`fadeIn(tween(700)) togetherWith fadeOut(tween(700))` forward, the same again for the pop, and
-`fadeIn(spring(1f, 1600f)) togetherWith scaleOut(0.7f)` for the predictive pop. Each is
-reasonable for a navigator that does not know what it is drawing, and none is what a stack of
-screens does on either platform this SDK ships to.
-
-So a module that states them at one call site and not at the others ships two apps. It did:
-`NavigationHost` stated its three and the flow's own inline stack — a sheet's stack, a modal's
-cover, a pushed flow that found no host — did not, and on a phone `next` inside a modal faded
-in where the same tap in a pushed flow slid in from the right, and a back inside that modal
-shrank the screen away where a back in a push slid it off to the right
-(`docs/IMPLEMENTATION-PITFALLS.md` P37).
-
-No assertion in this repository reads it. A runner asserts what a screen says, never how it
-arrived, so all 35 device cells pass either way; and `NavDisplay`'s arguments are not readable
-from outside a composition, so the JVM suite can hold `FlowTransitions` to having three values
-of which two are one value (`FlowTransitionsTest`) and cannot hold any stack to being handed
-them. This check reads the call sites, which is the other half.
-
-Each call's arguments are taken to run from its own `NavDisplay(` to the next one in the same
-file, or to that file's end. The reader is `index`/`substr` and no regex at all, which is one
-fewer BSD-versus-GNU spelling to get wrong (`docs/IMPLEMENTATION-PITFALLS.md` P28).
-
-```sh
-sh tools/validate/probe-flow-transitions-rules.sh   # prove each refusal bites
-```
-
-The probe plants a `NavDisplay` call that states nothing — before the module's real call, so
-it cannot borrow that call's arguments — and takes the source root away. Three cases, each
-scoped to section 18's own output.
-
-## Check 19 keeps a closing sheet on screen while it leaves
-
-`FlowHost`'s `when` has no subject, so its branches are read top to bottom and the first true
-one wins. Two of them are true at once for a sheet whose flow has just closed:
-`entry is FlowEntry.Sheet` and `routes.isEmpty()`. `Flow.close` empties the stack in one step
-and the sheet drawn from it still has a slide to run, so the order of those two lines is the
-difference between a sheet that slides away and a sheet that vanishes
-(`docs/IMPLEMENTATION-PITFALLS.md` P38). It vanished: a person on a Galaxy Z Flip4 saw the X,
-the system back and the scrim each remove the sheet instantly.
-
-No assertion in this repository reads it either. Branch order is not a value a test can read,
-the JVM suite has no Compose runtime to compose the host in, and a Maestro cell waits for an
-element to appear or to go and never asks how it moved — the 35 device cells are green under
-either order.
-
-The check compares two line numbers with `grep -nE`, and neither expression uses `?` or `+`
-(`docs/IMPLEMENTATION-PITFALLS.md` P28). Finding neither branch, or only one, is a failure
-rather than a clean read.
-
-```sh
-sh tools/validate/probe-sheet-exit-rules.sh   # prove each refusal bites
-```
-
-The probe MOVES the empty-stack line above the sheet branch with awk — a delete and an insert,
-because a sed replacement carrying a newline is the spelling that differs between GNU and BSD —
-and takes the source file away. Three cases, each scoped to section 19's own output.
-
-## Check 20 makes the coloured part of a button part of the button
-
-`.buttonStyle(.plain)` hands the tap to the LABEL, and a view's default hit shape is the part
-of it that drew something. So a plain button whose label is transparent answers over its
-letters and nowhere else, and every point of the fill around them is dead. That is what
-shipped: `RoleButton` attaches its fill, its radius and its border OUTSIDE the `Button`, which
-is where they belong for the style they draw and exactly where a hit test never looks, and a
-person on an iPhone 14 Pro had to hit the words to press a primary button
-(`docs/IMPLEMENTATION-PITFALLS.md` P39). The header's X and back are the same shape one step
-smaller — a 20pt glyph inside the 44pt frame check 15 requires — so the frame reported a
-target its own label refused.
-
-No assertion in this repository reads it. Android is not affected, because `Box.clickable`
-takes the whole box — which is why P21 is about a control's size rather than its shape — so
-the cross-platform section has nothing to compare. And a runner cannot see it: Maestro's
-`tapOn` presses the CENTRE of the element it resolved, the centre of these buttons is the
-label, and the label is the one part that worked. The 35 device cells are green either way,
-which is why `pushTour-buttonEdge` is a person's cell.
-
-The check counts per file with `grep -cE`: a file may not spend more `.buttonStyle(.plain)`
-than it buys `.contentShape(Rectangle())`. Position is what actually matters — the modifier
-has to be inside the label chain, because after `.buttonStyle(.plain)` it applies to the
-styled view nothing hit-tests — and a count cannot read position. It does not have to: a file
-that spends a `.plain` and buys no rectangle has not paid for one anywhere. `Screen.swift`
-buys two and spends one; its other rectangle is the ancestor that puts the keyboard away
-(P27), and a check demanding equality would have to know which rectangle was which. Neither
-expression uses `?` or `+` (`docs/IMPLEMENTATION-PITFALLS.md` P28). Two floors are stated —
-two files, two occurrences — because a root that resolved to nothing reads as zero of both,
-and a file that lost its `.plain` to a refactor keeps the file count while dropping the other.
-
-```sh
-sh tools/validate/probe-button-hit-shape-rules.sh   # prove each refusal bites
-```
-
-The probe REMOVES the rectangle line from `Buttons.swift` with `grep -v` — the shape the
-defect actually took, since the fill was always outside the `Button` — and takes the source
-root away. Three cases, each scoped to section 20's own output.
-
-## Check 22 keeps a lazy list out of an infinite height
-
-`LazyColumn` is the only lazy list Compose has and it brings its own scroll. Nesting one
-inside `Screen(scroll = true)`'s `verticalScroll` is not two scrollers arguing — it is a
-measurement with no answer, because the outer scroll offers infinite height and the inner
-list asks for all of it. Compose refuses it at RUNTIME, with an `IllegalStateException`
-thrown from the layout pass on the frame the screen first appears. Nothing compiles it away
-and no JVM unit test in this repository composes a screen, so until this check the rule lived
-in one sentence of `PagedView.kt`'s header: a screen that draws a `PagedView` declares
-`Screen(scroll = false)`.
-
-The Swift half needs no equivalent and has none. `PagedView` there is a `LazyVStack` INSIDE
-the caller's scroll view, so `Screen(scroll: true)` is exactly what it wants and this check
-would be backwards on that platform.
-
-What the check reads is a FILE and not a call: every Kotlin file under `android/spfn-ui`,
-`examples/android-compose` and `tools/harness/android` that names `PagedView(` must also hold
-a `scroll = false`. `grep` cannot tell a call from a mention, so a comment naming the
-composable counts, and a `scroll = false` belonging to some other `Screen` in the same file
-satisfies it. Both are on the loose side deliberately: the defect this catches is a screen
-file that draws a `PagedView` and says nothing about scroll, and such a file fails whichever
-line the grep found. The one file it reads today is `PagedView.kt` itself, which passes on
-the sentence in its own header — which is what the floor is for. A read of zero files fails
-rather than reporting a clean sweep (`docs/IMPLEMENTATION-PITFALLS.md` P7). `grep -nE` only,
-and no `?` or `+` in either expression (P28).
-
-```sh
-sh tools/validate/probe-paged-scroll-rules.sh   # prove each refusal bites
-```
-
-The probe DELETES the `scroll = false` line from `PagedView.kt` with `grep -v` — the shape
-the defect actually takes, since nobody writes the rule and then deletes half of it — and
-takes the roots away. Three cases, each scoped to section 22's own output.
 
 ## Check 23 took two rows off a test that could not run everywhere
 
@@ -360,8 +179,8 @@ sh tools/validate/probe-social-surface-rules.sh   # prove each refusal bites
 ```
 
 The probe appends one line at a time to each adapter source and reads section 23's own two
-rows rather than the validator's exit code — the exit code today also carries the
-device-receipt rows, and a probe that read it would report green for the wrong reason.
+rows rather than the validator's exit code, so a failure elsewhere cannot report green for
+the wrong reason.
 Both ends of the comment exclusion are pinned, and the last case takes the source trees
 away.
 

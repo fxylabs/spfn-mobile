@@ -1,17 +1,18 @@
 # The Android gate. A required check: a pull request that reddens it does not merge.
 #
 # What it runs: `tools/ci/android.sh` — unit tests across every Android module, lint
-# across the SDK modules under `android/`, the three build tools' JVM suites, and the
-# codegen determinism tasks `:contract-codegen:spfnCodegenVerify`,
-# `:ui-codegen:spfnUiVerify` and `:ui-codegen:spfnHarnessUiVerify`. Codegen determinism
+# across the SDK modules under `android/`, this repository's UI lint checks on the two apps,
+# the four build tools' JVM suites, and the codegen determinism tasks
+# `:contract-codegen:spfnCodegenVerify`, `:ui-codegen:spfnUiVerify` and
+# `:ui-codegen:spfnHarnessUiVerify`. Codegen determinism
 # lives here rather than in contract.yml because it is a Gradle task and this is the job
 # that already has a JDK, a Gradle wrapper and an Android SDK; running it twice would buy
 # no second opinion. The workflow calls the script and nothing else.
 #
 # What it deliberately does not run, all of it D2's macOS/device/publication boundary:
 #   - an emulator and a real device. The nine lifecycle cells and the fifteen device
-#     sign-in cells need hardware a hosted runner does not have, which is exactly why
-#     tools/ci/validate-known-red.txt admits the receipt gate's two red rows.
+#     sign-in cells need hardware a hosted runner does not have, which is why the device
+#     receipt gate is a manual pre-release command (COMPATIBILITY.md) and not a CI step.
 #   - `assemble` of a release variant, signing and any publication task.
 #   - the integration run. `tools/reference-server/run-integration.sh` expects ten
 #     receipts and its `swift-e` cell fails on Linux (confirmed 2026-09-18, Mac-only);

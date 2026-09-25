@@ -217,6 +217,13 @@ android {
             it.systemProperty("spfn.repoRoot", rootDir.absolutePath)
         }
     }
+
+    // Lint here runs this repository's UI checks and nothing else: the built-in checks are
+    // for the SDK modules under android/ (docs/architecture/README.md), and a screen this app
+    // draws is where a PagedView inside a scrolling Screen would be written (tools/ui-lint).
+    lint {
+        checkOnly += setOf("SpfnPagedViewInScrollingScreen", "SpfnBlanketPointerConsumption", "SpfnNavDisplayTransitions")
+    }
 }
 
 // The generated resource directory is registered through the variant API rather than by
@@ -276,4 +283,6 @@ dependencies {
     // kind of thing: a flow matches it as a regex, and a screen that draws `busy=idle`
     // builds, installs and shows a wrong word to a runner that waits out its timeout.
     testImplementation(libs.junit)
+
+    lintChecks(project(":ui-lint"))
 }

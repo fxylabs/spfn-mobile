@@ -2,11 +2,11 @@
 //
 // What a JVM test can reach here is narrow and worth being honest about. `NavDisplay` is a
 // composable and its arguments are not readable from outside a composition, so nothing here
-// can assert that a stack was HANDED these three — that is what validate.sh's section 18
-// checks, by reading the call sites, and what a person on a phone confirms by watching a
-// screen move. What this file holds is the half a JVM can hold: the values exist, they are
-// distinct where they must differ, and the predictive pop is the pop and not a second copy
-// that could drift from it.
+// can assert that a stack was HANDED these three — that is what the lint check
+// `SpfnNavDisplayTransitions` (tools/ui-lint) holds at the call sites, and what a person on a
+// phone confirms by watching a screen move. What this file holds is the half a JVM can
+// hold: the values exist, they are distinct where they must differ, and the predictive pop
+// is the pop and not a second copy that could drift from it.
 
 package xyz.superfunction.spfn.ui
 

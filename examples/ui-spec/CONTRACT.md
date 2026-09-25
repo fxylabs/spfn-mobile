@@ -80,7 +80,7 @@ where two flows call one method and refused where they disagree about it.
 `flows.<name>.views` is the key that belongs to a document rather than to the JSON. Its
 default, `reference`, means the generator writes this flow's views; `authored` means a
 person has written them from THIS page, and the generator then neither writes those
-files nor deletes them (`SCHEMA.md`, section 21 of `tools/validate/validate.sh`). A flow
+files nor deletes them, and `spfnUiVerify` requires them written by hand (`SCHEMA.md`). A flow
 in `device-approval.json` cannot claim it, because it is a claim about a document.
 
 Two blocks, or none, is a refusal: a document that carries two truths carries none. The

@@ -11,10 +11,12 @@ considered — a redirect-based browser flow — is not implemented and is not p
 symbol, endpoint, schema or fixture. It waits for verified interoperability demand and a
 separate approval.
 
-That decision is enforced mechanically rather than by review habit. The validator scans
-`Sources/`, `Tests/`, `android/`, `Contracts/`, `examples/` and `.github/` for
-redirect-auth vocabulary and fails on any hit. Documentation is excluded from that scan
-precisely so pages like this one can describe the prohibition.
+That decision is enforced mechanically rather than by review habit. A browser flow needs a
+WebView or a provider library: the validator scans `Sources/`, `Tests/`, `android/`,
+`Contracts/`, `examples/` and `.github/` for WebView and JavaScript-bridge vocabulary and
+fails on any hit, the auth-profile allowlist is exactly `clientProofV1`, and a new library
+has to enter through the module graph's reviewed dependencies. Documentation is excluded
+from the scan precisely so pages like this one can describe the prohibition.
 
 ## Why an allowlist rather than a denylist
 

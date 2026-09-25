@@ -42,7 +42,8 @@
 # receipt, a field whose value is not of the shape the schema declares, a filename that
 # disagrees with the receipt inside it. None of those is allowed to read as "checked
 # clean". tools/device-receipts/probe-receipt-gate.sh drives each one and asserts the
-# messages are distinct; tools/validate/validate.sh runs that probe on every run.
+# messages are distinct; it is run beside this gate before a release (COMPATIBILITY.md,
+# "Device sign-in evidence"), and not by CI, which has no phones to clear it with.
 #
 # The contract version is read from the repository's own pin
 # (Contracts/upstream-provenance.json contract.version, cross-checked against the

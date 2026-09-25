@@ -1387,7 +1387,8 @@ targetSdk 36이어도 이 값이 기본 꺼짐**이다. 기본값이 켜지는 �
 
 **탐지.** 실기기에서 제스처를 **끝까지 하지 말고 잡고 있어 본다**. 아래 화면이 제스처를 따라 들어오면
 정상, 시스템 화살표만 보이면 이 항목이다. 코드에서는 두 자리를 짝으로 본다: 전환 스펙을 선언한 SDK
-쪽과, 그 SDK를 쓰는 **앱의 매니페스트**. 자동으로는 매니페스트 검사로만 잡힌다(validate.sh 16절).
+쪽과, 그 SDK를 쓰는 **앱의 매니페스트**. 자동으로는 매니페스트 검사로만 잡힌다 — 두 앱의
+`PredictiveBackManifestTest`가 매니페스트를 파싱해 `<application>`의 선언을 본다.
 
 **처방.** 앱이 선언한다. **창은 앱의 것이므로** SDK가 대신 켤 수 없고, 켤 수 있더라도 켜서는 안 된다.
 SDK 쪽 몫은 그 문장을 소비자 문서에 적는 것이다 — 여기서는 `NavigationHost.kt`의 머리말과 공개
@@ -1469,8 +1470,8 @@ androidx.compose.foundation 1.11.4의 `ClickableNode.onPointerEvent`를 javap으
    손가락이 만드는 것을 만들고 주입 탭이 만들지 않는 것을 만든다. 이것이 실패하고
    `adb shell input tap <x> <y>`가 성공하면 확정이다.
 3. 코드에서는 `android/spfn-ui/src/main`에 `changes.forEach { it.consume() }` 계열이 있는지 본다.
-   validate.sh 17절이 이것을 자동으로 거부하고, `tools/validate/probe-pointer-consumption-rules.sh`가
-   그 거부가 무는지를 증명한다.
+   Android Lint 검사 `SpfnBlanketPointerConsumption`(`tools/ui-lint`)이 이것을 자동으로 거부하고,
+   그 검사의 테스트가 거부가 무는지와 판단 뒤의 consume은 통과시키는지를 증명한다.
 
 **처방.** 덮개는 **노드만 유지하고 consume하지 않는다.**
 
@@ -1536,8 +1537,8 @@ pop의 `scaleOut(0.7f)`이 기기에서 본 그 축소다. 셋 다 "무엇을 �
 2. **전진이 페이드인가 슬라이드인가.** modal 안에서 next를 눌렀을 때 다음 화면이 제자리에 나타나면
    (움직이지 않으면) 그 호출은 기본값을 쓰고 있다.
 3. 코드에서는 `android/spfn-ui/src/main`의 `NavDisplay(` 호출을 **전부** 세고, 각각이 세 spec을
-   넘기는지 본다. validate.sh 18절이 이것을 자동으로 거부하고,
-   `tools/validate/probe-flow-transitions-rules.sh`가 그 거부가 무는지를 증명한다.
+   넘기는지 본다. Android Lint 검사 `SpfnNavDisplayTransitions`(`tools/ui-lint`)가 이것을 자동으로
+   거부하고, 그 검사의 테스트가 거부가 무는지를 증명한다.
 
 **처방.** 세 spec을 **한 자리에** 두고 모든 호출이 그것을 넘긴다. `spfn-ui`에서는
 `FlowTransitions`가 그 자리이고, 값이 하나뿐인 것 자체가 요점이다 — 두 벌이 있으면 언젠가 갈린다.
@@ -1638,13 +1639,12 @@ when
    ```sh
    grep -rn 'updateAnchors(' android/spfn-ui/src/main
    ```
-3. 플로우 스택이 비면 사라지는 표면은, 그 표면의 분기가 `routes.isEmpty()` 분기보다 **위**에 있는지
-   본다. validate.sh 19절이 이것을 자동으로 거부하고,
-   `tools/validate/probe-sheet-exit-rules.sh`가 그 거부가 무는지를 증명한다.
+3. 플로우 스택이 비면 사라지는 표면은, 그 표면의 분기가 빈 스택 분기보다 **먼저** 읽히는지
+   본다. `FlowHost.kt`에서는 그 판단이 순수 함수 `flowDrawing`이고, `FlowDrawingTest`가 닫히는
+   시트와 닫히는 모달이 여전히 자기 표면으로 그려지는지를 JVM에서 단언한다.
 
    ```sh
-   sh tools/validate/validate.sh                    # 19절
-   sh tools/validate/probe-sheet-exit-rules.sh
+   ./gradlew :spfn-ui:testDebugUnitTest --tests '*FlowDrawingTest'
    ```
 
 **처방.** 이동 경로를 **드래그 상태 하나**로 모은다. 첫 측정의 `updateAnchors`는 현재 값을 그대로
@@ -1750,7 +1750,9 @@ P21을 통과한 헤더 아이콘이 정확히 이 항목으로 죽었다.
    grep -rn 'buttonStyle(.plain)' Sources/SPFNUI
    grep -rn 'contentShape(Rectangle())' Sources/SPFNUI
    ```
-3. 파일 단위 개수는 validate.sh 20절이 자동으로 거부하고(`.plain` 수 ≤ 사각형 수),
+3. `SPFNUI`는 이제 `.plain`을 쓰지 않는다. 두 버튼 스타일(`RoleButtonStyle`,
+   `HeaderControlStyle`)이 넘겨받은 라벨에 `.contentShape(Rectangle())`을 스스로 붙이고,
+   validate.sh 20절은 `.buttonStyle(.plain)`·`PlainButtonStyle()` 철자를 거부한다.
    `tools/validate/probe-button-hit-shape-rules.sh`가 그 거부가 무는지를 증명한다.
 
    ```sh
@@ -1758,9 +1760,10 @@ P21을 통과한 헤더 아이콘이 정확히 이 항목으로 죽었다.
    sh tools/validate/probe-button-hit-shape-rules.sh
    ```
 
-**처방.** `.contentShape(Rectangle())`을 **라벨 체인 안에**, 크기를 정하는 `.frame`·`.padding`
-**뒤에** 둔다. 그러면 라벨은 자기가 차지한 사각형 전체로 히트 테스트에 답하고, 그것이 `.plain`이
-읽는 바로 그 모양이다.
+**처방.** 히트 모양을 **스타일 안에서**, 넘겨받은 라벨에 붙인다. 라벨은 크기를 정하는 `.frame`·
+`.padding`을 이미 거쳤으므로 자기가 차지한 사각형 전체로 히트 테스트에 답한다. 아래는 처음 고친
+모양(호출 자리의 라벨 체인 안)이고, 지금 코드는 같은 한 줄을 스타일의 `makeBody`로 옮겨 호출
+자리가 기억할 필요를 없앴다.
 
 ```swift
 Button(action: onTap)

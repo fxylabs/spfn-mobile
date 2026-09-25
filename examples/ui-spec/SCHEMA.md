@@ -154,10 +154,10 @@ work. It is only writable in a contract document — a flow in a `.json` piece t
 document that states what they must do, show and not differ in, and a JSON file states none
 of that. A word outside the pair is refused under refusal 7.
 
-Section 21 of `tools/validate/validate.sh` is the other end of it: an authored flow's view
-files must exist and must NOT carry the generated header, and a reference flow's must. The
-generator cannot see either failure — it does not emit an authored path, so there is nothing
-for `spfnUiVerify` to miss.
+`spfnUiVerify` is the other end of it: an authored view of a flow the target draws must exist
+and must NOT carry the generated header, which is the one thing verify can ask of a file it
+does not emit. A reference flow's views are generated output, so verify already requires
+them byte for byte, header included.
 
 `sheet` is required-and-refused in both directions on purpose. A sheet with no detent has no
 height to resolve, and a modal with one carries a number nothing reads — which is the state

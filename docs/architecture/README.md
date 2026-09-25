@@ -18,7 +18,9 @@ remains UNRESOLVED.
 ## Module graph
 
 `tools/module-graph.json` is the single source of truth. Four representations must
-agree with it, and the validator checks all four:
+agree with it. The validator checks the manifests and the module directories against it,
+and regenerates the podspec fixture from it; a graph target with no source directory is
+`swift build`'s to refuse:
 
 | Representation | File |
 | --- | --- |
@@ -50,11 +52,13 @@ alone, hold one descriptor per operation in `SPFNGeneratedCalls` / `SpfnGenerate
 The client stays generic over request and response and knows no operation at all.
 
 The graph gained two keys with the provider adapters. `swiftTrait` names the SwiftPM
-trait a module's external dependency hangs off, and `externalDeps` is the allowlist the
-validator holds both manifests to — in both directions, so an undeclared dependency and
-an unused allowance each fail. The rule this replaced was "zero external dependencies",
-which was true until an adapter needed the provider's own SDK; zero was never the
-property worth keeping, reviewed was.
+trait a module's external dependency hangs off, and `externalDeps` is the allowlist of
+reviewed dependencies. The validator holds `Package.swift` to it — a Swift package the
+graph does not declare fails. On Android the same review is Gradle's dependency
+verification: an artifact `gradle/verification-metadata.xml` does not record fails the
+build, so adding one is a visible edit to that file. The rule this replaced was "zero
+external dependencies", which was true until an adapter needed the provider's own SDK;
+zero was never the property worth keeping, reviewed was.
 
 It also stopped assuming a module has both platforms. `androidModule` is either a name
 or the literal `null`, and `null` means declared absent rather than not yet written.
@@ -67,8 +71,8 @@ gives it — `SpfnSocialNonce`, its `requestValue` and `enroll(provider = "apple
 read: the first is a decision, the second is a broken parse, and a reader that treats
 both as "skip" reports a clean graph having read nothing. So the validator buckets every
 module line into Android-backed or declared-iOS-only, fails unless the buckets add up to
-the number of lines, and counts the two platforms against separate floors — one number
-covering both would pass with an entire platform at zero.
+the number of lines, and counts the two platforms' module directories against separate
+numbers — one number covering both would pass with an entire platform at zero.
 
 schemaVersion 4 said the same thing about the Swift side, in the shape the Swift side
 needs. `linux` is either ABSENT — the module builds on Linux — or the literal `false`,
@@ -84,9 +88,10 @@ build is in the sources: every source and test file of such a module is guarded 
 `#if canImport(…)` as its first line of code and `#endif` as its last, so the target
 compiles to an empty module on Linux. The validator reads that file by file and checks
 both ends, because a guard closed early still *looks* guarded while whatever trails it
-compiles anyway. It checks the other direction too: a module without the key may not
-import AuthenticationServices, UIKit, AppKit, LocalAuthentication or Security outside a
-`canImport` guard, and no file anywhere may import CryptoKit outside one. `Package.swift`
+compiles anyway. The other direction — a module without the key importing
+AuthenticationServices, UIKit, AppKit, LocalAuthentication, Security or CryptoKit outside a
+`canImport` guard — is the Linux `swift build` in `tools/ci/swift.sh`'s to refuse, since
+none of those exists there. `Package.swift`
 carries a comment saying where the mechanism lives; the comment is not the source of
 truth, the graph is.
 
@@ -391,12 +396,13 @@ reads as a promise.
 | Push | `@spfn/notification` implements email, SMS and Slack; `push` is a name in its channel union with no channel behind it, so the server half does not exist either | D26 |
 | Hybrid WebView bridge | the module was dropped rather than kept empty; the validator now refuses WebView and JavaScript-bridge vocabulary anywhere in the surface | D10, COMPATIBILITY Hybrid row |
 
-Interactive-browser auth (`oidcPkceV1`) is a stronger prohibition than a scope decision:
-`validate.sh` fails on redirect and PKCE vocabulary in the surface at all. The provider
-adapters narrowed that check without weakening it: inside the two adapter module trees a
-line may name the provider-token vocabulary (`id_token`, `oauth`, `openid`), because an
-adapter that cannot say why Apple hashes the request nonce has to be re-derived by
-everyone who reads it. Redirect and PKCE vocabulary stays refused there too.
+Interactive-browser auth (`oidcPkceV1`) is a stronger prohibition than a scope decision.
+The validator used to hold it as a ban on redirect and PKCE vocabulary; that ban matched
+spelling rather than meaning and never caught anything, so section 6 now holds the boundary
+as what the code does: the auth-profile allowlist is exactly `clientProofV1` on both
+platforms, no WebView or JavaScript-bridge vocabulary appears in the surface, and a browser
+flow's provider library would have to enter through the module graph's reviewed
+dependencies.
 
 Kakao and Naver adapters are not here for a reason that is not a decision at all: the
 server has no `verifyNativeIdToken` for them yet (primitives #56, #57). A module is
@@ -623,7 +629,9 @@ SPFN-CANON-JSON-1 would turn the round trip into two copies agreeing with each o
 different reasons. The generator is a build tool like `:contract-codegen`, sharing its
 bundle readers rather than copying them. The Compose example is an Android *application*
 — it is built and its screen models are tested, but it is not a library anyone links, so
-the publication, lint and API checks that apply to `android/*` do not reach it. The
+the publication, lint and API checks that apply to `android/*` do not reach it. The one
+lint that does is this repository's own: both apps run `tools/ui-lint`'s checks and only
+those (`lint { checkOnly }`), because a screen an app draws is where they are broken. The
 validator counts SDK modules under `android/` only, which is what keeps an app under
 `examples/` from being read as an eleventh module.
 
@@ -648,13 +656,12 @@ adapter; the emulator and real-device cells; and anything signed or published. T
 integration run stays out too, for a reason specific to it: the `swift-e` cell fails on
 Linux, so a Linux job could only report a failure it is not allowed to fix.
 
-One consequence is worth stating plainly, because it looks like a broken build. The
-offline validator is red on purpose: the device-receipt gate refuses the committed
-receipts, which were taken against contract `0.9.0` before the 2026-09-02 re-pin. CI does
-not hide that and does not obey it either. `tools/ci/validate.sh` judges the validator's
-output against `tools/ci/validate-known-red.txt`, admits exactly those two rows, and fails
-on any other — *and* on either of those two no longer appearing, because an allowlist that
-outlives its failure is how a real failure gets admitted later.
+The device-receipt gate is outside CI as well. It refuses the committed receipts, which
+were taken against contract `0.9.0` before the 2026-09-02 re-pin, and only two real phones
+and a person can change that — so it is a manual pre-release command
+(`COMPATIBILITY.md`, "Device sign-in evidence") rather than a validator row CI would have to
+admit as red on every run. The offline validator admits no failure, and
+`tools/ci/validate.sh` obeys its exit code.
 
 ## Where the independence in the integration run comes from
 

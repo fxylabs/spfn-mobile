@@ -83,17 +83,16 @@ cannot be run on a developer machine and a gate nobody can reproduce locally is 
 nobody can fix:
 
 ```sh
-sh tools/ci/validate.sh       # the offline validator, judged against tools/ci/validate-known-red.txt
-sh tools/ci/android.sh        # unit tests, lint, codegen verification
+sh tools/ci/validate.sh       # the offline validator
+sh tools/ci/android.sh        # unit tests, lint (tools/ui-lint included), codegen verification
 sh tools/ci/swift.sh          # swift build --build-tests, swift test --skip-build
 ```
 
-`tools/ci/validate.sh` is the one that needs explaining: the validator exits non-zero
-whenever it counts any failure, and the device-receipt gate has been red on purpose since
-the 2026-09-02 contract re-pin. So the script judges the validator's output against a
-named list of admitted failures instead of obeying its exit code — and a failure that
-stops happening reddens the check too, so the list cannot outlive its reason. See
-[tools/ci/README.md](tools/ci/README.md).
+The validator admits no known failure, so its exit code is the gate's. It holds only the
+checks nothing else can make; UI rules live in unit tests and in the Android Lint checks
+under `tools/ui-lint`, and the device-receipt gate is a manual pre-release command
+([COMPATIBILITY.md](COMPATIBILITY.md#device-sign-in-evidence)). See
+[tools/validate/README.md](tools/validate/README.md) and [tools/ci/README.md](tools/ci/README.md).
 
 What CI does not run is what D2 leaves outside it: the macOS half of the Swift suite, any
 emulator or real device, the integration run (its `swift-e` cell is Mac-only), and

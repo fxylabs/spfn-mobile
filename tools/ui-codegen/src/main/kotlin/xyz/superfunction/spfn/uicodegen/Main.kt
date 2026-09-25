@@ -7,7 +7,8 @@
 //
 // A flow whose `views` are `authored` is the one thing a run leaves alone: its view files
 // are written by hand from a contract document, so they are neither emitted nor deleted as
-// stale, and `verify` has nothing to compare them against (`Generated.authoredViews`).
+// stale (`Generated.authoredViews`). What `verify` still asks of them is that they exist
+// and that none of them is a generated skeleton left in place (`Generated.handWritten`).
 //
 // One spec, one or more CONSUMERS. Which app a run writes into is a `Target` the caller
 // supplies — output roots, Kotlin package and application id — so this generator names no
@@ -114,8 +115,18 @@ internal fun execute(args: Array<String>)
  * `authored` has its screens written by hand from a contract document, so this run neither
  * writes those files nor counts them stale — and `verify` has nothing to compare them
  * against, which is the whole point of the switch.
+ *
+ * [handWritten] is the subset this target DRAWS: the authored views of the flows it was
+ * narrowed to. Those are the files `verify` requires to exist and to carry no generated
+ * header. An authored view that still carries one is a skeleton nobody replaced, and one
+ * that is missing is a symbol the generated flow host imports and nothing defines — and
+ * neither fails anything else before a compiler on a Mac does.
  */
-data class Generated(val files: Map<String, String>, val authoredViews: Set<String>)
+data class Generated(
+    val files: Map<String, String>,
+    val authoredViews: Set<String>,
+    val handWritten: Set<String> = emptySet()
+)
 
 /**
  * Every file this generator owns for [target], by repository-relative path.
@@ -176,7 +187,11 @@ fun generate(repoRoot: File, specPath: String, target: Target): Generated
     // target dropped is a flow this run neither writes nor knows, and an authored flow's
     // views sit in a directory this run owns: computed from the narrowed spec, they are
     // neither generated nor exempt, which is precisely the state `staleOutputs` deletes.
-    return Generated(files, kotlin.authoredViews(whole) + swift.authoredViews(whole));
+    return Generated(
+        files,
+        authoredViews = kotlin.authoredViews(whole) + swift.authoredViews(whole),
+        handWritten = kotlin.authoredViews(spec) + swift.authoredViews(spec)
+    );
 }
 
 private fun write(repoRoot: File, generated: Generated)
@@ -230,6 +245,7 @@ private fun verify(repoRoot: File, target: Target, generated: Generated)
     };
 
     staleOutputs(repoRoot, generated).forEach { problems += "$it is a stale generated file" };
+    problems += handWrittenProblems(repoRoot, generated);
 
     if (problems.isNotEmpty())
     {
@@ -258,8 +274,7 @@ private fun verify(repoRoot: File, target: Target, generated: Generated)
  * out of, which is the drift this whole gate exists to catch.
  *
  * Not-writable rather than not-written: a screen of an authored flow whose file is MISSING
- * is not a problem this generator can see, and section 21 of tools/validate/validate.sh is
- * where it is caught.
+ * is not a stale output, and [handWrittenProblems] is where it is caught.
  */
 internal fun staleOutputs(repoRoot: File, generated: Generated): List<String>
 {
@@ -284,3 +299,21 @@ internal fun staleOutputs(repoRoot: File, generated: Generated): List<String>
     return stale;
 }
 
+/**
+ * The authored views this target draws that are not yet written by hand.
+ *
+ * Two ways, and the generator is the only reader that knows which flows are authored: the
+ * file is absent, or it still carries the header a generated file starts with. The header
+ * is read rather than the whole text compared, because an authored view has no generated
+ * text to compare against — what it must NOT be is the skeleton.
+ */
+internal fun handWrittenProblems(repoRoot: File, generated: Generated): List<String> =
+    generated.handWritten.sorted().mapNotNull { path ->
+        val view = File(repoRoot, path);
+        when
+        {
+            !view.isFile -> "$path is missing; its flow's views are authored, so nothing but a person writes it"
+            view.readText().contains(Header.MARK) -> "$path still carries the generated header; its flow's views are authored"
+            else -> null
+        }
+    };

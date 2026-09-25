@@ -20,8 +20,10 @@
 #   f. so does a Kotlin one;
 #   g. `@Environment(\.dismiss)` in an SPFNUI source fails;
 #   h. a dismiss scan that reads no source fails instead of reporting none;
-#   i. `import SwiftUI` outside a canImport guard fails — SPFNUI builds on Linux, so the
-#      guard on FlowHost.swift is the whole of what makes that true;
+#
+# (`import SwiftUI` outside a canImport guard is no longer the validator's to refuse: SPFNUI
+# builds on Linux, and the Linux `swift build` in tools/ci/swift.sh fails on it first.)
+#
 #   m. a host vocabulary name declared on one platform only fails, naming it. `HostEntry`
 #      has no cases and no public methods, so `compare_ui_type` cannot see it at all — it is
 #      exactly the shape of type that goes quiet, and a `HostEntry` only iOS has is a stack
@@ -187,22 +189,6 @@ expect_ui_clean()
     restore_files
 }
 
-# Runs the validator expecting a failure ANYWHERE in the report, for a rule that does not
-# live in section 13.
-expect_fail_anywhere()
-{
-    LABEL=$1
-    MARKER=$2
-    sh tools/validate/validate.sh > "$TMP/run.log" 2>&1 || true
-    if grep -qF -- "$MARKER" "$TMP/run.log"
-    then
-        pass "$LABEL"
-    else
-        fail "$LABEL — the validator did not refuse it"
-    fi
-    restore_files
-}
-
 # Runs a ROOT-pinned copy of the validator whose own input has been taken away, and
 # expects the check to say so rather than to report a clean read.
 expect_unrunnable()
@@ -323,11 +309,6 @@ sed 's/^    public let hasMore: Bool$/    public let hasNext: Bool/' \
     "$TMP/swift-paged.bak" > "$SWIFT_PAGED"
 expect_ui_fail 'a Paged property renamed on the Swift half only fails, naming the type' \
     'Paged differs between platforms'
-
-# --- i. SwiftUI is Apple-only, and SPFNUI builds on Linux --------------------------
-sed 's/^#if canImport(SwiftUI)$//; s/^#endif$//' "$TMP/swift-host.bak" > "$SWIFT_HOST"
-expect_fail_anywhere 'import SwiftUI outside a canImport guard fails in a module that builds on Linux' \
-    'an Apple-only framework is imported unconditionally'
 
 # --- j, k, l. the visual vocabulary is two halves too ------------------------------
 # Runs the validator and expects SECTION 15 to refuse, on the named rule.

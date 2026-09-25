@@ -114,8 +114,11 @@ there for anything else the change touches.
 
 ## 6. What "done" looks like
 
-1. Both views compile and the flow's generated tests are green (`:spfn-ui`, `swift test`).
-2. `sh tools/validate/validate.sh` — sections 13 and 16–20 pass.
+1. Both views compile and the flow's generated tests are green (`:spfn-ui`, `swift test`),
+   and `sh tools/ci/android.sh` passes — which includes `:spfn-ui:lint`, the two apps' lint
+   over the `tools/ui-lint` checks, and `:ui-codegen:spfnUiVerify`, which refuses an
+   authored view that is missing or still carries the generated header.
+2. `sh tools/validate/validate.sh` — sections 13, 15 and 20 pass.
 3. `sh examples/ui-spec/run-cells.sh ios|android` — every automated cell of the contract leaves a receipt on a simulator/emulator and on a real Android phone.
 4. The contract's by-hand rows walked on a phone of each platform and recorded in `receipts/manual/<date>.md`.
 5. The two platforms' screenshots per cell placed side by side (N4, when it lands; until then the manual table's detent rows are the pattern) and every Layout constraint of the contract checked against both.
@@ -181,7 +184,7 @@ and the wrapper is what nests. The scheme is the platform's (`colorScheme`,
   platform's; a theme that could shrink a control would bring back P21 (rule S8). A button's
   minimum height is a rule, not a value.
 - **Motion** — the push, modal and sheet transitions are one set every navigator is handed
-  (S7, validate section 18).
+  (S7, the `SpfnNavDisplayTransitions` lint check in `tools/ui-lint`).
 - **Sheet detents** — fit / half / full = 92 % and the scrim's opacity are `SheetGeometry`
   (S3); the sheet's corner radius, background and handle colour ARE the theme's.
 - **The Android window** — the status bar's foreground and a modal cover's fill are the host
