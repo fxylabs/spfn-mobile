@@ -100,6 +100,7 @@ public struct NavigationHost<Root: View>: View
                     host.screen(for: entry)
                 }
         }
+        .modifier(ThemeTint())
         .environment(\.hostStack, host)
     }
 
