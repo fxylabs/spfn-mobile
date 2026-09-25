@@ -12,7 +12,9 @@
 // `SpfnTheme.Default`, which would agree with itself by construction (P10).
 //
 // T4 runs a real composition over Compose's own runtime with an applier that builds nothing:
-// nesting is the one claim that is about composition rather than about a value.
+// nesting is the one claim that is about composition rather than about a value. The runtime
+// traces every composition through `android.os.Trace`, which the JVM runner does not have;
+// the test source set's `android/os/Trace.kt` stands in for it.
 
 package xyz.superfunction.spfn.ui.tokens
 
