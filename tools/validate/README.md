@@ -22,6 +22,7 @@ check that moved to a stronger home or was dropped (see "Where the other checks 
 | 5 | contract lock discipline, in every direction |
 | 6 | the auth allowlist is exactly `clientProofV1`; no WebView or JavaScript-bridge surface |
 | 7 | publication disabled; dependency sources limited to the approved three repositories, the gated staging target, verified checksums and graph-declared Swift packages |
+| 7a | build scripts hold no credential, literal username or password, signing outside the root or remote URL, and the root's signing and staging-gate pins hold; every workflow triggers only as declared, a gate runs only `tools/ci` scripts, only `publish-central.yml` names secrets — allowlisted ones, towards allowlisted hosts — and inputs reach the shell only through `env` |
 | 8 | module graph coherence: SwiftPM products and edges, Gradle mappings and edges, iOS-only and Linux-absent declarations, module counts, no stubs, no silenced deprecations |
 | 9 | generated sources are traceable: every one declares itself generated and names the digest the lock pins; the CocoaPods fixture is what its generator writes from the graph |
 | 10 | the D5 toolchain baseline is declared explicitly rather than inherited |
@@ -57,10 +58,11 @@ each went to the strongest home that would hold it.
 | 1 | the wrapper, its pins, `VERSION`, the lock, the bundle, the module graph, the catalogue and the verification metadata exist | the section that reads each one (2, 4, 5, 7, 8) fails when it is missing |
 | 1 | the tool scripts, probes, CI scripts, docs, examples READMEs and receipt runs exist | the check that a workflow's scripts exist; the rest dropped — a missing tool fails when it is run |
 | 7 | the Maven group is recorded as Central-verified | the root build `require`s it on every run |
-| 7 | no credential-shaped key, credential block, literal username/password, signing configuration, URL literal or `setUrl` in a build script; root signing is in-memory only | dropped; section 3 still refuses key files and private key material in the tree |
-| 7 | the root staging gate's four load-bearing lines | `tools/validate/probe-publishing-gate.sh` runs the gate itself; section 7 keeps the committed-flag line |
+| 7 | no credential-shaped key, credential block, literal username/password, signing configuration, URL literal or `setUrl` in a build script; root signing is in-memory only | kept, in section 7a |
+| 7 | the root staging gate's four load-bearing lines | kept: section 7 holds the committed-flag line, section 7a the other three; `tools/validate/probe-publishing-gate.sh` also runs the gate itself |
 | 7 | Android dependencies are exactly the graph's per-module allowlist; Swift traits; graph allowances nobody uses | dropped; Gradle dependency verification refuses any artifact `verification-metadata.xml` does not record, and section 7 keeps the Swift package rule |
-| 7 | workflow kinds, triggers, `run:` lines, timeouts, runner images, publish-workflow secrets, hosts, inputs and network commands | dropped; section 24 still holds every action to the SHA-pinned list |
+| 7 | workflow triggers, gate `run:` lines, publish-workflow secrets, hosts, network commands and pushes, no secret in any other workflow, inputs only through `env` | kept, in section 7a; section 1 also holds that every script a workflow runs exists |
+| 7 | workflow timeouts, runner images, the "required check" / "NOT A GATE" prose, the held-for-confirmation upload and the commit-input validation | dropped; section 24 still holds every action to the SHA-pinned list |
 | 8 | every graph target has a Swift source directory; settings `include`s each Android module; each has a build script | `swift build`; Gradle configuration; the edge check fails on a missing script |
 | 8 | the podspec's subspecs and edges match the graph | section 9 regenerates the podspec from the graph and refuses any difference |
 | 8 | no Apple-only framework (CryptoKit included) is imported unguarded in a Linux-capable module | the Linux `swift build` in `tools/ci/swift.sh` |
@@ -75,6 +77,18 @@ each went to the strongest home that would hold it.
 | 20 | every plain-styled Button gives its label a hit shape | `RoleButtonStyle` and `HeaderControlStyle` set the hit shape themselves; section 20 keeps only the ban on `.plain` |
 | 21 | authored views are written by hand, reference views carry the header | `:ui-codegen:spfnUiVerify` / `spfnHarnessUiVerify` (`handWrittenProblems`), tested in `InvocationTest` |
 | 22 | a screen that draws a `PagedView` passes `scroll = false` | Android Lint `SpfnPagedViewInScrollingScreen`, run on `:spfn-ui` and both apps |
+
+## Check 7a is security, so it stays
+
+A build script holding a literal password still builds, and a workflow with an extra
+trigger or an input interpolated into its script only misbehaves on the CI service —
+after the secret has left. No build, test or lint on this host reads either, so these
+rules stayed when the validator was cut back. Each refusal is exercised, in the spellings
+that would otherwise slip past, by:
+
+```sh
+sh tools/validate/probe-publication-rules.sh   # prove each refusal bites
+```
 
 ## Check 5 is the reason this validator exists
 

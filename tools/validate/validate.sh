@@ -15,10 +15,11 @@
 #
 # What is left here is what nothing else can check: pinned toolchain checksums, forbidden
 # artifacts, the contract lock, generated-source provenance, the declared baselines, the
-# module graph against the manifests, and the few cross-platform and Swift-only rules no
-# build, test or lint on this host can read. The section numbers are stable identifiers;
-# the gaps are sections that moved to a stronger home or were dropped, and
-# tools/validate/README.md says where each one went.
+# secrets and commands build scripts and workflows may hold, the module graph against the
+# manifests, and the few cross-platform and Swift-only rules no build, test or lint on
+# this host can read. The section numbers are stable identifiers; the gaps are sections
+# that moved to a stronger home or were dropped, and tools/validate/README.md says where
+# each one went.
 
 set -eu
 
@@ -106,6 +107,18 @@ lacks()
         pass "$3"
     else
         fail "$3 (matched in $1)"
+    fi
+}
+
+# Same, but ignores `//` and `#` comment lines. A prohibition has to be describable
+# in the file that implements it, so comments are never evidence of a violation.
+lacks_active()
+{
+    if [ -f "$1" ] && grep -vE '^[[:space:]]*(//|#)' "$1" | grep -qE -- "$2"
+    then
+        fail "$3 (matched in $1)"
+    else
+        pass "$3"
     fi
 }
 
@@ -815,6 +828,255 @@ then
     pass 'every external package in Package.swift is declared in the module graph'
 else
     fail "Package.swift depends on packages the module graph does not declare: $(printf '%s' "$UNDECLARED_SWIFT" | tr '\n' ' ')"
+fi
+
+# ---------------------------------------------------------------------------
+section '7a. build scripts and workflows hold no secrets and run only reviewed commands'
+# ---------------------------------------------------------------------------
+# Section 7 keeps publication off; this section keeps the paths that would turn it on,
+# or leak what it needs, closed. No build or test can make these checks: a build script
+# holding a literal password builds, and a workflow with an extra trigger or an
+# interpolated input only misbehaves on the CI service. Every refusal here is proven to
+# bite by tools/validate/probe-publication-rules.sh.
+#
+# BUILD SCRIPTS HOLD NO SECRETS. No committed property may hold a credential or key —
+# the active keys in gradle.properties are version, gate flags, group and Gradle tuning.
+# Credentials are banned in BOTH syntactic forms, the `credentials { }` block and the
+# call `credentials(...)`, unless the same line is a pure lookup, and a literal username
+# or password value fails wherever it appears.
+lacks_active gradle.properties '[Ss]igning|[Tt]oken|[Pp]assword|[Ss]ecret|[Cc]redential|[Kk]ey' \
+    'gradle.properties commits no credential-shaped key'
+
+CREDENTIAL_LOOKUPS='environmentVariable\(|gradleProperty\(|System\.getenv\(|PasswordCredentials::class'
+for file in $GRADLE_FILES
+do
+    CREDENTIAL_HITS=$(grep -vE '^[[:space:]]*(//|#)' "$file" \
+        | grep -E 'credentials[[:space:]]*[({]' \
+        | grep -vE "$CREDENTIAL_LOOKUPS" || true)
+    if [ -z "$CREDENTIAL_HITS" ]
+    then
+        pass "no committed credential configuration in $file"
+    else
+        fail "credential configuration that is not a pure lookup in $file: $CREDENTIAL_HITS"
+    fi
+
+    LITERAL_SECRETS=$(grep -vE '^[[:space:]]*(//|#)' "$file" \
+        | grep -E '(username|password)[[:space:]]*=[[:space:]]*"' \
+        | grep -vE "$CREDENTIAL_LOOKUPS" || true)
+    if [ -z "$LITERAL_SECRETS" ]
+    then
+        pass "no literal username or password value in $file"
+    else
+        fail "literal credential value committed in $file: $LITERAL_SECRETS"
+    fi
+
+    if [ "$file" != "./build.gradle.kts" ]
+    then
+        lacks_active "$file" '(id\("signing"\)|apply\("signing"\)|apply\(plugin[[:space:]]*=[[:space:]]*"signing"\)|SigningExtension|useInMemoryPgpKeys|^[[:space:]]*signing[[:space:]]*(\{|$))' \
+            "no signing configuration outside the gated root script in $file"
+        lacks_active "$file" 'https?://' "no URL literal outside the root build script in $file"
+    fi
+done
+
+# NO REMOTE PUBLICATION URL. Central is never a Gradle repository — the upload is a
+# bundle POST made by the manual workflow — so every URL LITERAL in the root is held to
+# the POM's own metadata addresses, whatever carries it (`url = …`, `url.set(…)`, a
+# plain string). `setUrl` is banned outright because a variable passed through it could
+# point a repository anywhere without a literal appearing.
+UNEXPECTED_ROOT_URLS=$(grep -vE '^[[:space:]]*(//|#)' build.gradle.kts \
+    | grep -oE 'https?://[^"[:space:]]*' | sort -u \
+    | grep -vE '^https://(opensource\.org/license/mit/|github\.com/fxylabs/spfn-mobile(\.git)?|superfunction\.xyz)$' || true)
+if [ -z "$UNEXPECTED_ROOT_URLS" ]
+then
+    pass 'every URL literal in the root build script is a pinned POM metadata address'
+else
+    fail "URL literals outside the POM metadata allowlist in build.gradle.kts: $(printf '%s' "$UNEXPECTED_ROOT_URLS" | tr '\n' ' ')"
+fi
+lacks_active build.gradle.kts 'setUrl' \
+    'the root never uses setUrl; the staging repository is assigned once, visibly'
+
+# SIGNING AND STAGING ARE PINNED in the root by their load-bearing lines. Signing exists
+# only as an in-memory key looked up from the per-run environment, and every path that
+# would put key material or key identity in the tree is refused. Publication exists only
+# behind the per-run gate, towards an absolute staging directory outside the repository;
+# section 7 holds the committed-flag line and the staging URL. Fixed strings on purpose:
+# an edit that removes a refusal removes its string.
+contains build.gradle.kts 'useInMemoryPgpKeys(signingKey' \
+    'root signing admits only the in-memory key mechanism'
+contains build.gradle.kts 'providers.gradleProperty("spfnSigningInMemoryKey")' \
+    'the signing key arrives as a per-run property lookup (ORG_GRADLE_PROJECT_*)'
+lacks_active build.gradle.kts '(secretKeyRingFile|signing\.keyId|\.gpg|\.asc|secring|pubring)' \
+    'root signing names no key file, keyring or key identity'
+contains build.gradle.kts 'if (publishingEnabled)' \
+    'root publication configuration exists only behind the per-run enablement gate'
+contains build.gradle.kts 'require(candidate.isAbsolute)' \
+    'root gate requires an absolute staging path'
+contains build.gradle.kts '!canonical.path.startsWith(repoRoot.path + File.separator)' \
+    'root gate refuses a staging path inside the repository'
+
+# WORKFLOWS RUN ONLY WHEN AND WHAT WAS REVIEWED. The three gates trigger on pull_request
+# and push; every other workflow is manual. The trigger check is an ALLOW-list over the
+# parsed `on:` set, whichever YAML style declares it — a deny-list misses the flow forms
+# (`on: [push]`, `on: {push: …}`) and every trigger nobody thought to name. A line at
+# trigger depth the parser cannot read is refused rather than skipped, because a parser
+# that skips what it does not understand admits exactly the trigger it could not see.
+workflow_triggers()
+{
+    awk '
+        /^on:/ {
+            inline = $0
+            sub(/^on:[[:space:]]*/, "", inline)
+            sub(/[[:space:]]*#.*$/, "", inline)
+            if (inline != "")
+            {
+                gsub(/[][{}]/, "", inline)
+                n = split(inline, parts, ",")
+                for (i = 1; i <= n; i++)
+                {
+                    t = parts[i]
+                    gsub(/^[[:space:]]+|[[:space:]]+$/, "", t)
+                    sub(/:.*$/, "", t)
+                    gsub(/["'\'']/, "", t)
+                    if (t != "") { print t }
+                }
+                next
+            }
+            inblock = 1
+            blockindent = -1
+            next
+        }
+        inblock {
+            if ($0 ~ /^[^[:space:]#]/) { inblock = 0 }
+            else if ($0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*#/) { }
+            else
+            {
+                indent = match($0, /[^[:space:]]/) - 1
+                if (blockindent < 0) { blockindent = indent }
+                if (indent == blockindent)
+                {
+                    if ($0 ~ /^[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:/)
+                    {
+                        t = $0
+                        sub(/^[[:space:]]*/, "", t)
+                        sub(/[[:space:]]*:.*$/, "", t)
+                        print t
+                    }
+                    else
+                    {
+                        print "SPFN_UNPARSEABLE_TRIGGER"
+                    }
+                }
+            }
+        }
+    ' "$1"
+}
+
+# A gate runs scripts, never commands of its own: the runner and a developer's terminal
+# must execute the same text, and section 1 holds that each script it names exists.
+# Only a manual workflow may request a secret or speak publication, and of those only
+# publish-central.yml, whose boundary is pinned after the loop.
+PUBLISH_WORKFLOW=.github/workflows/publish-central.yml
+GATE_WORKFLOWS=' .github/workflows/swift.yml .github/workflows/android.yml .github/workflows/contract.yml '
+for workflow in .github/workflows/*.yml
+do
+    case "$GATE_WORKFLOWS" in
+        *" $workflow "*)
+            ADMITTED_TRIGGERS='^(pull_request|push)$'
+            TRIGGER_DESCRIPTION='pull_request and push, and nothing else'
+            ;;
+        *)
+            ADMITTED_TRIGGERS='^workflow_dispatch$'
+            TRIGGER_DESCRIPTION='workflow_dispatch and nothing else'
+            ;;
+    esac
+
+    TRIGGERS=$(workflow_triggers "$workflow")
+    UNEXPECTED_TRIGGERS=$(printf '%s\n' "$TRIGGERS" | grep -vE "$ADMITTED_TRIGGERS" | grep -v '^$' || true)
+    if printf '%s\n' "$TRIGGERS" | grep -q '^SPFN_UNPARSEABLE_TRIGGER$'
+    then
+        fail "$workflow has a trigger line the parser cannot read; an unparseable trigger is refused"
+    elif [ -z "$TRIGGERS" ]
+    then
+        fail "$workflow declares no trigger at all; a workflow must say when it runs"
+    elif [ -z "$UNEXPECTED_TRIGGERS" ]
+    then
+        pass "$workflow triggers on $TRIGGER_DESCRIPTION"
+    else
+        fail "$workflow declares triggers beyond $TRIGGER_DESCRIPTION: $(printf '%s' "$UNEXPECTED_TRIGGERS" | tr '\n' ' ')"
+    fi
+
+    case "$GATE_WORKFLOWS" in
+        *" $workflow "*)
+            UNEXPECTED_RUNS=$(grep -nE '^[[:space:]]*(-[[:space:]]*)?run:' "$workflow" \
+                | grep -vE '^[0-9]+:[[:space:]]*(-[[:space:]]*)?run:[[:space:]]*sh tools/ci/[a-z-]+\.sh[[:space:]]*$' || true)
+            if [ -z "$UNEXPECTED_RUNS" ]
+            then
+                pass "$workflow runs tools/ci scripts and nothing else, so its gate is reproducible off a runner"
+            else
+                fail "$workflow runs a command that is not a tools/ci script: $UNEXPECTED_RUNS"
+            fi
+            ;;
+    esac
+
+    if [ "$workflow" != "$PUBLISH_WORKFLOW" ]
+    then
+        lacks_active "$workflow" '(secrets\.|publish|deploy|upload-artifact|trunk|registry)' \
+            "$workflow requests no secret and performs no publication"
+    fi
+done
+
+# The publish workflow's own boundary. Secrets by NAME only, from a fixed allowlist — a
+# new secret name is a new decision, not an edit. The only hosts it may address are the
+# Central Portal and github.com (its own clone). The host allowlist sees only URL
+# literals and a network command needs no scheme, so every network-capable command must
+# itself name an allowlisted host; backslash continuations are joined first so a command
+# split across lines is judged as one.
+UNEXPECTED_SECRETS=$(grep -oE 'secrets\.[A-Za-z0-9_]+' "$PUBLISH_WORKFLOW" 2>/dev/null | sort -u \
+    | grep -vE '^secrets\.(CENTRAL_PORTAL_TOKEN|SIGNING_IN_MEMORY_KEY|SIGNING_IN_MEMORY_KEY_PASSWORD|GITHUB_TOKEN)$' || true)
+if [ -z "$UNEXPECTED_SECRETS" ]
+then
+    pass 'publish-central.yml references only the four allowlisted secret names'
+else
+    fail "publish-central.yml references unexpected secrets: $UNEXPECTED_SECRETS"
+fi
+
+UNEXPECTED_HOSTS=$(grep -oE 'https?://[^/"[:space:]]+' "$PUBLISH_WORKFLOW" 2>/dev/null \
+    | sed -E 's#https?://##; s#.*@##; s#:.*##' | sort -u \
+    | grep -vE '^(central\.sonatype\.com|github\.com)$' || true)
+if [ -z "$UNEXPECTED_HOSTS" ]
+then
+    pass 'publish-central.yml addresses only central.sonatype.com and github.com'
+else
+    fail "publish-central.yml addresses unexpected hosts: $UNEXPECTED_HOSTS"
+fi
+
+UNPINNED_NETWORK=$(awk '
+    /\\[[:space:]]*$/ { sub(/\\[[:space:]]*$/, "", $0); buf = buf $0 " "; next }
+    { print buf $0; buf = "" }
+' "$PUBLISH_WORKFLOW" \
+    | grep -vE '^[[:space:]]*#' \
+    | grep -E '(curl|wget|git clone|git fetch|git pull|ssh |scp |nc )' \
+    | grep -vE '(central\.sonatype\.com|github\.com)' || true)
+if [ -z "$UNPINNED_NETWORK" ]
+then
+    pass 'every network command in publish-central.yml names an allowlisted host'
+else
+    fail "network commands without an allowlisted host in publish-central.yml: $UNPINNED_NETWORK"
+fi
+lacks_active "$PUBLISH_WORKFLOW" 'git (push|remote)' \
+    'a publish run never pushes or rewires a remote'
+
+# Expression injection: a workflow input interpolated into run text executes as script.
+# The net is any mention of inputs inside an expression — `inputs.x`, the legacy
+# `github.event.inputs.x`, the bracket form, an indirection through format() — in every
+# workflow, and the one admitted shape is a plain `NAME: ${{ inputs.x }}` env assignment.
+RAW_INPUT_USES=$(grep -HnE '\$\{\{.*inputs' .github/workflows/*.yml \
+    | grep -vE '^[^:]+:[0-9]+:[[:space:]]*[A-Z_][A-Z_0-9]*:[[:space:]]*\$\{\{[[:space:]]*inputs\.[A-Za-z_]+[[:space:]]*\}\}[[:space:]]*$' || true)
+if [ -z "$RAW_INPUT_USES" ]
+then
+    pass 'workflow inputs reach the shell only through env assignments'
+else
+    fail "workflow inputs interpolated outside an env assignment: $RAW_INPUT_USES"
 fi
 
 # ---------------------------------------------------------------------------

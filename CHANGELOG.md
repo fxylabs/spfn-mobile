@@ -26,6 +26,11 @@ Entries under an unreleased heading describe repository state, not shipped softw
   and the allowlist judge in `tools/ci/validate.sh` are deleted: CI obeys the validator's exit
   code. The gate is a manual pre-release command, documented in `COMPATIBILITY.md`.
 - The validator no longer needs python3.
+- The build-script and workflow security rules stay, as section 7a: no committed
+  credential, literal username or password, signing outside the root or remote URL in a
+  build script; the root's signing and staging-gate pins; declared workflow triggers only,
+  gates running only `tools/ci` scripts, the publish workflow's secret and host
+  allowlists, and inputs reaching the shell only through `env`.
 
 ### The components take their look from an injectable theme
 

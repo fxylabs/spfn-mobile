@@ -91,7 +91,8 @@ are what kill a document like that one.
   JavaScript-bridge vocabulary anywhere in the API surface fails the validator.
 - **Never enable publication.** No registry beyond the three the toolchain needs, no
   publication block outside the gated root script, no trunk publication command. Never
-  commit a credential either; the validator refuses key files, and review refuses the rest.
+  commit a credential either; the validator refuses key files, credential configuration
+  and literal usernames or passwords.
 - **No new binaries.** The Gradle wrapper jar is the only one, and only because its
   digest matches the artifact gradle.org publishes.
 

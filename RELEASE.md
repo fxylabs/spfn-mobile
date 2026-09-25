@@ -111,13 +111,15 @@ Gradle itself never reaches Central. `spfn.publishing.enabled` is `false` in
 itself: a tree committed with `true` fails every build, and a per-run CLI override may
 target only an absolute staging directory outside the repository —
 `tools/validate/probe-publishing-gate.sh` proves each refusal.
-`tools/validate/validate.sh` fails if the committed flag flips, a publication block
-appears outside the gated root script, a key file enters the tree, a repository outside
-the approved three appears, dependency verification is switched off, or a CocoaPods trunk
-publication command is added anywhere — `tools/validate/probe-publication-rules.sh`
-proves each of those refusals bites. The publish workflow's own boundary — named secrets,
-the Central host, inputs only through env assignments, a held-for-confirmation upload — is
-held by review and by section 24's SHA-pinned actions, not by a pattern check.
+`tools/validate/validate.sh` fails if the committed flag flips, a publication or
+signing block appears outside the gated root script, a credential value or
+credential-shaped property is committed, a key file enters the tree, a repository outside
+the approved three appears, dependency verification is switched off, any workflow's
+parsed trigger set holds anything beyond what its kind declares, the publish workflow
+names an unlisted secret, addresses a host other than the Central Portal with or without
+a URL scheme, or an input is interpolated into run text, or a CocoaPods trunk publication
+command is added anywhere — `tools/validate/probe-publication-rules.sh` proves each of
+those refusals bites. The held-for-confirmation upload is held by review.
 
 Before a candidate, run the device-receipt gate by hand
 ([COMPATIBILITY.md](COMPATIBILITY.md#device-sign-in-evidence)); CI does not.
