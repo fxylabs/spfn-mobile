@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import xyz.superfunction.spfn.ui.tokens.SpfnTokens
+import xyz.superfunction.spfn.ui.tokens.LocalSpfnTheme
 import xyz.superfunction.spfn.ui.tokens.spfnPalette
 
 /**
@@ -36,7 +36,7 @@ public fun StatusText(kind: StatusKind, text: String, id: String = "", modifier:
     androidx.compose.foundation.text.BasicText(
         text = text,
         modifier = (if (id.isEmpty()) modifier else modifier.testTag(id)).fillMaxWidth(),
-        style = SpfnTokens.caption.copy(
+        style = LocalSpfnTheme.current.typography.caption.copy(
             color = if (kind == StatusKind.Error) palette.error else palette.textSecondary
         )
     );

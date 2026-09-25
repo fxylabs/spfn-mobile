@@ -2745,6 +2745,10 @@ section '15. the visual vocabulary is written twice and says the same thing'
 #   d. the touch minimum. It used to be re-emitted into every generated view and was read off
 #      the emitted text by the generator's own suite; the components own it now, so this is
 #      where it is checked. 44 on Apple, 48 on Android, and P21 is what both are for.
+#   e. the THEME. What an app injects to give the components its own look is one key set
+#      per type on both platforms.
+#   f. no UI source reads the tokens past the theme: the tokens are the default theme's
+#      source, and a component that reads them directly is one no theme reaches.
 #
 # Every extraction has a floor, for the reason section 13's do: a reader that read nothing
 # produces an empty set, two empty sets agree, and the section would report parity having
@@ -2883,6 +2887,109 @@ then
     pass "the minimum is applied in $TOUCH_SWIFT Swift component files and $TOUCH_KOTLIN Kotlin ones"
 else
     fail "the minimum is applied in $TOUCH_SWIFT Swift and $TOUCH_KOTLIN Kotlin component files, fewer than 3 a side; a control has stopped being sized"
+fi
+
+# --- e. the theme is one key set, type by type --------------------------------
+# `SPFNTheme`/`SpfnTheme` is what an app injects to give the components its own look, and a
+# key one side has and the other does not is an app that can be themed on one platform
+# only. Read as `type.key` rather than as a flat list: `light` is a key of the theme AND of
+# a button appearance, and a flat set would call the two platforms agreed with the key moved
+# from one type to the other. The type names differ only by the prefix's casing and are
+# lowercased with the keys.
+#
+# `awk`, and only its POSIX half, for the reason the readers above use `sed -E`: this runs
+# under BSD tools on a Mac (docs/IMPLEMENTATION-PITFALLS.md P28). A Swift key is a `public
+# let` or `public static let` inside a `public struct`; a Kotlin one is a `public val`
+# inside a `public data class` or `object`, which is where a constructor property and a
+# companion's `Default` both stand. Backticks are dropped because `default` is a keyword in
+# Swift and not in Kotlin.
+SWIFT_THEME=Sources/SPFNUI/Tokens/SPFNTheme.swift
+KOTLIN_THEME=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/tokens/SpfnTheme.kt
+THEME_KEY_FLOOR=30
+
+swift_theme_keys()
+{
+    [ -f "$1" ] || return 0
+    awk '
+        /^public struct [A-Za-z0-9_]+/ { owner = $3; sub(/[^A-Za-z0-9_].*$/, "", owner); next }
+        /^[^ \t{]/ { owner = "" }
+        owner != "" && /^[ \t]+public (static )?let / {
+            key = $0
+            sub(/^[ \t]+public (static )?let /, "", key)
+            gsub(/`/, "", key)
+            sub(/[^A-Za-z0-9_].*$/, "", key)
+            print tolower(owner) "." tolower(key)
+        }' "$1" | sort -u
+}
+
+kotlin_theme_keys()
+{
+    [ -f "$1" ] || return 0
+    awk '
+        /^public (data class|object) [A-Za-z0-9_]+/ { owner = $0; sub(/^public (data class|object) /, "", owner); sub(/[^A-Za-z0-9_].*$/, "", owner); next }
+        /^[^ \t)]/ && !/^[{}]/ { owner = "" }
+        owner != "" && /^[ \t]+public val / {
+            key = $0
+            sub(/^[ \t]+public val /, "", key)
+            sub(/[^A-Za-z0-9_].*$/, "", key)
+            print tolower(owner) "." tolower(key)
+        }' "$1" | sort -u
+}
+
+swift_theme_keys "$SWIFT_THEME" > "$TMP/theme-swift.txt"
+kotlin_theme_keys "$KOTLIN_THEME" > "$TMP/theme-kotlin.txt"
+THEME_SWIFT=$(grep -c . "$TMP/theme-swift.txt" || true)
+THEME_KOTLIN=$(grep -c . "$TMP/theme-kotlin.txt" || true)
+
+if [ "$THEME_SWIFT" -ge "$THEME_KEY_FLOOR" ] && [ "$THEME_KOTLIN" -ge "$THEME_KEY_FLOOR" ]
+then
+    pass "theme: read $THEME_SWIFT keys from $SWIFT_THEME and $THEME_KOTLIN from $KOTLIN_THEME"
+    ONLY_SWIFT=$(comm -23 "$TMP/theme-swift.txt" "$TMP/theme-kotlin.txt" | tr '\n' ' ')
+    ONLY_KOTLIN=$(comm -13 "$TMP/theme-swift.txt" "$TMP/theme-kotlin.txt" | tr '\n' ' ')
+    if [ -z "$(printf '%s%s' "$ONLY_SWIFT" "$ONLY_KOTLIN" | tr -d ' ')" ]
+    then
+        pass "theme keys match on both platforms ($THEME_SWIFT of them)"
+    else
+        fail "theme keys differ between platforms — only in Swift: ${ONLY_SWIFT:-none}| only in Kotlin: ${ONLY_KOTLIN:-none}"
+    fi
+else
+    fail "theme: read $THEME_SWIFT Swift keys and $THEME_KOTLIN Kotlin keys, fewer than $THEME_KEY_FLOOR a side; the theme extraction did not run"
+fi
+
+# --- f. no component reads the tokens past the theme --------------------------
+# The tokens are where the DEFAULT theme comes from. A component, a sheet or a header that
+# reads `SPFNTokens.x` or `SpfnTokens.x` itself draws that value whatever theme the app
+# injected, and nothing looks wrong until an app themes it — so every source of the UI module
+# outside its tokens directory is read, which is the components, `Sheet*`, `ModalCover` and
+# whatever is added beside them. Comment lines are skipped: a header may name the tokens it
+# no longer reads. The floor is a file count, for P7's reason: a root that moved reads as
+# zero offenders.
+STATIC_TOKEN_ROOTS='Sources/SPFNUI android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui'
+STATIC_TOKEN_FLOOR=20
+STATIC_TOKEN_FILES=0
+STATIC_TOKEN_OFFENDERS=''
+
+for source in $(find $STATIC_TOKEN_ROOTS \( -name '*.swift' -o -name '*.kt' \) 2> /dev/null | grep -v '/[Tt]okens/' | sort)
+do
+    STATIC_TOKEN_FILES=$((STATIC_TOKEN_FILES + 1))
+    if grep -nE 'SPFNTokens|SpfnTokens' "$source" | grep -vqE '^[0-9]*:[[:space:]]*(//|\*|/\*)'
+    then
+        STATIC_TOKEN_OFFENDERS="$STATIC_TOKEN_OFFENDERS $source"
+    fi
+done
+
+if [ "$STATIC_TOKEN_FILES" -ge "$STATIC_TOKEN_FLOOR" ]
+then
+    pass "the static-token scan read $STATIC_TOKEN_FILES UI sources outside the tokens directories"
+else
+    fail "the static-token scan read $STATIC_TOKEN_FILES UI sources, fewer than $STATIC_TOKEN_FLOOR; it did not run"
+fi
+
+if [ -z "$STATIC_TOKEN_OFFENDERS" ]
+then
+    pass 'no UI source outside the tokens reads the static token object; every one reads the injected theme'
+else
+    fail "UI sources that read the static token object instead of the theme:$STATIC_TOKEN_OFFENDERS; an app's theme cannot reach what they draw"
 fi
 
 # ---------------------------------------------------------------------------
@@ -3184,8 +3291,8 @@ section '20. every plain-styled Button in SPFNUI gives its label a hit shape'
 # holding text, an icon inside a frame — answers only over its letters or its glyph pixels,
 # and every point of the fill around them is dead.
 #
-# That is what shipped. `RoleButton`'s fill, radius and border are attached OUTSIDE its
-# `Button`, which is where they belong for the style they draw and exactly where a hit test
+# That is what shipped. `RoleButton`'s fill, radius and border were attached OUTSIDE its
+# `Button`, which is where they belonged for the style they drew and exactly where a hit test
 # never looks: on an iPhone 14 Pro a person had to hit the words to press a primary button,
 # and the coloured rectangle around them did nothing. The header's X and back are the same
 # shape one step smaller — a 20pt glyph inside the 44pt frame section 15 requires — so the
@@ -3203,6 +3310,10 @@ section '20. every plain-styled Button in SPFNUI gives its label a hit shape'
 # presses the CENTRE of the element it resolved, the centre of these buttons is the label,
 # and the label is the one part that worked. The 35 device cells are green either way, which
 # is the same blindness P36 has and the reason `pushTour-buttonEdge` is a person's cell.
+#
+# `RoleButton` draws `configuration.label` inside a style of its own, which is the only place
+# a press can recolour its fill; the label it styles is the same label, hit-tested the same
+# way, so that spelling is counted as the same spend.
 #
 # Counted per file with `grep -cE`, so a file may not spend more `.plain` than it buys
 # rectangles. Screen.swift buys two and spends one: its other rectangle is the ancestor that
@@ -3228,7 +3339,7 @@ for source in $(find "$HIT_SHAPE_SOURCE_ROOT" -name '*.swift' 2> /dev/null | sor
 do
     # `|| true` on both: grep exits nonzero when it counted nothing, and `set -e` would take
     # the script down on the first Swift file that styles no button at all.
-    PLAIN_COUNT=$(grep -cE '\.buttonStyle\(\.plain\)' "$source" || true)
+    PLAIN_COUNT=$(grep -cE '\.buttonStyle\(\.plain\)|return configuration\.label' "$source" || true)
     SHAPE_COUNT=$(grep -cE '\.contentShape\(Rectangle\(\)\)' "$source" || true)
     if [ "$PLAIN_COUNT" -eq 0 ]
     then

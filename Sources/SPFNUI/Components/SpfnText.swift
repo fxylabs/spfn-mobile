@@ -25,6 +25,7 @@ public struct SpfnText: View
     private let role: TextRole
     private let secondary: Bool
 
+    @Environment(\.spfnTheme) private var theme
     @Environment(\.colorScheme) private var scheme
 
     public init(_ text: String, role: TextRole = .body, secondary: Bool = false)
@@ -36,25 +37,10 @@ public struct SpfnText: View
 
     public var body: some View
     {
-        let palette = spfnPalette(for: scheme)
+        let palette = theme.palette(for: scheme)
         return Text(text)
-            .font(font)
+            .font(theme.typography.font(for: role))
             .foregroundStyle(secondary ? palette.textSecondary : palette.text)
-    }
-
-    private var font: Font
-    {
-        switch role
-        {
-        case .title:
-            return SPFNTokens.title
-        case .body:
-            return SPFNTokens.body
-        case .caption:
-            return SPFNTokens.caption
-        case .mono:
-            return SPFNTokens.mono
-        }
     }
 }
 #endif

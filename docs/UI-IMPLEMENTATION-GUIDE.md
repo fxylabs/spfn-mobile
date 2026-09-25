@@ -30,9 +30,11 @@ generator, not by hand.
 | Field rules | `FieldError` — `.required` `.minLength(n)` `.maxLength(n)` `.kind(k)` `.custom(message:)`; `FieldRules`; `FieldValidator`; `FieldKind` — `.code` `.text` `.email` `.number` | same names |
 | Flow | `Flow`, `FlowRoute`, `FlowHost`, `NavigationHost` | same names |
 | Components | `Screen`, `PrimaryButton` `SecondaryButton` `DestructiveButton` `TextButton`, `SpfnText`, `SpfnTextField`, `StatusText`, `LoadableView`, `PagedView`, header icons — 11 | same names |
-| Tokens, strings | `SPFNTokens` (20 keys), `SPFNStrings` (10 keys) | `SpfnTokens`, `SpfnStrings` |
+| Tokens, strings | `SPFNTokens` (21 keys — the default theme's source, read by no component), `SPFNStrings` (10 keys) | `SpfnTokens`, `SpfnStrings` |
+| Theme | `SPFNTheme` — `light` `dark` (`SPFNPalette`), `typography` (`SPFNTypography`), `spacing` (`SPFNSpacing`), `radius` (`SPFNRadius`), `buttons` (`SPFNButtons` → one `SPFNButtonAppearance` per button kind); `SPFNTheme.default`; injected with `.spfnTheme(_:)`, read from `\.spfnTheme` | `SpfnTheme`, same keys; `SpfnTheme.Default`; injected with `SpfnTheme(theme) { … }`, read from `LocalSpfnTheme` |
 
-validate section 13 compares the two sets. A screen that needs a component the SDK does
+validate section 13 compares the two sets; section 15 compares the tokens, the strings, the
+component set and the theme's keys, and refuses a UI source that reads the tokens directly. A screen that needs a component the SDK does
 not have is a request to add one to the SDK on both platforms, not a one-off in the app.
 
 A cursor is not in the table because it is not in `Paged`: `firstPage` and `appended` are
@@ -120,3 +122,70 @@ there for anything else the change touches.
 
 A view that satisfies 1–3 and fails 4 or 5 is not done: the runner presses the centre of
 what it finds and reads only text, and the last three defects above were invisible to it.
+
+## 7. Theming an app
+
+An app gives the components its own look by injecting a theme; it never edits the SDK.
+With nothing injected every component draws `SPFNTheme.default` / `SpfnTheme.Default`,
+which is the tokens key for key, so an app that does not theme draws exactly what it drew
+before themes existed.
+
+**Build one** from the default and change what the design changes. A theme is a value:
+the palettes per scheme, the four type roles, the six spaces, the two radii, and for each
+of the four button kinds its container, content, border (colour and width), corner radius,
+pressed container and disabled container / content / border — every colour once per
+scheme.
+
+```swift
+let base = SPFNTheme.default
+let brand = SPFNTheme(
+    light: SPFNPalette(background: .white, surface: .init(white: 0.96), text: .black,
+                       textSecondary: .gray, accent: .indigo, error: .red, handle: .gray),
+    dark: base.dark,
+    typography: base.typography,
+    spacing: base.spacing,
+    radius: base.radius,
+    buttons: base.buttons
+)
+```
+
+```kotlin
+val brand = SpfnTheme.Default.copy(
+    light = SpfnTheme.Default.light.copy(accent = Color(0xFF4B3FFF)),
+    buttons = SpfnTheme.Default.buttons.copy(
+        primary = SpfnTheme.Default.buttons.primary.copy(cornerRadius = 24.dp)
+    )
+)
+```
+
+A button's colours are not derived from the palette once a theme states them: changing
+`accent` recolours the text button's words only if the appearance is rebuilt from it.
+The default derives them from the default palettes; a brand theme states its own.
+
+**Inject it** once, around the host:
+
+| | Swift | Kotlin |
+| --- | --- | --- |
+| Inject | `NavigationHost { … }.spfnTheme(brand)` — a view modifier over an environment value | `SpfnTheme(brand) { NavigationHost { … } }` — a wrapper over `LocalSpfnTheme` |
+| Read in the app's own views | `@Environment(\.spfnTheme) var theme` | `LocalSpfnTheme.current` |
+| Nest | an inner `.spfnTheme` themes its subtree; the outer one stands everywhere else | an inner `SpfnTheme { }` likewise |
+
+Compose takes a wrapper rather than a parameter on `FlowHost` or `NavigationHost` because a
+theme is not navigation: a `Screen` composed outside any host draws with it just the same,
+and the wrapper is what nests. The scheme is the platform's (`colorScheme`,
+`isSystemInDarkTheme`); the theme only says what each scheme looks like.
+
+**What is not themable**, on purpose:
+
+- **Touch targets** — 44pt / 48dp, the header height and the icon size are `Metrics`, the
+  platform's; a theme that could shrink a control would bring back P21 (rule S8). A button's
+  minimum height is a rule, not a value.
+- **Motion** — the push, modal and sheet transitions are one set every navigator is handed
+  (S7, validate section 18).
+- **Sheet detents** — fit / half / full = 92 % and the scrim's opacity are `SheetGeometry`
+  (S3); the sheet's corner radius, background and handle colour ARE the theme's.
+- **The Android window** — the status bar's foreground and a modal cover's fill are the host
+  app's window theme (`android:windowLightStatusBar`, `android:colorBackground`), declared in
+  its `themes.xml` for the reason the example app's file gives. An app that injects a dark
+  background declares a window to match.
+- **Keyboard behaviour** (K1–K7) and the string keys.

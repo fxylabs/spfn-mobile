@@ -54,6 +54,7 @@ public struct SpfnTextField: View
 
     @Binding private var text: String
     @FocusState private var focused: Bool
+    @Environment(\.spfnTheme) private var theme
     @Environment(\.colorScheme) private var scheme
 
     /// - Parameters:
@@ -100,8 +101,8 @@ public struct SpfnTextField: View
 
     public var body: some View
     {
-        let palette = spfnPalette(for: scheme)
-        return VStack(alignment: .leading, spacing: SPFNTokens.space1)
+        let palette = theme.palette(for: scheme)
+        return VStack(alignment: .leading, spacing: theme.spacing.space1)
         {
             SpfnText(label, role: .caption, secondary: true)
             field(palette)
@@ -116,7 +117,7 @@ public struct SpfnTextField: View
     private func field(_ palette: SPFNPalette) -> some View
     {
         TextField(hint, text: $text)
-            .font(kind == .code ? SPFNTokens.mono : SPFNTokens.body)
+            .font(kind == .code ? theme.typography.mono : theme.typography.body)
             .foregroundStyle(enabled ? palette.text : palette.textSecondary)
             .focused($focused)
             .disabled(!enabled)
@@ -132,14 +133,14 @@ public struct SpfnTextField: View
             { _, updated in
                 onChange(updated)
             }
-            .padding(.horizontal, SPFNTokens.space3)
+            .padding(.horizontal, theme.spacing.space3)
             .frame(maxWidth: .infinity, minHeight: Metrics.touchTarget, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: SPFNTokens.radiusSmall)
+                RoundedRectangle(cornerRadius: theme.radius.small)
                     .fill(palette.surface)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: SPFNTokens.radiusSmall)
+                RoundedRectangle(cornerRadius: theme.radius.small)
                     .strokeBorder(
                         error == nil ? palette.textSecondary : palette.error,
                         lineWidth: Metrics.borderWidth

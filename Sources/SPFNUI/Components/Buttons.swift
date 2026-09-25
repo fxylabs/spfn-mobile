@@ -171,9 +171,10 @@ public struct TextButton: View
 
 /// What all four of them are.
 ///
-/// `buttonStyle(.plain)` because the fill, the border and the radius are this repository's
-/// tokens rather than the system's — decision C2 refuses Material on the other platform, and
-/// a screen that looked like two different apps would be the same divergence.
+/// The fill, the border and the radius are the injected theme's ``SPFNButtonAppearance``
+/// rather than the system's — decision C2 refuses Material on the other platform, and a
+/// screen that looked like two different apps would be the same divergence. The minimum
+/// touch target around them is not the theme's and cannot be made smaller by one (P21).
 private struct RoleButton: View
 {
     let role: ControlRole
@@ -183,18 +184,17 @@ private struct RoleButton: View
     let enabled: Bool
     let onTap: () -> Void
 
-    @Environment(\.colorScheme) private var scheme
+    @Environment(\.spfnTheme) private var theme
 
     var body: some View
     {
-        let palette = spfnPalette(for: scheme)
         // A busy control is disabled as well as spinning: the model would ignore the second
         // press anyway, and a control that accepts a press it discards says nothing to the
         // person who made it.
         let live = enabled && !busy
         return Button(action: onTap)
         {
-            HStack(spacing: SPFNTokens.space2)
+            HStack(spacing: theme.spacing.space2)
             {
                 if busy
                 {
@@ -202,75 +202,68 @@ private struct RoleButton: View
                         .controlSize(.small)
                 }
                 Text(title)
-                    .font(SPFNTokens.body)
+                    .font(theme.typography.body)
             }
             .frame(maxWidth: .infinity, minHeight: Metrics.touchTarget)
-            .padding(.horizontal, SPFNTokens.space4)
+            .padding(.horizontal, theme.spacing.space4)
             // Inside the LABEL, because `.plain` takes the tap on the label's own hit shape and
-            // an HStack that drew nothing but text answers only over the letters; the fill below
-            // is outside the Button, so a `contentShape` there is never asked (P39).
+            // an HStack that drew nothing but text answers only over the letters (P39).
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(foreground(palette, live: live))
-        .background(background(palette, live: live))
-        .clipShape(RoundedRectangle(cornerRadius: SPFNTokens.radiusSmall))
-        .overlay(border(palette, live: live))
+        .buttonStyle(RoleButtonStyle(appearance: theme.buttons.appearance(for: role), live: live))
         .frame(minWidth: Metrics.touchTarget, minHeight: Metrics.touchTarget)
         .disabled(!live)
         .accessibilityIdentifier(identifier)
     }
+}
 
-    private func foreground(_ palette: SPFNPalette, live: Bool) -> Color
+/// The press, which only a `ButtonStyle` is told about, and the appearance drawn around it.
+///
+/// The label is drawn as given — its `contentShape` is what answers a finger (P39) — and
+/// dimmed while pressed, the feedback the plain style gave before a theme could colour one.
+/// What this adds is the fill, the outline and the radius, with the fill following
+/// ``SPFNButtonColors/pressedContainer`` while a finger is down.
+private struct RoleButtonStyle: ButtonStyle
+{
+    let appearance: SPFNButtonAppearance
+    let live: Bool
+
+    func makeBody(configuration: Configuration) -> some View
     {
-        if !live
-        {
-            return palette.textSecondary
-        }
-        switch role
-        {
-        case .primary, .destructive:
-            return palette.background
-        case .secondary:
-            return palette.text
-        case .text:
-            return palette.accent
-        }
+        RoleButtonBody(configuration: configuration, appearance: appearance, live: live)
+    }
+}
+
+/// The styled body, as a view of its own because `makeBody` cannot hold `@Environment` and
+/// the colours depend on the appearance the environment is in.
+private struct RoleButtonBody: View
+{
+    let configuration: ButtonStyleConfiguration
+    let appearance: SPFNButtonAppearance
+    let live: Bool
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View
+    {
+        let colors = appearance.colors(for: scheme)
+        let shape = RoundedRectangle(cornerRadius: appearance.cornerRadius)
+        return configuration.label
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .foregroundStyle(colors.label(live: live))
+            .background(shape.fill(colors.fill(live: live, pressed: configuration.isPressed)))
+            .clipShape(shape)
+            .overlay(outline(colors, shape: shape))
     }
 
+    /// The outline, drawn only when the appearance has one: a zero-width stroke is still a
+    /// stroke to some renderers, and "no border" should be nothing at all.
     @ViewBuilder
-    private func background(_ palette: SPFNPalette, live: Bool) -> some View
+    private func outline(_ colors: SPFNButtonColors, shape: RoundedRectangle) -> some View
     {
-        switch role
+        if appearance.borderWidth > 0
         {
-        case .primary:
-            RoundedRectangle(cornerRadius: SPFNTokens.radiusSmall)
-                .fill(live ? palette.accent : palette.surface)
-        case .destructive:
-            RoundedRectangle(cornerRadius: SPFNTokens.radiusSmall)
-                .fill(live ? palette.error : palette.surface)
-        case .secondary:
-            RoundedRectangle(cornerRadius: SPFNTokens.radiusSmall)
-                .fill(palette.surface)
-        case .text:
-            Color.clear
-        }
-    }
-
-    @ViewBuilder
-    private func border(_ palette: SPFNPalette, live: Bool) -> some View
-    {
-        if role == .secondary
-        {
-            RoundedRectangle(cornerRadius: SPFNTokens.radiusSmall)
-                .strokeBorder(
-                    live ? palette.text : palette.textSecondary,
-                    lineWidth: Metrics.borderWidth
-                )
-        }
-        else
-        {
-            EmptyView()
+            shape.strokeBorder(colors.outline(live: live), lineWidth: appearance.borderWidth)
         }
     }
 }

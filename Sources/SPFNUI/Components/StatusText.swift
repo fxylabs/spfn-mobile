@@ -23,6 +23,7 @@ public struct StatusText: View
     private let text: String
     private let identifier: String?
 
+    @Environment(\.spfnTheme) private var theme
     @Environment(\.colorScheme) private var scheme
 
     /// - Parameters:
@@ -38,9 +39,9 @@ public struct StatusText: View
 
     public var body: some View
     {
-        let palette = spfnPalette(for: scheme)
+        let palette = theme.palette(for: scheme)
         return Text(text)
-            .font(SPFNTokens.caption)
+            .font(theme.typography.caption)
             .foregroundStyle(kind == .error ? palette.error : palette.textSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier(identifier ?? "")

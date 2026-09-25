@@ -63,6 +63,8 @@ public struct PagedView<Item: Sendable, Row: View>: View
     private let message: (SPFNErrorEnvelope) -> String
     private let row: (Item) -> Row
 
+    @Environment(\.spfnTheme) private var theme
+
     /// - Parameters:
     ///   - state: the paged read's state.
     ///   - retryIdentifier: the accessibility id of the control the FIRST page's error slot
@@ -119,7 +121,7 @@ public struct PagedView<Item: Sendable, Row: View>: View
     /// produce, and the contract's rows are the generated response types.
     private func rows(_ items: [Item]) -> some View
     {
-        LazyVStack(alignment: .leading, spacing: SPFNTokens.space3)
+        LazyVStack(alignment: .leading, spacing: theme.spacing.space3)
         {
             ForEach(Array(items.enumerated()), id: \.offset)
             { entry in

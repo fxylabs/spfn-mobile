@@ -24,7 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import xyz.superfunction.spfn.ui.SpfnStrings
-import xyz.superfunction.spfn.ui.tokens.SpfnTokens
+import xyz.superfunction.spfn.ui.tokens.LocalSpfnTheme
 
 /**
  * Something is in flight: the SDK's own word for it.
@@ -67,7 +67,7 @@ internal fun FailureLine(
             SecondaryButton(
                 title = SpfnStrings.actionRetry,
                 id = retryId,
-                modifier = Modifier.padding(top = SpfnTokens.space3),
+                modifier = Modifier.padding(top = LocalSpfnTheme.current.spacing.space3),
                 onTap = onRetry
             );
         }

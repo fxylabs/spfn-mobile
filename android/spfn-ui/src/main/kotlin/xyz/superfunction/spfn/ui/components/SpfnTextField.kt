@@ -68,7 +68,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
-import xyz.superfunction.spfn.ui.tokens.SpfnTokens
+import xyz.superfunction.spfn.ui.tokens.LocalSpfnTheme
 import xyz.superfunction.spfn.ui.tokens.spfnPalette
 
 /**
@@ -106,10 +106,11 @@ public fun SpfnTextField(
     onSubmit: () -> Unit = {}
 )
 {
+    val theme = LocalSpfnTheme.current;
     val palette = spfnPalette();
     val focus = LocalFocusManager.current;
     val requester = remember { FocusRequester() };
-    val shape = RoundedCornerShape(SpfnTokens.radiusSmall);
+    val shape = RoundedCornerShape(theme.radius.small);
 
     // Asked for once per appearance. A screen that is not on show is not composed at all, so
     // there is no popped route for this to steal the keyboard back onto (P24).
@@ -134,7 +135,7 @@ public fun SpfnTextField(
                 .focusRequester(requester),
             enabled = enabled,
             singleLine = true,
-            textStyle = styleOf(if (kind == FieldKind.Code) TextRole.Mono else TextRole.Body)
+            textStyle = theme.typography.styleOf(if (kind == FieldKind.Code) TextRole.Mono else TextRole.Body)
                 .copy(color = if (enabled) palette.text else palette.textSecondary),
             cursorBrush = SolidColor(palette.accent),
             keyboardOptions = KeyboardOptions(
@@ -158,7 +159,7 @@ public fun SpfnTextField(
                             color = if (error == null) palette.textSecondary else palette.error,
                             shape = shape
                         )
-                        .padding(horizontal = SpfnTokens.space3),
+                        .padding(horizontal = theme.spacing.space3),
                     contentAlignment = Alignment.CenterStart
                 )
                 {
@@ -176,7 +177,7 @@ public fun SpfnTextField(
                 kind = StatusKind.Error,
                 text = error,
                 id = "$id.error",
-                modifier = Modifier.padding(top = SpfnTokens.space1)
+                modifier = Modifier.padding(top = theme.spacing.space1)
             );
         }
     }

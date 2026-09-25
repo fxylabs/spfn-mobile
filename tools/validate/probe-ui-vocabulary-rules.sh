@@ -38,7 +38,11 @@
 #   j. a token deleted from one platform's table fails, naming the side it is missing from;
 #   k. a component that exists on one platform only fails;
 #   l. a token table this reader can extract nothing out of fails instead of reporting
-#      parity — the floor, which is the half of a reader that goes quiet rather than red.
+#      parity — the floor, which is the half of a reader that goes quiet rather than red;
+#   o. a theme key deleted from one platform's theme fails, naming it;
+#   p. a component that reads the static token object instead of the injected theme fails,
+#      naming the file — the one defect that makes an app's theme silently not apply;
+#   q. a theme this reader can extract nothing out of fails instead of reporting parity.
 #
 # e, f and h run a ROOT-pinned copy of the validator whose own input has been taken away,
 # because their subject is what the check does when it cannot read — the one condition
@@ -83,6 +87,9 @@ KOTLIN_TOKENS=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/tokens/S
 SWIFT_TOKENS=Sources/SPFNUI/Tokens/SPFNTokens.swift
 SWIFT_BUTTONS=Sources/SPFNUI/Components/Buttons.swift
 SWIFT_PAGED=Sources/SPFNUI/Paged.swift
+KOTLIN_THEME=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/tokens/SpfnTheme.kt
+SWIFT_THEME=Sources/SPFNUI/Tokens/SPFNTheme.swift
+KOTLIN_STATUS=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/components/StatusText.kt
 
 cp "$SWIFT_LOADABLE" "$TMP/swift-loadable.bak"
 cp "$SWIFT_FLOW" "$TMP/swift-flow.bak"
@@ -94,6 +101,9 @@ cp "$KOTLIN_TOKENS" "$TMP/kotlin-tokens.bak"
 cp "$SWIFT_TOKENS" "$TMP/swift-tokens.bak"
 cp "$SWIFT_BUTTONS" "$TMP/swift-buttons.bak"
 cp "$SWIFT_PAGED" "$TMP/swift-paged.bak"
+cp "$KOTLIN_THEME" "$TMP/kotlin-theme.bak"
+cp "$SWIFT_THEME" "$TMP/swift-theme.bak"
+cp "$KOTLIN_STATUS" "$TMP/kotlin-status.bak"
 
 restore_files()
 {
@@ -107,6 +117,9 @@ restore_files()
     cp "$TMP/swift-tokens.bak" "$SWIFT_TOKENS"
     cp "$TMP/swift-buttons.bak" "$SWIFT_BUTTONS"
     cp "$TMP/swift-paged.bak" "$SWIFT_PAGED"
+    cp "$TMP/kotlin-theme.bak" "$KOTLIN_THEME"
+    cp "$TMP/swift-theme.bak" "$SWIFT_THEME"
+    cp "$TMP/kotlin-status.bak" "$KOTLIN_STATUS"
 }
 
 restore()
@@ -362,6 +375,27 @@ sed -E 's/^([[:space:]]*)public (static )?let /\1public \2var /' \
     "$TMP/swift-tokens.bak" > "$SWIFT_TOKENS"
 expect_token_fail 'a token table this reader can extract nothing from fails instead of reporting parity' \
     'the extraction did not run'
+
+# One theme key taken off the Kotlin half: a pressed colour an app can set on iOS and not on
+# Android. Deleted inside its own type, so what is proven is the `type.key` read and not
+# merely that some `pressedContainer` went missing somewhere.
+sed '/public val pressedContainer: Color,/d' "$TMP/kotlin-theme.bak" > "$KOTLIN_THEME"
+expect_token_fail 'a theme key deleted from the Kotlin theme fails, naming the side it is missing from' \
+    'theme keys differ between platforms'
+
+# One component that reads past the theme. Only the validator reads the mutated file, so it
+# does not have to compile; it has to be the spelling a hurried edit would leave behind.
+sed 's/LocalSpfnTheme\.current\.typography\.caption/SpfnTokens.caption/' \
+    "$TMP/kotlin-status.bak" > "$KOTLIN_STATUS"
+expect_token_fail 'a component that reads the static token object instead of the theme fails, naming the file' \
+    "$KOTLIN_STATUS"
+
+# A theme whose declarations this reader cannot see, for the reason l above exists: two
+# sides that both exist, one of which yielded nothing, must not agree (P7).
+sed -E 's/^([[:space:]]*)public (static )?let /\1public \2var /' \
+    "$TMP/swift-theme.bak" > "$SWIFT_THEME"
+expect_token_fail 'a theme this reader can extract nothing from fails instead of reporting parity' \
+    'the theme extraction did not run'
 
 # --- the unmodified tree still reads clean -----------------------------------------
 expect_ui_clean 'the ui vocabulary section is clean again after every restoration'

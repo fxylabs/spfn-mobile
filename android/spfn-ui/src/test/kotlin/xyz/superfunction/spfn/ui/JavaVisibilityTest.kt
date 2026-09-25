@@ -52,6 +52,16 @@ class JavaVisibilityTest
         assertTrue("Screen must carry ACC_SYNTHETIC so Java cannot call it", screen[0].isSynthetic);
     }
 
+    @Test
+    fun `the theme wrapper is erased from Java's view`()
+    {
+        val wrapper = Class.forName("xyz.superfunction.spfn.ui.tokens.SpfnThemeKt")
+            .declaredMethods
+            .filter { it.name == "SpfnTheme" };
+        assertEquals(1, wrapper.size);
+        assertTrue("SpfnTheme must carry ACC_SYNTHETIC so Java cannot call it", wrapper[0].isSynthetic);
+    }
+
     /**
      * Every component is erased from Java's view, and there are some to erase.
      *

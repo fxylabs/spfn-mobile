@@ -73,11 +73,12 @@ public struct Screen<Content: View>: View
     private let content: () -> Content
 
     @Environment(\.screenChrome) private var chrome
+    @Environment(\.spfnTheme) private var theme
     @Environment(\.colorScheme) private var scheme
 
     private var palette: SPFNPalette
     {
-        spfnPalette(for: scheme)
+        theme.palette(for: scheme)
     }
 
     public init(
@@ -144,11 +145,11 @@ public struct Screen<Content: View>: View
                 .frame(minWidth: Metrics.touchTarget, alignment: .leading)
             SpfnText(title, role: .title)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, SPFNTokens.space4)
+                .padding(.horizontal, theme.spacing.space4)
             trailingControl
                 .frame(minWidth: Metrics.touchTarget, alignment: .trailing)
         }
-        .padding(.horizontal, SPFNTokens.space4)
+        .padding(.horizontal, theme.spacing.space4)
         .frame(minHeight: Metrics.headerHeight)
     }
 

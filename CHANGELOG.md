@@ -5,6 +5,20 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The components take their look from an injectable theme
+
+- **`SPFNTheme` / `SpfnTheme`** hold the light and dark palettes, the four type roles, the
+  six spaces, the two radii and one `SPFNButtonAppearance` / `SpfnButtonAppearance` per
+  button kind (container, content, border colour and width, corner radius, pressed
+  container, disabled container / content / border; every colour per scheme). Inject one
+  with `.spfnTheme(_:)` on iOS and `SpfnTheme(theme) { … }` on Android; the nearest
+  injection wins.
+- The default theme is `SPFNTokens` / `SpfnTokens` key for key, so an app that injects
+  nothing draws what it drew before. No component, sheet or header reads the tokens
+  directly; validate section 15 refuses one that does and compares the theme keys.
+- Touch targets, motion, sheet detents and the Android window's status bar and cover
+  colour stay outside the theme.
+
 ### Contract 0.13.0 (planned for 0.1.0-alpha.4)
 
 - Re-pin the unmodified primitives export at `deedc2517cfcf322a901a41eaec0127b55854794`

@@ -22,9 +22,9 @@
 // for it to be revealed INTO. A body that did not shrink would scroll the field behind the
 // keyboard and report success.
 //
-// The visual vocabulary is `SpfnTokens` and its Swift twin: a palette resolved from the
-// appearance, six spacing steps, two radii and four type styles. What is LEFT outside the
-// tokens is `Metrics` — the platform's minimum touch target and the header's height — because
+// The visual vocabulary is the injected `SpfnTheme` and its Swift twin: a palette resolved
+// from the appearance, six spacing steps, two radii, four type styles and one appearance per
+// button kind. What is LEFT outside the theme is `Metrics` — the platform's minimum touch target and the header's height — because
 // neither is a value a design flow gets to move (decision S10).
 //
 // ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import xyz.superfunction.spfn.ui.SpfnStrings
 import xyz.superfunction.spfn.ui.WayOut
-import xyz.superfunction.spfn.ui.tokens.SpfnTokens
+import xyz.superfunction.spfn.ui.tokens.LocalSpfnTheme
 import xyz.superfunction.spfn.ui.tokens.spfnPalette
 
 /**
@@ -160,12 +160,13 @@ private fun Extent.asHeight(): Modifier = when (this)
 @Composable
 private fun Header(title: String, leading: (@Composable () -> Unit)?, trailing: (@Composable () -> Unit)?)
 {
+    val gutter = LocalSpfnTheme.current.spacing.space4;
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.statusBars)
             .heightIn(min = Metrics.HEADER_HEIGHT)
-            .padding(horizontal = SpfnTokens.space4),
+            .padding(horizontal = gutter),
         verticalAlignment = Alignment.CenterVertically
     )
     {
@@ -176,7 +177,7 @@ private fun Header(title: String, leading: (@Composable () -> Unit)?, trailing: 
         SpfnText(
             text = title,
             role = TextRole.Title,
-            modifier = Modifier.weight(1f).padding(horizontal = SpfnTokens.space4)
+            modifier = Modifier.weight(1f).padding(horizontal = gutter)
         );
         Box(modifier = Modifier.sizeIn(minWidth = Metrics.TOUCH_TARGET), contentAlignment = Alignment.CenterEnd)
         {

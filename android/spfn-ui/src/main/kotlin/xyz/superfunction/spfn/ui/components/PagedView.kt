@@ -58,7 +58,7 @@ import xyz.superfunction.spfn.core.SpfnErrorEnvelope
 import xyz.superfunction.spfn.ui.Busy
 import xyz.superfunction.spfn.ui.Paged
 import xyz.superfunction.spfn.ui.SpfnStrings
-import xyz.superfunction.spfn.ui.tokens.SpfnTokens
+import xyz.superfunction.spfn.ui.tokens.LocalSpfnTheme
 
 /**
  * Draws a paged read: the first page's four states, the rows, and a footer for the page after
@@ -136,15 +136,16 @@ private fun PagedFooter(
     onLoadMore: () -> Unit
 )
 {
+    val gap = LocalSpfnTheme.current.spacing.space3;
     when (more)
     {
         is Busy.Idle -> Unit
-        is Busy.Busy -> LoadingLine(modifier = Modifier.padding(top = SpfnTokens.space3))
+        is Busy.Busy -> LoadingLine(modifier = Modifier.padding(top = gap))
         is Busy.Error -> FailureLine(
             text = message(more.error),
             retryId = moreRetryId,
             onRetry = onLoadMore,
-            modifier = Modifier.padding(top = SpfnTokens.space3)
+            modifier = Modifier.padding(top = gap)
         )
     }
 }

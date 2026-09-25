@@ -36,7 +36,8 @@ enum Metrics
     /// The header's height before the safe area is added to it.
     static let headerHeight: CGFloat = 56
 
-    /// How thick a field's or an outlined control's border is drawn.
+    /// How thick a field's border is drawn, and the default theme's outlined-button border;
+    /// an app's theme may draw its own buttons' outline at another width.
     static let borderWidth: CGFloat = 1
 
     /// How big a header's own mark is drawn, inside a ``touchTarget``-sized frame.

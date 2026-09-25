@@ -27,26 +27,28 @@ import SwiftUI
 /// The mark a back control draws.
 struct BackChevron: View
 {
+    @Environment(\.spfnTheme) private var theme
     @Environment(\.colorScheme) private var scheme
 
     var body: some View
     {
         Image(systemName: "chevron.left")
             .font(.system(size: Metrics.iconSize, weight: .medium))
-            .foregroundStyle(spfnPalette(for: scheme).text)
+            .foregroundStyle(theme.palette(for: scheme).text)
     }
 }
 
 /// The mark a close control draws.
 struct CloseCross: View
 {
+    @Environment(\.spfnTheme) private var theme
     @Environment(\.colorScheme) private var scheme
 
     var body: some View
     {
         Image(systemName: "xmark")
             .font(.system(size: Metrics.iconSize, weight: .medium))
-            .foregroundStyle(spfnPalette(for: scheme).text)
+            .foregroundStyle(theme.palette(for: scheme).text)
     }
 }
 #endif
