@@ -1,4 +1,4 @@
-# SPFN Mobile — example cell pushTour-rootSystemBack: N2 and R8 — the system back on a pushed flow's root is the same act as the header's, so the flow closes and the host is underneath
+# SPFN Mobile — example cell pushTour-contentSwipe: C2 — on iOS a back swipe that starts in the content rather than at the edge is the system's own second back gesture, and it pops one route; on Android the system back does the same
 #
 # GENERATED FILE — DO NOT EDIT.
 #
@@ -12,12 +12,12 @@
 # Verified by:     ./gradlew :ui-codegen:spfnUiVerify
 
 appId: ${APP_ID}
-name: pushTour-rootSystemBack
+name: pushTour-contentSwipe
 ---
 - launchApp:
     clearState: true
     arguments:
-      SPFN_UI_FIXTURE: "pushTour-rootSystemBack"
+      SPFN_UI_FIXTURE: "pushTour-contentSwipe"
 
 # The app is up once a screen is drawing its stack readout. That the right FIXTURE
 # is installed is proven at the end instead, by the receipt's own name: an app that
@@ -31,6 +31,9 @@ name: pushTour-rootSystemBack
     visible:
       text: "stack=.*"
     timeout: 45000
+
+- tapOn:
+    id: "tourOne.next"
 
 - runFlow:
     when:
@@ -46,18 +49,27 @@ name: pushTour-rootSystemBack
       - waitForAnimationToEnd:
           timeout: 3000
       - swipe:
-          start: "1%, 50%"
-          end: "90%, 50%"
+          start: "35%, 50%"
+          end: "95%, 50%"
           duration: 600
 
 - assertVisible:
-    id: "menu.pushTour"
+    text: "stack=1"
 
 - assertVisible:
-    text: "stack=0"
+    text: "state=idle"
+
+# The assertions are made. What follows only leaves the flow closed, so the
+# receipt control on the app's root is reachable on both platforms.
+- tapOn:
+    id: "tourOne.next"
+- tapOn:
+    id: "tourTwo.next"
+- tapOn:
+    id: "tourThree.done"
 
 - tapOn:
     id: "example.receipt"
 
 - assertVisible:
-    text: "receipt=receipt-pushTour-rootSystemBack-.*"
+    text: "receipt=receipt-pushTour-contentSwipe-.*"

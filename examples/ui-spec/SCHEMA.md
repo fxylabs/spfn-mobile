@@ -193,6 +193,8 @@ reads and derives a much shorter list for the rest, and a target may narrow to a
 | `title` | string, optional | The header's title. Default: the screen's own name. |
 | `scroll` | boolean, optional | Whether the body scrolls, and therefore gets out of the keyboard's way. Default `true`. |
 | `header.close` | boolean, optional | Whether the header draws a close. Default: `true` on the root of a `modal` or a `sheet`, `false` everywhere else. |
+| `header.trailing` | action name, optional | An action of this screen drawn as the header's trailing item instead of in the body — a `ToolbarItem` in the iOS navigation bar, the SDK header's right slot on Android. It takes the trailing place whole, the flow's close included. Refused on a screen with a `source`. |
+| `header.android` | `"standard"` or `"none"`, optional | Whether the Android half draws the SDK's header. `none` draws none and puts the flow's way out (`WayOutButton`) at the top of the body instead, padded for the status bar. The iOS half always stands under the system navigation bar and ignores the key. Default `"standard"`. |
 | `inputs` | object, optional | What the screen says about the inputs it collects. See below. |
 | `body` | body key, optional | The static prose the screen draws. Refused on a screen with a `source`. See below. |
 | `list` | object, optional, **version 2** | How this screen reads its `source` a page at a time. Refused on a screen without one. See below. |
@@ -395,6 +397,8 @@ The generator fails, and generates nothing at all, when:
 3. **`then` target outside the flow.** A `{ "push": "x" }` naming a screen that does not
    exist, or one that belongs to another flow. Two flows' routes on one stack is exactly
    what `FlowRoute` exists to prevent, and a spec is where it can be prevented for free.
+   `header.trailing` is held to the same rule one level down: it has to name an action of
+   its own screen, because the emitters write a control that calls it.
 4. **`start` is not a screen of that flow.** A flow that opened on a foreign route would
    push a route its own host cannot render.
 5. **Unknown service method in `call` or `source`.** `deviceApproval.lookp` is a typo that
@@ -407,8 +411,8 @@ The generator fails, and generates nothing at all, when:
    refusal that makes the promise at the top of this page true for OPTIONAL keys. A required
    key misspelled is already a missing-key refusal; a misspelled `usecase` is not, and without
    this rule it would emit a screen whose use-case layer was asked for and quietly left out.
-7. **A value outside a closed set.** `entry`, `sheet.detent`, `views`, `role` and
-   `inputs.<i>.kind` each admit a fixed list, and every one of those values becomes a
+7. **A value outside a closed set.** `entry`, `sheet.detent`, `views`, `role`,
+   `header.android` and `inputs.<i>.kind` each admit a fixed list, and every one of those values becomes a
    component name, an enum case or a decision about which files this run owns. A word outside the list would not fail here — it would reach an emitter
    that writes `FieldKind.Otp`, and the first evidence would be a compile error in a file
    nobody wrote. A `sheet` on a flow that is not one, and a sheet flow with no `sheet`, are

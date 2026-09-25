@@ -209,6 +209,23 @@ data class ScreenDefinition(
      * aimed at the slot the control has left is a suppression that suppresses nothing.
      */
     val suppressesClose: Boolean,
+    /**
+     * The action drawn as the header's trailing item instead of in the body, or null.
+     *
+     * An item the APP puts in the header, which is the third thing a header holds beside the
+     * title and the flow's way out (docs/architecture/screen-header-design.md §3-1). It takes
+     * the trailing place whole, so on a root that would have had the flow's close it is the
+     * item and not the X — the same rule `Screen`'s `trailing` parameter states.
+     */
+    val headerTrailing: String?,
+    /**
+     * Whether the Android half draws the SDK's header, `standard`, or none at all, `none`.
+     *
+     * Android's alone, because only there is the header the SDK's to turn off; the iOS half
+     * always stands under the system navigation bar. A screen with `none` draws the flow's way
+     * out itself, with `WayOutButton`, where the header would have drawn it.
+     */
+    val androidHeader: String,
     /** What the spec says about this screen's derived inputs, by input name. */
     val inputs: List<InputDefinition>,
     /**
@@ -242,6 +259,15 @@ data class ScreenDefinition(
      * specVersion 2 key, so on a v1 spec this is still exactly `source != null`.
      */
     val isLoadable: Boolean get() = source != null && list == null;
+
+    /** Whether the Android half of this screen draws no SDK header and its own way out. */
+    val drawsOwnAndroidHeader: Boolean get() = androidHeader == "none";
+
+    /** The action the header's trailing item performs, or null. */
+    val trailingAction: ActionDefinition? get() = headerTrailing?.let { name -> actions.first { it.name == name } };
+
+    /** The actions drawn in the body: every one but the re-read and the header's own. */
+    val bodyControls: List<ActionDefinition> get() = actions.filter { it != reread && it.name != headerTrailing };
 
     /** Whether this screen's state is a `Paged<T>`, which is what a `list` declares. */
     val isPaged: Boolean get() = list != null;
@@ -634,12 +660,13 @@ data class Spec(
 
             val flowName = entry.required("flow").text();
             val flow = flows.firstOrNull { it.name == flowName };
+            val actions = readActions(entry.required("actions").obj(), methods, screen);
             ScreenDefinition(
                 name = screen,
                 flow = flowName,
                 source = source,
                 usecase = entry["usecase"]?.bool() ?: false,
-                actions = readActions(entry.required("actions").obj(), methods, screen),
+                actions = actions,
                 // Not promoted to required. A screen with no title is a screen somebody has
                 // not named yet, and a header reading `enterCode` says exactly that — where a
                 // refusal would stop a spec being writable in the order people write one.
@@ -647,6 +674,8 @@ data class Spec(
                 scroll = entry["scroll"]?.bool() ?: true,
                 close = readClose(entry["header"], screen, flow),
                 suppressesClose = isRoot(screen, flow) && !readClose(entry["header"], screen, flow),
+                headerTrailing = readTrailing(entry["header"], screen, actions, source),
+                androidHeader = readAndroidHeader(entry["header"], screen),
                 inputs = readInputs(entry["inputs"], screen, version),
                 bodyKey = readBody(entry["body"], screen, source),
                 list = readList(entry["list"], screen, source, bundle, version)
@@ -675,8 +704,56 @@ data class Spec(
                 return fromFlow;
             }
             val header = value.obj();
-            checkKeys(header, setOf("close"), "screens.$screen.header.");
+            checkKeys(header, HEADER_KEYS, "screens.$screen.header.");
             return header["close"]?.bool() ?: fromFlow;
+        }
+
+        /**
+         * The action this screen's header draws as its trailing item, or null.
+         *
+         * Refused when it names no action of this screen, for the reason a `then` naming no
+         * screen is: the emitters would write a control for a method the model does not have.
+         * Refused as well on a screen that reads, whose controls stand inside the read's
+         * states and whose writes carry what the route brought — a header item there would be
+         * a control outside the `LoadableView` that decides when it may be pressed.
+         */
+        private fun readTrailing(
+            value: JsonValue?,
+            screen: String,
+            actions: List<ActionDefinition>,
+            source: ServiceMethod?
+        ): String?
+        {
+            val trailing = value?.obj()?.get("trailing")?.text() ?: return null;
+            if (actions.none { it.name == trailing })
+            {
+                throw SpecException(
+                    "screens.$screen.header.trailing is '$trailing', which is not one of this screen's " +
+                        "actions: " + actions.joinToString(", ") { it.name }
+                );
+            }
+            if (source != null)
+            {
+                throw SpecException(
+                    "screens.$screen.header.trailing is written on a screen whose source is " +
+                        "'${source.reference}'; a screen that reads draws its controls inside what it read"
+                );
+            }
+            return trailing;
+        }
+
+        /** `standard` or `none`, and nothing else: each is a `ScreenHeader` case on Android. */
+        private fun readAndroidHeader(value: JsonValue?, screen: String): String
+        {
+            val android = value?.obj()?.get("android")?.text() ?: return "standard";
+            if (android !in ANDROID_HEADERS)
+            {
+                throw SpecException(
+                    "screens.$screen.header.android is '$android'; it must be one of " +
+                        ANDROID_HEADERS.joinToString(", ")
+                );
+            }
+            return android;
         }
 
         /**
@@ -1270,6 +1347,12 @@ data class Spec(
         private val ENTRIES: List<String> = listOf("modal", "push", "sheet");
 
         private val DETENTS: List<String> = listOf("fit", "half", "full");
+
+        /** The keys a screen's `header` may hold. */
+        private val HEADER_KEYS: Set<String> = setOf("close", "trailing", "android");
+
+        /** What the Android half may draw at the top of a screen: the SDK's header, or none. */
+        private val ANDROID_HEADERS: List<String> = listOf("standard", "none");
 
         private val VIEW_SOURCES: List<String> =
             listOf(FlowDefinition.AUTHORED, FlowDefinition.REFERENCE);

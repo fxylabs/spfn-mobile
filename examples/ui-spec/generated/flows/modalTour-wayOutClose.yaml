@@ -1,4 +1,4 @@
-# SPFN Mobile — example cell pushTour-rootSystemBack: N2 and R8 — the system back on a pushed flow's root is the same act as the header's, so the flow closes and the host is underneath
+# SPFN Mobile — example cell modalTour-wayOutClose: C11 — the root of a presented flow whose Android half draws no SDK header offers the flow's close through its own WayOutButton, and it closes the flow
 #
 # GENERATED FILE — DO NOT EDIT.
 #
@@ -12,12 +12,12 @@
 # Verified by:     ./gradlew :ui-codegen:spfnUiVerify
 
 appId: ${APP_ID}
-name: pushTour-rootSystemBack
+name: modalTour-wayOutClose
 ---
 - launchApp:
     clearState: true
     arguments:
-      SPFN_UI_FIXTURE: "pushTour-rootSystemBack"
+      SPFN_UI_FIXTURE: "modalTour-wayOutClose"
 
 # The app is up once a screen is drawing its stack readout. That the right FIXTURE
 # is installed is proven at the end instead, by the receipt's own name: an app that
@@ -32,26 +32,11 @@ name: pushTour-rootSystemBack
       text: "stack=.*"
     timeout: 45000
 
-- runFlow:
-    when:
-      platform: Android
-    commands:
-      - waitForAnimationToEnd:
-          timeout: 3000
-      - back
-- runFlow:
-    when:
-      platform: iOS
-    commands:
-      - waitForAnimationToEnd:
-          timeout: 3000
-      - swipe:
-          start: "1%, 50%"
-          end: "90%, 50%"
-          duration: 600
-
 - assertVisible:
-    id: "menu.pushTour"
+    id: "screen.close"
+
+- tapOn:
+    id: "screen.close"
 
 - assertVisible:
     text: "stack=0"
@@ -60,4 +45,4 @@ name: pushTour-rootSystemBack
     id: "example.receipt"
 
 - assertVisible:
-    text: "receipt=receipt-pushTour-rootSystemBack-.*"
+    text: "receipt=receipt-modalTour-wayOutClose-.*"

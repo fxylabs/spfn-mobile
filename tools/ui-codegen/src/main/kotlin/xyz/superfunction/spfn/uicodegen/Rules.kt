@@ -43,6 +43,15 @@
 //   S1  the root of a flow presented over something draws a close, and it closes the flow;
 //   S2  a route above the root draws a back, and it pops.
 //
+// and the platform headers (docs/architecture/screen-header-design.md §4), whose case ids are
+// the design's C1–C12. Most of them land on a cell that already existed: C1 and C9 are u7b and
+// u10b (the edge swipe on iOS, the system back on Android), C3 is `<flow>-rootSystemBack`, C4 is
+// s2, C5 is s1 and C12 is k2. The rest are new: C2 `<flow>-contentSwipe`, C6 `<flow>-trailing`,
+// C10 `<flow>-wayOutBack` and `<flow>-noHeaderSystemBack`, C11 `<flow>-wayOutClose`, and the two
+// a person looks at, C7 `<flow>-barSpace` and C8 `<flow>-barTheme`. On iOS the header's back
+// is the system navigation bar's button, found by its accessibility label (`Step.HeaderBack`),
+// because the SDK no longer draws one that carries `screen.back`.
+//
 // R9 is R4's other half and not a restatement of it. R4 is about the whole flow going
 // away, which a screen model sees as `isPresented`; R9 is about ONE screen ceasing to be
 // the one on show under an in-flight call, which leaves the flow presented and — when the
@@ -108,6 +117,20 @@ sealed interface Step
 
     /** The platform's own back gesture, which is not a control this app draws. */
     data object SystemBack : Step
+
+    /**
+     * The header's back, pressed. Android's is the SDK's own control, found by `screen.back`;
+     * iOS's is the system navigation bar's back button, which carries no identifier of the
+     * SDK's and is found by its accessibility LABEL instead: the title of the screen it goes
+     * back to, or the platform's own "Back" when that screen has none.
+     */
+    data class HeaderBack(val label: String) : Step
+
+    /**
+     * A back gesture that starts in the CONTENT rather than at the edge. iOS 26's own second
+     * back gesture; Android has no such gesture, and its half is the system back.
+     */
+    data object ContentSwipe : Step
 
     /** Waits for a readout to reach a value before going on. */
     data class Await(val readout: String) : Step
@@ -518,7 +541,9 @@ object Rules
         if (representsPush)
         {
             cells += rootCells(tour);
+            cells += contentSwipeCell(tour);
         }
+        cells += headerCells(tour);
         return cells + byHandCells(tour, bundle);
     }
 
@@ -545,7 +570,7 @@ object Rules
                 "N2 — the back on a pushed flow's root closes the flow, which is what hands " +
                     "the person back to the host's own screen",
                 "maestro", Fixtures.READY,
-                listOf(Step.Tap("screen.back"), menu),
+                listOf(Step.HeaderBack(HOST_BACK_LABEL), menu),
                 expect(0, "idle")
             ),
             Cell(
@@ -558,6 +583,133 @@ object Rules
             )
         );
     }
+
+    /**
+     * C2 — the second of iOS's two back gestures, the one that starts in the content.
+     *
+     * Stood at depth two and not on the root, because on the root the gesture has the host's
+     * screen under it and that is C3's subject (`rootSystemBack`). Android has no content
+     * gesture, so its half of the same flow file is the system back, which is C9 again from a
+     * different flow.
+     */
+    private fun contentSwipeCell(tour: Tour): List<Cell>
+    {
+        if (tour.chain.size < 2)
+        {
+            return emptyList();
+        }
+        return listOf(
+            Cell(
+                "${tour.flow.name}-contentSwipe", tour.chain[1].name, "idle", "contentSwipe",
+                "C2 — on iOS a back swipe that starts in the content rather than at the edge is " +
+                    "the system's own second back gesture, and it pops one route; on Android the " +
+                    "system back does the same",
+                "maestro", Fixtures.READY,
+                walk(tour).take(1) + Step.ContentSwipe,
+                expect(1, "idle"),
+                teardown = unwind(tour, 1)
+            )
+        );
+    }
+
+    /**
+     * What a screen's own header options do, from the spec's `header` keys.
+     *
+     * C6 on every screen whose header carries an app item: the item is the screen's own
+     * action, so pressing it moves the flow the way that action says — and not one route back,
+     * which is what a header control on that side of a back button could be mistaken for.
+     *
+     * C10 and C11 on every screen whose Android half draws no SDK header: the screen's own
+     * `WayOutButton` is the flow's way out, and on a stacked screen the system back still is.
+     * The iOS half of each is the system's bar, which such a screen keeps; that is the point
+     * of running one flow file on both.
+     */
+    private fun headerCells(tour: Tour): List<Cell>
+    {
+        val cells = mutableListOf<Cell>();
+        tour.chain.forEachIndexed { index, screen ->
+            val depth = index + 1;
+            val reach = walk(tour).take(index);
+            val item = screen.trailingAction;
+            if (item != null)
+            {
+                val id = "${screen.name}.${item.name}";
+                cells += Cell(
+                    "${tour.flow.name}-trailing", screen.name, "idle", item.name,
+                    "C6 — the header's trailing item is the app's own action and not a way out: " +
+                        "pressing it moves the flow the way the action says",
+                    "maestro", Fixtures.READY,
+                    reach + Step.SeeId(id) + Step.Tap(id),
+                    expect(after(item.then, depth), "idle"),
+                    teardown = unwind(tour, after(item.then, depth))
+                );
+            }
+            if (screen.drawsOwnAndroidHeader && depth > 1)
+            {
+                cells += Cell(
+                    "${tour.flow.name}-wayOutBack", screen.name, "idle", "headerBack",
+                    "C10 — a screen whose Android half draws no SDK header offers the flow's back " +
+                        "through its own WayOutButton, and it pops one route; iOS keeps the bar's",
+                    "maestro", Fixtures.READY,
+                    reach + Step.HeaderBack(backLabel(tour.chain[index - 1])),
+                    expect(depth - 1, "idle"),
+                    teardown = unwind(tour, depth - 1)
+                );
+                cells += Cell(
+                    "${tour.flow.name}-noHeaderSystemBack", screen.name, "idle", "systemBack",
+                    "C10 — with no SDK header the system back is still the flow's own pop",
+                    "maestro", Fixtures.READY,
+                    reach + Step.SystemBack,
+                    expect(depth - 1, "idle"),
+                    teardown = unwind(tour, depth - 1)
+                );
+            }
+            if (screen.drawsOwnAndroidHeader && depth == 1 && tour.flow.presentedOver && screen.close)
+            {
+                cells += Cell(
+                    "${tour.flow.name}-wayOutClose", screen.name, "idle", "screen.close",
+                    "C11 — the root of a presented flow whose Android half draws no SDK header " +
+                        "offers the flow's close through its own WayOutButton, and it closes the flow",
+                    "maestro", Fixtures.READY,
+                    listOf(Step.SeeId("screen.close"), Step.Tap("screen.close")),
+                    expect(0, "idle")
+                );
+            }
+        };
+        return cells;
+    }
+
+    /**
+     * How a cell that ends with a tour standing at [depth] leaves it closed: on down the chain
+     * to the deepest screen, and that screen's close. Nothing at all at depth zero, where the
+     * flow is closed already.
+     */
+    private fun unwind(tour: Tour, depth: Int): List<Step>
+    {
+        if (depth == 0)
+        {
+            return emptyList();
+        }
+        return walk(tour).drop(depth - 1) + Step.Tap("${tour.deepest.name}.${tour.closing.name}");
+    }
+
+    /**
+     * What the iOS back button going back to [under] is labelled: that screen's title, or the
+     * platform's "Back" — which UIKit also falls back to when a title is too long for the bar,
+     * so both are accepted.
+     */
+    private fun backLabel(under: ScreenDefinition): String = "${literal(under.title)}|Back"
+
+    /** [text] as a regular expression that matches exactly it: every metacharacter escaped. */
+    private fun literal(text: String): String = text.map { character ->
+        if (character in "\\.^$|?*+()[]{}") "\\$character" else "$character"
+    }.joinToString("");
+
+    /**
+     * What the iOS back button on a pushed flow's ROOT is labelled: the host's own screen is
+     * under it, and the example app's menu sets no title, so it is the platform's "Back".
+     */
+    private const val HOST_BACK_LABEL: String = "Back";
 
     /** Every tap that walks a tour from its start down to its deepest screen. */
     private fun walk(tour: Tour): List<Step> = (1 until tour.chain.size).map { depth ->
@@ -666,6 +818,26 @@ object Rules
                     "releasing lands on it; letting go back at the edge cancels and changes nothing",
                 listOf("stack=1")
             );
+            // The bar's look, which is the injected theme's and nothing a runner reads: a
+            // readout says what the flow did, not what font the title was drawn in.
+            cells += byHand(
+                tour, "barTheme", start.name, emptyList(),
+                "on iPhone, look at the navigation bar over the flow's first screen, and then " +
+                    "switch the phone between light and dark with the screen up",
+                "C8 — the bar's title is drawn in the theme's title font and text colour, and the " +
+                    "bar's background is the theme's background colour, in both appearances",
+                listOf("stack=1")
+            );
+            // Where the content starts under the bar. Also nothing a runner reads: every
+            // readout is on screen whether the bar left a gap above it or not.
+            cells += byHand(
+                tour, "barSpace", start.name, emptyList(),
+                "on iPhone, look at where the flow's first line stands under the bar — and on the " +
+                    "example app's own menu, which has neither a title nor an item in its bar",
+                "C7 — the content starts right under the bar, with no second header's worth of " +
+                    "space between them; under a bar with nothing in it, right under the status bar",
+                listOf("stack=1")
+            );
             // The one row here whose subject is WHERE the tap lands. A runner presses the
             // centre of the element it resolved, and the centre of a button is its label, so
             // a button whose fill takes no press is green in every automatic cell standing
@@ -694,9 +866,10 @@ object Rules
             // "Close" in body type on the left, which is the defect decision N3 is about.
             cells += byHand(
                 tour, "closeOnRight", start.name, emptyList(),
-                "look at the header of the flow's first screen, on both phones",
-                "N3 — the way out is an X drawn as an icon in the header's TOP RIGHT corner, " +
-                    "the same size and shape on both platforms, and it is not a word on the left",
+                "look at the top of the flow's first screen, on both phones",
+                "N3 — the way out is an X drawn as an icon in the TOP RIGHT corner — an item in " +
+                    "the navigation bar on iPhone, the header's mark or the screen's own way-out " +
+                    "row on Android — and it is not a word on the left",
                 listOf("stack=1")
             );
             // The one cell here whose subject is the INPUT rather than the gesture, and the
@@ -1142,8 +1315,8 @@ object Rules
         {
             cells += Cell(
                 "s1", roles.entry.name, "idle", "screen.close",
-                "S1 — the root of a flow presented over something draws the header's close, and pressing " +
-                    "it closes the flow",
+                "S1 and C5 — the root of a flow presented over something offers the flow's close at " +
+                    "the header's trailing end, and pressing it closes the flow",
                 "maestro", Fixtures.READY,
                 listOf(Step.SeeId("screen.close"), Step.Tap("screen.close")),
                 expect(0, "idle")
@@ -1151,9 +1324,10 @@ object Rules
         }
         cells += Cell(
             "s2", roles.detail.name, "ready", "screen.back",
-            "S2 — a route above the root draws the header's back, and pressing it pops one route",
+            "S2 and C4 — a route above the root has the header's back, and pressing it pops one " +
+                "route; on iOS that back is the system navigation bar's own button",
             "maestro", Fixtures.READY,
-            reach + Step.SeeId("screen.back") + Step.Tap("screen.back"),
+            reach + Step.HeaderBack(backLabel(roles.entry)),
             expect(after(Navigation.Pop, 2), "idle")
         );
         return cells;

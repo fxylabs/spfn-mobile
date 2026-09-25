@@ -25,14 +25,16 @@
     "tourTwo": {
       "flow": "pushTour", "source": null, "body": "lorem.short",
       "title": "Pushed, two of three",
+      "header": { "trailing": "next" },
       "actions": {
-        "next": { "then": { "push": "tourThree" }, "role": "primary" },
+        "next": { "then": { "push": "tourThree" }, "role": "text" },
         "back": { "then": "pop", "role": "text" }
       }
     },
     "tourThree": {
       "flow": "pushTour", "source": null, "body": "lorem.short",
       "title": "Pushed, three of three",
+      "header": { "android": "none" },
       "actions": {
         "done": { "then": "close", "role": "primary" },
         "back": { "then": "pop", "role": "text" }
@@ -42,6 +44,7 @@
     "modalOne": {
       "flow": "modalTour", "source": null, "body": "lorem.short",
       "title": "Over everything, one of two",
+      "header": { "android": "none" },
       "actions": { "next": { "then": { "push": "modalTwo" }, "role": "primary" } }
     },
     "modalTwo": {

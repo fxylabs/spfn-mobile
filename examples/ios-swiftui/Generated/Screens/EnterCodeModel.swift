@@ -2,7 +2,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-alpha.3
 // spec:            examples/ui-spec
-// specSha256:      69fbbe100243bdb7d7c98ea11feae130988cff28c517c37bc9bb6942b05023e6
+// specSha256:      571f09bd88446d067fb3b9173e2705d80d4078de36c608f8f2be11004e8fcba2
 // bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
 // contractVersion: 0.13.0
 //

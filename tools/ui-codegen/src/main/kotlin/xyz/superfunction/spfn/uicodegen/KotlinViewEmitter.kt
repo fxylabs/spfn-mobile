@@ -34,7 +34,7 @@ internal class KotlinViewEmitter(target: Target) : KotlinNames(target)
      */
     internal fun view(screen: ScreenDefinition, bundle: Bundle, inputs: Inputs): String = buildString {
         val typed = screen.actions.flatMap { RouteParameters.inputs(screen, it, bundle) }.distinctBy { it.name };
-        val controls = screen.actions.filter { it != screen.reread };
+        val controls = screen.bodyControls;
         appendLine(header(inputs));
         appendLine();
         appendLine("package $pkg.views");
@@ -77,8 +77,12 @@ internal class KotlinViewEmitter(target: Target) : KotlinNames(target)
             appendLine("    LaunchedEffect(model) { model.load() };");
         }
         appendLine();
-        appendLine("    Screen(title = ${quoted(screen.title)}${trailingArgument(screen)}, scroll = ${screen.scroll})");
+        append(screenCall(screen, bundle));
         appendLine("    {");
+        if (screen.drawsOwnAndroidHeader)
+        {
+            append(wayOutRow());
+        }
         // `spacedBy` and not a padding on each child, because the Swift emitter's own body
         // is `VStack(alignment: .leading, spacing: SPFNTokens.space4)` and the two halves of
         // one screen are supposed to be the same screen. Without it every paragraph, readout
@@ -126,15 +130,69 @@ internal class KotlinViewEmitter(target: Target) : KotlinNames(target)
     }
 
     /**
-     * The header's trailing slot, emitted only where the spec suppresses the flow's own.
+     * The `Screen(...)` call, on one line where it fits and one argument per line where a
+     * header item makes it long.
+     */
+    private fun screenCall(screen: ScreenDefinition, bundle: Bundle): String
+    {
+        val arguments = listOfNotNull(
+            "title = ${quoted(screen.title)}",
+            trailingArgument(screen, bundle),
+            if (screen.drawsOwnAndroidHeader) "header = ScreenHeader.None" else null,
+            "scroll = ${screen.scroll}"
+        );
+        if (screen.trailingAction == null)
+        {
+            return "    Screen(${arguments.joinToString(", ")})\n";
+        }
+        return "    Screen(\n" + arguments.joinToString(",\n") { "        $it" } + "\n    )\n";
+    }
+
+    /**
+     * The header's trailing slot: the spec's trailing item, an empty slot where the spec
+     * suppresses the flow's own close, or nothing, which leaves the flow to decide.
      *
      * `Flow.wayOut` gives a back to every route above the root and a close to the root of a
      * flow presented over something, so almost every screen wants the default. An empty slot
      * passed everywhere would erase every way out in the app; it is passed exactly where a
      * root that would have had a close said `header.close: false`.
+     *
+     * The item is the button its role names, as wide as its words rather than as wide as the
+     * header: every role button fills the width it is offered, and in the header's slot that
+     * would be all of it and none left for the title.
      */
-    private fun trailingArgument(screen: ScreenDefinition): String =
-        if (screen.suppressesClose) ", trailing = {}" else ""
+    private fun trailingArgument(screen: ScreenDefinition, bundle: Bundle): String?
+    {
+        val action = screen.trailingAction
+            ?: return if (screen.suppressesClose) "trailing = {}" else null;
+        val busy = if (action.call != null) "busy = ${busyExpression(screen)}, " else "";
+        return "trailing = { ${button(action.role)}(title = \"${action.name}\", id = \"${screen.name}.${action.name}\", " +
+            "${busy}modifier = Modifier.width(IntrinsicSize.Max), onTap = { ${invocation(screen, action, bundle)} }) }";
+    }
+
+    /**
+     * The flow's way out, drawn by the screen itself because the spec turned the SDK's header
+     * off (`header.android: none`).
+     *
+     * The status bar inset is spent HERE. With no header above it the inset reaches the
+     * content unconsumed, and a row that did not pad for it would put the way out under the
+     * status bar, where a runner's hierarchy does not see it (docs/IMPLEMENTATION-PITFALLS.md
+     * P25). The back stands on the left and the close on the right, which is decision N3 and
+     * where the SDK's header would have drawn either.
+     */
+    private fun wayOutRow(): String = buildString {
+        appendLine("        Row(");
+        appendLine("            modifier = Modifier");
+        appendLine("                .fillMaxWidth()");
+        appendLine("                .windowInsetsPadding(WindowInsets.statusBars)");
+        appendLine("                .padding(horizontal = SpfnTokens.space4),");
+        appendLine("            horizontalArrangement =");
+        appendLine("                if (ScreenWayOut.current.wayOut == WayOut.Close) Arrangement.End else Arrangement.Start");
+        appendLine("        )");
+        appendLine("        {");
+        appendLine("            WayOutButton();");
+        appendLine("        }");
+    }
 
     /**
      * The read's four states, and the retry control inside the error one.
@@ -243,6 +301,22 @@ internal class KotlinViewEmitter(target: Target) : KotlinNames(target)
             imports += "xyz.superfunction.spfn.ui.components.StatusText";
         }
         controls.forEach { imports += "xyz.superfunction.spfn.ui.components.${button(it.role)}" };
+        screen.trailingAction?.let { action ->
+            imports += "xyz.superfunction.spfn.ui.components.${button(action.role)}";
+            imports += "androidx.compose.foundation.layout.IntrinsicSize";
+            imports += "androidx.compose.foundation.layout.width";
+        };
+        if (screen.drawsOwnAndroidHeader)
+        {
+            imports += "androidx.compose.foundation.layout.Row";
+            imports += "androidx.compose.foundation.layout.WindowInsets";
+            imports += "androidx.compose.foundation.layout.statusBars";
+            imports += "androidx.compose.foundation.layout.windowInsetsPadding";
+            imports += "xyz.superfunction.spfn.ui.ScreenWayOut";
+            imports += "xyz.superfunction.spfn.ui.WayOut";
+            imports += "xyz.superfunction.spfn.ui.components.ScreenHeader";
+            imports += "xyz.superfunction.spfn.ui.components.WayOutButton";
+        }
         return imports.distinct().sorted();
     }
 
