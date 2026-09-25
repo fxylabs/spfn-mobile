@@ -60,7 +60,8 @@ struct ScreenContentHeightKey: PreferenceKey
 /// fixes vertically before it lays it out — and never the scroll view, which inside a sheet
 /// is as tall as the sheet and would feed the detent its own answer back. `Screen` reports
 /// the content's height through `ScreenContentHeightKey` and this modifier stands the sheet
-/// at that plus the header the content does not include. The measurement arrives once and
+/// at that plus the navigation bar the content does not include (`Metrics.headerHeight`,
+/// an allowance for the system bar rather than a header the SDK draws). The measurement arrives once and
 /// does not oscillate, because the number reported does not move when the sheet does.
 ///
 /// Until it arrives — the first pass, and the permanent state of a screen whose body does

@@ -33,7 +33,7 @@ internal class SwiftViewEmitter(target: Target) : SwiftNames(target)
      */
     internal fun view(screen: ScreenDefinition, bundle: Bundle, inputs: Inputs): String = buildString {
         val typed = screen.actions.flatMap { RouteParameters.inputs(screen, it, bundle) }.distinctBy { it.name };
-        val controls = screen.actions.filter { it != screen.reread };
+        val controls = screen.bodyControls;
         appendLine("#if canImport(SwiftUI)");
         appendLine(header(inputs));
         appendLine("//");
@@ -66,7 +66,7 @@ internal class SwiftViewEmitter(target: Target) : SwiftNames(target)
         appendLine();
         appendLine("    public var body: some View");
         appendLine("    {");
-        appendLine("        Screen(title: ${quoted(screen.title)}${trailingArgument(screen)}, scroll: ${screen.scroll})");
+        append(screenCall(screen, bundle));
         appendLine("        {");
         appendLine("            VStack(alignment: .leading, spacing: SPFNTokens.space4)");
         appendLine("            {");
@@ -125,15 +125,46 @@ internal class SwiftViewEmitter(target: Target) : SwiftNames(target)
     }
 
     /**
-     * The header's trailing slot, emitted only where the spec suppresses the flow's own.
+     * The `Screen(...)` call, on one line where it fits and one argument per line where a
+     * header item makes it long.
+     *
+     * `header.android` says nothing here: the iOS half always stands under the system
+     * navigation bar, and the flow's way out is that bar's.
+     */
+    private fun screenCall(screen: ScreenDefinition, bundle: Bundle): String
+    {
+        val arguments = listOfNotNull(
+            "title: ${quoted(screen.title)}",
+            trailingArgument(screen, bundle),
+            "scroll: ${screen.scroll}"
+        );
+        if (screen.trailingAction == null)
+        {
+            return "        Screen(${arguments.joinToString(", ")})\n";
+        }
+        return "        Screen(\n" + arguments.joinToString(",\n") { "            $it" } + "\n        )\n";
+    }
+
+    /**
+     * The bar's trailing item: the spec's trailing item, an empty one where the spec
+     * suppresses the flow's own close, or nothing, which leaves the flow to decide.
      *
      * `Flow.wayOut` gives a back to every route above the root and a close to the root of a
      * flow presented over something, so almost every screen wants the default. An empty slot
      * passed everywhere would erase every way out in the app; it is passed exactly where a
      * root that would have had a close said `header.close: false`.
+     *
+     * The item is the button its role names at its own ideal width: every role button is as
+     * wide as it is offered, and a toolbar item offered the bar would take it.
      */
-    private fun trailingArgument(screen: ScreenDefinition): String =
-        if (screen.suppressesClose) ", trailing: AnyView(EmptyView())" else ""
+    private fun trailingArgument(screen: ScreenDefinition, bundle: Bundle): String?
+    {
+        val action = screen.trailingAction
+            ?: return if (screen.suppressesClose) "trailing: AnyView(EmptyView())" else null;
+        val busy = if (action.call != null) "busy: ${busyExpression(screen)}, " else "";
+        return "trailing: AnyView(${button(action.role)}(title: \"${action.name}\", identifier: \"${screen.name}.${action.name}\", " +
+            "${busy}onTap: { ${invocation(screen, action, bundle)} }).fixedSize())";
+    }
 
     /**
      * The read's four states, and the retry control inside the error one.

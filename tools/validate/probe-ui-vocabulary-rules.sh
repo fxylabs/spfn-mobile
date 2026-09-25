@@ -90,6 +90,7 @@ SWIFT_PAGED=Sources/SPFNUI/Paged.swift
 KOTLIN_THEME=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/tokens/SpfnTheme.kt
 SWIFT_THEME=Sources/SPFNUI/Tokens/SPFNTheme.swift
 KOTLIN_STATUS=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/components/StatusText.kt
+KOTLIN_WAY_OUT=android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/ScreenWayOut.kt
 
 cp "$SWIFT_LOADABLE" "$TMP/swift-loadable.bak"
 cp "$SWIFT_FLOW" "$TMP/swift-flow.bak"
@@ -104,6 +105,7 @@ cp "$SWIFT_PAGED" "$TMP/swift-paged.bak"
 cp "$KOTLIN_THEME" "$TMP/kotlin-theme.bak"
 cp "$SWIFT_THEME" "$TMP/swift-theme.bak"
 cp "$KOTLIN_STATUS" "$TMP/kotlin-status.bak"
+cp "$KOTLIN_WAY_OUT" "$TMP/kotlin-way-out.bak"
 
 restore_files()
 {
@@ -120,6 +122,7 @@ restore_files()
     cp "$TMP/kotlin-theme.bak" "$KOTLIN_THEME"
     cp "$TMP/swift-theme.bak" "$SWIFT_THEME"
     cp "$TMP/kotlin-status.bak" "$KOTLIN_STATUS"
+    cp "$TMP/kotlin-way-out.bak" "$KOTLIN_WAY_OUT"
 }
 
 restore()
@@ -396,6 +399,19 @@ sed -E 's/^([[:space:]]*)public (static )?let /\1public \2var /' \
     "$TMP/swift-theme.bak" > "$SWIFT_THEME"
 expect_token_fail 'a theme this reader can extract nothing from fails instead of reporting parity' \
     'the theme extraction did not run'
+
+# --- the screen's way out, and the names only Android declares ---------------------
+# One act of the way out renamed on one platform. A host app that draws its own way out
+# calls these by name, so an act only one side has is a header only one side can draw.
+sed 's/^    public fun close()$/    public fun dismiss()/' "$TMP/kotlin-way-out.bak" > "$KOTLIN_WAY_OUT"
+expect_ui_fail 'a ScreenWayOut act renamed on the Kotlin half fails' \
+    'ScreenWayOut differs between platforms'
+
+# A name declared Android-only that turned up on iOS. The declaration is what lets the
+# component comparison leave it out, so a Swift twin must fail rather than be excused.
+printf '\npublic struct WayOutButton: View\n{\n}\n' >> "$SWIFT_BUTTONS"
+expect_ui_fail 'an Android-only name declared in Swift as well fails, naming it' \
+    'declared in Swift: WayOutButton'
 
 # --- the unmodified tree still reads clean -----------------------------------------
 expect_ui_clean 'the ui vocabulary section is clean again after every restoration'

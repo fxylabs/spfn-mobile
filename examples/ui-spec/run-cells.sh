@@ -122,8 +122,11 @@ APP_ID=xyz.superfunction.spfn.example
 # receipt, because the thing they check is a gesture — or, for `modalTour-fingerTap`, a
 # real finger — and the runner for either is a person
 # (`examples/ui-spec/receipts/manual/`). It went to 35 when a pushed flow's root gained a
-# way out worth asserting (decision N2): `pushTour-rootBack` and `pushTour-rootSystemBack`.
-EXPECTED_FLOOR=35
+# way out worth asserting (decision N2): `pushTour-rootBack` and `pushTour-rootSystemBack`. It
+# went to 40 when the platform headers arrived (docs/architecture/screen-header-design.md §4):
+# `pushTour-contentSwipe` (C2), `pushTour-trailing` (C6), `pushTour-wayOutBack` and
+# `pushTour-noHeaderSystemBack` (C10) and `modalTour-wayOutClose` (C11).
+EXPECTED_FLOOR=40
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT INT TERM

@@ -278,6 +278,8 @@ class CaseTable(target: Target)
             appendLine("    id: \"${step.id}\"");
         }
         Step.SystemBack -> systemBack()
+        is Step.HeaderBack -> headerBack(step.label)
+        Step.ContentSwipe -> contentSwipe()
         is Step.Await -> buildString {
             appendLine("- extendedWaitUntil:");
             appendLine("    visible:");
@@ -374,11 +376,76 @@ class CaseTable(target: Target)
         appendLine("          duration: 600");
     }
 
+    /**
+     * The header's back, found the way each platform's back can be found.
+     *
+     * Android's is the SDK's control and carries the SDK's id, `screen.back`, whether the
+     * header drew it or the screen drew it with `WayOutButton`. iOS's is the system navigation
+     * bar's own back button, and the SDK gives it no identifier — hiding it to draw one that
+     * had an id is what took the back gestures away (docs/IMPLEMENTATION-PITFALLS.md P29) — so
+     * it is found by its accessibility label, which Maestro matches as TEXT: the title of the
+     * screen it goes back to, or "Back". The label is a regular expression, as every text
+     * selector is, and the rules escape a title before they hand one over.
+     *
+     * Asserted before it is pressed on both halves, so a missing back fails at the assertion
+     * that names it rather than at a readout two steps later.
+     */
+    private fun headerBack(label: String): String = buildString {
+        appendLine("- runFlow:");
+        appendLine("    when:");
+        appendLine("      platform: Android");
+        appendLine("    commands:");
+        appendLine("      - assertVisible:");
+        appendLine("          id: \"screen.back\"");
+        appendLine("      - tapOn:");
+        appendLine("          id: \"screen.back\"");
+        appendLine("- runFlow:");
+        appendLine("    when:");
+        appendLine("      platform: iOS");
+        appendLine("    commands:");
+        appendLine("      - assertVisible:");
+        appendLine("          text: \"${yamlText(label)}\"");
+        appendLine("      - tapOn:");
+        appendLine("          text: \"${yamlText(label)}\"");
+    }
+
+    /**
+     * A back swipe that starts in the middle of the screen, which is iOS 26's second back
+     * gesture — the content pop, beside the edge one. Android has nothing that answers a
+     * horizontal drag across the content, so its half is the system back, for the reason
+     * `systemBack` gives its own pair: one file, and each platform's own gesture in it
+     * (docs/IMPLEMENTATION-PITFALLS.md P22). The wait in front of both is P30's.
+     */
+    private fun contentSwipe(): String = buildString {
+        appendLine("- runFlow:");
+        appendLine("    when:");
+        appendLine("      platform: Android");
+        appendLine("    commands:");
+        appendLine("      - waitForAnimationToEnd:");
+        appendLine("          timeout: 3000");
+        appendLine("      - back");
+        appendLine("- runFlow:");
+        appendLine("    when:");
+        appendLine("      platform: iOS");
+        appendLine("    commands:");
+        appendLine("      - waitForAnimationToEnd:");
+        appendLine("          timeout: 3000");
+        appendLine("      - swipe:");
+        appendLine("          start: \"35%, 50%\"");
+        appendLine("          end: \"95%, 50%\"");
+        appendLine("          duration: 600");
+    }
+
+    /** [text] inside a YAML double-quoted scalar, where a backslash and a quote are escapes. */
+    private fun yamlText(text: String): String = text.replace("\\", "\\\\").replace("\"", "\\\"");
+
     private fun describe(step: Step): String = when (step)
     {
         is Step.Type -> "type ${step.id} ${step.value}"
         is Step.Tap -> "tap ${step.id}"
         Step.SystemBack -> "systemBack"
+        is Step.HeaderBack -> "headerBack ${step.label}"
+        Step.ContentSwipe -> "contentSwipe"
         is Step.Await -> "await ${step.readout}"
         is Step.TypeFocused -> "typeFocused ${step.value}"
         Step.Return -> "return"

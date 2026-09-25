@@ -225,25 +225,42 @@ the cell (`sheet_root_systemBack_closes`, `push_root_headerBack_closes`).
 
 #### `Screen` owns the insets
 
-`Screen` is the frame a route is drawn in: a header carrying the title, a leading slot, a
-trailing slot, and a body that scrolls unless the caller says it does not. Both slots are
-`Flow.wayOut`'s answer unless the host app passes one of its own, which is what makes a back
-chevron appear on the LEFT at depth and an X appear on the RIGHT on the root of a presented
-flow without any screen knowing which flow it is in. The two marks are drawn 20pt/20dp
-inside the platform's own minimum touch target, out of SF Symbols on iOS and out of
-`foundation`'s `Canvas` on Android — this repository depends on no Material artifact — and
-the accessibility labels are the same two string keys the words used to be.
+`Screen` is the frame a route is drawn in: a body that scrolls unless the caller says it does
+not, and a header above it. The header is each platform's own
+(docs/architecture/screen-header-design.md). On iOS it is the system navigation bar, never
+hidden: the title is `navigationTitle` in the inline display mode, the app's `leading`,
+`principal` and `trailing` items are `ToolbarItem`s at the bar's top leading, centre and top
+trailing places, the back is the system back button with both of UIKit's swipes, and the flow's
+close on the root of a presented flow is a trailing item carrying `screen.close`. On Android the
+SDK draws the header, because the only app bar Compose ships is Material's and this repository
+depends on no Material artifact: the same three items in the header's left, centre and right
+slots, a back chevron on the LEFT at depth and an X on the RIGHT on the root of a presented
+flow, both drawn 20dp inside the 48dp minimum touch target out of `foundation`'s `Canvas`.
+`header = ScreenHeader.None` turns that header off for an app that draws the top of its
+screens itself; iOS has no such switch, because the bar is the system's. Either way the way out
+is `Flow.wayOut`'s answer, and `ScreenWayOut` is the public, read-only view of it — the way out
+and its two acts, `back()` and `close()` — that an app's own header draws from; Android's
+`WayOutButton` draws it with the header's own ids. `ScreenChrome`, which `FlowHost` writes, stays
+internal.
+
+Nothing in the SDK turns a back gesture on or off any more. iOS keeps the bar, so the gestures
+are UIKit's own; the earlier header hid the bar and had to reach past UIKit to give the edge
+swipe back (P29, P32), which the bar makes unnecessary. The theme reaches the iOS bar per screen,
+through SwiftUI: the title is drawn by `SpfnText` in the `principal` place and the background is
+`.toolbarBackground` in the palette's background colour.
 
 It owns the insets, and that replaces the earlier rule that the host app owned them. The
-header consumes the status bar inset and nothing else does; the body consumes the bottom
-one — the navigation bar or the home indicator — unioned with the keyboard so that the two
-never add up. A host that pads its own root as well does not pad twice: Compose's
-`windowInsetsPadding` CONSUMES what it applies, so the header of a `Screen` inside an
-already-padded host adds nothing, and a sheet consumes the status bar inset before its
-content sees it because a sheet stands nowhere near the status bar. A host app that does
-NOT use `Screen` still owns its own insets, which is the case
+header consumes the status bar inset — on iOS the system bar does, on Android the SDK header
+does — and the body consumes the bottom one, the navigation bar or the home indicator, unioned
+with the keyboard so that the two never add up. A screen with `ScreenHeader.None` leaves the
+status bar inset unconsumed for its content, which pads for it itself. A host that pads its own
+root as well does not pad twice: Compose's `windowInsetsPadding` CONSUMES what it applies, so
+the header of a `Screen` inside an already-padded host adds nothing, and a sheet consumes the
+status bar inset before its content sees it because a sheet stands nowhere near the status
+bar. A host app that does NOT use `Screen` still owns its own insets, which is the case
 `examples/android-compose` and `tools/harness` are in for their own rows
-(docs/IMPLEMENTATION-PITFALLS.md P25).
+(docs/IMPLEMENTATION-PITFALLS.md P25). A `fit` sheet measures the body's content and adds one
+header's height for the bar above it (`Metrics.headerHeight`), on both platforms (P34).
 
 The design tokens arrived with the module (PR #51) and they hold the colours, the spacing,
 the radii and the fonts: `SPFNTokens`/`SpfnTokens` is one file per platform, the two carry

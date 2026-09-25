@@ -2,7 +2,7 @@
   "comment": "GENERATED FILE — DO NOT EDIT. spfn-ui-codegen 0.1.0-alpha.3.",
   "expectationsFrom": "tools/ui-codegen/src/main/kotlin/xyz/superfunction/spfn/uicodegen/Rules.kt",
   "spec": "examples/ui-spec",
-  "specSha256": "69fbbe100243bdb7d7c98ea11feae130988cff28c517c37bc9bb6942b05023e6",
+  "specSha256": "571f09bd88446d067fb3b9173e2705d80d4078de36c608f8f2be11004e8fcba2",
   "bundleSha256": "bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658",
   "contractVersion": "0.13.0",
   "cells": [
@@ -347,7 +347,7 @@
       "screen": "enterCode",
       "state": "idle",
       "action": "screen.close",
-      "rule": "S1 \u2014 the root of a flow presented over something draws the header's close, and pressing it closes the flow",
+      "rule": "S1 and C5 \u2014 the root of a flow presented over something offers the flow's close at the header's trailing end, and pressing it closes the flow",
       "runner": "maestro",
       "fixture": "ready",
       "steps": ["see screen.close", "tap screen.close"],
@@ -359,10 +359,10 @@
       "screen": "reviewDevice",
       "state": "ready",
       "action": "screen.back",
-      "rule": "S2 \u2014 a route above the root draws the header's back, and pressing it pops one route",
+      "rule": "S2 and C4 \u2014 a route above the root has the header's back, and pressing it pops one route; on iOS that back is the system navigation bar's own button",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["type enterCode.userCode ABCD-1234", "tap enterCode.submit", "await state=ready", "see screen.back", "tap screen.back"],
+      "steps": ["type enterCode.userCode ABCD-1234", "tap enterCode.submit", "await state=ready", "headerBack Approve a device|Back"],
       "expect": ["stack=1", "state=idle"],
       "flow": "flows/s2.yaml"
     },
@@ -427,6 +427,18 @@
       "flow": "flows/modalTour-close.yaml"
     },
     {
+      "id": "modalTour-wayOutClose",
+      "screen": "modalOne",
+      "state": "idle",
+      "action": "screen.close",
+      "rule": "C11 \u2014 the root of a presented flow whose Android half draws no SDK header offers the flow's close through its own WayOutButton, and it closes the flow",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["see screen.close", "tap screen.close"],
+      "expect": ["stack=0"],
+      "flow": "flows/modalTour-wayOutClose.yaml"
+    },
+    {
       "id": "modalTour-predictiveBack",
       "screen": "modalOne",
       "state": "idle",
@@ -443,10 +455,10 @@
       "screen": "modalOne",
       "state": "idle",
       "action": "closeOnRight",
-      "rule": "N3 \u2014 the way out is an X drawn as an icon in the header's TOP RIGHT corner, the same size and shape on both platforms, and it is not a word on the left",
+      "rule": "N3 \u2014 the way out is an X drawn as an icon in the TOP RIGHT corner \u2014 an item in the navigation bar on iPhone, the header's mark or the screen's own way-out row on Android \u2014 and it is not a word on the left",
       "runner": "manual",
       "fixture": "ready",
-      "steps": ["byHand look at the header of the flow's first screen, on both phones"],
+      "steps": ["byHand look at the top of the flow's first screen, on both phones"],
       "expect": ["stack=1"],
       "flow": null
     },
@@ -494,7 +506,7 @@
       "rule": "N2 \u2014 the back on a pushed flow's root closes the flow, which is what hands the person back to the host's own screen",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["tap screen.back", "see menu.pushTour"],
+      "steps": ["headerBack Back", "see menu.pushTour"],
       "expect": ["stack=0"],
       "flow": "flows/pushTour-rootBack.yaml"
     },
@@ -509,6 +521,54 @@
       "steps": ["systemBack", "see menu.pushTour"],
       "expect": ["stack=0"],
       "flow": "flows/pushTour-rootSystemBack.yaml"
+    },
+    {
+      "id": "pushTour-contentSwipe",
+      "screen": "tourTwo",
+      "state": "idle",
+      "action": "contentSwipe",
+      "rule": "C2 \u2014 on iOS a back swipe that starts in the content rather than at the edge is the system's own second back gesture, and it pops one route; on Android the system back does the same",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["tap tourOne.next", "contentSwipe"],
+      "expect": ["stack=1", "state=idle"],
+      "flow": "flows/pushTour-contentSwipe.yaml"
+    },
+    {
+      "id": "pushTour-trailing",
+      "screen": "tourTwo",
+      "state": "idle",
+      "action": "next",
+      "rule": "C6 \u2014 the header's trailing item is the app's own action and not a way out: pressing it moves the flow the way the action says",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["tap tourOne.next", "see tourTwo.next", "tap tourTwo.next"],
+      "expect": ["stack=3", "state=idle"],
+      "flow": "flows/pushTour-trailing.yaml"
+    },
+    {
+      "id": "pushTour-wayOutBack",
+      "screen": "tourThree",
+      "state": "idle",
+      "action": "headerBack",
+      "rule": "C10 \u2014 a screen whose Android half draws no SDK header offers the flow's back through its own WayOutButton, and it pops one route; iOS keeps the bar's",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["tap tourOne.next", "tap tourTwo.next", "headerBack Pushed, two of three|Back"],
+      "expect": ["stack=2", "state=idle"],
+      "flow": "flows/pushTour-wayOutBack.yaml"
+    },
+    {
+      "id": "pushTour-noHeaderSystemBack",
+      "screen": "tourThree",
+      "state": "idle",
+      "action": "systemBack",
+      "rule": "C10 \u2014 with no SDK header the system back is still the flow's own pop",
+      "runner": "maestro",
+      "fixture": "ready",
+      "steps": ["tap tourOne.next", "tap tourTwo.next", "systemBack"],
+      "expect": ["stack=2", "state=idle"],
+      "flow": "flows/pushTour-noHeaderSystemBack.yaml"
     },
     {
       "id": "pushTour-swipeBack",
@@ -531,6 +591,30 @@
       "runner": "manual",
       "fixture": "ready",
       "steps": ["tap tourOne.next", "byHand on Android, press and HOLD the back gesture at the edge without releasing it"],
+      "expect": ["stack=1"],
+      "flow": null
+    },
+    {
+      "id": "pushTour-barTheme",
+      "screen": "tourOne",
+      "state": "idle",
+      "action": "barTheme",
+      "rule": "C8 \u2014 the bar's title is drawn in the theme's title font and text colour, and the bar's background is the theme's background colour, in both appearances",
+      "runner": "manual",
+      "fixture": "ready",
+      "steps": ["byHand on iPhone, look at the navigation bar over the flow's first screen, and then switch the phone between light and dark with the screen up"],
+      "expect": ["stack=1"],
+      "flow": null
+    },
+    {
+      "id": "pushTour-barSpace",
+      "screen": "tourOne",
+      "state": "idle",
+      "action": "barSpace",
+      "rule": "C7 \u2014 the content starts right under the bar, with no second header's worth of space between them; under a bar with nothing in it, right under the status bar",
+      "runner": "manual",
+      "fixture": "ready",
+      "steps": ["byHand on iPhone, look at where the flow's first line stands under the bar \u2014 and on the example app's own menu, which has neither a title nor an item in its bar"],
       "expect": ["stack=1"],
       "flow": null
     },

@@ -16,14 +16,16 @@
 // a value the design flow replaces (decision S10) and these are the platforms'.
 //
 // The header height is here rather than in the tokens for a smaller reason: it is a layout
-// constant of one component, not a value any other component reads.
+// constant of one component, not a value any other component reads. On iOS the header is now
+// the system navigation bar, so what is left of the number is the allowance a `fit` sheet
+// adds for that bar above its measured content.
 //
 // 56 has no source to cite and this comment will not invent one. It arrived whole with the
 // module (`cad422b`, PR #51) and nothing in the commit, the decisions or the pitfalls
 // argues it: arbitrary choice, on the grounds that it is a header tall enough to stand a
 // 44pt control in with room above and below, and that both platforms' own navigation bars
 // are within a few points of it. It is the one number in this file a design flow would be
-// entitled to argue with, and moving it moves nothing but the header.
+// entitled to argue with, and moving it moves nothing but a `fit` sheet's height.
 
 import SwiftUI
 
@@ -33,7 +35,11 @@ enum Metrics
     /// Apple's minimum touch target (docs/IMPLEMENTATION-PITFALLS.md P21).
     static let touchTarget: CGFloat = 44
 
-    /// The header's height before the safe area is added to it.
+    /// What a `fit` sheet adds to its content's height for the navigation bar above it.
+    ///
+    /// The bar is the system's on iOS and its height is not the SDK's to set; this is the
+    /// allowance `SheetPresentation` stands the sheet on, so the content is measured on its
+    /// own and the bar is added once (docs/IMPLEMENTATION-PITFALLS.md P34).
     static let headerHeight: CGFloat = 56
 
     /// How thick a field's border is drawn, and the default theme's outlined-button border;

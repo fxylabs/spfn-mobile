@@ -2211,6 +2211,22 @@ UI_HOST_NAMES='NavigationHost HostStack HostEntry WayOut'
 # a screen only one platform can be written for.
 UI_FORM_NAMES='FieldValidator PagedView'
 
+# The screen's way out, read by a view that draws its own (docs/architecture/
+# screen-header-design.md §3-3). `ScreenWayOut` is a value on both platforms and its two acts
+# are compared below as a type; its name is here as well because a host app writes the name,
+# and a type only one platform declares is compared by nothing at all.
+UI_SCREEN_NAMES='ScreenWayOut'
+
+# The names ONE platform declares on purpose, and which one. The design gives Android two
+# things iOS does not have: `ScreenHeader`, because only the Compose header is the SDK's to
+# turn off — on iOS the bar is the system's — and `WayOutButton`, because a screen with no
+# header needs a way to draw the flow's back or close, and an iOS screen always has the bar.
+# They are declared here rather than let through: every comparison above would report either
+# one as a divergence, and a list that excused them without naming them would excuse the next
+# one-platform name too. So each is checked BOTH ways — present in Kotlin, absent from Swift —
+# and one that appeared on iOS, or stopped existing on Android, fails by name.
+UI_ANDROID_ONLY_NAMES='ScreenHeader WayOutButton'
+
 # One list of names, both halves.
 #
 # The Kotlin grammar admits `fun` twice — once as a modifier and once as the keyword — because
@@ -2251,6 +2267,33 @@ compare_ui_declared_names()
         pass "$LABEL is declared on both platforms ($FOUND names:$(printf ' %s' $NAMES))"
     else
         fail "$LABEL differs between platforms — only in Swift:${ONLY_SWIFT:- none}| only in Kotlin:${ONLY_KOTLIN:- none}"
+    fi
+}
+
+# The declared one-platform names: each in Kotlin and none in Swift, by the same two greps
+# `compare_ui_declared_names` uses, so the two readers cannot disagree about what a
+# declaration looks like.
+check_ui_android_only_names()
+{
+    MISSING=''
+    LEAKED=''
+    for NAME in $1
+    do
+        if ! grep -rqE "^(public )?(sealed |data |enum |fun )*(class|interface|object|fun) (<[A-Za-z0-9_,: ?]*> )?$NAME([^A-Za-z0-9_]|\$)" \
+            "$UI_KOTLIN_DIR" 2>/dev/null
+        then
+            MISSING="$MISSING $NAME"
+        fi
+        if grep -rqE "^(public )?(final )?(struct|class|enum|protocol) $NAME([^A-Za-z0-9_]|\$)" "$UI_SWIFT_DIR" 2>/dev/null
+        then
+            LEAKED="$LEAKED $NAME"
+        fi
+    done
+    if [ -z "$MISSING$LEAKED" ]
+    then
+        pass "the Android-only names are declared in Kotlin and absent from Swift:$(printf ' %s' $1)"
+    else
+        fail "the Android-only names are not where they are declared to be — missing from Kotlin:${MISSING:- none}| declared in Swift:${LEAKED:- none}"
     fi
 }
 
@@ -2327,6 +2370,14 @@ then
     compare_ui_type FieldKind case entry
     compare_ui_declared_names 'the host vocabulary' "$UI_HOST_NAMES"
     compare_ui_declared_names 'the paged and form vocabulary' "$UI_FORM_NAMES"
+    # The screen's way out: its name on both, and its two acts compared as a type. Its
+    # properties are not compared, and that is the two languages rather than the vocabulary:
+    # Swift reads the value with `@Environment(\.screenWayOut)` and Kotlin with a
+    # `ScreenWayOut.current` getter on the companion, which that grammar would read as a
+    # property only one platform has.
+    compare_ui_declared_names 'the screen way-out vocabulary' "$UI_SCREEN_NAMES"
+    compare_ui_type ScreenWayOut func fun
+    check_ui_android_only_names "$UI_ANDROID_ONLY_NAMES"
 else
     fail "the ui module is incomplete: $UI_SWIFT_DIR or $UI_KOTLIN_DIR is missing"
 fi
@@ -2836,9 +2887,14 @@ if [ -d "$SWIFT_COMPONENTS" ] && [ -d "$KOTLIN_COMPONENTS" ]
 then
     grep -rhoE '^public struct [A-Za-z0-9_]+' "$SWIFT_COMPONENTS" \
         | sed 's/^public struct //' | tr 'A-Z' 'a-z' | sort -u > "$TMP/components-swift.txt"
+    # The Android-only components are taken out of the Kotlin set here, and only the ones
+    # section 13 declares (`UI_ANDROID_ONLY_NAMES`), which also checks each of them is really
+    # absent from Swift. A component this subtraction does not name is still compared.
+    printf '%s\n' $UI_ANDROID_ONLY_NAMES | tr 'A-Z' 'a-z' | sort -u > "$TMP/components-android-only.txt"
     grep -rhoE '^public fun <?[A-Za-z0-9_ :]*>? ?[A-Z][A-Za-z0-9_]*\(' "$KOTLIN_COMPONENTS" \
         | sed -e 's/^public fun //' -e 's/^<[^>]*> *//' -e 's/($//' -e 's/(//' \
-        | tr 'A-Z' 'a-z' | sort -u > "$TMP/components-kotlin.txt"
+        | tr 'A-Z' 'a-z' | sort -u \
+        | comm -23 - "$TMP/components-android-only.txt" > "$TMP/components-kotlin.txt"
     COMPONENTS_SWIFT=$(grep -c . "$TMP/components-swift.txt" || true)
     COMPONENTS_KOTLIN=$(grep -c . "$TMP/components-kotlin.txt" || true)
 
@@ -3294,9 +3350,11 @@ section '20. every plain-styled Button in SPFNUI gives its label a hit shape'
 # That is what shipped. `RoleButton`'s fill, radius and border were attached OUTSIDE its
 # `Button`, which is where they belonged for the style they drew and exactly where a hit test
 # never looks: on an iPhone 14 Pro a person had to hit the words to press a primary button,
-# and the coloured rectangle around them did nothing. The header's X and back are the same
-# shape one step smaller — a 20pt glyph inside the 44pt frame section 15 requires — so the
-# frame reported a target its own label refused (docs/IMPLEMENTATION-PITFALLS.md P39).
+# and the coloured rectangle around them did nothing. The drawn header's X and back were the
+# same shape one step smaller — a 20pt glyph inside the 44pt frame section 15 requires — so
+# the frame reported a target its own label refused (docs/IMPLEMENTATION-PITFALLS.md P39).
+# That header is gone: the X and the back are now items in the system navigation bar, which
+# styles and sizes its own buttons, so neither is a plain-styled button any more.
 #
 # The fix is one modifier and its POSITION is the whole rule: `.contentShape(Rectangle())`
 # inside the label chain. The same modifier written after `.buttonStyle(.plain)` applies to
@@ -3316,20 +3374,21 @@ section '20. every plain-styled Button in SPFNUI gives its label a hit shape'
 # way, so that spelling is counted as the same spend.
 #
 # Counted per file with `grep -cE`, so a file may not spend more `.plain` than it buys
-# rectangles. Screen.swift buys two and spends one: its other rectangle is the ancestor that
-# puts the keyboard away (P27), and a check that demanded equality would have to know which
+# rectangles. Screen.swift buys one and spends none: its rectangle is the ancestor that puts
+# the keyboard away (P27), and a check that demanded equality would have to know which
 # rectangle was which. Neither expression uses `?` or `+`, because this script runs under BSD
 # grep as well as GNU (docs/IMPLEMENTATION-PITFALLS.md P28).
 HIT_SHAPE_SOURCE_ROOT=Sources/SPFNUI
 
-# The module styles two buttons this way today — the role button and the header control — and
-# they sit in two files. Both floors are stated, because either one alone goes quiet in a way
+# The module styles one button this way today — the role button, in one file. It was two in
+# two files until the drawn header's control went with the header. Both floors are stated,
+# and both are that one, because either one alone goes quiet in a way
 # the other catches: a root that resolved to nothing reads as zero files AND zero occurrences,
 # and a file that lost its `.plain` to a refactor keeps the file count while dropping the
 # occurrence count. A reader that read nothing must say so rather than agree with a clean tree
 # (docs/IMPLEMENTATION-PITFALLS.md P7).
-HIT_SHAPE_FILE_FLOOR=2
-HIT_SHAPE_STYLE_FLOOR=2
+HIT_SHAPE_FILE_FLOOR=1
+HIT_SHAPE_STYLE_FLOOR=1
 
 HIT_SHAPE_FILES=0
 HIT_SHAPE_STYLES=0

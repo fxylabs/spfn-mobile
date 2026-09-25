@@ -3,7 +3,7 @@ GENERATED FILE — DO NOT EDIT.
 
 generator:       spfn-ui-codegen 0.1.0-alpha.3
 spec:            examples/ui-spec
-specSha256:      69fbbe100243bdb7d7c98ea11feae130988cff28c517c37bc9bb6942b05023e6
+specSha256:      571f09bd88446d067fb3b9173e2705d80d4078de36c608f8f2be11004e8fcba2
 bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
 contractVersion: 0.13.0
 
@@ -58,15 +58,20 @@ proven on the JVM against the models and has no flow file.
 | `k5` | `enterCode` | `idle` | `return` | maestro | `ready` | `stack=2`, `state=ready` | K4 and K2 together — the return key still submits after the keyboard was put away and the field taken up again, which is the state a person is in after reading the screen |
 | `k6` | `enterCode` | `error` | `submit` | maestro | `ready` | `stack=1`, `state=idle` | K6 — editing the field clears the refusal under it, so the screen is usable again without the person pressing anything |
 | `k7` | `enterCode` | `error` | `submit` | maestro | `ready` | `stack=1`, `state=error` | K7 and C7 — a refused input draws its refusal UNDER the field rather than somewhere on the screen, and the line is drawn at all |
-| `s1` | `enterCode` | `idle` | `screen.close` | maestro | `ready` | `stack=0` | S1 — the root of a flow presented over something draws the header's close, and pressing it closes the flow |
-| `s2` | `reviewDevice` | `ready` | `screen.back` | maestro | `ready` | `stack=1`, `state=idle` | S2 — a route above the root draws the header's back, and pressing it pops one route |
+| `s1` | `enterCode` | `idle` | `screen.close` | maestro | `ready` | `stack=0` | S1 and C5 — the root of a flow presented over something offers the flow's close at the header's trailing end, and pressing it closes the flow |
+| `s2` | `reviewDevice` | `ready` | `screen.back` | maestro | `ready` | `stack=1`, `state=idle` | S2 and C4 — a route above the root has the header's back, and pressing it pops one route; on iOS that back is the system navigation bar's own button |
 | `keyboardForm-close` | `form` | `idle` | `submit` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
 | `longScroll-close` | `long` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
 | `modalTour-close` | `modalTwo` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
+| `modalTour-wayOutClose` | `modalOne` | `idle` | `screen.close` | maestro | `ready` | `stack=0` | C11 — the root of a presented flow whose Android half draws no SDK header offers the flow's close through its own WayOutButton, and it closes the flow |
 | `pushTour-reach` | `tourThree` | `idle` | `next` | maestro | `ready` | `stack=3`, `state=idle` | R5 — every push adds one route, so the stack is as deep as the tour is long |
 | `pushTour-close` | `tourThree` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
 | `pushTour-rootBack` | `tourOne` | `idle` | `headerBack` | maestro | `ready` | `stack=0` | N2 — the back on a pushed flow's root closes the flow, which is what hands the person back to the host's own screen |
 | `pushTour-rootSystemBack` | `tourOne` | `idle` | `systemBack` | maestro | `ready` | `stack=0` | N2 and R8 — the system back on a pushed flow's root is the same act as the header's, so the flow closes and the host is underneath |
+| `pushTour-contentSwipe` | `tourTwo` | `idle` | `contentSwipe` | maestro | `ready` | `stack=1`, `state=idle` | C2 — on iOS a back swipe that starts in the content rather than at the edge is the system's own second back gesture, and it pops one route; on Android the system back does the same |
+| `pushTour-trailing` | `tourTwo` | `idle` | `next` | maestro | `ready` | `stack=3`, `state=idle` | C6 — the header's trailing item is the app's own action and not a way out: pressing it moves the flow the way the action says |
+| `pushTour-wayOutBack` | `tourThree` | `idle` | `headerBack` | maestro | `ready` | `stack=2`, `state=idle` | C10 — a screen whose Android half draws no SDK header offers the flow's back through its own WayOutButton, and it pops one route; iOS keeps the bar's |
+| `pushTour-noHeaderSystemBack` | `tourThree` | `idle` | `systemBack` | maestro | `ready` | `stack=2`, `state=idle` | C10 — with no SDK header the system back is still the flow's own pop |
 | `sheetFit-close` | `fitOne` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
 | `sheetFull-close` | `fullOne` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
 | `sheetHalf-close` | `halfOne` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
@@ -86,7 +91,7 @@ no cell opens the menu instead, on the same fake.
 
 ## What a person checks
 
-13 cells with no runner, for one of two reasons. Most are a GESTURE or a
+15 cells with no runner, for one of two reasons. Most are a GESTURE or a
 resting height, which is the class of thing a device runner reports success for
 whether or not the platform read it as the gesture it meant — cells u7b and u10b
 spent a Mac round on exactly that (`docs/IMPLEMENTATION-PITFALLS.md` P22). The rest
@@ -106,10 +111,12 @@ generated and anything written into it is lost on the next generation.
 | `keyboardForm-keyboard` | `keyboardForm` | `form` | tap the field, and read the screen with the keyboard up | K1 — the field stays visible and the control under it is still reachable; nothing jumps as the keyboard arrives and nothing is left scrolled out of place (`stack=1`) |  |  |
 | `longScroll-headerHolds` | `longScroll` | `long` | scroll the body from the top to the bottom and back | S2's other half — the header and its title stay exactly where they are while the body moves under them, so the way out of the flow never scrolls away (`stack=1`) |  |  |
 | `modalTour-predictiveBack` | `modalTour` | `modalOne` | on Android, use the system back gesture on the flow's FIRST screen | R8 — a flow presented over something is closed by a back on its last route, so the whole flow goes rather than one route (`stack=0`) |  |  |
-| `modalTour-closeOnRight` | `modalTour` | `modalOne` | look at the header of the flow's first screen, on both phones | N3 — the way out is an X drawn as an icon in the header's TOP RIGHT corner, the same size and shape on both platforms, and it is not a word on the left (`stack=1`) |  |  |
+| `modalTour-closeOnRight` | `modalTour` | `modalOne` | look at the top of the flow's first screen, on both phones | N3 — the way out is an X drawn as an icon in the TOP RIGHT corner — an item in the navigation bar on iPhone, the header's mark or the screen's own way-out row on Android — and it is not a word on the left (`stack=1`) |  |  |
 | `modalTour-fingerTap` | `modalTour` | `modalOne` | tap `modalOne.next` on the flow's first screen WITH A FINGER — a real thumb on the glass, not a runner tap and not `adb shell input tap` | P36 — the control responds and the stack moves, because nothing drawn over or around the screen consumed the small movements a finger makes inside a tap (`stack=2`) |  |  |
 | `pushTour-swipeBack` | `pushTour` | `tourTwo` | swipe in from the left edge on iPhone, or use the system back gesture on Android | S2 and R8 — the gesture is the flow's own pop, so one route drops and the screen under it is the one it was (`stack=1`) |  |  |
 | `pushTour-predictiveBack` | `pushTour` | `tourTwo` | on Android, press and HOLD the back gesture at the edge without releasing it | the screen underneath is drawn under the gesture while it is held, and releasing lands on it; letting go back at the edge cancels and changes nothing (`stack=1`) |  |  |
+| `pushTour-barTheme` | `pushTour` | `tourOne` | on iPhone, look at the navigation bar over the flow's first screen, and then switch the phone between light and dark with the screen up | C8 — the bar's title is drawn in the theme's title font and text colour, and the bar's background is the theme's background colour, in both appearances (`stack=1`) |  |  |
+| `pushTour-barSpace` | `pushTour` | `tourOne` | on iPhone, look at where the flow's first line stands under the bar — and on the example app's own menu, which has neither a title nor an item in its bar | C7 — the content starts right under the bar, with no second header's worth of space between them; under a bar with nothing in it, right under the status bar (`stack=1`) |  |  |
 | `pushTour-buttonEdge` | `pushTour` | `tourOne` | tap `tourOne.next` on the flow's first screen at the far EDGE of the button — the coloured part well away from the words — with a finger | P39 — the stack moves, because the whole button is the tap target and not only the pixels its label happened to draw (`stack=2`) |  |  |
 | `sheetFit-detent` | `sheetFit` | `fitOne` | look at how tall the sheet stands, and compare the two platforms side by side | the sheet is as tall as its content and no taller, on both platforms, and it does not grow to a fraction of the window it did not need (`stack=1`) |  |  |
 | `sheetFull-detent` | `sheetFull` | `fullOne` | look at how tall the sheet stands, and compare the two platforms side by side | the sheet stands nearly full height and stops short of the top, leaving the screen under it visible above (`stack=1`) |  |  |

@@ -2,7 +2,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-alpha.3
 // spec:            examples/ui-spec
-// specSha256:      69fbbe100243bdb7d7c98ea11feae130988cff28c517c37bc9bb6942b05023e6
+// specSha256:      571f09bd88446d067fb3b9173e2705d80d4078de36c608f8f2be11004e8fcba2
 // bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
 // contractVersion: 0.13.0
 //
@@ -13,17 +13,25 @@ package xyz.superfunction.spfn.example.generated.views
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import xyz.superfunction.spfn.example.generated.screens.ModalOneModel
 import xyz.superfunction.spfn.ui.Busy
+import xyz.superfunction.spfn.ui.ScreenWayOut
+import xyz.superfunction.spfn.ui.WayOut
 import xyz.superfunction.spfn.ui.components.PrimaryButton
 import xyz.superfunction.spfn.ui.components.Screen
+import xyz.superfunction.spfn.ui.components.ScreenHeader
 import xyz.superfunction.spfn.ui.components.SpfnText
 import xyz.superfunction.spfn.ui.components.TextRole
+import xyz.superfunction.spfn.ui.components.WayOutButton
 import xyz.superfunction.spfn.ui.tokens.SpfnTokens
 
 /** The `modalOne` screen, drawn out of spfn-ui's components. */
@@ -33,8 +41,19 @@ fun ModalOneScreen(model: ModalOneModel)
     val state = model.state.collectAsState().value;
     val stack = model.stack.collectAsState().value;
 
-    Screen(title = "Over everything, one of two", scroll = true)
+    Screen(title = "Over everything, one of two", header = ScreenHeader.None, scroll = true)
     {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(horizontal = SpfnTokens.space4),
+            horizontalArrangement =
+                if (ScreenWayOut.current.wayOut == WayOut.Close) Arrangement.End else Arrangement.Start
+        )
+        {
+            WayOutButton();
+        }
         Column(modifier = Modifier.fillMaxWidth().padding(SpfnTokens.space4), verticalArrangement = Arrangement.spacedBy(SpfnTokens.space4))
         {
             SpfnText(text = "state=" + stateName(state), role = TextRole.Mono);

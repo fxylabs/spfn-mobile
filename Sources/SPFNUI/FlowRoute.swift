@@ -77,10 +77,12 @@ public enum WayOut: Sendable, Equatable
     /// No way out of this screen's own: a closed flow, and nothing else.
     case none
 
-    /// A back control in the header's leading slot, which pops one route — or, on the root
-    /// of a pushed flow, hands the person back to the host by closing it.
+    /// A back, which pops one route — or, on the root of a pushed flow, hands the person
+    /// back to the host by closing it. The system back button on iOS, the header's leading
+    /// slot on Android.
     case back
 
-    /// A close control in the header's trailing slot, which closes the whole flow.
+    /// A close, which closes the whole flow: an X at the trailing end of the bar on both
+    /// platforms (decision N3).
     case close
 }
