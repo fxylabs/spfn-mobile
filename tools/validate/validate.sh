@@ -1079,6 +1079,13 @@ else
     fail "workflow inputs interpolated outside an env assignment: $RAW_INPUT_USES"
 fi
 
+# The commit input names what gets built and published, so it is machine-validated as
+# exactly 40 lowercase hex characters before any use.
+contains "$PUBLISH_WORKFLOW" '*[!0-9a-f]*' \
+    'the commit input is refused unless it is lowercase hex'
+contains "$PUBLISH_WORKFLOW" '-ne 40' \
+    'the commit input is refused unless it is exactly 40 characters'
+
 # ---------------------------------------------------------------------------
 section '8. module graph coherence'
 # ---------------------------------------------------------------------------

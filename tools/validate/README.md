@@ -62,7 +62,7 @@ each went to the strongest home that would hold it.
 | 7 | the root staging gate's four load-bearing lines | kept: section 7 holds the committed-flag line, section 7a the other three; `tools/validate/probe-publishing-gate.sh` also runs the gate itself |
 | 7 | Android dependencies are exactly the graph's per-module allowlist; Swift traits; graph allowances nobody uses | dropped; Gradle dependency verification refuses any artifact `verification-metadata.xml` does not record, and section 7 keeps the Swift package rule |
 | 7 | workflow triggers, gate `run:` lines, publish-workflow secrets, hosts, network commands and pushes, no secret in any other workflow, inputs only through `env` | kept, in section 7a; section 1 also holds that every script a workflow runs exists |
-| 7 | workflow timeouts, runner images, the "required check" / "NOT A GATE" prose, the held-for-confirmation upload and the commit-input validation | dropped; section 24 still holds every action to the SHA-pinned list |
+| 7 | workflow timeouts, runner images, the "required check" / "NOT A GATE" prose, and the held-for-confirmation upload | dropped (the commit-input validation is kept in 7a); section 24 still holds every action to the SHA-pinned list |
 | 8 | every graph target has a Swift source directory; settings `include`s each Android module; each has a build script | `swift build`; Gradle configuration; the edge check fails on a missing script |
 | 8 | the podspec's subspecs and edges match the graph | section 9 regenerates the podspec from the graph and refuses any difference |
 | 8 | no Apple-only framework (CryptoKit included) is imported unguarded in a Linux-capable module | the Linux `swift build` in `tools/ci/swift.sh` |
