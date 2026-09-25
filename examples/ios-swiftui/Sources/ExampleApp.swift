@@ -113,9 +113,16 @@ struct RootView: View
     /// `fixture=` is the CELL this launch named, which is `none` on the menu even though a
     /// fake is installed: the fake is what the menu runs on, and the receipt's own record is
     /// where its name is written down.
+    ///
+    /// The menu sets NO title, and that is for the cells rather than for the look. On iOS the
+    /// way back from a pushed flow's first screen is the system back button, which a runner
+    /// finds by its accessibility label — the title of the screen it goes back to — and a
+    /// title-less screen under it gives that button the platform's own "Back", the label the
+    /// generated `pushTour-rootBack` cell asks for. It is also the screen case C7 looks at: a
+    /// bar with neither a title nor an item in it, which takes no room above the content.
     private var menu: some View
     {
-        Screen(title: "SPFN showcase")
+        Screen
         {
             VStack(alignment: .leading, spacing: SPFNTokens.space4)
             {

@@ -74,7 +74,7 @@ class JavaVisibilityTest
     {
         val files = listOf(
             "SpfnTextKt", "StatusTextKt", "ButtonsKt", "SpfnTextFieldKt", "LoadableViewKt",
-            "PagedViewKt", "SlotsKt"
+            "PagedViewKt", "SlotsKt", "WayOutButtonKt"
         );
         var checked = 0;
         files.forEach { file ->

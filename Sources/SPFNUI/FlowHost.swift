@@ -38,14 +38,16 @@
 //
 // Inside a `NavigationHost` (decision N1) a pushed flow builds NO navigator: it registers
 // with the host and syncs its stack onto the host's, so its first screen slides in from the
-// right over the host's own screen and its header's back leads back to it.
+// right over the host's own screen and the system back button leads back to it.
 //
 // Outside one, the old inline stack is still what this draws, and it is kept for
 // compatibility rather than because it is right: WITHOUT A HOST THERE IS NEITHER THE
 // TRANSITION NOR THE WAY BACK TO THE HOST. The flow's root is the navigator's root, so
-// nothing slides and there is no route underneath; the root's back still closes the flow
-// (decision N2), which is the most that path can offer. An app that wants the transition
-// wraps its root in `NavigationHost`.
+// nothing slides and there is no route underneath — and so the system draws no back button
+// on it either, and neither of UIKit's back gestures has anything to pop. `InlineRootBack`
+// puts a back item in the bar there, and that item closes the flow (decision N2), which is
+// the most that path can offer. An app that wants the transition wraps its root in
+// `NavigationHost`.
 
 import SwiftUI
 
@@ -109,6 +111,7 @@ public struct FlowHost<Route: FlowRoute, Content: View>: View
             NavigationStack(path: path)
             {
                 content(root)
+                    .modifier(InlineRootBack(onBack: entry == .push ? chrome.onBack : nil))
                     .navigationDestination(for: Route.self)
                     { route in
                         content(route)
@@ -124,10 +127,10 @@ public struct FlowHost<Route: FlowRoute, Content: View>: View
     /// `Flow.close()` whatever drew the control, which is the same rule that makes
     /// `dismiss` refused here.
     ///
-    /// The back is `Flow.back(entry:)` and not `Flow.pop()`, which is what makes the header
-    /// control and the system gesture one act rather than two that agree by coincidence. It
-    /// is also what a pushed flow's ROOT needs: its back is a close (decision N2), and only
-    /// the close table knows that.
+    /// The back is `Flow.back(entry:)` and not `Flow.pop()`, which is what makes
+    /// ``ScreenWayOut/back()`` and the system back one act rather than two that agree by
+    /// coincidence. It is also what a pushed flow's ROOT needs: its back is a close (decision
+    /// N2), and only the close table knows that.
     private var chrome: ScreenChrome
     {
         ScreenChrome(
@@ -161,8 +164,8 @@ public struct FlowHost<Route: FlowRoute, Content: View>: View
 
     /// How the host draws this flow's routes, and what this flow's back does.
     ///
-    /// The chrome is read INSIDE the closure and not captured beside it, so the header a
-    /// route draws is the one its flow's current depth asks for rather than the one it asked
+    /// The chrome is read INSIDE the closure and not captured beside it, so the way out a
+    /// route offers is the one its flow's current depth asks for rather than the one it asked
     /// for when the route was pushed.
     private var registration: HostRegistration
     {
@@ -280,6 +283,53 @@ public struct FlowHost<Route: FlowRoute, Content: View>: View
                 }
             }
         )
+    }
+}
+
+/// The back on the root of a pushed flow that found no `NavigationHost`, and nothing
+/// anywhere else.
+///
+/// That root is its own navigator's root, so the system draws no back button on it and there
+/// is nothing under it for a gesture to pop; this item is the one way off it. `nil` is every
+/// other stack — a modal's and a sheet's roots have the close `Screen` puts in the bar, and a
+/// hosted push has the system's own back button.
+///
+/// The identifier and the label are the ones the drawn header's back used.
+private struct InlineRootBack: ViewModifier
+{
+    let onBack: (@MainActor @Sendable () -> Void)?
+
+    @ViewBuilder
+    func body(content: Content) -> some View
+    {
+        if let onBack = onBack
+        {
+            content.toolbar
+            {
+                ToolbarItem(placement: Self.placement)
+                {
+                    Button(action: onBack)
+                    {
+                        BackChevron()
+                    }
+                    .accessibilityIdentifier("screen.back")
+                    .accessibilityLabel(SPFNStrings.controlBack)
+                }
+            }
+        }
+        else
+        {
+            content
+        }
+    }
+
+    private static var placement: ToolbarItemPlacement
+    {
+    #if os(macOS)
+        return .navigation
+    #else
+        return .topBarLeading
+    #endif
     }
 }
 #endif

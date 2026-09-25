@@ -14,16 +14,22 @@
 //
 // It is deliberately not part of the module's public vocabulary. A host app never builds one
 // — `FlowHost` provides it and `Screen` reads it — and a public one would be a second way to
-// answer a question ``Flow/wayOut(entry:)`` already answers.
+// answer a question ``Flow/wayOut(entry:)`` already answers. What a host app may do is READ
+// it, and `ScreenWayOut.swift` is that door: a value with the way out and the two acts, and
+// no way to write it.
 
 import SwiftUI
 
 /// What a flow tells the screens inside it.
 ///
 /// Counterpart of the `LocalScreenChrome` composition local on Android. A `Screen` has to
-/// draw a way out without knowing which flow it is in or how deep, and a `FlowHost` knows
-/// both and does not know which of its routes drew a header. The environment is the one
+/// offer a way out without knowing which flow it is in or how deep, and a `FlowHost` knows
+/// both and does not know which of its routes drew a `Screen`. The environment is the one
 /// place those two meet without either of them holding the other.
+///
+/// On iOS a `Screen` spends only the close: a back is the system navigation bar's own button,
+/// and what that button does reaches the flow through the stack's path binding rather than
+/// through `onBack`. `onBack` is still carried, for ``ScreenWayOut/back()``.
 ///
 /// Both actions are carried even though only one of them is ever drawn: which one that is
 /// changes with the depth of the stack.

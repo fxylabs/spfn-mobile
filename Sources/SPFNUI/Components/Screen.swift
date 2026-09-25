@@ -2,36 +2,52 @@
 // SPFN Mobile — the frame every screen in a flow is drawn in.
 //
 // Counterpart of
-// android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/components/Screen.kt. One
-// header, one body, and the three things a screen used to have to remember for itself:
-// where the status bar is, what the keyboard is covering, and which way out this screen has.
+// android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/components/Screen.kt. A body,
+// the items a screen puts in the system navigation bar, and the things a screen used to have
+// to remember for itself: what the keyboard is covering, and which way out this screen has.
 //
 // Guarded whole, first line of code to last, the way every SwiftUI file in this repository
 // is (docs/IMPLEMENTATION-PITFALLS.md P20): SwiftUI is Apple's, `SPFNUI` builds on Linux,
 // and validate.sh section 8 holds the guard to the file rather than to the import.
 //
 // ---------------------------------------------------------------------------
-// The two halves are not written the same way, because the platforms are not
+// The header is the platform's, and that is the whole of the iOS half
 // ---------------------------------------------------------------------------
 //
-// Android has to ASK for its insets: an app targeting API 35 is drawn edge to edge whether
-// it asks or not, so the Compose half spends `WindowInsets.statusBars` on the header and the
-// union of the ime and the navigation bars on the body. SwiftUI insets a view by its safe
-// area unless it is told not to, so the header being the first thing in the stack IS the
-// header consuming the status bar inset, and the body reaching the bottom edge IS the body
-// carrying the home indicator's. What the two halves share is the outcome the rule names:
-// the header owns the top inset, the body owns the bottom one, and a screen owns neither.
+// This file used to hide the system navigation bar and draw a header of its own. Hiding the
+// bar took UIKit's two back gestures with it, and every way of getting them back was a
+// reach past UIKit — a private recognizer class found by name, a delegate swapped on a
+// recognizer the SDK does not own (docs/IMPLEMENTATION-PITFALLS.md P29, P32). Emptying the
+// bar instead of hiding it does not survive iOS 26, which draws the back button as a glass
+// circle whatever image it is given (docs/architecture/screen-header-design.md §5 R1–R3).
 //
-// The system navigation bar is hidden because this header replaces it. A `NavigationStack`
-// that drew its own bar as well would put two back controls on one screen, only one of which
-// the flow knows about.
+// So the bar stays, and everything the drawn header did is said to it instead: the title is
+// `navigationTitle`, the app's three items are `ToolbarItem`s, the flow's close on a
+// presented root is a trailing toolbar item, and the back is the system back button with
+// both of its gestures, UIKit's own. Nothing here turns a gesture on or off.
 //
-// Hiding that bar has a side effect neither half of the file above says: UIKit's edge swipe
-// back belongs to the bar it hides along with it, silently, so a header's own back button
-// keeps working while the gesture does nothing (docs/IMPLEMENTATION-PITFALLS.md P29; cells
-// u7b and u10b are what caught it). `SwipeBackGesture` below is the fix this file chose over
-// P29's other two — reach past UIKit for the gesture rather than empty the bar instead of
-// hiding it, or move those two cells' iOS half to a human to check by hand.
+// The toolbar is attached HERE, to the view a route draws, and that is not a detail. A
+// `.toolbar` reaches the bar of the navigation destination it stands inside; one attached to
+// a wrapper outside the stack — the host's root, a `FlowHost` anchor — reaches no bar at all.
+// Every route of every flow is drawn by a `Screen`, so every destination carries its own.
+//
+// ---------------------------------------------------------------------------
+// The theme reaches the bar through SwiftUI, per screen
+// ---------------------------------------------------------------------------
+//
+// The title is drawn by `SpfnText` in the `.principal` placement, and the bar's background
+// is `.toolbarBackground` with the palette's background colour. `UINavigationBarAppearance`
+// was the other door and it is refused here for two reasons. The theme's type is a SwiftUI
+// `Font`, and there is no conversion from one to the `UIFont` `titleTextAttributes` needs;
+// carrying a `UIFont` would be a change to the theme's keys. And an appearance is either
+// global — every bar in the host app, and only bars created after it was set — or it is set
+// on one bar by reaching into UIKit, which is exactly the kind of reach this file stopped
+// making. The two modifiers read the environment, so an app that injects another theme, or
+// a scheme that changes while the screen is up, changes the bar with the body.
+//
+// `navigationTitle` is still set whenever there is a title. The principal item is what is
+// SEEN; the navigation title is what the NEXT screen's back button is labelled with and what
+// VoiceOver announces for the screen, and neither of those is drawn.
 //
 // ---------------------------------------------------------------------------
 // Screen owns two of the seven keyboard clauses, and only two
@@ -45,29 +61,31 @@
 
 import SwiftUI
 
-/// A screen inside a flow: a header, and a body under it.
+/// A screen inside a flow: a body, under the system navigation bar.
 ///
 /// - Parameters:
-///   - title: what the header says.
-///   - leading: the header's left slot. Left out, the flow decides — a back chevron on a
-///     stack of two or more and on the root of a pushed flow, and nothing on the root of a
-///     flow presented over something (``Flow/wayOut(entry:)``). A host app that passes one
-///     overrides that entirely.
-///   - trailing: the header's right slot. Left out, the flow decides — an X on the root of a
-///     modal or a sheet, and nothing anywhere else. A host app that passes one overrides
+///   - title: what the bar says. Left out, the bar says nothing.
+///   - leading: an item at the bar's left, BESIDE the system back button where there is one
+///     rather than in place of it: the back button is the platform's and so are its gestures.
+///     On a screen that stands on something the space beside the back is narrow, so a logo
+///     belongs in `principal`.
+///   - principal: an item in the bar's centre, drawn instead of the title.
+///   - trailing: an item at the bar's right. Left out, the flow decides — an X on the root of
+///     a modal or a sheet, and nothing anywhere else. A host app that passes one overrides
 ///     that entirely, which is also how a screen suppresses the flow's own close.
 ///   - scroll: whether the body scrolls. A body that scrolls also gets out of the keyboard's
 ///     way; a body that does not is the caller saying its content always fits.
 ///
-/// The two slots are `AnyView?` rather than generic parameters, and that is a considered
-/// trade: two more generic parameters would have to be spelled out at every call that omits
-/// one, because Swift has no default for a generic parameter. What it costs is one layer of
-/// erasure on a control that is drawn once per screen.
+/// The items are `AnyView?` rather than generic parameters, and that is a considered trade:
+/// three more generic parameters would have to be spelled out at every call that omits one,
+/// because Swift has no default for a generic parameter. What it costs is one layer of
+/// erasure on an item that is drawn once per screen.
 @MainActor
 public struct Screen<Content: View>: View
 {
-    private let title: String
+    private let title: String?
     private let leading: AnyView?
+    private let principal: AnyView?
     private let trailing: AnyView?
     private let scroll: Bool
     private let content: () -> Content
@@ -82,8 +100,9 @@ public struct Screen<Content: View>: View
     }
 
     public init(
-        title: String,
+        title: String? = nil,
         leading: AnyView? = nil,
+        principal: AnyView? = nil,
         trailing: AnyView? = nil,
         scroll: Bool = true,
         @ViewBuilder content: @escaping () -> Content
@@ -91,6 +110,7 @@ public struct Screen<Content: View>: View
     {
         self.title = title
         self.leading = leading
+        self.principal = principal
         self.trailing = trailing
         self.scroll = scroll
         self.content = content
@@ -98,59 +118,68 @@ public struct Screen<Content: View>: View
 
     public var body: some View
     {
-        VStack(spacing: 0)
-        {
-            header
-            scrollableBody
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(palette.background)
-        .modifier(HiddenNavigationBar())
-        // P29: the bar this hides is where the edge swipe back lived. `chrome.wayOut ==
-        // .back` is the same test the header uses to decide whether to draw a back control,
-        // so the gesture is on exactly where a back control is.
-        //
-        // That now includes the ROOT of a pushed flow, and it is right there for the same
-        // reason the control is: inside a `NavigationHost` the flow's root stands on the
-        // host's stack, so UIKit's own depth under it is two and there is something to pop
-        // back to. A `Screen` with no back control still has the gesture refused.
-        .modifier(SwipeBackGesture(enabled: chrome.wayOut == .back))
-        // A tap that lands on the frame rather than on a control puts the keyboard away.
-        //
-        // `onTapGesture` on the ANCESTOR, which is neither of the two spellings that fail.
-        // `simultaneousGesture` fires alongside whatever the tap actually hit, so tapping
-        // the field raised the keyboard and dismissed it in the same moment and the typing
-        // that followed reached nothing (P27). A `Color.clear` layer BEHIND the content is
-        // the opposite failure: a sibling underneath never receives the event at all, because
-        // the scroll view in front answers the hit test first, and then no tap in the body
-        // ever put the keyboard away.
-        //
-        // An ancestor is neither. SwiftUI resolves a tap at the deepest view that answers
-        // and lets the gesture travel UP from there, innermost first — so a button or a
-        // field takes its own tap and this never sees it, while a tap the scroll view merely
-        // sat under arrives here. `contentShape` is what makes the empty parts of the frame
-        // answer the hit test in the first place.
-        .contentShape(Rectangle())
-        .onTapGesture { SPFNKeyboard.dismiss() }
+        scrollableBody
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(palette.background)
+            // A tap that lands on the frame rather than on a control puts the keyboard away.
+            //
+            // `onTapGesture` on the ANCESTOR, which is neither of the two spellings that fail.
+            // `simultaneousGesture` fires alongside whatever the tap actually hit, so tapping
+            // the field raised the keyboard and dismissed it in the same moment and the
+            // typing that followed reached nothing (P27). A `Color.clear` layer BEHIND the
+            // content is the opposite failure: a sibling underneath never receives the event
+            // at all, because the scroll view in front answers the hit test first, and then
+            // no tap in the body ever put the keyboard away.
+            //
+            // An ancestor is neither. SwiftUI resolves a tap at the deepest view that answers
+            // and lets the gesture travel UP from there, innermost first — so a button or a
+            // field takes its own tap and this never sees it, while a tap the scroll view
+            // merely sat under arrives here. `contentShape` is what makes the empty parts of
+            // the frame answer the hit test in the first place.
+            .contentShape(Rectangle())
+            .onTapGesture { SPFNKeyboard.dismiss() }
+            .modifier(
+                ScreenBar(
+                    title: title,
+                    background: palette.background,
+                    leading: leading,
+                    principal: principal ?? titleItem,
+                    trailing: trailing ?? flowClose
+                )
+            )
     }
 
-    /// The header. Both slots are laid out at the minimum touch target whether or not they
-    /// hold anything, so the title sits in the same place on every screen of a flow and a
-    /// control that appears does not move it.
-    private var header: some View
+    /// The title as the bar draws it: the theme's title role, in the theme's text colour.
+    private var titleItem: AnyView?
     {
-        HStack(spacing: 0)
+        title.map { AnyView(SpfnText($0, role: .title)) }
+    }
+
+    /// The flow's close, on the root of a flow presented over something, and nothing
+    /// anywhere else.
+    ///
+    /// The chrome arrives from ``FlowHost``, which is the only thing that knows both how the
+    /// flow was entered and how deep it stands; a `Screen` outside a host reads the default
+    /// and draws no close. There is no back counterpart, deliberately: a `.back` screen has
+    /// the system back button, and that button is the one both gestures belong to.
+    ///
+    /// The X lives on the right, which is decision N3. The identifier and the label are the
+    /// ones the drawn header used, so a runner finds the same control by the same id.
+    private var flowClose: AnyView?
+    {
+        guard chrome.wayOut == .close
+        else
         {
-            leadingControl
-                .frame(minWidth: Metrics.touchTarget, alignment: .leading)
-            SpfnText(title, role: .title)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, theme.spacing.space4)
-            trailingControl
-                .frame(minWidth: Metrics.touchTarget, alignment: .trailing)
+            return nil
         }
-        .padding(.horizontal, theme.spacing.space4)
-        .frame(minHeight: Metrics.headerHeight)
+        return AnyView(
+            Button(action: chrome.onClose)
+            {
+                CloseCross()
+            }
+            .accessibilityIdentifier("screen.close")
+            .accessibilityLabel(SPFNStrings.controlClose)
+        )
     }
 
     /// The body, scrolling or not.
@@ -182,11 +211,12 @@ public struct Screen<Content: View>: View
 
     /// Reports how tall this screen's content is, for a `fit` sheet above it to stand on.
     ///
-    /// The CONTENT and never the scroll view around it. A scroll view inside a sheet is as
-    /// tall as the sheet, so a detent resolved from one feeds its own answer back in and
-    /// never settles; the stack inside it has a natural height that does not move when the
-    /// sheet does, which is why the measurement is taken here and why the view above is
-    /// fixed vertically first.
+    /// The CONTENT and never the scroll view around it, and never the bar above it. A scroll
+    /// view inside a sheet is as tall as the sheet, so a detent resolved from one feeds its
+    /// own answer back in and never settles; the stack inside it has a natural height that
+    /// does not move when the sheet does, which is why the measurement is taken here and why
+    /// the view above is fixed vertically first. The bar's height is added by the sheet
+    /// (`SheetPresentation`), as the drawn header's was.
     ///
     /// A body that does not scroll reports nothing, and that is honest rather than lazy: it
     /// is as tall as the space it was given, so its height says what the sheet already is.
@@ -199,95 +229,70 @@ public struct Screen<Content: View>: View
                 .preference(key: ScreenContentHeightKey.self, value: proxy.size.height)
         }
     }
-
-    /// The header's LEFT slot: what the host app passed, or the flow's back, or nothing.
-    ///
-    /// The chrome arrives from ``FlowHost``, which is the only thing that knows both how the
-    /// flow was entered and how deep it stands. A `Screen` composed outside a host reads the
-    /// default — no control at all — rather than inventing one.
-    @ViewBuilder
-    private var leadingControl: some View
-    {
-        if let leading = leading
-        {
-            leading
-        }
-        else if chrome.wayOut == .back
-        {
-            control(label: SPFNStrings.controlBack, identifier: "screen.back", action: chrome.onBack)
-            {
-                BackChevron()
-            }
-        }
-    }
-
-    /// The header's RIGHT slot: what the host app passed, or the flow's close, or nothing.
-    ///
-    /// The X lives here and the back lives on the left, which is decision N3 and is what
-    /// both platforms' users already reach for. An app that passes its own trailing slot
-    /// takes the whole slot, exactly as it does on the leading side.
-    @ViewBuilder
-    private var trailingControl: some View
-    {
-        if let trailing = trailing
-        {
-            trailing
-        }
-        else if chrome.wayOut == .close
-        {
-            control(label: SPFNStrings.controlClose, identifier: "screen.close", action: chrome.onClose)
-            {
-                CloseCross()
-            }
-        }
-    }
-
-    /// One header control: an icon inside Apple's minimum touch target, in both directions
-    /// (docs/IMPLEMENTATION-PITFALLS.md P21).
-    ///
-    /// The icon is 20pt and the FRAME is 44, which is the whole point of the split — a
-    /// control drawn at the icon's own size reports a rectangle its neighbour has already
-    /// eaten, and a device runner then taps the neighbour.
-    ///
-    /// `label` is the accessibility label rather than anything drawn, which is what keeps
-    /// the ten string keys the same ten they were while the words stopped being visible.
-    private func control<Icon: View>(
-        label: String,
-        identifier: String,
-        action: @escaping @MainActor @Sendable () -> Void,
-        @ViewBuilder icon: () -> Icon
-    ) -> some View
-    {
-        Button(action: action)
-        {
-            icon()
-                .frame(minWidth: Metrics.touchTarget, minHeight: Metrics.touchTarget)
-                // Inside the LABEL, because `.plain` takes the tap on the label's own hit shape
-                // and a glyph answers only over the pixels it drew; the 44 above would report a
-                // rectangle nothing could tap without this line (P39).
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(identifier)
-        .accessibilityLabel(label)
-    }
 }
 
-/// Hides the system navigation bar where there is one to hide.
+/// What a `Screen` says to the system navigation bar: its title, its three items, and the
+/// theme's background.
 ///
-/// Private to this file and stays here: it is one line of `Screen`'s own body chain, and the
-/// only reason it is a type at all is that `ToolbarPlacement.navigationBar` does not exist on
-/// macOS and a platform with no navigation bar has nothing to hide.
-private struct HiddenNavigationBar: ViewModifier
+/// Private to this file, and a type only because two of the things it says do not exist on
+/// macOS — there is no navigation bar there to set a background or a title mode on, and the
+/// top-bar placements are iOS names — while `SPFNUI` is built for both.
+///
+/// An item that is `nil` is not placed at all rather than placed empty. An empty
+/// `ToolbarItem` is still an item, and iOS 26 draws a glass capsule around an item whether or
+/// not it holds anything.
+private struct ScreenBar: ViewModifier
 {
+    let title: String?
+    let background: Color
+    let leading: AnyView?
+    let principal: AnyView?
+    let trailing: AnyView?
+
     func body(content: Content) -> some View
     {
     #if os(macOS)
         content
+            .navigationTitle(title ?? "")
+            .toolbar { items(leading: .navigation, trailing: .primaryAction) }
     #else
-        content
-            .toolbar(.hidden, for: .navigationBar)
+        titled(content)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(background, for: .navigationBar)
+            .toolbar { items(leading: .topBarLeading, trailing: .topBarTrailing) }
     #endif
+    }
+
+    /// The title, where there is one. A screen with no title sets none, rather than an empty
+    /// one, so the screen after it is backed out of with the platform's own "Back".
+    @ViewBuilder
+    private func titled(_ content: Content) -> some View
+    {
+        if let title = title
+        {
+            content.navigationTitle(title)
+        }
+        else
+        {
+            content
+        }
+    }
+
+    @ToolbarContentBuilder
+    private func items(leading leadingPlacement: ToolbarItemPlacement, trailing trailingPlacement: ToolbarItemPlacement) -> some ToolbarContent
+    {
+        if let leading = leading
+        {
+            ToolbarItem(placement: leadingPlacement) { leading }
+        }
+        if let principal = principal
+        {
+            ToolbarItem(placement: .principal) { principal }
+        }
+        if let trailing = trailing
+        {
+            ToolbarItem(placement: trailingPlacement) { trailing }
+        }
     }
 }
 #endif

@@ -5,12 +5,30 @@
 // the keyboard is covering, and which way out this screen has.
 //
 // ---------------------------------------------------------------------------
+// The header is the SDK's here, and an app may turn it off
+// ---------------------------------------------------------------------------
+//
+// The iOS half hands its header to the system navigation bar. This half cannot: the only app
+// bar Compose ships is Material's, and this repository depends on no Material artifact
+// (decision C2). So the header below is still drawn here, and it takes the same three items
+// the iOS bar does — `leading`, `principal`, `trailing` — in the same three places
+// (docs/architecture/screen-header-design.md §3-1).
+//
+// What only this half offers is `header = ScreenHeader.None`: no SDK header at all, for an app
+// that draws the top of its screens out of its own design system. Nothing else moves with it.
+// The body still owns the bottom inset and the keyboard, a tap outside a field still puts the
+// keyboard away, and the way out is still the flow's — `ScreenWayOut.current` reads it and
+// `WayOutButton` draws it. What such a screen takes on is the status bar: with no header to
+// spend it, that inset reaches the content unconsumed, and the content pads for it.
+//
+// ---------------------------------------------------------------------------
 // Screen owns the insets, so a screen does not
 // ---------------------------------------------------------------------------
 //
-// The header consumes the status bar inset and nothing else does, and the body consumes the
-// bottom one — the navigation bar or the gesture pill, unioned with the keyboard so the two
-// never add up. `Modifier.windowInsetsPadding` CONSUMES what it applies, so a host that
+// The header consumes the status bar inset and nothing else in this file does — with
+// `ScreenHeader.None` nothing here spends it and the content receives it — and the body
+// consumes the bottom one — the navigation bar or the gesture pill, unioned with the
+// keyboard so the two never add up. `Modifier.windowInsetsPadding` CONSUMES what it applies, so a host that
 // already padded its own root (examples/android-compose does, and so does the harness) hands
 // this composable an inset that is already spent and the header adds nothing on top of it.
 // That is what makes "the host may still own the insets" and "Screen owns the insets" the
@@ -53,7 +71,6 @@
 package xyz.superfunction.spfn.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,7 +88,6 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -79,25 +95,38 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import xyz.superfunction.spfn.ui.SpfnStrings
+import xyz.superfunction.spfn.ui.ScreenWayOut
 import xyz.superfunction.spfn.ui.WayOut
 import xyz.superfunction.spfn.ui.tokens.LocalSpfnTheme
 import xyz.superfunction.spfn.ui.tokens.spfnPalette
 
+/** Whether a [Screen] draws the SDK's header. Android's alone: on iOS the bar is the system's. */
+public enum class ScreenHeader
+{
+    /** The SDK's header: a back or an item on the left, the title, a close or an item on the right. */
+    Standard,
+
+    /**
+     * No header. The status bar inset reaches the content unconsumed, and the way out is the
+     * app's to draw — [WayOutButton] draws the flow's, out of [ScreenWayOut].
+     */
+    None
+}
+
 /**
  * A screen inside a flow: a header, and a body under it.
  *
- * @param title what the header says.
+ * @param title what the header says. Left out, the header says nothing.
  * @param leading the header's left slot. Left out, the flow decides — a back chevron on a
  *   stack of two or more and on the root of a pushed flow, and nothing on the root of a flow
  *   presented over something (`Flow.wayOut`). A host app that passes one overrides that
  *   entirely.
+ * @param principal the header's centre, drawn instead of the title.
  * @param trailing the header's right slot. Left out, the flow decides — an X on the root of
  *   a modal or a sheet, and nothing anywhere else. A host app that passes one overrides that
  *   entirely, which is also how a screen suppresses the flow's own close.
+ * @param header whether the SDK's header is drawn at all. [ScreenHeader.None] draws none,
+ *   leaves the status bar inset to the content, and ignores the four header parameters above.
  * @param scroll whether the body scrolls. A body that scrolls also gets out of the
  *   keyboard's way; a body that does not is the caller saying its content always fits,
  *   which is what a screen inside a sheet says (see `Sheet.kt`). A screen that draws a
@@ -114,9 +143,11 @@ import xyz.superfunction.spfn.ui.tokens.spfnPalette
 @JvmSynthetic
 @Composable
 public fun Screen(
-    title: String,
+    title: String? = null,
     leading: (@Composable () -> Unit)? = null,
+    principal: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    header: ScreenHeader = ScreenHeader.Standard,
     scroll: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 )
@@ -137,7 +168,10 @@ public fun Screen(
             }
     )
     {
-        Header(title = title, leading = leading, trailing = trailing);
+        if (header == ScreenHeader.Standard)
+        {
+            Header(title = title, leading = leading, principal = principal, trailing = trailing);
+        }
         Body(extent = layout.body, scroll = scroll, content = content);
     }
 }
@@ -152,13 +186,20 @@ private fun Extent.asHeight(): Modifier = when (this)
 /**
  * The header, and the only place the status bar inset is spent.
  *
- * The two slots are laid out at the minimum touch target whether or not they hold anything,
- * so the title sits in the same place on every screen of a flow and a control that appears
- * does not move it (docs/IMPLEMENTATION-PITFALLS.md P21 is the other half of that size: a
- * control smaller than 48dp reports a rectangle its neighbour has already claimed).
+ * The two outer slots are laid out at the minimum touch target whether or not they hold
+ * anything, so the centre sits in the same place on every screen of a flow and a control that
+ * appears does not move it (docs/IMPLEMENTATION-PITFALLS.md P21 is the other half of that
+ * size: a control smaller than 48dp reports a rectangle its neighbour has already claimed).
+ * The centre is the title or the app's principal item, and either takes all the width the two
+ * slots leave — the same box, so a principal item moves nothing either.
  */
 @Composable
-private fun Header(title: String, leading: (@Composable () -> Unit)?, trailing: (@Composable () -> Unit)?)
+private fun Header(
+    title: String?,
+    leading: (@Composable () -> Unit)?,
+    principal: (@Composable () -> Unit)?,
+    trailing: (@Composable () -> Unit)?
+)
 {
     val gutter = LocalSpfnTheme.current.spacing.space4;
     Row(
@@ -174,11 +215,10 @@ private fun Header(title: String, leading: (@Composable () -> Unit)?, trailing: 
         {
             if (leading != null) leading() else FlowBack();
         }
-        SpfnText(
-            text = title,
-            role = TextRole.Title,
-            modifier = Modifier.weight(1f).padding(horizontal = gutter)
-        );
+        Box(modifier = Modifier.weight(1f).padding(horizontal = gutter), contentAlignment = Alignment.CenterStart)
+        {
+            if (principal != null) principal() else SpfnText(text = title ?: "", role = TextRole.Title);
+        }
         Box(modifier = Modifier.sizeIn(minWidth = Metrics.TOUCH_TARGET), contentAlignment = Alignment.CenterEnd)
         {
             if (trailing != null) trailing() else FlowClose();
@@ -232,13 +272,10 @@ private fun ColumnScope.share(extent: Extent): Modifier = when (extent)
 @Composable
 private fun FlowBack()
 {
-    val chrome = LocalScreenChrome.current;
-    if (chrome.wayOut == WayOut.Back)
+    val wayOut = ScreenWayOut.current;
+    if (wayOut.wayOut == WayOut.Back)
     {
-        HeaderControl(label = SpfnStrings.controlBack, id = "screen.back", onClick = chrome.onBack)
-        {
-            BackChevron();
-        }
+        BackControl(onClick = wayOut::back);
     }
 }
 
@@ -251,39 +288,9 @@ private fun FlowBack()
 @Composable
 private fun FlowClose()
 {
-    val chrome = LocalScreenChrome.current;
-    if (chrome.wayOut == WayOut.Close)
+    val wayOut = ScreenWayOut.current;
+    if (wayOut.wayOut == WayOut.Close)
     {
-        HeaderControl(label = SpfnStrings.controlClose, id = "screen.close", onClick = chrome.onClose)
-        {
-            CloseCross();
-        }
-    }
-}
-
-/**
- * One header control: a mark inside the minimum touch target, in BOTH directions.
- *
- * The size constraints come before `clickable`, so the touch area is the 48dp box rather
- * than the 20dp mark that Compose would then expand past its neighbours
- * (docs/IMPLEMENTATION-PITFALLS.md P21).
- *
- * [label] is what a screen reader says and not what is drawn, which is what keeps the ten
- * string keys the same ten they were while the words stopped being visible.
- */
-@Composable
-private fun HeaderControl(label: String, id: String, onClick: () -> Unit, mark: @Composable () -> Unit)
-{
-    Box(
-        modifier = Modifier
-            .testTag(id)
-            .semantics { contentDescription = label }
-            .sizeIn(minWidth = Metrics.TOUCH_TARGET, minHeight = Metrics.TOUCH_TARGET)
-            .clickable(onClick = onClick)
-            .wrapContentSize(Alignment.Center),
-        contentAlignment = Alignment.Center
-    )
-    {
-        mark();
+        CloseControl(onClick = wayOut::close);
     }
 }

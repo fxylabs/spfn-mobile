@@ -1,14 +1,16 @@
 // SPFN Mobile — what a flow tells the screens inside it.
 //
 // Counterpart of the `screenChrome` environment value in
-// Sources/SPFNUI/Components/Screen.swift. A `Screen` has to draw a way out without knowing
+// Sources/SPFNUI/Components/ScreenChrome.swift. A `Screen` has to draw a way out without knowing
 // which flow it is in or how deep, and a `FlowHost` knows both and does not know which of
 // its routes drew a header. A composition local is the one place those two meet without
 // either of them holding the other.
 //
 // It is deliberately not part of the module's public vocabulary. A host app never builds
 // one — `FlowHost` provides it and `Screen` reads it — and a public one would be a second
-// way to answer a question `Flow.wayOut` already answers.
+// way to answer a question `Flow.wayOut` already answers. What a host app may do is READ it,
+// and `ScreenWayOut.current` is that door: the way out and the two acts, and no way to
+// provide one.
 
 package xyz.superfunction.spfn.ui.components
 
