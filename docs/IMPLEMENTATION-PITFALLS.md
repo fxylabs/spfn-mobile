@@ -1154,15 +1154,35 @@ grep -rln 'swipe' examples/ui-spec/generated/flows/   # 가장자리 스와이�
 - 그 셀의 iOS 절반을 사람이 확인하는 `manual`로 옮긴다. 표에 남되 러너가 거짓 초록을 내지
   않는다.
 
-**고른 것.** 첫 번째 — Sources/SPFNUI/Components/SwipeBack.swift의 `SwipeBackGesture`가
-`UIViewRepresentable`로 내비게이션 스택 안에 있는 뷰를 하나 심고, 그 뷰의 `next` 리스폰더
-체인을 걸어 올라가 `UINavigationController`를 찾아 `interactivePopGestureRecognizer`의
-`isEnabled`를 직접 켠다. 루트 가드는 새 delegate를 짜는 대신 `Screen`이 이미 갖고 있던
-조건을 그대로 썼다 — `chrome.leading == .back`이 헤더에 back 버튼을 그릴지 결정하는 바로
-그 식이고, 스택 깊이가 2 이상일 때만 참이다. `delegate = nil`은 제스처를 켤 때만 건드리고,
-끌 때는 `isEnabled = false`만으로 충분해 UIKit 자신의 delegate를 그대로 둔다.
-Sources/SPFNUI/Components/Screen.swift가 `.modifier(SwipeBackGesture(enabled:))`로
-붙여 쓴다.
+**고른 것 (2026-09-03 ~ 2026-09-25).** 첫 번째였다 — `SwipeBack.swift`의 `SwipeBackGesture`가
+`UIViewRepresentable`로 내비게이션 스택 안에 뷰를 하나 심고, 리스폰더 체인으로
+`UINavigationController`를 찾아 `interactivePopGestureRecognizer`와 그 옆의 콘텐츠 스와이프
+인식기(비공개 클래스 이름 `Parallax`로 찾았다)를 켜고 delegate를 공유 객체로 바꿨다. 루트
+가드는 [P32](#p32)를 거치며 제스처 순간에 깊이를 읽는 delegate로 옮겨졌다.
+
+**지금 고른 것 (2026-09-25부터).** 처방 자체가 필요 없어졌다 — **바를 숨기지 않는다.**
+`Screen`은 시스템 내비게이션 바를 그대로 두고 제목·항목·닫기를 거기에 말한다
+(`navigationTitle`, `ToolbarItem`). 뒤로는 시스템 뒤로 버튼이고 두 스와이프는 UIKit 자신의
+것이라, SDK는 제스처를 켜지도 끄지도 않는다. `SwipeBack.swift`와 `HiddenNavigationBar`는
+삭제했다(docs/architecture/screen-header-design.md). 첫 번째 처방은 비공개 클래스 이름과 남의
+인식기 delegate에 기댔고, 두 번째 처방은 iOS 26에서 성립하지 않는다. 같은 기기에서 잰 것이다
+(iPhone 17 Pro / iOS 26 시뮬레이터, 프로브 앱 + Maestro, 2026-09-25):
+
+| id | 시험 | 결과 |
+| --- | --- | --- |
+| R1 | 바 유지, 뒤로 화살표를 빈 이미지로·글자를 투명으로 (두 번째 처방) | **뒤로 버튼이 유리 원형으로 그대로 보인다.** iOS 26은 화살표 이미지 설정을 무시한다. 스와이프 두 가지는 동작 |
+| R2 | 바 유지, `navigationBarBackButtonHidden(true)` | 가장자리·콘텐츠 스와이프 **모두 동작하지 않음** |
+| R3 | 바 숨김 (`.toolbar(.hidden, for: .navigationBar)`), 강제 활성화 없이 | 스와이프 **모두 동작하지 않음** — 이 절의 증상 재확인 |
+
+R2가 뜻하는 것: 바를 두더라도 **뒤로 버튼을 숨기면** 같은 증상이 난다. 그래서 `Screen`의
+`leading` 항목은 뒤로 버튼을 대신하지 않고 그 옆에 붙는다. 탐지 명령은 그대로 쓴다 —
+`grep -rn 'toolbar(.hidden' Sources/`와 `grep -rn 'navigationBarBackButtonHidden' Sources/`
+둘 다 비어 있어야 한다.
+
+셀에서 달라진 것: iOS의 뒤로는 시스템 버튼이라 SDK id(`screen.back`)가 없다. 생성된 셀은
+iOS에서 그 버튼을 접근성 라벨(돌아갈 화면의 제목, 없으면 "Back")로 찾는다
+(`CaseTable.headerBack`). u7b·u10b의 가장자리 스와이프는 그대로이고, 콘텐츠 스와이프 셀
+(`pushTour-contentSwipe`)이 더해졌다.
 
 **나온 곳.** w-evwna ui/scaffold-3d, iPhone 17 Pro / iOS 26.3 시뮬레이터 2026-09-03.
 셀 u7b·u10b(규칙 R8)가 `Assertion is false: "stack=1" is visible`로 실패했다. 프로브 둘로
@@ -1272,7 +1292,9 @@ u7b·u10b가 처음으로 실패했다 — 같은 라운드의 5커밋에 Androi
 셀로 고정하는 법: 플로우의 **루트에서** 시스템 뒤로/가장자리 스와이프를 보내는 셀을 따로
 쓴다. 깊이 2에서 도는 셀은 이 결함을 구조적으로 못 본다.
 
-**처방.** 켜는 것만 화면이 하고, **끄는 판단은 제스처가 일어나는 순간에** 시킨다. iOS에서는
+**처방.** (2026-09-25부터 SDK에는 이 코드가 없다 — [P29](#p29)의 "지금 고른 것"대로 바를
+숨기지 않으므로 인식기를 건드릴 일이 없다. 아래는 화면 단위 수명주기로 공유 자원을 켜고 끄는
+모든 코드에 그대로 적용되는 교훈으로 남긴다.) 켜는 것만 화면이 하고, **끄는 판단은 제스처가 일어나는 순간에** 시킨다. iOS에서는
 인식기의 `delegate`를 공유 객체 하나로 두고 `gestureRecognizerShouldBegin`에서 내비게이션
 컨트롤러의 현재 깊이(`viewControllers.count > 1`)를 읽는다. 화면의 의견은 **그려질 때**
 만들어지고 제스처는 **나중에** 일어나므로, 그 사이에 깊이가 두 번 움직였을 수 있다 — 늦게

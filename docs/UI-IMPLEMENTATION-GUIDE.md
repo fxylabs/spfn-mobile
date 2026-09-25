@@ -29,7 +29,9 @@ generator, not by hand.
 | Form state | `Form` — `fields` (one `FieldError?` per field), `submit` (a `Busy`); `isValid`, `canSubmit`, and `check` `edited` `submitting` `submitted` `submitFailed` | same names |
 | Field rules | `FieldError` — `.required` `.minLength(n)` `.maxLength(n)` `.kind(k)` `.custom(message:)`; `FieldRules`; `FieldValidator`; `FieldKind` — `.code` `.text` `.email` `.number` | same names |
 | Flow | `Flow`, `FlowRoute`, `FlowHost`, `NavigationHost` | same names |
-| Components | `Screen`, `PrimaryButton` `SecondaryButton` `DestructiveButton` `TextButton`, `SpfnText`, `SpfnTextField`, `StatusText`, `LoadableView`, `PagedView`, header icons — 11 | same names |
+| Components | `Screen`, `PrimaryButton` `SecondaryButton` `DestructiveButton` `TextButton`, `SpfnText`, `SpfnTextField`, `StatusText`, `LoadableView`, `PagedView`, header icons — 11 | same names, and `WayOutButton` (Android only: a screen drawn with `ScreenHeader.None` draws the flow's back or close with it) |
+| Screen header | `Screen(title:leading:principal:trailing:scroll:)` — every header argument optional; the three items go into the system navigation bar as `ToolbarItem`s, the back is the system's | `Screen(title, leading, principal, trailing, header, scroll)` — the same three slots in the SDK's header; `header = ScreenHeader.None` draws none (Android only) |
+| Way out | `ScreenWayOut` — `wayOut`, `back()`, `close()`; read from `@Environment(\.screenWayOut)`, `ScreenWayOut.none` outside a `FlowHost` | `ScreenWayOut`, same names; read from `ScreenWayOut.current`, `ScreenWayOut.None` outside a `FlowHost` |
 | Tokens, strings | `SPFNTokens` (21 keys — the default theme's source, read by no component), `SPFNStrings` (10 keys) | `SpfnTokens`, `SpfnStrings` |
 | Theme | `SPFNTheme` — `light` `dark` (`SPFNPalette`), `typography` (`SPFNTypography`), `spacing` (`SPFNSpacing`), `radius` (`SPFNRadius`), `buttons` (`SPFNButtons` → one `SPFNButtonAppearance` per button kind); `SPFNTheme.default`; injected with `.spfnTheme(_:)`, read from `\.spfnTheme` | `SpfnTheme`, same keys; `SpfnTheme.Default`; injected with `SpfnTheme(theme) { … }`, read from `LocalSpfnTheme` |
 
@@ -47,6 +49,7 @@ what a screen SHOWS, and a screen never shows a cursor.
 - Every control the contract lists carries `<screen>.<action>` as its accessibility identifier (iOS) / test tag (Android), spelled exactly as the contract does.
 - Every readout the contract lists is a `SpfnText` in the mono role with the text `<name>=<value>` — `stack=2`, `state=ready`, `fixture=none`. Runners wait on these; they are part of the contract.
 - Nothing else carries an identifier. An identifier a runner does not read is noise a reviewer has to explain.
+- The flow's own way out carries `screen.close` on both platforms and `screen.back` on Android. The iOS back is the system navigation bar's button, which carries no SDK identifier: a runner finds it by its accessibility label, the title of the screen it goes back to or the platform's "Back", and the generated cells do exactly that.
 
 A `Paged` and a `Form` model **publish their readouts as strings** — `model.readouts` — and
 your view draws one `SpfnText` per entry, in that order. The model computes them because there
@@ -80,10 +83,10 @@ pitfall that recorded how it was once broken. A contract references rules by id.
 | Id | Rule | Given by | Broken once as |
 | --- | --- | --- | --- |
 | S1 | The vocabulary and identifiers above, verbatim | validate 13 | — |
-| S2 | The header stays fixed; the body scrolls under it; the way out never scrolls away | `Screen(scroll: true)` — except under a `PagedView`, where the two toolkits differ: `LazyColumn` brings its own scroll, so an Android paged screen says `Screen(scroll = false)`, while the iOS half draws a bare `LazyVStack` and the `Screen` keeps the scroll | `longScroll-headerHolds` |
+| S2 | The header stays fixed; the body scrolls under it; the way out never scrolls away. On iOS the header is the system navigation bar; on Android it is the SDK's, and a screen that turned it off (`ScreenHeader.None`) owns this rule for the header it draws | `Screen(scroll: true)` — except under a `PagedView`, where the two toolkits differ: `LazyColumn` brings its own scroll, so an Android paged screen says `Screen(scroll = false)`, while the iOS half draws a bare `LazyVStack` and the `Screen` keeps the scroll | `longScroll-headerHolds` |
 | S3 | A modal flow arrives from the bottom and leaves to the bottom; a sheet stands at its detent (fit / half / full = 92 %) and rises and falls; its scrim darkens with it | `FlowHost`, `Sheet`, `SheetGeometry` | P34 (fit sheet stood full), P38 (sheet snapped instead of moving) |
-| S4 | A pushed screen shows a back control leading in the header; it pops to the screen beneath, which is in the state it was left in | `Screen` header, `Flow.back` | — |
-| S5 | A modal or sheet flow shows a close control trailing in the header on every screen; close empties the whole flow | `Screen` header, `Flow.close` | `modalTour-closeOnRight` |
+| S4 | A pushed screen shows a back control leading in the header; it pops to the screen beneath, which is in the state it was left in. iOS: the system navigation bar's back button, with both of its swipes — the SDK neither draws a back nor turns a gesture on or off. Android: the SDK header's chevron, or `WayOutButton` on a screen with no SDK header | iOS system bar; Android `Screen` header, `WayOutButton`; `Flow.back` | P29, P32 (the hidden bar took the swipes with it) |
+| S5 | The root of a modal or sheet flow shows a close control trailing in the header; close empties the whole flow. iOS: a trailing item in the system bar; Android: the SDK header's X, or `WayOutButton` | `Screen`, `WayOutButton`, `Flow.close` | `modalTour-closeOnRight` |
 | S6 | The system back (button, gesture, held predictive gesture) is the flow's own pop, above the last route; inside a sheet or a modal the same; a held gesture previews the screen beneath | `FlowHost`, `enableOnBackInvokedCallback` | P35 (no preview without the manifest flag), P30 |
 | S7 | Inside a flow, forward slides in from the trailing edge and pop slides out to it, with the same slide inside a modal cover and a sheet as on a push | `FlowTransitions`, iOS system | P37 (modal popped with a scale-down) |
 | S8 | Every control is at least the minimum touch target tall and answers a finger anywhere it is drawn — including a moving finger | button components, `contentShape`, no blanket pointer consumption | P21, P36 (a cover cancelled finger presses), P39 (only the label answered) |
@@ -175,10 +178,18 @@ theme is not navigation: a `Screen` composed outside any host draws with it just
 and the wrapper is what nests. The scheme is the platform's (`colorScheme`,
 `isSystemInDarkTheme`); the theme only says what each scheme looks like.
 
+The iOS navigation bar is themed by `Screen`, per screen, out of the same injected theme: the
+title is `SpfnText` in the title role in the bar's centre, and the bar's background is the
+palette's background through `.toolbarBackground`. Not `UINavigationBarAppearance`: the
+theme's fonts are SwiftUI `Font`s, which do not convert to the `UIFont` an appearance takes,
+and an appearance is either global to every bar in the app or reached per bar through UIKit.
+An app that puts its own item in the centre (`principal`) draws the title itself.
+
 **What is not themable**, on purpose:
 
 - **Touch targets** — 44pt / 48dp, the header height and the icon size are `Metrics`, the
-  platform's; a theme that could shrink a control would bring back P21 (rule S8). A button's
+  platform's (on iOS the header height is only the allowance a `fit` sheet makes for the system
+  bar); a theme that could shrink a control would bring back P21 (rule S8). A button's
   minimum height is a rule, not a value.
 - **Motion** — the push, modal and sheet transitions are one set every navigator is handed
   (S7, validate section 18).

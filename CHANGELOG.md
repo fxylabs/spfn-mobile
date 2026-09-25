@@ -5,6 +5,38 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Screen headers are each platform's own (breaking)
+
+- **iOS: `Screen` keeps the system navigation bar.** The SDK no longer hides it and draws a
+  header of its own. The title is `navigationTitle` (inline); `leading`, `principal` and
+  `trailing` are `ToolbarItem`s at `.topBarLeading`, `.principal` and `.topBarTrailing`; the
+  back is the system back button, with both of UIKit's back swipes; the flow's close on the
+  root of a modal or a sheet is a trailing item that keeps the `screen.close` identifier. The
+  bar takes its title font and colour (the title is `SpfnText` in the principal place) and
+  its background (`.toolbarBackground`) from the injected theme.
+- **Breaking, iOS:** `leading` no longer replaces the back — it stands beside the system back
+  button, whose hiding would take the swipes with it. The back carries no `screen.back`
+  identifier any more; a runner finds it by its accessibility label.
+- **Removed, iOS:** `SwipeBackGesture` (`SwipeBack.swift`) and the hidden-bar modifier. The
+  SDK no longer turns any back gesture on or off (docs/IMPLEMENTATION-PITFALLS.md P29).
+- **Breaking, both: the `Screen` signature.** `title` is optional (no title by default) and
+  a `principal` item is added between `leading` and `trailing`: iOS
+  `Screen(title:leading:principal:trailing:scroll:content:)`, Android
+  `Screen(title, leading, principal, trailing, header, scroll, content)`. Calls that name
+  their arguments compile unchanged.
+- **Android: `header: ScreenHeader`** — `Standard` (the default, unchanged) or `None`, which
+  draws no SDK header and leaves the status bar inset to the content.
+- **New, both: `ScreenWayOut`**, the read-only way out of the screen being drawn — `wayOut`,
+  `back()`, `close()`, and `none`/`None` outside a `FlowHost`. iOS reads it from
+  `@Environment(\.screenWayOut)`, Android from `ScreenWayOut.current`. `ScreenChrome` stays
+  internal.
+- **New, Android: `WayOutButton`**, the flow's back or close as the SDK header draws it (48dp
+  minimum, ids `screen.back` / `screen.close`), for a screen with `ScreenHeader.None`.
+- The UI spec gains `header.trailing` and `header.android`, and the case table the design's
+  cases: `pushTour-contentSwipe`, `pushTour-trailing`, `pushTour-wayOutBack`,
+  `pushTour-noHeaderSystemBack`, `modalTour-wayOutClose`, and the manual `pushTour-barSpace`
+  and `pushTour-barTheme`. `s2` and `pushTour-rootBack` find the iOS back by its label.
+
 ### The components take their look from an injectable theme
 
 - **`SPFNTheme` / `SpfnTheme`** hold the light and dark palettes, the four type roles, the
