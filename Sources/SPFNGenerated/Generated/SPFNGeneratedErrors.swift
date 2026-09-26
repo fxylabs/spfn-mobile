@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
-// contractVersion: 0.13.0
+// bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
+// contractVersion: 0.13.2
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -53,6 +53,9 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
     case deviceAuthDeniedError = "DeviceAuthDeniedError"
     case deviceAuthNotFoundError = "DeviceAuthNotFoundError"
     case deviceAuthAlreadyHandledError = "DeviceAuthAlreadyHandledError"
+    case deviceLinkExpiredError = "DeviceLinkExpiredError"
+    case deviceLinkDeniedError = "DeviceLinkDeniedError"
+    case deviceLinkNotFoundError = "DeviceLinkNotFoundError"
 
     /// The surface that answers with this code.
     public var surface: SPFNGeneratedErrorSurface
@@ -106,6 +109,12 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
         case .deviceAuthNotFoundError:
             return .rest
         case .deviceAuthAlreadyHandledError:
+            return .rest
+        case .deviceLinkExpiredError:
+            return .rest
+        case .deviceLinkDeniedError:
+            return .rest
+        case .deviceLinkNotFoundError:
             return .rest
         }
     }
@@ -162,6 +171,12 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
             return 404
         case .deviceAuthAlreadyHandledError:
             return 409
+        case .deviceLinkExpiredError:
+            return 400
+        case .deviceLinkDeniedError:
+            return 403
+        case .deviceLinkNotFoundError:
+            return 404
         }
     }
 
@@ -216,6 +231,12 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
         case .deviceAuthNotFoundError:
             return false
         case .deviceAuthAlreadyHandledError:
+            return false
+        case .deviceLinkExpiredError:
+            return false
+        case .deviceLinkDeniedError:
+            return false
+        case .deviceLinkNotFoundError:
             return false
         }
     }

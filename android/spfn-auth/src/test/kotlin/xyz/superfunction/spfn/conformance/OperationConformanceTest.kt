@@ -136,7 +136,7 @@ class OperationConformanceTest
         val bundle = SpfnCanonicalJson.parse(Fixtures.bytes("Contracts/spfn-mobile-contract.json")).members();
         val declared = bundle.list("operations").map { it.members() };
 
-        assertEquals("contract 0.13.0 declares eighteen operations", 18, declared.size);
+        assertEquals("contract 0.13.2 declares twenty operations", 20, declared.size);
         assertEquals(DECLARED_OPERATIONS.size, declared.size);
 
         for ((entry, expected) in declared.zip(DECLARED_OPERATIONS))
@@ -242,22 +242,22 @@ class OperationConformanceTest
         val binding = SpfnGeneratedContract.BINDING;
         binding.requireSupported(binding.importedVersion);
 
-        // A later patch on the pinned minor is additive and admitted: 0.13.1 would carry
-        // everything 0.13.0 does. This is the direction the lower bound must not close.
-        binding.requireSupported("0.13.1");
+        // A later patch on the pinned minor is additive and admitted: 0.13.3 would carry
+        // everything 0.13.2 does. This is the direction the lower bound must not close.
+        binding.requireSupported("0.13.3");
         binding.requireSupported("0.13.9");
 
         // The lower bound is the pinned version and not the minor floor. That rule was
         // written for the 0.4.1 pin, where 0.4.0 was the same minor and a major-and-minor
         // comparison would have admitted it — while the SDK called auth.keys.list,
         // auth.keys.revoke and auth.keys.revokeAll, which 0.4.1 added and a 0.4.0 server
-        // does not serve. At this pin 0.13.0 is the minor's first release, so no
-        // same-minor-lower-patch case exists to name; the rule is unchanged and the case
-        // list simply has nothing to put there.
+        // does not serve. At this pin it refuses 0.13.0 and 0.13.1 for the same reason:
+        // the SDK calls auth.deviceLink.redeem and auth.deviceLink.poll, which 0.13.2
+        // added, and sends waitMillis on auth.device.poll, which 0.13.1 added.
         //
         // Neighbouring minors break compatibility on a 0.x line: 0.12.x sits below,
         // 0.14.0 above. The previous 0.10.0 pin lacks the required MFA discriminant.
-        for (version in listOf("0.1.0", "0.4.1", "0.6.0", "0.7.0", "0.8.0", "0.9.0", "0.9.9", "0.10.0", "0.11.0", "0.12.9", "0.14.0", "1.0.0", "1.9.0", "2.0.0"))
+        for (version in listOf("0.1.0", "0.4.1", "0.6.0", "0.7.0", "0.8.0", "0.9.0", "0.9.9", "0.10.0", "0.11.0", "0.12.9", "0.13.0", "0.13.1", "0.14.0", "1.0.0", "1.9.0", "2.0.0"))
         {
             try
             {
@@ -273,6 +273,11 @@ class OperationConformanceTest
                 );
             }
         }
+
+        // The pin is a later patch of its minor, so the two ranges part here: the contract
+        // still declares the minor's floor, and this SDK admits from the pinned patch.
+        assertEquals(">=0.13.0 <0.14.0", binding.supportedRange);
+        assertEquals(">=${binding.importedVersion} <0.14.0", binding.admittedRange);
     }
 
     /**
@@ -282,9 +287,11 @@ class OperationConformanceTest
     companion object
     {
         /**
-         * The eighteen operations contract 0.13.0 declares, in bundle order. The last five
-         * arrived with 0.10.0; `auth.device.deny` is the one that names no response type,
-         * which `restOperations.responseBody` defines as answering 204 with an empty body.
+         * The twenty operations contract 0.13.2 declares, in bundle order. The five
+         * device-code operations arrived with 0.10.0 and the two device-link operations
+         * after them with 0.13.2; `auth.device.deny` is the one that names no response
+         * type, which `restOperations.responseBody` defines as answering 204 with an
+         * empty body.
          */
         private val DECLARED_OPERATIONS = listOf(
         DeclaredOperation("core.time", "GET", "/_core/time", "none", false, "0.9.0", null, "ServerTimeResponse"),
@@ -305,6 +312,8 @@ class OperationConformanceTest
         DeclaredOperation("auth.device.info", "POST", "/_auth/device/info", "clientProofV1", false, "0.10.0", "DeviceAuthInfoRequest", "DeviceAuthInfoResponse"),
         DeclaredOperation("auth.device.approve", "POST", "/_auth/device/approve", "clientProofV1", false, "0.10.0", "ApproveDeviceAuthRequest", "DeviceAuthInfoResponse"),
         DeclaredOperation("auth.device.deny", "POST", "/_auth/device/deny", "clientProofV1", false, "0.10.0", "DenyDeviceAuthRequest", null),
+        DeclaredOperation("auth.deviceLink.redeem", "POST", "/_auth/device/link/redeem", "none", false, "0.13.2", "RedeemDeviceLinkRequest", "RedeemDeviceLinkResponse"),
+        DeclaredOperation("auth.deviceLink.poll", "POST", "/_auth/device/link/poll", "none", false, "0.13.2", "PollDeviceLinkRequest", "PollDeviceAuthResponse"),
         )
     }
 

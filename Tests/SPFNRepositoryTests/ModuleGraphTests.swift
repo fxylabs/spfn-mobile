@@ -242,6 +242,11 @@ final class ContractLockTests: XCTestCase
     /// Below 1.0.0 the breaking axis is the minor, so the range the evidence declares
     /// must be bounded by the next minor. A range bounded by the next major would say
     /// the SDK supports contracts it has never seen.
+    ///
+    /// The floor is the minor's, not necessarily the pinned version: a later patch of a
+    /// minor keeps declaring the range its first release did (0.13.2 declares
+    /// `>=0.13.0`). What the floor may not do is leave the pinned minor or rise above the
+    /// pinned version.
     func testPreStableRangeIsBoundedByTheNextMinor() throws
     {
         let contract = try XCTUnwrap(try evidence()["contract"] as? [String: Any])
@@ -250,17 +255,18 @@ final class ContractLockTests: XCTestCase
         // Derived, not read: the evidence records the version and the major and stops
         // there, because a minor written beside a version is a second chance to be wrong
         // about the same number.
-        let minor = try XCTUnwrap(Int(version.split(separator: ".").dropFirst().first ?? ""))
+        let parts = version.split(separator: ".").compactMap { Int($0) }
+        XCTAssertEqual(parts.count, 3, "'\(version)' is not a release version")
+        let (minor, patch) = (parts[1], parts[2])
 
-        XCTAssertTrue(version.hasPrefix("\(major).\(minor)."))
-        if major == 0
-        {
-            XCTAssertEqual(contract["supportedRange"] as? String, ">=\(version) <0.\(minor + 1).0")
-        }
-        else
-        {
-            XCTAssertEqual(contract["supportedRange"] as? String, ">=\(version) <\(major + 1).0.0")
-        }
+        XCTAssertEqual(parts[0], major)
+        let upper = major == 0 ? "0.\(minor + 1).0" : "\(major + 1).0.0"
+        let range = try XCTUnwrap(contract["supportedRange"] as? String)
+        let floorPrefix = ">=\(major).\(minor)."
+        XCTAssertTrue(range.hasPrefix(floorPrefix) && range.hasSuffix(" <\(upper)"), "'\(range)'")
+        let floorPatch = Int(range.dropFirst(floorPrefix.count).prefix { $0.isNumber })
+        XCTAssertNotNil(floorPatch, "'\(range)'")
+        XCTAssertLessThanOrEqual(floorPatch ?? Int.max, patch, "the declared floor is above the pinned version")
     }
 
     /// A value with two homes can disagree with itself, so the lock stopped carrying a

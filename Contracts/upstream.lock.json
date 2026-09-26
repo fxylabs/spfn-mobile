@@ -12,7 +12,7 @@
   },
   "source": {
     "repository": "git.superfunction.xyz/superfunction/primitives",
-    "commit": "deedc2517cfcf322a901a41eaec0127b55854794",
+    "commit": "dc90f70dee07b45a2eb1dc8f78b456c613cfdd46",
     "upstreamBundlePath": "contracts/mobile/spfn-mobile-contract.json",
     "exporterVersion": "@spfn/auth/contract-bundle@6.0.0",
     "keyNamingRule": "This is not called bundlePath on purpose. The readers of this file match a key name at any depth, so two keys with the same name in different objects would resolve to whichever appears first, and the validator would digest the upstream path instead of the vendored one."

@@ -129,7 +129,7 @@ S1 vocabulary and identifiers · S2 fixed header, scrolling body · S3 modal cov
 ```json spfn-ui
 {
   "specVersion": 1,
-  "contract": { "manifestSha256": "bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658" },
+  "contract": { "manifestSha256": "8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e" },
   "services": {
     "deviceApproval": {
       "lookup": { "operation": "authDeviceInfo" },

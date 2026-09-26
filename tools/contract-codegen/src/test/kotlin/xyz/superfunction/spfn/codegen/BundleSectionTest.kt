@@ -314,17 +314,21 @@ class BundleSectionTest
         .getValue("$kotlinRoot/SpfnGeneratedCalls.kt")
 
     /**
-     * One descriptor's own text, from its declaration to the `)` that closes it.
+     * One descriptor's own text, from its declaration to the blank line that ends it.
      *
      * Every assertion below reads a block rather than the whole file. A file-wide
      * `contains` is the way these cases could pass while proving nothing: an emitter that
      * paired `echoSend`'s name with `itemsList`'s operation writes both strings somewhere,
      * and only asking whether they are in the same block catches it.
+     *
+     * The blank line, not a closing `)`: the Swift `noResponse` descriptor closes at a
+     * deeper indent than the others, so a `)`-terminated block ran on into whichever
+     * descriptor followed it.
      */
     private fun descriptorBlock(file: String, declaration: String): String
     {
         assertTrue("the calls file declares nothing matching '$declaration'", file.contains(declaration));
-        val block = file.substringAfter(declaration).substringBefore("\n    )");
+        val block = file.substringAfter(declaration).substringBefore("\n\n");
         assertTrue("the '$declaration' block is unterminated", block.length < file.length);
         return block;
     }
@@ -337,7 +341,7 @@ class BundleSectionTest
         val swift = swiftCalls(bundle);
         val kotlin = kotlinCalls(bundle);
 
-        assertEquals(18, bundle.operations.size);
+        assertEquals(20, bundle.operations.size);
         bundle.operations.forEach { operation ->
             val name = Names.lowerCamel(operation.id);
             assertEquals(
@@ -366,8 +370,8 @@ class BundleSectionTest
 
         // Nothing beyond the contract. A descriptor for an operation the bundle does not
         // declare would pass every assertion above.
-        assertEquals(18, Regex("public static let \\w+:").findAll(swift).count());
-        assertEquals(18, Regex("\n    val \\w+:").findAll(kotlin).count());
+        assertEquals(20, Regex("public static let \\w+:").findAll(swift).count());
+        assertEquals(20, Regex("\n    val \\w+:").findAll(kotlin).count());
     }
 
     /**

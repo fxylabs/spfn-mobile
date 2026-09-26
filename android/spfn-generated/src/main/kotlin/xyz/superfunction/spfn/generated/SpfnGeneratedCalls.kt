@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
-// contractVersion: 0.13.0
+// bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
+// contractVersion: 0.13.2
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -173,5 +173,21 @@ object SpfnGeneratedCalls
     val authDeviceDeny: SpfnCall<SpfnDenyDeviceAuthRequest, SpfnNoResponse> = SpfnCall.noResponse(
         operation = SpfnGeneratedOperations.authDeviceDeny,
         encode = { request -> request.canonicalValue() }
+    )
+
+    /** Parks a new device's public key on the code a signed-in device shows, and returns the match number to show. */
+    @JvmField
+    val authDeviceLinkRedeem: SpfnCall<SpfnRedeemDeviceLinkRequest, SpfnRedeemDeviceLinkResponse> = SpfnCall(
+        operation = SpfnGeneratedOperations.authDeviceLinkRedeem,
+        encode = { request -> request.canonicalValue() },
+        decode = { value -> SpfnRedeemDeviceLinkResponse.decode(value) }
+    )
+
+    /** Asks whether the issuer picked the match number; the approved answer is the login it produced. */
+    @JvmField
+    val authDeviceLinkPoll: SpfnCall<SpfnPollDeviceLinkRequest, SpfnPollDeviceAuthResponse> = SpfnCall(
+        operation = SpfnGeneratedOperations.authDeviceLinkPoll,
+        encode = { request -> request.canonicalValue() },
+        decode = { value -> SpfnPollDeviceAuthResponse.decode(value) }
     )
 }

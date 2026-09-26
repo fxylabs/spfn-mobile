@@ -377,7 +377,8 @@ class SpfnClientExecuteTest
                 "AccountDisabledError", "AccountPendingDeletionError", "RegistrationRejectedError",
                 "KeyIdAlreadyRegisteredError", "MfaVerificationFailedError", "TooManyRequestsError", "Error",
                 "DeviceAuthExpiredError", "DeviceAuthDeniedError", "DeviceAuthNotFoundError",
-                "DeviceAuthAlreadyHandledError"
+                "DeviceAuthAlreadyHandledError",
+                "DeviceLinkExpiredError", "DeviceLinkDeniedError", "DeviceLinkNotFoundError"
             ),
             SpfnGeneratedErrorCode.entries.filterNot { it.isAuthFailure() }.map { it.wireCode }
         );

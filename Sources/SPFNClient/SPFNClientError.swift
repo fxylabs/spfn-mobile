@@ -241,6 +241,7 @@ extension SPFNGeneratedErrorCode
              .accountDisabledError, .accountPendingDeletionError, .registrationRejectedError,
              .keyIdAlreadyRegisteredError, .mfaVerificationFailedError, .tooManyRequestsError, .deviceAuthExpiredError,
              .deviceAuthDeniedError, .deviceAuthNotFoundError, .deviceAuthAlreadyHandledError,
+             .deviceLinkExpiredError, .deviceLinkDeniedError, .deviceLinkNotFoundError,
              .error:
             return false
         }

@@ -330,6 +330,7 @@ final class SPFNClientExecuteTests: XCTestCase
                 "KeyIdAlreadyRegisteredError", "MfaVerificationFailedError", "TooManyRequestsError", "Error",
                 "DeviceAuthExpiredError", "DeviceAuthDeniedError", "DeviceAuthNotFoundError",
                 "DeviceAuthAlreadyHandledError",
+                "DeviceLinkExpiredError", "DeviceLinkDeniedError", "DeviceLinkNotFoundError",
             ]
         )
     }
