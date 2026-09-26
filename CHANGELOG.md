@@ -11,7 +11,8 @@ Entries under an unreleased heading describe repository state, not shipped softw
   (bundle SHA-256 `8cce6d89…`, exporter `@spfn/auth/contract-bundle@6.1.0`). The bundle
   still declares `>=0.13.0 <0.14.0`; both generated clients admit `>=0.13.2 <0.14.0`,
   because the lower bound is the pinned version and they now call operations 0.13.2 added
-  and send a field 0.13.1 added. `publishedPackages` is unchanged — see the lock.
+  and send a field 0.13.1 added. `publishedPackages` moves to `@spfn/auth 0.3.0-beta.28` and
+  `@spfn/core 0.3.0-beta.14`, the releases on the public npm registry at that commit.
 - **New, both: `enrollByLinkCode(code:deviceName:showMatch:)`** on `SPFNKeyLifecycle` /
   `SpfnKeyLifecycle`, the new device's side of the contract's `deviceLink` flow. It
   returns `SPFNDeviceCodeEnrollmentResult` / `SpfnDeviceCodeEnrollmentResult`, shares the
