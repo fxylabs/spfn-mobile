@@ -89,6 +89,10 @@ enum HarnessOutcome
             return "keyUnloadable"
         case .deviceCodeExpired:
             return "deviceCodeExpired"
+        case .malformedLinkCode:
+            return "malformedLinkCode"
+        case .linkCodeExpired:
+            return "linkCodeExpired"
         }
     }
 

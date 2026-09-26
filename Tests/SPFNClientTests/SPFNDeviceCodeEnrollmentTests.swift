@@ -1,6 +1,6 @@
 // SPFN Mobile — device-code enrollment (M8), one test per cell of the D table.
 //
-// The table is closed: D1–D20 are every state and every answer the waiting side of the
+// The table is closed: D1–D23 are every state and every answer the waiting side of the
 // contract's `deviceAuthorization` flow can meet, and each test is named after its cell.
 // What the flow sends is compared against Contracts/fixtures/enrollment/enrollment.json,
 // which a third implementation derived from the contract text (P10) — never against what
@@ -518,14 +518,14 @@ final class SPFNDeviceCodeEnrollmentTests: XCTestCase
     /// D17: the branch is read from `status`, and the fields that branch requires are
     /// then required. A default would turn a server that answered half a login into a
     /// login — `passwordChangeRequired` absent read as `false` is a rule the account may
-    /// not have.
+    /// not have. A `pending` interval of 0 is not on this list since contract 0.13.1: it
+    /// is what a held poll answers (D21).
     func testD17ABranchMissingItsOwnFieldsIsADecodingRefusal() async throws
     {
         let incomplete = [
             "{\"status\":\"pending\"}",
             "{\"passwordChangeRequired\":false,\"status\":\"approved\"}",
             "{\"status\":\"approved\",\"userId\":\"user-test-0001\"}",
-            "{\"intervalMillis\":0,\"status\":\"pending\"}",
             "{\"intervalMillis\":-1,\"status\":\"pending\"}",
         ]
         for body in incomplete
@@ -613,6 +613,78 @@ final class SPFNDeviceCodeEnrollmentTests: XCTestCase
             XCTAssertEqual(calls, 1, "no poll is sent after \(refusal)")
             try await assertNoKeySurvived(store, lifecycle)
         }
+    }
+
+    // MARK: - D21–D23: the long poll
+
+    /// D21: a poll the server held answers `pending` with the time it waited already
+    /// taken off the interval, so 0 means "ask again now" — and the next poll goes
+    /// without a sleep in between.
+    func testD21AHeldPendingAnswerPollsAgainAtOnce() async throws
+    {
+        let transport = ScriptedTransport([startAnswer(), pendingAnswer(0), approvedAnswer()])
+        let sleeper = ScriptedSleeper()
+        let lifecycle = makeLifecycle(
+            transport,
+            store: InMemoryKeyStore(),
+            keys: [try testKey()],
+            keyIDs: ["key-test-0001"],
+            sleeper: sleeper
+        )
+
+        _ = try await lifecycle.enrollByDeviceCode { _, _ in }
+
+        XCTAssertEqual(sleeper.waits, [intervalMillis], "only the start answer's interval was slept")
+        let polled = try await polledDeviceCodes(transport)
+        XCTAssertEqual(polled, [Self.deviceCode, Self.deviceCode])
+    }
+
+    /// D22: every poll asks to be held, and its transport deadline outlasts the hold. A
+    /// deadline at or under `waitMillis` would cut every held poll off as a lost answer;
+    /// `start` is not held and keeps the ordinary deadline.
+    func testD22EveryPollAsksToBeHeldAndItsDeadlineOutlastsTheHold() async throws
+    {
+        let transport = ScriptedTransport([startAnswer(), pendingAnswer(0), approvedAnswer()])
+        let lifecycle = makeLifecycle(transport, store: InMemoryKeyStore(), keys: [try testKey()], keyIDs: ["key-test-0001"])
+
+        _ = try await lifecycle.enrollByDeviceCode { _, _ in }
+
+        let received = await transport.received
+        let polls = received.filter { $0.url.hasSuffix(SPFNGeneratedOperations.authDevicePoll.path) }
+        XCTAssertEqual(polls.count, 2)
+        for poll in polls
+        {
+            let body = try SPFNCanonicalJSON.parse(poll.body ?? []).object()
+            XCTAssertEqual(body["waitMillis"], .integer(20_000), "the poll asks for the server's longest hold")
+            XCTAssertEqual(poll.timeoutMillis, 15_000 + 20_000, "the deadline is the hold plus the ordinary one")
+        }
+        XCTAssertEqual(received.first?.timeoutMillis, 15_000, "start is not held")
+    }
+
+    /// D23: after a held `pending`, a lost answer still costs the last interval the
+    /// server named above zero. Asking again at once would spin a dead network.
+    func testD23ALostAnswerAfterAHeldPendingWaitsTheLastInterval() async throws
+    {
+        let transport = ScriptedTransport([
+            startAnswer(),
+            pendingAnswer(0),
+            .failure(SPFNTransportError.connectivity("the network went away")),
+            approvedAnswer(),
+        ])
+        let sleeper = ScriptedSleeper()
+        let lifecycle = makeLifecycle(
+            transport,
+            store: InMemoryKeyStore(),
+            keys: [try testKey()],
+            keyIDs: ["key-test-0001"],
+            sleeper: sleeper
+        )
+
+        _ = try await lifecycle.enrollByDeviceCode { _, _ in }
+
+        XCTAssertEqual(sleeper.waits, [intervalMillis, intervalMillis])
+        let calls = await transport.callCount
+        XCTAssertEqual(calls, 4)
     }
 
     // MARK: - Assembly

@@ -5,6 +5,34 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Contract 0.13.2: sign in by a code another device shows
+
+- Re-pin the unmodified primitives export at `dc90f70dee07b45a2eb1dc8f78b456c613cfdd46`
+  (bundle SHA-256 `8cce6d89…`, exporter `@spfn/auth/contract-bundle@6.1.0`). The bundle
+  still declares `>=0.13.0 <0.14.0`; both generated clients admit `>=0.13.2 <0.14.0`,
+  because the lower bound is the pinned version and they now call operations 0.13.2 added
+  and send a field 0.13.1 added. `publishedPackages` is unchanged — see the lock.
+- **New, both: `enrollByLinkCode(code:deviceName:showMatch:)`** on `SPFNKeyLifecycle` /
+  `SpfnKeyLifecycle`, the new device's side of the contract's `deviceLink` flow. It
+  returns `SPFNDeviceCodeEnrollmentResult` / `SpfnDeviceCodeEnrollmentResult`, shares the
+  in-flight claim with `enroll` and `enrollByDeviceCode`, and destroys its key on every
+  ending that is not an approval. New lifecycle errors: `malformedLinkCode` (refused
+  before a key or a request) and `linkCodeExpired` (the redeem answer's expiry, on the
+  proof clock). The server's `DeviceLinkNotFoundError`, `DeviceLinkExpiredError` and
+  `DeviceLinkDeniedError` arrive as server refusals carrying those codes.
+- **New, both: `SPFNLinkCode.parse` / `SpfnLinkCode.parse`**, a pure function that reads a
+  typed code or an `https` URL on an allowed host and answers `XXXX-XXXX` or nothing.
+- **Both device polls long-poll.** `auth.device.poll` and `auth.deviceLink.poll` send
+  `waitMillis` 20000 with a transport deadline of that plus `timeoutMillis`. A `pending`
+  interval of 0 — what a held poll answers — is now accepted and polled again at once; it
+  was a decoding refusal before. A lost answer or a rate limit still waits the last
+  interval the server named above zero.
+- Generate the two device-link operations, their three types and three error codes; derive
+  the new error fixtures; regenerate the UI outputs against the new pin. The codegen
+  test's descriptor-block reader now ends a block at the blank line, because the Swift
+  `noResponse` descriptor closes at a deeper indent and the old reader ran into the next
+  descriptor once `auth.device.deny` stopped being the last one.
+
 ### Screen headers are each platform's own (breaking)
 
 - **iOS: `Screen` keeps the system navigation bar.** The SDK no longer hides it and draws a
