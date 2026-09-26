@@ -106,9 +106,10 @@ final class OperationConformanceTests: XCTestCase
         let responseType: String?
     }
 
-    /// The eighteen operations contract 0.13.0 declares, in bundle order. The last five
-    /// arrived with 0.10.0; `auth.device.deny` is the one that names no response type,
-    /// which `restOperations.responseBody` defines as answering 204 with an empty body.
+    /// The twenty operations contract 0.13.2 declares, in bundle order. The five device-code
+    /// operations arrived with 0.10.0 and the two device-link operations after them with
+    /// 0.13.2; `auth.device.deny` is the one that names no response type, which
+    /// `restOperations.responseBody` defines as answering 204 with an empty body.
     static let declaredOperations: [DeclaredOperation] = [
         DeclaredOperation(id: "core.time", method: "GET", path: "/_core/time", authProfile: "none", requiresSession: false, since: "0.9.0", requestType: nil, responseType: "ServerTimeResponse"),
         DeclaredOperation(id: "auth.clientProof.handshake", method: "POST", path: "/v1/auth/client-proof/handshake", authProfile: "clientProofV1", requiresSession: false, since: "0.1.0", requestType: "HandshakeRequest", responseType: "HandshakeResponse"),
@@ -128,6 +129,8 @@ final class OperationConformanceTests: XCTestCase
         DeclaredOperation(id: "auth.device.info", method: "POST", path: "/_auth/device/info", authProfile: "clientProofV1", requiresSession: false, since: "0.10.0", requestType: "DeviceAuthInfoRequest", responseType: "DeviceAuthInfoResponse"),
         DeclaredOperation(id: "auth.device.approve", method: "POST", path: "/_auth/device/approve", authProfile: "clientProofV1", requiresSession: false, since: "0.10.0", requestType: "ApproveDeviceAuthRequest", responseType: "DeviceAuthInfoResponse"),
         DeclaredOperation(id: "auth.device.deny", method: "POST", path: "/_auth/device/deny", authProfile: "clientProofV1", requiresSession: false, since: "0.10.0", requestType: "DenyDeviceAuthRequest", responseType: nil),
+        DeclaredOperation(id: "auth.deviceLink.redeem", method: "POST", path: "/_auth/device/link/redeem", authProfile: "none", requiresSession: false, since: "0.13.2", requestType: "RedeemDeviceLinkRequest", responseType: "RedeemDeviceLinkResponse"),
+        DeclaredOperation(id: "auth.deviceLink.poll", method: "POST", path: "/_auth/device/link/poll", authProfile: "none", requiresSession: false, since: "0.13.2", requestType: "PollDeviceLinkRequest", responseType: "PollDeviceAuthResponse"),
     ]
 
     /// The bundle says what the table says — including the count, so an operation added
@@ -139,7 +142,7 @@ final class OperationConformanceTests: XCTestCase
         ).members()
         let declared = try bundle.list("operations").map { try $0.members() }
 
-        XCTAssertEqual(declared.count, 18, "contract 0.13.0 declares eighteen operations")
+        XCTAssertEqual(declared.count, 20, "contract 0.13.2 declares twenty operations")
         XCTAssertEqual(declared.count, Self.declaredOperations.count)
 
         for (entry, expected) in zip(declared, Self.declaredOperations)
@@ -252,22 +255,22 @@ final class OperationConformanceTests: XCTestCase
         let binding = SPFNGeneratedContract.binding
         XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: binding.importedVersion))
 
-        // A later patch on the pinned minor is additive and admitted: 0.13.1 would carry
-        // everything 0.13.0 does. This is the direction the lower bound must not close.
-        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.13.1"))
+        // A later patch on the pinned minor is additive and admitted: 0.13.3 would carry
+        // everything 0.13.2 does. This is the direction the lower bound must not close.
+        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.13.3"))
         XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.13.9"))
 
         // The lower bound is the pinned version and not the minor floor. That rule was
         // written for the 0.4.1 pin, where 0.4.0 was the same minor and a major-and-minor
         // comparison would have admitted it — while the SDK called auth.keys.list,
         // auth.keys.revoke and auth.keys.revokeAll, which 0.4.1 added and a 0.4.0 server
-        // does not serve. At this pin 0.13.0 is the minor's first release, so no
-        // same-minor-lower-patch case exists to name; the rule is unchanged and the case
-        // list simply has nothing to put there.
+        // does not serve. At this pin it refuses 0.13.0 and 0.13.1 for the same reason:
+        // the SDK calls auth.deviceLink.redeem and auth.deviceLink.poll, which 0.13.2
+        // added, and sends waitMillis on auth.device.poll, which 0.13.1 added.
         //
         // Neighbouring minors break compatibility on a 0.x line: 0.12.x sits below,
         // 0.14.0 above. The previous 0.10.0 pin lacks the required MFA discriminant.
-        for version in ["0.1.0", "0.4.1", "0.6.0", "0.7.0", "0.8.0", "0.9.0", "0.9.9", "0.10.0", "0.11.0", "0.12.9", "0.14.0", "1.0.0", "1.9.0", "2.0.0"]
+        for version in ["0.1.0", "0.4.1", "0.6.0", "0.7.0", "0.8.0", "0.9.0", "0.9.9", "0.10.0", "0.11.0", "0.12.9", "0.13.0", "0.13.1", "0.14.0", "1.0.0", "1.9.0", "2.0.0"]
         {
             XCTAssertThrowsError(try binding.requireSupported(serverContractVersion: version))
             { error in
@@ -278,13 +281,13 @@ final class OperationConformanceTests: XCTestCase
                 }
                 XCTAssertEqual(found, version)
                 XCTAssertEqual(range, binding.admittedRange)
-                // This pin is a release, so the two agree here. Both are built from the
-                // pinned version and the same upper bound — the lock's range is checked
-                // into that shape by the validator, and `admittedRange` computes it —
-                // so they can only part on a pre-release pin, which admits one version.
-                XCTAssertEqual(binding.admittedRange, binding.supportedRange)
             }
         }
+
+        // The pin is a later patch of its minor, so the two ranges part here: the contract
+        // still declares the minor's floor, and this SDK admits from the pinned patch.
+        XCTAssertEqual(binding.supportedRange, ">=0.13.0 <0.14.0")
+        XCTAssertEqual(binding.admittedRange, ">=\(binding.importedVersion) <0.14.0")
     }
 
     /// Decodes a fixture value into the generated type it names, then re-encodes it.

@@ -32,11 +32,11 @@
 // a well-formed old-key proof failing verification means the old key is gone — which is
 // what a completed rotation looks like from the outside.
 //
-// Device-code enrollment adds no state to that machine. The key it parks and the device
-// code it polls with live in this call's own frame for as long as the call runs, and the
-// install stays UNENROLLED until the approval is saved — so a process death, a
-// cancellation or any refusal leaves nothing behind to resume, which is exactly the
-// difference between it and a rotation.
+// Device-code and link-code enrollment add no state to that machine. The key each parks
+// and the device code it polls with live in this call's own frame for as long as the
+// call runs, and the install stays UNENROLLED until the approval is saved — so a process
+// death, a cancellation or any refusal leaves nothing behind to resume, which is exactly
+// the difference between them and a rotation.
 //
 // Sources/SPFNClient/SPFNKeyLifecycle.swift is the same machine in Swift.
 
@@ -60,6 +60,8 @@ import xyz.superfunction.spfn.generated.SpfnOauthNativeRequest
 import xyz.superfunction.spfn.generated.SpfnOauthNativeResponse
 import xyz.superfunction.spfn.generated.SpfnPollDeviceAuthRequest
 import xyz.superfunction.spfn.generated.SpfnPollDeviceAuthResponse
+import xyz.superfunction.spfn.generated.SpfnPollDeviceLinkRequest
+import xyz.superfunction.spfn.generated.SpfnRedeemDeviceLinkRequest
 import xyz.superfunction.spfn.generated.SpfnRotateKeyRequest
 import xyz.superfunction.spfn.generated.SpfnRotateKeyResponse
 import xyz.superfunction.spfn.generated.SpfnStartDeviceAuthRequest
@@ -226,6 +228,20 @@ sealed class SpfnKeyLifecycleException(message: String) : IllegalStateException(
      * be asking about a code it already knows is dead.
      */
     class DeviceCodeExpired : SpfnKeyLifecycleException("the device code expired before it was approved")
+
+    /**
+     * The link code handed to `enrollByLinkCode` is not eight characters of the
+     * device-code alphabet once spaces, dashes and case are folded away. Refused before a
+     * key is generated or anything is sent; the code itself is never carried here.
+     */
+    class MalformedLinkCode : SpfnKeyLifecycleException("a link code is eight characters of the device-code alphabet")
+
+    /**
+     * The link reached the `expiresAtMillis` the `redeem` answer named before the
+     * signed-in device picked the number, judged on the proof clock — the local twin of
+     * `DeviceLinkExpiredError`, for the reason [DeviceCodeExpired] gives.
+     */
+    class LinkCodeExpired : SpfnKeyLifecycleException("the link code expired before it was approved")
 }
 
 /**
@@ -347,21 +363,7 @@ class SpfnKeyLifecycle(
             throw SpfnKeyLifecycleException.MalformedProviderId();
         }
 
-        // The state read and the claim are one critical section, so two callers cannot
-        // both read UNENROLLED and both proceed. The claim itself is atomic rather than
-        // mutex-held, so releasing it below never has to suspend.
-        mutex.withLock {
-            when (state())
-            {
-                SpfnKeyLifecycleState.ENROLLED -> throw SpfnKeyLifecycleException.AlreadyEnrolled()
-                SpfnKeyLifecycleState.ROTATION_PENDING -> throw SpfnKeyLifecycleException.RotationUnresolved()
-                SpfnKeyLifecycleState.UNENROLLED -> Unit
-            }
-            if (!enrollmentInFlight.compareAndSet(false, true))
-            {
-                throw SpfnKeyLifecycleException.EnrollmentInFlight();
-            }
-        }
+        claimEnrollment();
 
         try
         {
@@ -462,10 +464,12 @@ class SpfnKeyLifecycle(
      *      literal algorithm name, this build's client kind as the platform, and the
      *      caller's [deviceName] when it gave one. Nothing is read off the OS.
      *   3. The wait obeys the server: `intervalMillis` from `start`, then from each
-     *      `pending`. There is no client-side default and no backoff. A `pending` answer
-     *      is not a failure; every refusal the contract marks retryable — one today,
-     *      `TooManyRequestsError` — and every lost response are asked again after that
-     *      same interval, and everything else ends the wait.
+     *      `pending`. There is no client-side default and no backoff. Every poll asks the
+     *      server to hold it for `waitMillis`, so a `pending` that was held that long
+     *      answers an interval of 0 and is asked again at once. A `pending` answer is not
+     *      a failure; every refusal the contract marks retryable — one today,
+     *      `TooManyRequestsError` — and every lost response are asked again after the
+     *      last interval the server named above zero, and everything else ends the wait.
      *   4. The deadline is `start`'s `expiresAtMillis` judged on the proof clock, the one
      *      `core.time` synchronised. The device's own wall clock never enters it, and a
      *      lost `core.time` fetch is a lost poll: it costs the same interval and is asked
@@ -479,20 +483,7 @@ class SpfnKeyLifecycle(
         showCode: (userCode: String, expiresAtMillis: Long) -> Unit
     ): SpfnDeviceCodeEnrollmentResult
     {
-        // The state read and the claim are one critical section, so two callers cannot
-        // both read UNENROLLED and both proceed — whichever entry point each called.
-        mutex.withLock {
-            when (state())
-            {
-                SpfnKeyLifecycleState.ENROLLED -> throw SpfnKeyLifecycleException.AlreadyEnrolled()
-                SpfnKeyLifecycleState.ROTATION_PENDING -> throw SpfnKeyLifecycleException.RotationUnresolved()
-                SpfnKeyLifecycleState.UNENROLLED -> Unit
-            }
-            if (!enrollmentInFlight.compareAndSet(false, true))
-            {
-                throw SpfnKeyLifecycleException.EnrollmentInFlight();
-            }
-        }
+        claimEnrollment();
 
         try
         {
@@ -514,27 +505,16 @@ class SpfnKeyLifecycle(
                 showCode(started.userCode, started.expiresAtMillis);
 
                 val approved = awaitApproval(
-                    deviceCode = started.deviceCode,
+                    call = SpfnGeneratedCalls.authDevicePoll,
+                    request = SpfnPollDeviceAuthRequest(started.deviceCode, LONG_POLL_MILLIS),
                     expiresAtMillis = started.expiresAtMillis,
-                    intervalMillis = waitMillis(started.intervalMillis)
+                    intervalMillis = waitMillis(started.intervalMillis),
+                    expired = { SpfnKeyLifecycleException.DeviceCodeExpired() }
                 );
-
-                // Saved exactly as `enroll` saves it, so a key this flow enrolled is a
-                // key `rotate` can replace and `activeProvider` can sign with. Inside the
-                // same guard as the request, for the reason `enroll` states: a save that
-                // throws would otherwise leave a registration the server honours with no
-                // local metadata naming it, and the alias orphaned.
-                mutex.withLock {
-                    store.save(
-                        ACTIVE_SLOT,
-                        key.metadata(clientId = approved.clientId, createdAtMillis = clock.nowMillis())
-                    );
-                }
-                return SpfnDeviceCodeEnrollmentResult(
-                    clientId = approved.clientId,
-                    keyId = key.keyId,
-                    passwordChangeRequired = approved.passwordChangeRequired
-                );
+                // Inside the same guard as the request, for the reason `enroll` states: a
+                // save that throws would otherwise leave a registration the server
+                // honours with no local metadata naming it, and the alias orphaned.
+                return save(key, approved);
             }
             catch (failure: Throwable)
             {
@@ -554,11 +534,148 @@ class SpfnKeyLifecycle(
         }
     }
 
+    // ---- M9: enrollment by a link code --------------------------------------
+
+    /**
+     * Enrolls this device by a code a device already signed in shows — the contract's
+     * `deviceLink` flow, from the new device's side. [enrollByDeviceCode] turned round:
+     * there this device shows the code, here it reads one.
+     *
+     * [code] is what a person typed or what [SpfnLinkCode.parse] read off a scan. Spaces,
+     * dashes and case fold away; anything that is not then eight characters of the
+     * device-code alphabet is refused with [SpfnKeyLifecycleException.MalformedLinkCode]
+     * before a key is generated or anything is sent.
+     *
+     * [showMatch] is called exactly once, immediately after `redeem` answers, with the
+     * number this device shows (10–99) and the instant the link expires. The person picks
+     * that number on the signed-in device, so the app shows it large and nothing else
+     * about the link. It is called on the calling coroutine's dispatcher, as `showCode` is.
+     *
+     * The rules are [enrollByDeviceCode]'s, one for one: the same in-flight claim, so no
+     * two enrollments of any kind run at once; the `redeem` body carries exactly the
+     * fields `start` does, plus the code; the same wait, long poll and deadline on the
+     * proof clock; every non-approved exit deletes the Keystore entry, cancellation
+     * included; and an approval is saved exactly as [enroll] saves one.
+     *
+     * What ends the call, and what an app shows for it:
+     *
+     *   - `redeem` refused with `DeviceLinkNotFoundError` (404): the code was never
+     *     issued, or another device already used it — "code not found".
+     *   - `redeem` or a poll refused with `DeviceLinkExpiredError` (400), or
+     *     [SpfnKeyLifecycleException.LinkCodeExpired] from this SDK: the code died —
+     *     "code expired".
+     *   - a poll refused with `DeviceLinkDeniedError` (403): the signed-in device refused,
+     *     or picked another number — "not approved".
+     *   - a poll refused with `DeviceLinkNotFoundError`: the approval was collected by
+     *     another poll, which ends the wait as `DeviceAuthNotFoundError` ends a
+     *     device-code wait.
+     *
+     * The refusals arrive as [SpfnClientError.Server] carrying the generated code. The
+     * code, the device code, the match number and the key are never logged.
+     */
+    suspend fun enrollByLinkCode(
+        code: String,
+        deviceName: String? = null,
+        showMatch: (matchNumber: Long, expiresAtMillis: Long) -> Unit
+    ): SpfnDeviceCodeEnrollmentResult
+    {
+        val userCode = SpfnLinkCode.normalized(code) ?: throw SpfnKeyLifecycleException.MalformedLinkCode();
+        claimEnrollment();
+
+        try
+        {
+            val key = SpfnKeystoreCustodyKey.generate(newKeyId(), engine, preferStrongBox);
+            val fingerprint = SpfnDigest.sha256Hex(key.publicKeySpkiDer);
+            try
+            {
+                val redeemed = client(signer = null).execute(
+                    SpfnGeneratedCalls.authDeviceLinkRedeem,
+                    SpfnRedeemDeviceLinkRequest(
+                        userCode = userCode,
+                        publicKey = Base64.encode(key.publicKeySpkiDer),
+                        keyId = key.keyId,
+                        fingerprint = fingerprint,
+                        algorithm = ALGORITHM_NAME,
+                        deviceName = deviceName,
+                        platform = PLATFORM
+                    )
+                );
+                if (redeemed.matchNumber !in MATCH_NUMBERS)
+                {
+                    throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, true);
+                }
+                showMatch(redeemed.matchNumber, redeemed.expiresAtMillis);
+
+                val approved = awaitApproval(
+                    call = SpfnGeneratedCalls.authDeviceLinkPoll,
+                    request = SpfnPollDeviceLinkRequest(redeemed.deviceCode, LONG_POLL_MILLIS),
+                    expiresAtMillis = redeemed.expiresAtMillis,
+                    intervalMillis = waitMillis(redeemed.intervalMillis),
+                    expired = { SpfnKeyLifecycleException.LinkCodeExpired() }
+                );
+                return save(key, approved);
+            }
+            catch (failure: Throwable)
+            {
+                // As in `enrollByDeviceCode`: every non-approved exit, cancellation
+                // included, and `destroy` does not suspend.
+                key.destroy();
+                throw failure;
+            }
+        }
+        finally
+        {
+            enrollmentInFlight.set(false);
+        }
+    }
+
+    /**
+     * The state checks and the in-flight claim every enrollment starts with.
+     *
+     * The state read and the claim are one critical section, so two callers cannot both
+     * read UNENROLLED and both proceed — whichever entry point each called. The claim
+     * itself is atomic rather than mutex-held, so the caller's release in its `finally`
+     * never has to suspend.
+     */
+    private suspend fun claimEnrollment()
+    {
+        mutex.withLock {
+            when (state())
+            {
+                SpfnKeyLifecycleState.ENROLLED -> throw SpfnKeyLifecycleException.AlreadyEnrolled()
+                SpfnKeyLifecycleState.ROTATION_PENDING -> throw SpfnKeyLifecycleException.RotationUnresolved()
+                SpfnKeyLifecycleState.UNENROLLED -> Unit
+            }
+            if (!enrollmentInFlight.compareAndSet(false, true))
+            {
+                throw SpfnKeyLifecycleException.EnrollmentInFlight();
+            }
+        }
+    }
+
     /** What an approved poll settled, before the key it belongs to is saved. */
     private class DeviceApproval(val clientId: String, val passwordChangeRequired: Boolean)
 
     /**
-     * The wait: sleep the interval, judge the deadline, poll, read the answer.
+     * Saves an approved key exactly as [enroll] saves one, so a key either device flow
+     * enrolled is a key [rotate] can replace and [activeProvider] can sign with.
+     */
+    private suspend fun save(key: SpfnKeystoreCustodyKey, approval: DeviceApproval): SpfnDeviceCodeEnrollmentResult
+    {
+        mutex.withLock {
+            store.save(ACTIVE_SLOT, key.metadata(clientId = approval.clientId, createdAtMillis = clock.nowMillis()));
+        }
+        return SpfnDeviceCodeEnrollmentResult(
+            clientId = approval.clientId,
+            keyId = key.keyId,
+            passwordChangeRequired = approval.passwordChangeRequired
+        );
+    }
+
+    /**
+     * The wait: sleep the interval, judge the deadline, poll, read the answer. Both device
+     * flows run it; they differ only in the poll they send and in the error a passed
+     * deadline raises.
      *
      * The deadline is checked between the sleep and the request rather than after it, so
      * a code that expired while this device was waiting costs no request at all.
@@ -567,25 +684,38 @@ class SpfnKeyLifecycle(
      * clock read and the poll. On a fresh install the first iteration's clock read is a
      * real `core.time` request, and a network that dropped it says exactly as much about
      * the code as a network that dropped the poll one line below — nothing.
+     *
+     * Two numbers, because a long poll made them differ. `waitMillis` is what the next
+     * iteration sleeps, and a held `pending` sets it to the 0 the server answered.
+     * `interval` is the last interval the server named above zero, and it is what a lost
+     * answer or a rate limit costs: re-asking those at once would spin a dead network, or
+     * walk straight back into the limit.
      */
-    private suspend fun awaitApproval(
-        deviceCode: String,
+    private suspend fun <R> awaitApproval(
+        call: SpfnCall<R, SpfnPollDeviceAuthResponse>,
+        request: R,
         expiresAtMillis: Long,
-        intervalMillis: Long
+        intervalMillis: Long,
+        expired: () -> SpfnKeyLifecycleException
     ): DeviceApproval
     {
+        var interval = intervalMillis;
         var waitMillis = intervalMillis;
         while (true)
         {
-            sleeper.sleep(waitMillis);
+            if (waitMillis > 0)
+            {
+                sleeper.sleep(waitMillis);
+            }
+            waitMillis = interval;
 
             val now = clockNow() ?: continue;
             if (now >= expiresAtMillis)
             {
-                throw SpfnKeyLifecycleException.DeviceCodeExpired();
+                throw expired();
             }
 
-            val answer = pollOnce(deviceCode) ?: continue;
+            val answer = pollOnce(call, request) ?: continue;
 
             // The branch is read from `status` and never from which fields arrived: the
             // contract's `pollStatusRule` states that every field but the discriminant is
@@ -593,7 +723,11 @@ class SpfnKeyLifecycle(
             // be reading a shape nothing declared.
             when (answer.status)
             {
-                SpfnDeviceAuthPollStatus.PENDING -> waitMillis = waitMillis(answer.intervalMillis)
+                SpfnDeviceAuthPollStatus.PENDING ->
+                {
+                    waitMillis = pendingWaitMillis(answer.intervalMillis);
+                    interval = if (waitMillis > 0) waitMillis else interval;
+                }
                 SpfnDeviceAuthPollStatus.APPROVED ->
                 {
                     val clientId = answer.userId;
@@ -638,12 +772,16 @@ class SpfnKeyLifecycle(
      * apply anything twice — which is why this operation may be retried where the execute
      * path retries nothing. A cancelled call is not a lost one and is rethrown as itself,
      * because the caller withdrawing is not a network failure.
+     *
+     * The request asks the server to hold it for [LONG_POLL_MILLIS], so its transport
+     * deadline is that hold plus the ordinary one: a deadline at or under the hold would
+     * cut every held poll off as a lost answer.
      */
-    private suspend fun pollOnce(deviceCode: String): SpfnPollDeviceAuthResponse?
+    private suspend fun <R> pollOnce(call: SpfnCall<R, SpfnPollDeviceAuthResponse>, request: R): SpfnPollDeviceAuthResponse?
     {
         try
         {
-            return client(signer = null).execute(SpfnGeneratedCalls.authDevicePoll, SpfnPollDeviceAuthRequest(deviceCode));
+            return client(signer = null, timeoutMillis = timeoutMillis + LONG_POLL_MILLIS).execute(call, request);
         }
         catch (failure: SpfnClientError.Transport)
         {
@@ -677,6 +815,23 @@ class SpfnKeyLifecycle(
     private fun waitMillis(intervalMillis: Long?): Long
     {
         if (intervalMillis == null || intervalMillis <= 0)
+        {
+            throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, true);
+        }
+        return intervalMillis;
+    }
+
+    /**
+     * The wait a `pending` answer asks for, or a decoding refusal.
+     *
+     * [waitMillis] with 0 admitted. The contract's `pendingRule` takes the time a held
+     * poll already waited off the interval, so after a hold at least that long the answer
+     * is 0 and the next poll goes at once. Absent and negative are still a server this
+     * client does not understand.
+     */
+    private fun pendingWaitMillis(intervalMillis: Long?): Long
+    {
+        if (intervalMillis == null || intervalMillis < 0)
         {
             throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_THE_DECLARED_RESPONSE, true);
         }
@@ -935,7 +1090,7 @@ class SpfnKeyLifecycle(
      * enrollment client carries a placeholder that throws if anything ever asks it
      * to sign, which nothing on that path can.
      */
-    private fun client(signer: SpfnKeystoreKeyProvider?): SpfnClient
+    private fun client(signer: SpfnKeystoreKeyProvider?, timeoutMillis: Long = this.timeoutMillis): SpfnClient
     {
         val provider: SpfnKeyProvider = signer ?: UnenrolledKeyProvider;
         return SpfnClient(
@@ -946,7 +1101,7 @@ class SpfnKeyLifecycle(
                 baseUrl = baseUrl,
                 clock = proofClock,
                 nonceGenerator = nonceGenerator,
-                timeoutMillis = timeoutMillis
+                timeoutMillis = this.timeoutMillis
             ),
             timeoutMillis = timeoutMillis
         );
@@ -1002,6 +1157,22 @@ class SpfnKeyLifecycle(
          * here instead of a refusal the server has to raise.
          */
         private val ALGORITHM_NAME: SpfnKeyAlgorithm = SpfnKeyAlgorithm.ES256
+
+        /**
+         * How long each device-flow poll asks the server to hold it while nothing has
+         * been decided — the `waitMillis` `auth.device.poll` declares since contract
+         * 0.13.1 and `auth.deviceLink.poll` since it arrived in 0.13.2. The server caps a
+         * hold at its own maximum, 20 seconds by default, so asking for more would buy
+         * nothing and only lengthen the transport deadline built on it.
+         */
+        internal const val LONG_POLL_MILLIS: Long = 20_000
+
+        /**
+         * The numbers `redeem` may answer: the contract's `matchRule`. Anything else is a
+         * number the signed-in device will never offer, so showing it would strand the
+         * person in front of a pick that cannot succeed.
+         */
+        private val MATCH_NUMBERS: LongRange = 10L..99L
 
         /**
          * The platform a parked key is registered under, and it is the identity header's

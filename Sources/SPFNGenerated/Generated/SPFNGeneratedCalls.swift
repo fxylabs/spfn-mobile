@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    bb0373c2c3e95bcc3923c84a160945e17ca57d5c13fd8122f341f1df181bc658
-// contractVersion: 0.13.0
+// bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
+// contractVersion: 0.13.2
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -148,4 +148,18 @@ public enum SPFNGeneratedCalls
             operation: SPFNGeneratedOperations.authDeviceDeny,
             encode: { try $0.canonicalValue() }
         )
+
+    /// Parks a new device's public key on the code a signed-in device shows, and returns the match number to show.
+    public static let authDeviceLinkRedeem: SPFNCall<SPFNRedeemDeviceLinkRequest, SPFNRedeemDeviceLinkResponse> = SPFNCall(
+        operation: SPFNGeneratedOperations.authDeviceLinkRedeem,
+        encode: { try $0.canonicalValue() },
+        decode: { try SPFNRedeemDeviceLinkResponse(canonical: $0) }
+    )
+
+    /// Asks whether the issuer picked the match number; the approved answer is the login it produced.
+    public static let authDeviceLinkPoll: SPFNCall<SPFNPollDeviceLinkRequest, SPFNPollDeviceAuthResponse> = SPFNCall(
+        operation: SPFNGeneratedOperations.authDeviceLinkPoll,
+        encode: { try $0.canonicalValue() },
+        decode: { try SPFNPollDeviceAuthResponse(canonical: $0) }
+    )
 }

@@ -1,6 +1,6 @@
 // SPFN Mobile — device-code enrollment (M8), one test per cell of the D table.
 //
-// The table is closed: D1–D20 are every state and every answer the waiting side of the
+// The table is closed: D1–D23 are every state and every answer the waiting side of the
 // contract's `deviceAuthorization` flow can meet, and each test is named after its cell.
 // What the flow sends is compared against Contracts/fixtures/enrollment/enrollment.json,
 // which a third implementation derived from the contract text (P10) — never against what
@@ -429,7 +429,8 @@ class SpfnDeviceCodeEnrollmentTest
      * D17: the branch is read from `status`, and the fields that branch requires are
      * then required. A default would turn a server that answered half a login into a
      * login — `passwordChangeRequired` absent read as `false` is a rule the account may
-     * not have.
+     * not have. A `pending` interval of 0 is not on this list since contract 0.13.1: it
+     * is what a held poll answers (D21).
      */
     @Test
     fun d17_aBranchMissingItsOwnFieldsIsADecodingRefusal() = runBlocking {
@@ -437,7 +438,6 @@ class SpfnDeviceCodeEnrollmentTest
             "{\"status\":\"pending\"}",
             "{\"passwordChangeRequired\":false,\"status\":\"approved\"}",
             "{\"status\":\"approved\",\"userId\":\"user-test-0001\"}",
-            "{\"intervalMillis\":0,\"status\":\"pending\"}",
             "{\"intervalMillis\":-1,\"status\":\"pending\"}"
         );
         for (body in incomplete)
@@ -525,6 +525,77 @@ class SpfnDeviceCodeEnrollmentTest
             assertEquals("no poll is sent after $refusal", 1, transport.callCount);
             assertNoKeySurvived(store, engine, lifecycle);
         }
+    }
+
+    // ---- D21–D23: the long poll ---------------------------------------------
+
+    /**
+     * D21: a poll the server held answers `pending` with the time it waited already taken
+     * off the interval, so 0 means "ask again now" — and the next poll goes without a
+     * sleep in between.
+     */
+    @Test
+    fun d21_aHeldPendingAnswerPollsAgainAtOnce() = runBlocking {
+        val transport = ScriptedTransport(listOf(startAnswer(), pendingAnswer(0), approvedAnswer()));
+        val sleeper = ScriptedSleeper();
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair());
+        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"), sleeper = sleeper);
+
+        lifecycle.enrollByDeviceCode { _, _ -> };
+
+        assertEquals("only the start answer's interval was slept", listOf(intervalMillis), sleeper.waits);
+        assertEquals(listOf(DEVICE_CODE, DEVICE_CODE), polledDeviceCodes(transport));
+    }
+
+    /**
+     * D22: every poll asks to be held, and its transport deadline outlasts the hold. A
+     * deadline at or under `waitMillis` would cut every held poll off as a lost answer;
+     * `start` is not held and keeps the ordinary deadline.
+     */
+    @Test
+    fun d22_everyPollAsksToBeHeldAndItsDeadlineOutlastsTheHold() = runBlocking {
+        val transport = ScriptedTransport(listOf(startAnswer(), pendingAnswer(0), approvedAnswer()));
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair());
+        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"));
+
+        lifecycle.enrollByDeviceCode { _, _ -> };
+
+        val polls = transport.received.filter { it.url.endsWith(SpfnGeneratedOperations.authDevicePoll.path) };
+        assertEquals(2, polls.size);
+        for (poll in polls)
+        {
+            val body = SpfnCanonicalJson.parse(requireNotNull(poll.body)).members();
+            assertEquals("the poll asks for the server's longest hold", SpfnCanonicalValue.Integer(20_000), body["waitMillis"]);
+            assertEquals("the deadline is the hold plus the ordinary one", 15_000L + 20_000L, poll.timeoutMillis);
+        }
+        assertEquals("start is not held", 15_000L, transport.received.first().timeoutMillis);
+    }
+
+    /**
+     * D23: after a held `pending`, a lost answer still costs the last interval the server
+     * named above zero. Asking again at once would spin a dead network.
+     */
+    @Test
+    fun d23_aLostAnswerAfterAHeldPendingWaitsTheLastInterval() = runBlocking {
+        val transport = ScriptedTransport(
+            listOf(
+                startAnswer(),
+                pendingAnswer(0),
+                ScriptedTransport.Outcome.Failure(SpfnTransportError.Connectivity("the network went away")),
+                approvedAnswer()
+            )
+        );
+        val sleeper = ScriptedSleeper();
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair());
+        val lifecycle = makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0001"), sleeper = sleeper);
+
+        lifecycle.enrollByDeviceCode { _, _ -> };
+
+        assertEquals(listOf(intervalMillis, intervalMillis), sleeper.waits);
+        assertEquals(4, transport.callCount);
     }
 
     // ---- assembly ----------------------------------------------------------

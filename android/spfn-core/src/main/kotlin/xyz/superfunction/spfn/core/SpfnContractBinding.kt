@@ -73,7 +73,7 @@ data class SpfnContractBinding(
      * There is no fallback and no partial-compatibility mode: an unsupported contract
      * surfaces as an upgrade error rather than as a decoding failure much later. The
      * refusal reports [admittedRange], not [supportedRange], because those are the same
-     * string only for a release pin.
+     * string only for a release pin that is its minor's first release.
      */
     fun requireSupported(serverContractVersion: String)
     {
@@ -90,8 +90,11 @@ data class SpfnContractBinding(
     /**
      * The window [requireSupported] actually admits.
      *
-     * For a release pin this is [supportedRange]. For a pre-release pin it is the pinned
-     * version alone: the declared range would promise every core below the next breaking
+     * For a release pin this is the pinned version up to the next breaking one. That is
+     * [supportedRange] when the pin is its minor's first release, and narrower once a later
+     * patch is pinned: the declared range still starts at the minor's floor, and this SDK
+     * calls operations only the pinned patch serves. For a pre-release pin it is the
+     * pinned version alone: the declared range would promise every core below the next breaking
      * version, this SDK refuses all of them, and printing that range would advertise a
      * window it will not honour. A pin this SDK cannot parse admits nothing, and says so.
      */

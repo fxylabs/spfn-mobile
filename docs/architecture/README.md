@@ -597,6 +597,45 @@ that refuses to synchronise at all is a different answer and ends the wait: a co
 carrying no usable clock operation is the same on every retry, so a device that retried
 it would poll until a deadline it can never read went past.
 
+**Every poll is a long poll (contract 0.13.1).** The request carries `waitMillis` 20000,
+which the server caps at its own maximum and holds while nothing is decided, so the
+request's transport deadline is that hold plus the lifecycle's ordinary one — a deadline
+at or under the hold would turn every held poll into a lost answer. The server takes the
+time it held off the interval it answers, so a `pending` after a full hold says 0 and the
+next poll goes at once. The wait therefore keeps two numbers: what the next iteration
+sleeps, which a held `pending` sets to 0, and the last interval the server named above
+zero, which is what a lost answer, a lost clock fetch or a rate limit still costs. Sleeping
+the 0 there would spin a dead network, or walk straight back into the limit.
+
+## Link-code sign-in
+
+Contract 0.13.2's `deviceLink` flow is the device-code flow turned round: the device that
+is signed in shows the code, and the new device reads it, parks its key with
+`auth.deviceLink.redeem`, shows the match number it gets back, and polls
+`auth.deviceLink.poll` until the signed-in device picks that number. It is a third entry
+point beside the other two — `enrollByLinkCode` — and it shares everything that makes the
+device-code flow safe: the one in-flight claim across every enrollment, the key living only
+in the call's frame, the wait loop with its deadline on the proof clock and its long poll,
+and the save that makes an approved key the one `rotate` replaces. The loop is one
+function the two flows call with their own poll descriptor and their own expiry error, so
+the rules cannot drift apart. The issuing half (`issue`, `status`, `confirm`, `deny`,
+`cancel`) is bound to the key that issued and is not on the mobile contract, so there is
+nothing for an approver-side wrapper to call.
+
+The code is refused locally before a key exists when it is not eight characters of the
+device-code alphabet once spaces, dashes and case are folded. A scan goes through
+`SPFNLinkCode.parse` / `SpfnLinkCode.parse` first, which is a pure function judged by hand
+on ASCII rather than by either platform's URL parser: `URLComponents` and `java.net.URI`
+disagree about percent-encoding, IDN hosts and empty segments, and a scan one SDK reads
+and the other refuses has no fix. Its rules refuse more than they need to on purpose — the
+QR comes from the app's own signed-in client, so strictness costs nothing — and the one
+table both suites run is duplicated rather than put under `Contracts/fixtures`, which holds
+only vectors derived from the contract text.
+
+A match number outside the contract's 10–99 is a decoding refusal and is never shown: the
+signed-in device would never offer it, so showing it would leave a person looking for a
+number that cannot be picked.
+
 ## Contract import model
 
 SPFN primitives owns the canonical route DSL, schemas and the `clientProofV1` server

@@ -80,6 +80,8 @@ object HarnessOutcome
         is SpfnKeyLifecycleException.SecondFactorRequired -> "secondFactorRequired"
         is SpfnKeyLifecycleException.KeyUnloadable -> "keyUnloadable"
         is SpfnKeyLifecycleException.DeviceCodeExpired -> "deviceCodeExpired"
+        is SpfnKeyLifecycleException.MalformedLinkCode -> "malformedLinkCode"
+        is SpfnKeyLifecycleException.LinkCodeExpired -> "linkCodeExpired"
     };
 
     /**

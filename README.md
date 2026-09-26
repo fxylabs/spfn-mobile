@@ -147,6 +147,57 @@ draws from it hops to its own main thread. The approver should be shown what `in
 answers — the device name and the fingerprint prefix — before approving, because that is
 the whole defence against approving somebody else's device.
 
+Every poll asks the server to hold it for up to 20 seconds while nobody has answered
+(`waitMillis`, contract 0.13.1), and its transport deadline is that hold plus the ordinary
+one. An approval therefore lands within a request's round trip rather than at the next
+interval; a `pending` answer after a hold carries an interval of 0 and is asked again at
+once, and everything else still waits the interval the server named.
+
+## Signing in by a code another device shows
+
+The same sign-in the other way round (contract 0.13.2's `deviceLink`): the device that is
+already signed in shows a code, as text and as a QR its own app draws, and the new device
+reads it. The new device then shows a two-digit number; the person taps that number among
+three on the signed-in device, and the new device is in.
+
+```swift
+guard let code = SPFNLinkCode.parse(scannedOrTyped, allowedHosts: ["app.example.com"])
+else { return showNotACode() }
+let signedIn = try await lifecycle.enrollByLinkCode(code: code, deviceName: "Pocket phone")
+{ matchNumber, expiresAtMillis in show(matchNumber, until: expiresAtMillis) }
+```
+
+```kotlin
+val code = SpfnLinkCode.parse(scannedOrTyped, setOf("app.example.com")) ?: return showNotACode()
+val signedIn = lifecycle.enrollByLinkCode(code, deviceName = "Pocket phone")
+{ matchNumber, expiresAtMillis -> show(matchNumber, expiresAtMillis) }
+```
+
+`SPFNLinkCode.parse` / `SpfnLinkCode.parse` takes what a person typed (`abcd efgh`,
+`ABCD-EFGH`) or what a camera read, and answers `XXXX-XXXX` or nothing. A URL is read only
+when it is `https`, its host is in the set the app passes, and the code is its last path
+segment, with no userinfo, port, query, fragment or percent-encoding; the full rule list
+is on the function. `enrollByLinkCode` folds a typed code the same way and refuses one
+that is not eight characters of the code alphabet before it generates a key.
+
+It is `enrollByDeviceCode`'s sibling in every rule — one enrollment of any kind at a time,
+the key destroyed on every ending that is not an approval, the deadline judged on the
+server's clock, the same long poll, the same result type — and it ends in one of these,
+each of which an app shows differently:
+
+| Ending | Arrives as | Show |
+| --- | --- | --- |
+| approved | the returned `SPFNDeviceCodeEnrollmentResult` / `SpfnDeviceCodeEnrollmentResult` | signed in |
+| not a code | `malformedLinkCode` / `MalformedLinkCode`, nothing sent | "that is not a code" |
+| unknown or already-used code | `DeviceLinkNotFoundError` (404) on `redeem` | "code not found" |
+| code expired | `DeviceLinkExpiredError` (400) on `redeem` or a poll, or `linkCodeExpired` / `LinkCodeExpired` | "code expired — show a new one" |
+| refused or wrong number picked | `DeviceLinkDeniedError` (403) on a poll | "not approved" |
+| approval collected elsewhere | `DeviceLinkNotFoundError` (404) on a poll | start again |
+
+The server refusals are `SPFNClientError.server` / `SpfnClientError.Server` carrying the
+generated code. The signed-in device's half — issuing the code, reading the three numbers,
+confirming — is not on the mobile contract, so a phone is always the new device here.
+
 ## Where the decisions live
 
 The approved repository and release topology is the decision artifact

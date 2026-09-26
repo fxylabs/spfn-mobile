@@ -216,6 +216,33 @@
       "retryable": false,
       "surface": "rest",
       "sha256": "38c9f639d716b1355f8839832266161fd9252bcf74f2df7cb8aa2762cd995a17"
+    },
+    {
+      "name": "device-link-expired-error",
+      "wire": "{\"error\":{\"code\":\"DeviceLinkExpiredError\",\"message\":\"test vector for DeviceLinkExpiredError\",\"requestId\":\"req-device-link-expired-error\"}}",
+      "code": "DeviceLinkExpiredError",
+      "httpStatus": 400,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "7d1f4d5608e8ec8b050d433c952179785d81998c47b8a9f4171c075679069fac"
+    },
+    {
+      "name": "device-link-denied-error",
+      "wire": "{\"error\":{\"code\":\"DeviceLinkDeniedError\",\"message\":\"test vector for DeviceLinkDeniedError\",\"requestId\":\"req-device-link-denied-error\"}}",
+      "code": "DeviceLinkDeniedError",
+      "httpStatus": 403,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "294b03da3376f525f68e37b0453f6303c4c519773b9644c80dfd0e30cd4571a8"
+    },
+    {
+      "name": "device-link-not-found-error",
+      "wire": "{\"error\":{\"code\":\"DeviceLinkNotFoundError\",\"message\":\"test vector for DeviceLinkNotFoundError\",\"requestId\":\"req-device-link-not-found-error\"}}",
+      "code": "DeviceLinkNotFoundError",
+      "httpStatus": 404,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "c879613a44ee4929aca1dabc5d2f3a3f99fb249e331f00c62e03243df65fc896"
     }
   ],
   "rejected": [
