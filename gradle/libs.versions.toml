@@ -47,6 +47,10 @@ androidx-navigation3 = "1.1.7"
 # its own on Android, and the multiplatform `androidx.compose.ui.backhandler` package is
 # not in the 1.12.0 Android artifact (checked by listing it). Latest stable 2026-09-02.
 androidx-activity-compose = "1.12.4"
+# The event stream module's ProcessLifecycleOwner. Not a new download: 2.10.0 is already on
+# spfn-ui's release runtime classpath (compose-foundation → emoji2 → lifecycle-process) and
+# in gradle/verification-metadata.xml; `spfn-events` declares it because it uses it.
+androidx-lifecycle-process = "2.10.0"
 
 # Numeric baselines consumed by the module build scripts.
 jdk-toolchain = "21"
@@ -77,6 +81,7 @@ androidx-compose-ui = { module = "androidx.compose.ui:ui", version.ref = "androi
 # opaque surface a modal flow stands on (android/spfn-ui/src/main/kotlin/.../FlowHost.kt).
 androidx-compose-foundation = { module = "androidx.compose.foundation:foundation", version.ref = "androidx-compose" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity-compose" }
+androidx-lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "androidx-lifecycle-process" }
 androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "androidx-navigation3" }
 androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "androidx-navigation3" }
 
