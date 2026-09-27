@@ -43,6 +43,9 @@
 package xyz.superfunction.spfn.client
 
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import xyz.superfunction.spfn.auth.SpfnAuthException
@@ -282,6 +285,17 @@ class SpfnKeyLifecycle(
      */
     private val enrollmentInFlight = AtomicBoolean(false)
 
+    private val signedIn = MutableStateFlow(store.load(ACTIVE_SLOT)?.clientId)
+
+    /**
+     * Who is signed in: the client id stored with the active key, or null. Read-only —
+     * the only ways to change it are the `enroll…` flows and [wipe]. It moves after the
+     * store has been written, and a rotation keeps the client id, so it does not move then.
+     * The event stream observes it to close on sign-out and reopen for another account
+     * (docs/architecture/event-stream-design.md §3-3).
+     */
+    val signedInClientId: StateFlow<String?> = signedIn.asStateFlow()
+
     // ---- observation -------------------------------------------------------
 
     fun state(): SpfnKeyLifecycleState
@@ -410,6 +424,7 @@ class SpfnKeyLifecycle(
                 // the retry would mint a second one.
                 mutex.withLock {
                     store.save(ACTIVE_SLOT, key.metadata(clientId = userId, createdAtMillis = clock.nowMillis()));
+                    publishSignedIn();
                 }
                 return SpfnEnrollmentResult(
                     clientId = userId,
@@ -664,6 +679,7 @@ class SpfnKeyLifecycle(
     {
         mutex.withLock {
             store.save(ACTIVE_SLOT, key.metadata(clientId = approval.clientId, createdAtMillis = clock.nowMillis()));
+            publishSignedIn();
         }
         return SpfnDeviceCodeEnrollmentResult(
             clientId = approval.clientId,
@@ -1037,6 +1053,13 @@ class SpfnKeyLifecycle(
             }
             store.delete(slot);
         }
+        publishSignedIn();
+    }
+
+    /** The stored client id, now. A rotation writes the same id, so the value holds. */
+    private fun publishSignedIn()
+    {
+        signedIn.value = store.load(ACTIVE_SLOT)?.clientId;
     }
 
     // ---- assembly ----------------------------------------------------------

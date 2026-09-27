@@ -95,16 +95,24 @@ class SpfnServerFailure(
     /** The status the server actually answered with. See [SpfnAuthFailure.httpStatus]. */
     val httpStatus: Int,
     /** The envelope as it arrived. Server-chosen text; it never prints itself. */
-    val envelope: SpfnErrorEnvelope
+    val envelope: SpfnErrorEnvelope,
+    /**
+     * The refusal's `Retry-After` header as the server wrote it, or null. Carried, never
+     * obeyed here: execute retries nothing but an auth refusal. The event stream reads it
+     * on a 429 (SpfnRetryAfter). Server-chosen text, so `toString` leaves it out.
+     */
+    val retryAfter: String? = null
 )
 {
     override fun equals(other: Any?): Boolean =
         other is SpfnServerFailure &&
             other.code == code &&
             other.httpStatus == httpStatus &&
-            other.envelope == envelope
+            other.envelope == envelope &&
+            other.retryAfter == retryAfter
 
-    override fun hashCode(): Int = (31 * (31 * code.hashCode() + httpStatus)) + envelope.hashCode()
+    override fun hashCode(): Int =
+        31 * ((31 * (31 * code.hashCode() + httpStatus)) + envelope.hashCode()) + retryAfter.hashCode()
 
     override fun toString(): String =
         "SpfnServerFailure(code=${code.wireCode}, httpStatus=$httpStatus, envelope=redacted)"

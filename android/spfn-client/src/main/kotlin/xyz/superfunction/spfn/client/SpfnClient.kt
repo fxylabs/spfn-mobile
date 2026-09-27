@@ -288,7 +288,7 @@ class SpfnClient(
             {
                 throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_AN_ERROR_ENVELOPE, false);
             };
-            throw refusal(envelope, response.statusCode);
+            throw refusal(envelope, response.statusCode, SpfnRetryAfter.header(response.headers));
         }
 
         if (!call.operation.declaresResponse)
@@ -370,7 +370,7 @@ class SpfnClient(
      * envelope and never reaches here at all, so it cannot make the client re-handshake
      * against something that never refused a proof.
      */
-    private fun refusal(envelope: SpfnErrorEnvelope, httpStatus: Int): SpfnClientError
+    private fun refusal(envelope: SpfnErrorEnvelope, httpStatus: Int, retryAfter: String? = null): SpfnClientError
     {
         val code = try
         {
@@ -387,7 +387,7 @@ class SpfnClient(
         }
         else
         {
-            SpfnClientError.Server(SpfnServerFailure(code, httpStatus, envelope))
+            SpfnClientError.Server(SpfnServerFailure(code, httpStatus, envelope, retryAfter))
         };
     }
 
