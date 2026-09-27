@@ -1,6 +1,7 @@
 // SPFN Mobile — what an app tells the event stream once, at its composition root.
 //
-// The stream path, the fixed list of event names and the server's ping interval. Every
+// The stream path, the fixed list of event names, the server's ping interval and whether
+// the token route wants a session. Every
 // refusal happens here, at construction, so a wrong list is found on the first run rather
 // than as a stream that never opens (docs/architecture/event-stream-design.md §3-1).
 //
@@ -52,6 +53,9 @@ data class SpfnEventStreamBackoff(
  *   server's own rule when null (`/events/stream` becomes `/events/token`).
  * @param pingIntervalMillis the SERVER's ping interval. The silence watchdog is 2.5 times it.
  * @param deliveryBuffer one listener's queue length before it is replaced by one reread.
+ * @param tokenRequiresSession true only for a server that mounts the client-proof handshake
+ *   and guards its token route with sessions. False by default: the token call is signed by
+ *   the key alone, carries no session header and never calls the handshake (§2-2).
  * @throws IllegalArgumentException for an empty list, an empty name, a name holding a
  *   comma, a path that does not begin with `/` or that carries a query.
  */
@@ -61,7 +65,8 @@ class SpfnEventStreamConfiguration(
     tokenPath: String? = null,
     val pingIntervalMillis: Long = 10_000,
     val backoff: SpfnEventStreamBackoff = SpfnEventStreamBackoff.Standard,
-    val deliveryBuffer: Int = 256
+    val deliveryBuffer: Int = 256,
+    val tokenRequiresSession: Boolean = false
 )
 {
     /** The configured names, deduplicated and sorted: the order the query carries them in. */

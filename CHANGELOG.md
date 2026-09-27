@@ -13,8 +13,12 @@ Entries under an unreleased heading describe repository state, not shipped softw
   of event names) and handed three facts —
   `setForeground`, `setSignedIn`, `setNetworkAvailable`; it connects only while the app is
   in the foreground and signed in. The one-use token is an `SPFNOperation` sent through
-  `execute` (signed, one re-handshake) and signed by the key signed in at the moment of the
-  call, so one stream spans rotations and account switches; the stream goes through a new streaming transport
+  `execute`, signed by the key signed in at the moment of the call, so one stream spans
+  rotations and account switches. It carries no session by default (`requiresSession: false`,
+  like an app's own signed calls), so a server that does not mount the client-proof handshake
+  still mints tokens; `tokenRequiresSession: true` in the configuration presents a session
+  opened through the handshake, with its one re-handshake, for a server that guards the
+  token route with sessions; the stream goes through a new streaming transport
   boundary, `SPFNStreamTransport` / `SpfnStreamTransport`, with `URLSession`-delegate and
   OkHttp adapters and no new dependency (docs/architecture/event-stream-design.md).
 - Screens listen with `listen(_:where:)` / `listen(payload, where)` — by name and an optional

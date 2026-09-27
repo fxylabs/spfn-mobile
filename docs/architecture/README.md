@@ -835,7 +835,7 @@ above rather than inside them:
 
 | Piece | Where | What it reuses |
 | --- | --- | --- |
-| the one-use token | `POST <tokenPath>`, an `SPFNOperation` built from the configured path | `execute` — signed, one re-handshake, `PROOF_EXPIRED` re-anchoring; no second request path. Signed with `SPFNKeyLifecycle.signedInClient()`, the key signed in at the moment of the call |
+| the one-use token | `POST <tokenPath>`, an `SPFNOperation` built from the configured path | `execute` — signed, `PROOF_EXPIRED` re-anchoring; no second request path. Sessionless by default (`requiresSession: false`, no handshake); `tokenRequiresSession: true` presents a session with its one re-handshake. Signed with `SPFNKeyLifecycle.signedInClient()`, the key signed in at the moment of the call |
 | the stream | `GET <streamPath>?token=…&events=…` over `SPFNStreamTransport` / `SpfnStreamTransport` | a second, streaming transport boundary with the same four errors, the same hardening (no cookie, no cache, no redirect, no library retry) and no deadline after the headers |
 | the decisions | `SPFNEventStreamMachine` / `SpfnEventStreamMachine` | nothing: a pure `(state, input) -> (state, effects)` table, E-1…E-56, unit-tested on Linux and the JVM |
 | the listeners | the listener hub | nothing: per-listener decode → condition → queue, L-1…L-18 |

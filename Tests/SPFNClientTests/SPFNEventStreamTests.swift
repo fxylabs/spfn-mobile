@@ -1,6 +1,7 @@
 // SPFN Mobile — the whole event stream over the fakes (docs/architecture/event-stream-design.md §9-2).
 //
-// The token call goes through the real `execute` and a real session; the stream goes
+// The token call goes through the real `execute`, sessionless unless a test asks for a
+// session-guarded token route; the stream goes
 // through the fake stream transport; timers wait on the manual sleeper until a test fires
 // them. What is asserted is what reaches each boundary — signed headers on the token call,
 // the exact stream URL — and what a listener receives. The Kotlin suite carries the same
@@ -30,13 +31,13 @@ final class SPFNEventStreamTests: XCTestCase
         let tokenRequest = try XCTUnwrap(fixture.tokens.tokenRequests.first)
         XCTAssertEqual(tokenRequest.method, "POST")
         XCTAssertEqual(tokenRequest.url, "https://example.invalid/events/token")
-        XCTAssertTrue(tokenRequest.headers.contains { $0.0 == SPFNWireHeaders.session }, "the token call is signed")
+        XCTAssertTrue(tokenRequest.headers.contains { $0.0 == SPFNWireHeaders.proof }, "the token call is signed")
 
         let streamRequest = try XCTUnwrap(fixture.streams.requests.first)
         XCTAssertEqual(streamRequest.method, "GET")
         XCTAssertEqual(streamRequest.url, "https://example.invalid/events/stream?token=token-1&events=sessionActivity,sessionUnread")
         XCTAssertTrue(streamRequest.headers.contains { $0 == ("accept", "text/event-stream") })
-        XCTAssertFalse(streamRequest.headers.contains { $0.0 == SPFNWireHeaders.session }, "the stream GET is not signed")
+        XCTAssertFalse(streamRequest.headers.contains { $0.0 == SPFNWireHeaders.proof }, "the stream GET is not signed")
 
         first.send(ServerFrames.connected)
         let opened = await eventually { log.all.count == 2 }
@@ -159,6 +160,43 @@ final class SPFNEventStreamTests: XCTestCase
         XCTAssertEqual(fixture.streams.requests.count, 1)
         XCTAssertTrue(fixture.streams.requests.first?.url.hasSuffix("&events=sessionActivity,sessionUnread") ?? false)
         XCTAssertEqual(fixture.events.state, .open(epoch: 1))
+    }
+
+    // MARK: - The token call presents a session only when the server wants one
+
+    /// §2-2: by default the token call is signed by the key alone, as an app's own signed
+    /// calls are. No session header goes out and the handshake route is never called.
+    func test_tokenCall_default_sendsNoSessionAndNoHandshake() async throws
+    {
+        let fixture = try EventStreamFixture()
+        XCTAssertFalse(fixture.events.configuration.tokenRequiresSession)
+        fixture.streams.enqueue()
+        let connected = await fixture.connect()
+        XCTAssertTrue(connected)
+
+        let tokenRequest = try XCTUnwrap(fixture.tokens.tokenRequests.first)
+        XCTAssertTrue(tokenRequest.headers.contains { $0.0 == SPFNWireHeaders.proof }, "the token call is signed")
+        XCTAssertFalse(tokenRequest.headers.contains { $0.0 == SPFNWireHeaders.session }, "no session header")
+        XCTAssertEqual(fixture.tokens.handshakeRequests.count, 0, "the handshake route is never called")
+    }
+
+    /// With `tokenRequiresSession` the token call opens a session through the handshake
+    /// first and presents it: a server that mounts the handshake and guards the route with it.
+    func test_tokenCall_tokenRequiresSession_handshakesAndPresentsTheSession() async throws
+    {
+        let fixture = try EventStreamFixture(tokenRequiresSession: true)
+        fixture.streams.enqueue()
+        let connected = await fixture.connect()
+        XCTAssertTrue(connected)
+
+        XCTAssertEqual(fixture.tokens.handshakeRequests.count, 1)
+        let tokenRequest = try XCTUnwrap(fixture.tokens.tokenRequests.first)
+        XCTAssertTrue(tokenRequest.headers.contains { $0.0 == SPFNWireHeaders.session }, "the session is presented")
+        let order = fixture.tokens.requests.map(\.url)
+        XCTAssertLessThan(
+            try XCTUnwrap(order.firstIndex { $0.hasSuffix(SPFNGeneratedOperations.authClientProofHandshake.path) }),
+            try XCTUnwrap(order.firstIndex { $0.hasSuffix("/events/token") })
+        )
     }
 
     // MARK: - The token call signs with the key signed in at the moment of the call

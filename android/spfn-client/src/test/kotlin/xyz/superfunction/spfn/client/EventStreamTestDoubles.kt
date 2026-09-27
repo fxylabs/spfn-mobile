@@ -2,8 +2,8 @@
 //
 // [SpfnFakeStreamTransport] is the stream boundary with a script: a test queues a response
 // (status, headers), then pushes chunks into it, ends it quietly or fails it. [TokenServer]
-// answers the token call behind `execute` — the handshake it needs first, then one token per
-// call — and the key lifecycle's own calls from [TokenServer.routes], and records what it was
+// answers the token call behind `execute` — the handshake a session-requiring call needs
+// first, then one token per call — and the key lifecycle's own calls from [TokenServer.routes], and records what it was
 // sent. [signedInLifecycle] is the install the stream signs with. No socket anywhere (design §9-2).
 //
 // EventStreamTestDoubles.swift is the counterpart.
@@ -77,7 +77,7 @@ class SpfnFakeStreamTransport : SpfnStreamTransport
 }
 
 /**
- * Answers the handshake the session opens first, then the token path with `token-1`,
+ * Answers the handshake a session-requiring token call opens first, then the token path with `token-1`,
  * `token-2`, … — or with whatever [tokenAnswers] scripts, in order, before falling back.
  */
 class TokenServer(private val tokenPath: String = "/events/token") : SpfnTransport
@@ -92,6 +92,9 @@ class TokenServer(private val tokenPath: String = "/events/token") : SpfnTranspo
     val requests: List<SpfnTransportRequest> get() = synchronized(this) { recorded.toList() };
 
     val tokenRequests: List<SpfnTransportRequest> get() = requests.filter { it.url.endsWith(tokenPath) };
+
+    val handshakeRequests: List<SpfnTransportRequest>
+        get() = requests.filter { it.url.endsWith(SpfnGeneratedOperations.authClientProofHandshake.path) };
 
     override suspend fun execute(request: SpfnTransportRequest): SpfnTransportResponse
     {

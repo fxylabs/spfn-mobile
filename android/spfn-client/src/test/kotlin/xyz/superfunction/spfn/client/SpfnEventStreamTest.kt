@@ -1,6 +1,7 @@
 // SPFN Mobile — the whole event stream over the fakes (docs/architecture/event-stream-design.md §9-2).
 //
-// The token call goes through the real `execute` and a real session; the stream goes
+// The token call goes through the real `execute`, sessionless unless a test asks for a
+// session-guarded token route; the stream goes
 // through the fake stream transport; time is the test scheduler's. What is asserted is
 // what reaches each boundary — signed headers on the token call, the exact stream URL —
 // and what a listener receives. SPFNEventStreamTests.swift carries the same names.
@@ -26,14 +27,17 @@ class SpfnEventStreamTest
 {
     private val attached = SpfnEventSignal.Reread(SpfnRereadCause.Attached);
 
-    private class Fixture(scope: TestScope, keyIds: List<String> = emptyList())
+    private class Fixture(scope: TestScope, keyIds: List<String> = emptyList(), tokenRequiresSession: Boolean = false)
     {
         val tokens = TokenServer();
         val streams = SpfnFakeStreamTransport();
         val keyLifecycle = signedInLifecycle(tokens, keyIds);
         val events = SpfnEventStream(
             keyLifecycle = keyLifecycle,
-            configuration = SpfnEventStreamConfiguration(events = listOf("sessionUnread", "sessionActivity")),
+            configuration = SpfnEventStreamConfiguration(
+                events = listOf("sessionUnread", "sessionActivity"),
+                tokenRequiresSession = tokenRequiresSession
+            ),
             transport = streams,
             scope = scope.backgroundScope,
             jitter = { 1.0 }
@@ -57,14 +61,14 @@ class SpfnEventStreamTest
         val tokenRequest = fixture.tokens.tokenRequests.single();
         assertEquals("POST", tokenRequest.method);
         assertEquals("https://example.invalid/events/token", tokenRequest.url);
-        assertTrue("the token call is signed", tokenRequest.headers.any { it.first == SpfnWireHeaders.SESSION });
+        assertTrue("the token call is signed", tokenRequest.headers.any { it.first == SpfnWireHeaders.PROOF });
         assertTrue(tokenRequest.headers.containsAll(SpfnClientIdentity.headers));
 
         val streamRequest = fixture.streams.requests.single();
         assertEquals("GET", streamRequest.method);
         assertEquals("https://example.invalid/events/stream?token=token-1&events=sessionActivity,sessionUnread", streamRequest.url);
         assertTrue(streamRequest.headers.contains("accept" to "text/event-stream"));
-        assertFalse("the stream GET is not signed", streamRequest.headers.any { it.first == SpfnWireHeaders.SESSION });
+        assertFalse("the stream GET is not signed", streamRequest.headers.any { it.first == SpfnWireHeaders.PROOF });
         assertEquals(SpfnEventStreamState.Connecting(1), fixture.events.state.value);
 
         first.send(ServerFrames.CONNECTED);
@@ -203,6 +207,49 @@ class SpfnEventStreamTest
         assertEquals(1, fixture.streams.requests.size);
         assertTrue(fixture.streams.requests.single().url.endsWith("&events=sessionActivity,sessionUnread"));
         assertEquals(SpfnEventStreamState.Open(1), fixture.events.state.value);
+    }
+
+    // ---- the token call presents a session only when the server wants one ----
+
+    /**
+     * §2-2: by default the token call is signed by the key alone, as an app's own signed
+     * calls are. No session header goes out and the handshake route is never called.
+     */
+    @Test
+    fun tokenCall_default_sendsNoSessionAndNoHandshake() = runTest {
+        val fixture = Fixture(this);
+        assertFalse(fixture.events.configuration.tokenRequiresSession);
+        fixture.streams.enqueue();
+        fixture.events.setSignedIn("client-test-0001");
+        fixture.events.setForeground(true);
+        runCurrent();
+
+        val tokenRequest = fixture.tokens.tokenRequests.single();
+        assertTrue("the token call is signed", tokenRequest.headers.any { it.first == SpfnWireHeaders.PROOF });
+        assertFalse("no session header", tokenRequest.headers.any { it.first == SpfnWireHeaders.SESSION });
+        assertEquals("the handshake route is never called", 0, fixture.tokens.handshakeRequests.size);
+    }
+
+    /**
+     * With `tokenRequiresSession` the token call opens a session through the handshake first
+     * and presents it: a server that mounts the handshake and guards the route with it.
+     */
+    @Test
+    fun tokenCall_tokenRequiresSession_handshakesAndPresentsTheSession() = runTest {
+        val fixture = Fixture(this, tokenRequiresSession = true);
+        fixture.streams.enqueue();
+        fixture.events.setSignedIn("client-test-0001");
+        fixture.events.setForeground(true);
+        runCurrent();
+
+        assertEquals(1, fixture.tokens.handshakeRequests.size);
+        val tokenRequest = fixture.tokens.tokenRequests.single();
+        assertTrue("the session is presented", tokenRequest.headers.any { it.first == SpfnWireHeaders.SESSION });
+        val order = fixture.tokens.requests.map { it.url };
+        assertTrue(
+            order.indexOfFirst { it.endsWith(SpfnGeneratedOperations.authClientProofHandshake.path) } <
+                order.indexOfFirst { it.endsWith("/events/token") }
+        );
     }
 
     // ---- the token call signs with the key signed in at the moment of the call ----

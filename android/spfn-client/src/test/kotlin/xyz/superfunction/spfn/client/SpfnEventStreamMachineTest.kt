@@ -437,7 +437,8 @@ class SpfnEventStreamMachineTest
     @Test
     fun e42_revokedSession_tokenThroughExecute()
     {
-        // execute re-handshakes once; a refusal after it closes, and the wipe that
+        // Sessionless (the default) the refusal is the answer; with a session-guarded token
+        // route execute re-handshakes once first. A refusal closes, and the wipe that
         // `noteSessionRevoked` performs arrives next as a sign-out.
         val refused = run().closed().feed(SpfnEventInput.SetSignedIn(null));
         assertEquals(SpfnEventStreamState.Idle(SpfnIdleReason.SIGNED_OUT), refused.public);

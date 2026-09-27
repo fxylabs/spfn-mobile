@@ -101,7 +101,7 @@ final class SPFNFakeStreamTransport: SPFNStreamTransport, @unchecked Sendable
     }
 }
 
-/// Answers the handshake the session opens first, then the token path with `token-1`,
+/// Answers the handshake a session-requiring token call opens first, then the token path with `token-1`,
 /// `token-2`, … — or with whatever `script` queues, in order, before falling back. Any
 /// other path answers what `route` set for it: the key lifecycle's own calls.
 final class TokenServer: SPFNTransport, @unchecked Sendable
@@ -126,6 +126,11 @@ final class TokenServer: SPFNTransport, @unchecked Sendable
     var tokenRequests: [SPFNTransportRequest]
     {
         requests.filter { $0.url.hasSuffix(tokenPath) }
+    }
+
+    var handshakeRequests: [SPFNTransportRequest]
+    {
+        requests.filter { $0.url.hasSuffix(SPFNGeneratedOperations.authClientProofHandshake.path) }
     }
 
     func script(_ response: SPFNTransportResponse)
@@ -329,8 +334,8 @@ struct Activity: SPFNEventPayload, Equatable
     }
 }
 
-/// A stream over the fakes with a real key lifecycle, a real session and a real `execute` in
-/// front of the token. The install starts signed in as `client-test-0001` with
+/// A stream over the fakes with a real key lifecycle and a real `execute` in front of the
+/// token; a real session too when `tokenRequiresSession` asks for one. The install starts signed in as `client-test-0001` with
 /// `key-test-0001`; keys the lifecycle generates later are named by `keyIDs`, in order.
 struct EventStreamFixture
 {
@@ -341,7 +346,11 @@ struct EventStreamFixture
     let keyLifecycle: SPFNKeyLifecycle
     let events: SPFNEventStream
 
-    init(events names: [String] = ["sessionUnread", "sessionActivity"], keyIDs: [String] = []) throws
+    init(
+        events names: [String] = ["sessionUnread", "sessionActivity"],
+        keyIDs: [String] = [],
+        tokenRequiresSession: Bool = false
+    ) throws
     {
         let clock = FakeClock(SessionFixtureValues.issuedAtMillis)
         let key = SPFNCustodyKey.generate(keyID: "key-test-0001", preferSecureEnclave: false)
@@ -360,7 +369,7 @@ struct EventStreamFixture
         )
         events = SPFNEventStream(
             keyLifecycle: keyLifecycle,
-            configuration: try SPFNEventStreamConfiguration(events: names),
+            configuration: try SPFNEventStreamConfiguration(events: names, tokenRequiresSession: tokenRequiresSession),
             transport: streams,
             sleeper: sleeper,
             clock: FakeClock(SessionFixtureValues.issuedAtMillis),

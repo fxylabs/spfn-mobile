@@ -448,7 +448,8 @@ final class SPFNEventStreamMachineTests: XCTestCase
 
     func test_e42_revokedSession_tokenThroughExecute() throws
     {
-        // execute re-handshakes once; a refusal after it closes, and the wipe that
+        // Sessionless (the default) the refusal is the answer; with a session-guarded token
+        // route execute re-handshakes once first. A refusal closes, and the wipe that
         // `noteSessionRevoked` performs arrives next as a sign-out.
         XCTAssertEqual(try run().closed().feed(.setSignedIn(nil)).publicState, .idle(.signedOut))
         XCTAssertEqual(try run().signedInForeground().feed(.setSignedIn(nil)).publicState, .idle(.signedOut))

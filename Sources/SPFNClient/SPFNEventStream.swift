@@ -179,8 +179,9 @@ struct SPFNEventStreamServices: Sendable
     let sleeper: any SPFNSleeper
     let clock: any SPFNClock
 
-    /// The token call, through `execute`: signed by the key signed in at this moment, with
-    /// its one re-handshake. With nobody signed in nothing is sent, and the answer is the
+    /// The token call, through `execute`: signed by the key signed in at this moment, and
+    /// sessionless unless the configuration says the server wants one (§2-2), in which case
+    /// `execute` opens it and re-handshakes once. With nobody signed in nothing is sent, and the answer is the
     /// one an unsigned call would have met; the sign-out itself follows as `setSignedIn(nil)`.
     func mint(generation: Int64) async -> SPFNEventInput
     {
@@ -207,7 +208,7 @@ struct SPFNEventStreamServices: Sendable
                 method: "POST",
                 path: configuration.tokenPath,
                 authProfile: Self.tokenAuthProfile,
-                requiresSession: true,
+                requiresSession: configuration.tokenRequiresSession,
                 declaresResponse: true
             ),
             encode: { _ in nil },

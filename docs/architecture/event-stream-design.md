@@ -86,12 +86,14 @@
 
 | | (가) 코어 계약 연산 | (나) 앱 계약 연산 | (다) SDK 이벤트 모듈이 설정된 경로로 연산을 만든다 (**선택**) |
 |---|---|---|---|
-| 출처 | 고정된 코어 번들은 SPFN primitives의 **auth 패키지**가 내보낸다 (`Contracts/README.md`). 토큰 경로는 `@spfn/core`의 **event** 모듈이 등록한다. 상류 exporter를 바꾸고 번들을 다시 고정해야 한다 | 앱 계약 문서는 `.contract()`가 붙은 라우트만 담는다. 토큰 경로는 프레임워크가 `app.on(['POST'], [tokenPath], …)`로 직접 등록하므로 표시가 없다. 앱이 손으로 적어야 한다 | 이벤트 모듈 안의 `SPFNOperation(id: "events.token", method: "POST", path: <설정>, authProfile: "clientProofV1", requiresSession: true, declaresResponse: true)`와 응답 코덱 `{token: String}` |
+| 출처 | 고정된 코어 번들은 SPFN primitives의 **auth 패키지**가 내보낸다 (`Contracts/README.md`). 토큰 경로는 `@spfn/core`의 **event** 모듈이 등록한다. 상류 exporter를 바꾸고 번들을 다시 고정해야 한다 | 앱 계약 문서는 `.contract()`가 붙은 라우트만 담는다. 토큰 경로는 프레임워크가 `app.on(['POST'], [tokenPath], …)`로 직접 등록하므로 표시가 없다. 앱이 손으로 적어야 한다 | 이벤트 모듈 안의 `SPFNOperation(id: "events.token", method: "POST", path: <설정>, authProfile: "clientProofV1", requiresSession: <설정, 기본 false>, declaresResponse: true)`와 응답 코덱 `{token: String}` |
 | 경로 | 계약의 경로는 고정이다. 서버는 스트림 경로에서 **파생**하므로 앱이 이벤트를 `/sse`에 마운트하면 `/token`이 된다. 계약이 틀린다 | 앱이 정할 수 있다 | 설정에서 온다. 서버와 같은 파생 규칙 |
 | 실행 경로 | `execute` | `execute` | `execute`. `SPFNCall`과 `SPFNOperation`은 공개 이니셜라이저가 있고, `execute`는 인증 등급을 연산 id가 아니라 `authProfile` 문자열로 푼다 (`SPFNGeneratedOperations.authClass(of:)`). 새 실행 경로가 없다 |
 | 계약 핀과의 관계 | 핀이 바뀐다 | 앱 핀만 | 핀과 무관하다. 토큰 경로는 계약이 아니라 **프레임워크 설정**이다 (custom-route-contract-design §9) |
 
-(다)를 고른 이유: 토큰 경로는 계약의 사실이 아니라 서버 설정의 사실이다. 그 설정을 앱이 SDK에 그대로 알려 주는 것이 두 곳을 맞추는 가장 짧은 길이다. 그러면서도 "요청을 보내는 길은 `execute` 하나"라는 규칙(architecture README "Three layers")은 깨지지 않는다: 토큰 요청은 새 세션 헤더, 새 nonce, 새 증명을 달고 나가고, 인증 거부에는 재핸드셰이크 한 번이 따라온다.
+(다)를 고른 이유: 토큰 경로는 계약의 사실이 아니라 서버 설정의 사실이다. 그 설정을 앱이 SDK에 그대로 알려 주는 것이 두 곳을 맞추는 가장 짧은 길이다. 그러면서도 "요청을 보내는 길은 `execute` 하나"라는 규칙(architecture README "Three layers")은 깨지지 않는다: 토큰 요청은 새 nonce와 새 증명을 달고 나간다.
+
+**토큰 호출은 기본으로 세션을 싣지 않는다 (`requiresSession: false`).** 앱이 스스로 계약한 서명 호출과 같은 모양이다: 앱 서버의 `authenticate`는 서명 요청을 키로 확인하고, 세션 헤더를 단 서명 요청은 거부한다. 그리고 핸드셰이크 라우트(`/v1/auth/client-proof/handshake`)는 `@spfn/auth`가 알아서 마운트하지 않는다 — 앱이 손으로 조립해야 하고, 조립하지 않은 서버에서 `requiresSession: true`인 토큰 호출은 `execute`가 세션을 먼저 열려다 404를 받아 토큰 경로에 닿지도 못한다. 그래서 기본은 세션 없이, 키 하나로 서명한다: 세션 헤더가 없고, 핸드셰이크를 부르지 않으며, 인증 거부는 재시도 없이 E-4가 된다 (`execute`는 내민 세션이 없으면 재핸드셰이크하지 않는다). 핸드셰이크를 마운트하고 토큰 라우트를 세션으로 지키는 서버는 설정의 `tokenRequiresSession: true`로 옛 동작을 고른다: 세션 헤더를 달고, 인증 거부에는 재핸드셰이크 한 번이 따라온다 (§3-1).
 
 `authenticate`가 서명 요청을 받아 `c.get('auth').userId`를 채우는 것은 서버 쪽 사실이고 이 저장소가 확인할 수 없다. 앱 서버가 서명된 `POST /events/token`에 200을 주는지를 §5 U-1에서 잰다. 쿠키가 없는 요청이므로 CSRF 규칙(`x-spfn-csrf`)은 브라우저 경로의 것이고 여기에 해당하지 않는다: CSRF는 웹 프록시를 지나는 쿠키 요청만 지키고, 서명된 요청은 CSRF 헤더를 싣지 않는다 (§10 Q-B, 닫음).
 
@@ -153,16 +155,17 @@
 
 | Swift | Kotlin |
 |---|---|
-| `SPFNEventStreamConfiguration(events: [String], streamPath: String = "/events/stream", tokenPath: String? = nil, pingIntervalMillis: Int64 = 10_000, backoff: SPFNEventStreamBackoff = .standard, deliveryBuffer: Int = 256) throws` | `SpfnEventStreamConfiguration(events: List<String>, streamPath: String = "/events/stream", tokenPath: String? = null, pingIntervalMillis: Long = 10_000, backoff: SpfnEventStreamBackoff = SpfnEventStreamBackoff.Standard, deliveryBuffer: Int = 256)` |
+| `SPFNEventStreamConfiguration(events: [String], streamPath: String = "/events/stream", tokenPath: String? = nil, pingIntervalMillis: Int64 = 10_000, backoff: SPFNEventStreamBackoff = .standard, deliveryBuffer: Int = 256, tokenRequiresSession: Bool = false) throws` | `SpfnEventStreamConfiguration(events: List<String>, streamPath: String = "/events/stream", tokenPath: String? = null, pingIntervalMillis: Long = 10_000, backoff: SpfnEventStreamBackoff = SpfnEventStreamBackoff.Standard, deliveryBuffer: Int = 256, tokenRequiresSession: Boolean = false)` |
 | `SPFNEventStream(keyLifecycle: SPFNKeyLifecycle, configuration: SPFNEventStreamConfiguration, transport: any SPFNStreamTransport = SPFNURLSessionStreamTransport())` | `SpfnEventStream(keyLifecycle: SpfnKeyLifecycle, configuration: SpfnEventStreamConfiguration, transport: SpfnStreamTransport = SpfnOkHttpStreamTransport(), scope: CoroutineScope)` |
 | `SPFNKeyLifecycle.signedInClient() throws -> SPFNClient?`, `baseURL` | `SpfnKeyLifecycle.signedInClient(): SpfnClient?` (suspend), `baseUrl` |
 
 - **`events`는 앱이 이 스트림에서 받을 이름 전부다.** 서버 이벤트 라우터의 **키**다 (`defineEventRouter({ sessionActivity, … })`의 `sessionActivity`. `defineEvent('session.activity', …)`의 첫 인자는 선로에 나오지 않는다, §8 H-2). 정렬해 쉼표로 이은 것이 `events=` 쿼리다. 비었거나, 빈 문자열이나 쉼표를 담은 이름이 있으면 거부한다. 중복은 하나로 친다. 생성 뒤에 바뀌지 않는다: 바꾸는 API가 없다.
 - `tokenPath`가 `nil`이면 서버의 규칙으로 파생한다: `streamPath`의 마지막 `/` 뒤를 `token`으로 바꾼다. `/events/stream` → `/events/token`, `/sse` → `/token`. 경로는 `/`로 시작해야 하고, 쿼리를 담으면 거부한다.
 - 거부는 모두 생성 시각에: Swift `throws SPFNEventStreamError.invalidConfiguration(field)`, Kotlin `IllegalArgumentException`. 앱 합성 지점에서 한 번 일어나는 일이라 첫 실행에서 드러난다.
+- `tokenRequiresSession`은 토큰 호출이 세션을 싣는지다. 기본 `false`: 키 하나로 서명하고, 세션 헤더가 없고, 핸드셰이크를 부르지 않는다 (§2-2). `true`는 핸드셰이크 라우트를 마운트하고 토큰 라우트를 세션으로 지키는 서버를 위한 것이다: `execute`가 세션을 먼저 열어 내밀고, 인증 거부에 재핸드셰이크 한 번을 한다.
 - `pingIntervalMillis`는 **서버의** 핑 간격이다. SDK가 핑을 보내지 않는다. 침묵 감시는 이 값의 2.5배다. 서버가 `pingInterval`을 바꾸면 앱도 바꾼다.
-- **토큰 호출은 호출하는 순간 로그인한 키로 서명된다.** 스트림은 키 하나에 묶인 세션이 아니라 앱이 이미 가진 키 라이프사이클을 받고, 토큰 호출마다 `signedInClient()`에 묻는다. 라이프사이클은 활성 슬롯을 다시 읽어 그 키로 서명하는 `SPFNClient`를 준다: 키가 같으면 같은 클라이언트(세션과 핸드셰이크를 다시 쓴다), 회전 뒤에는 새 키의 클라이언트 (E-41), 다른 계정이 등록된 뒤에는 그 계정의 클라이언트 (E-43), `wipe()` 뒤에는 `nil`이고 그러면 아무것도 보내지 않는다 (토큰 실패 `unauthorized`로 읽고, 곧이어 오는 `setSignedIn(nil)`이 `idle(signedOut)`으로 만든다, E-40). 서명하는 길은 여전히 `execute` 하나다 — 라이프사이클 자신의 회전·등록 호출과 같은 조립이다. 앱 쪽 "활성 키 제공자"는 필요 없다.
-- 스트림 URL은 `keyLifecycle.baseURL + streamPath`다 (끝의 `/`는 뗀다). 스트림 GET은 늘 토큰 호출 뒤에 오고, 토큰 호출의 세션은 같은 URL로 만들어지며 https 또는 루프백 http만 받으므로 (D21) 스트림도 같은 규칙 아래에 있다. 새 검사가 없다.
+- **토큰 호출은 호출하는 순간 로그인한 키로 서명된다.** 스트림은 키 하나에 묶인 세션이 아니라 앱이 이미 가진 키 라이프사이클을 받고, 토큰 호출마다 `signedInClient()`에 묻는다. 라이프사이클은 활성 슬롯을 다시 읽어 그 키로 서명하는 `SPFNClient`를 준다: 키가 같으면 같은 클라이언트(`tokenRequiresSession`이면 그 세션도 다시 쓴다), 회전 뒤에는 새 키의 클라이언트 (E-41), 다른 계정이 등록된 뒤에는 그 계정의 클라이언트 (E-43), `wipe()` 뒤에는 `nil`이고 그러면 아무것도 보내지 않는다 (토큰 실패 `unauthorized`로 읽고, 곧이어 오는 `setSignedIn(nil)`이 `idle(signedOut)`으로 만든다, E-40). 서명하는 길은 여전히 `execute` 하나다 — 라이프사이클 자신의 회전·등록 호출과 같은 조립이다. 앱 쪽 "활성 키 제공자"는 필요 없다.
+- 스트림 URL은 `keyLifecycle.baseURL + streamPath`다 (끝의 `/`는 뗀다). 스트림 GET은 늘 토큰 호출 뒤에 오고, 토큰 호출의 클라이언트는 같은 URL로 만들어지며 그 세션 객체는 핸드셰이크를 하든 안 하든 만들어질 때 https 또는 루프백 http만 받으므로 (D21) 스트림도 같은 규칙 아래에 있다. 새 검사가 없다.
 - `deliveryBuffer`는 **청취자 하나의** 큐 길이다 (§3-4).
 - `transport`는 스트림 전송이다. `SPFNTransport`(요청 하나, 응답 하나)와 다른 경계다 (§3-9).
 - 앱은 이 객체를 합성 지점에서 **하나** 만든다. 로그인·로그아웃을 지나도 같은 객체다 (계정은 입력이다, §3-3). 만들어진 객체는 `idle(signedOut)`에 있고 아무것도 보내지 않는다.
@@ -540,7 +543,7 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 |---|---|---|---|---|---|
 | E-1 | I | 입력이 W를 참으로 만든다 (`setForeground(true)`에 A 있음, 또는 `setSignedIn(id)`에 F 참), Net 참 | T(1) | 토큰 호출 | 옛 `start()` |
 | E-3 | T | 토큰 200 `{token}` | S(n) | 스트림 GET `?token=…&events=a,b` (설정의 이름을 정렬, 쉼표로). 토큰은 이 요청에만 쓰고 버린다 | |
-| E-4 | T | 토큰 `.auth(…)` (401/403 봉투) | X(`unauthorized`) | 재시도 없음. 다음 기회는 앞쪽 복귀나 다시 로그인 (E-44, E-43) | |
+| E-4 | T | 토큰 `.auth(…)` (401/403 봉투) | X(`unauthorized`) | 재시도 없음. 기본(세션 없음)이면 `execute`도 재핸드셰이크하지 않는다. `tokenRequiresSession`이면 `execute`가 재핸드셰이크 한 번 뒤에 이 답을 낸다. 다음 기회는 앞쪽 복귀나 다시 로그인 (E-44, E-43) | 세션 없는 기본 |
 | E-5 | T | 토큰 `.server(…)` 403 | X(`forbidden`) | | |
 | E-6 | T | 토큰 `.server(…)` 5xx, 429 | R(n+1, `serverError`) | 백오프. 429이면 지연 = max(백오프, `Retry-After`) (Q-D). 헤더는 `execute`가 `SPFNServerFailure.retryAfter`에 그대로 싣고, 이벤트 모듈이 읽는다 (`execute`에는 `Retry-After` 규칙이 없었다). 봉투 없는 429(프록시)는 E-8로 가고 헤더를 읽지 않는다 | 개정 3 |
 | E-7 | T | 토큰 `.transport(connectivity/timedOut)` | R(n+1, `network`) | Net이 거짓이면 R/N 규칙으로 N | |
@@ -575,7 +578,7 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 | E-39 | I, X | 프레임, 타이머, 토큰·전송 결과 (늦게 도착) | 그대로 | 버린다. 모든 비동기 결과는 발급 번호를 달고 오고, 현재 번호가 아니면 버린다 | 옛: P에서 |
 | E-40 | S, O, R, N, X | `setSignedIn(nil)` (로그아웃) | I(`signedOut`) | 스트림 닫음, 타이머 끔. **SDK가 한다.** 열린 스트림은 토큰을 받은 주체의 프레임을 계속 받으므로 로그아웃과 함께 닫혀야 한다 (§8 H-4) | 옛: 앱의 `stop()` 의무 |
 | E-41 | O | 키 회전 (`SPFNKeyLifecycle.rotate()`) | O(e) | 아무 일도 없다. 클라이언트 id가 그대로라 `setSignedIn`이 오지 않는다. 스트림은 열린 순간의 주체에 묶이고, 키에 묶이지 않는다. 다음 토큰 호출은 새 키로 서명된다 (`signedInClient()`, §3-1) | |
-| E-42 | T | 세션 폐기 (`noteSessionRevoked`) 뒤 토큰 호출 | E-4 또는 T 성공 | `execute`의 재핸드셰이크가 처리한다. `noteSessionRevoked`는 `wipe()`이므로 곧이어 `setSignedIn(nil)`이 와서 E-10이 된다 | |
+| E-42 | T | 세션 폐기 (`noteSessionRevoked`) 뒤 토큰 호출 | E-4 또는 T 성공 | 기본(세션 없음) 토큰 호출은 세션을 내밀지 않으므로 폐기와 무관하다. `tokenRequiresSession`이면 `execute`의 재핸드셰이크가 처리한다. `noteSessionRevoked`는 `wipe()`이므로 곧이어 `setSignedIn(nil)`이 와서 E-10이 된다 | |
 | E-43 | T, S, O, R, N, X | `setSignedIn(다른 id)` | T(1), Net 거짓이면 N(1) | 스트림 닫음, 타이머 끔, 토큰 호출 취소. 새 계정의 토큰으로 연다. 다음 `connected`에서 새 epoch | 옛: 앱이 `stop()` 후 새 객체 |
 | E-44 | X | `setForeground(false)` | I(`background`) | `closed`에서 벗어나는 길 (Q-I, **받아들여짐**: 거절로 닫힌 스트림은 앞쪽 복귀 때 다시 시도한다). 앞쪽으로 돌아오면 E-38로 다시 시도한다. 사람이 앱을 오가는 빈도로만 재시도하므로 폭주하지 않는다. 서버를 고쳤거나 다시 배포했으면 여기서 회복한다 | 옛: X에서 `start()` |
 | E-45 | X | `setNetworkAvailable`, 같은 값의 `setForeground(true)`·`setSignedIn(같은 id)` | X | 끝난 스트림은 네트워크나 되풀이된 입력으로 되살아나지 않는다 | 옛: `resume`/`suspend`/`networkChanged` |
@@ -635,7 +638,7 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 
 | id | 플랫폼 | 시험 | 볼 것 | 틀리면 |
 |---|---|---|---|---|
-| U-1 | 둘 다 | 서명된 `POST /events/token` | 200과 64 hex 토큰. 401이면 `authenticate`가 서명 요청의 주체를 `auth.userId`에 넣지 않는 것이다 | 서버 설정 (`getSubject`). SDK는 바뀌지 않는다 |
+| U-1 | 둘 다 | 서명된 `POST /events/token` (세션 헤더 없음, 핸드셰이크 없음) | 200과 64 hex 토큰. 서버 로그에 핸드셰이크 404가 있으면 `tokenRequiresSession`이 켜진 것이다. 401이면 `authenticate`가 서명 요청의 주체를 `auth.userId`에 넣지 않는 것이다 | 서버 설정 (`getSubject`). SDK는 바뀌지 않는다 |
 | U-2 | 둘 다 | 연결 → 서버에서 이벤트 한 번 | 커밋에서 `frame` 전달까지 1 s 안쪽. 첫 `connected`가 곧바로 오는가 | iOS: `URLSession`이 MIME 추측을 위해 첫 512바이트를 모으는지 본다. `connected`(약 80바이트)가 핑 여러 개와 함께 늦게 오면 이것이다 |
 | U-3 | iOS | 앱을 뒤로 보냄 → 30 s, 3 min, 10 min 뒤 복귀 | `scenePhase == .background`에서 `idle(background)` → 복귀 즉시 `connecting` → `open(e+1)` → 붙어 있던 화면이 한 번 읽는다. 뒤로 간 동안 소켓이 남아 있었는가 (서버 로그의 "SSE dead connection cleaned up" 시각) | iOS가 소켓을 곧바로 끊지 않으면 서버 쪽 연결이 핑 쓰기가 실패할 때까지 남는다. 해는 없지만 서버 연결 수를 잰다 |
 | U-4 | Android | 화면 끔 → Doze 강제 (`adb shell dumpsys deviceidle force-idle`) → 해제 | 화면을 끄면 `ProcessLifecycleOwner`가 `ON_STOP`을 내고 `idle(background)`가 되는가 (700 ms 지연 뒤) | 오지 않으면 Doze 중 소켓은 살아도 핑이 늦어 E-27이 난다. 그것도 회복 경로다 |
@@ -658,7 +661,7 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 | 토큰은 기록되지 않는다 | 토큰 응답 타입(`SPFNEventStreamToken`)의 `description`/`toString()`은 `SPFNEventStreamToken(redacted)`. 토큰은 스트림 요청 하나를 만드는 동안만 지역 변수로 있고 필드에 저장되지 않는다 |
 | 토큰을 실은 URL은 기록되지 않는다 | 스트림 요청은 `SPFNTransportRequest`로 만든다. 그 `description`은 이미 URL을 싣지 않는다 ("a nonce can live in a query parameter"). 어댑터의 오류 문자열은 `URLError` 코드 숫자와 OkHttp 예외 타입 이름만 싣는다. `localizedDescription`은 URL을 담을 수 있으므로 쓰지 않는다. 상태의 `reason`에도 URL이 없다 |
 | 한 번 쓰고, 짧게 산다 | 서버의 사실 (30 s, `GETDEL`). SDK는 재연결마다 새로 받고, 받은 토큰을 다시 쓰지 않는다 (E-15의 재시도도 새 토큰) |
-| 전송은 TLS | 스트림 URL은 `keyLifecycle.baseURL`에서 온다. 그 앞의 토큰 호출은 같은 URL로 만든 세션을 지나고, 세션은 만들어질 때 https 또는 루프백 http만 받는다 (D21, `SPFNSession.isTrusted`). 에뮬레이터의 `10.0.2.2`는 거부된다 — `adb reverse`로 루프백을 쓴다. 새 예외는 없다 |
+| 전송은 TLS | 스트림 URL은 `keyLifecycle.baseURL`에서 온다. 그 앞의 토큰 호출은 같은 URL로 만든 클라이언트를 지나고, 그 세션 객체는 만들어질 때 https 또는 루프백 http만 받는다 (D21, `SPFNSession.isTrusted`). 에뮬레이터의 `10.0.2.2`는 거부된다 — `adb reverse`로 루프백을 쓴다. 새 예외는 없다 |
 | 쿠키 없음, 리다이렉트 없음 | §3-9. 리다이렉트를 따르면 토큰을 실은 URL이 다른 호스트로 갈 수 있다 |
 | 페이로드는 기록되지 않는다 | 디코드 실패는 수만 센다 (E-24, L-11). 조건이 거른 프레임도 수만 센다 (L-10). 조건이 던진 예외(L-12)는 앱의 예외라 SDK가 감싸지도 메시지를 붙이지도 않는다. 이벤트 이름은 기록해도 된다 |
 | 조건은 권한이 아니다 | 청취자의 조건(§2-5)은 화면이 관심 있는 프레임을 고르는 편의다. 프레임을 누구에게 보낼지는 여전히 서버의 `filter`만 정한다. 조건은 기기 안에서 돌고 서버에 가지 않으므로, 앱이 조건으로 "다른 사람의 작업공간은 거른다"를 대신하면 안 된다 |

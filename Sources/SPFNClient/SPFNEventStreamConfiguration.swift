@@ -1,6 +1,7 @@
 // SPFN Mobile — what an app tells the event stream once, at its composition root.
 //
-// The stream path, the fixed list of event names and the server's ping interval. Every
+// The stream path, the fixed list of event names, the server's ping interval and whether
+// the token route wants a session. Every
 // refusal happens here, at construction, so a wrong list is found on the first run rather
 // than as a stream that never opens (docs/architecture/event-stream-design.md §3-1).
 //
@@ -66,6 +67,9 @@ public struct SPFNEventStreamConfiguration: Sendable
     public let backoff: SPFNEventStreamBackoff
     /// One listener's queue length before it is replaced by one reread.
     public let deliveryBuffer: Int
+    /// Whether the token call presents a session, opened first through the handshake route.
+    /// False by default: the call is signed by the key alone, like an app's own signed calls.
+    public let tokenRequiresSession: Bool
 
     /// - Parameters:
     ///   - events: the names this app receives on the stream — the server event router's
@@ -80,7 +84,8 @@ public struct SPFNEventStreamConfiguration: Sendable
         tokenPath: String? = nil,
         pingIntervalMillis: Int64 = 10_000,
         backoff: SPFNEventStreamBackoff = .standard,
-        deliveryBuffer: Int = 256
+        deliveryBuffer: Int = 256,
+        tokenRequiresSession: Bool = false
     ) throws
     {
         let names = Array(Set(events)).sorted { Array($0.utf8).lexicographicallyPrecedes(Array($1.utf8)) }
@@ -103,6 +108,7 @@ public struct SPFNEventStreamConfiguration: Sendable
         self.pingIntervalMillis = pingIntervalMillis
         self.backoff = backoff
         self.deliveryBuffer = deliveryBuffer
+        self.tokenRequiresSession = tokenRequiresSession
     }
 
     /// 2.5 × the server's ping interval: two missed pings and half an interval more.
