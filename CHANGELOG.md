@@ -5,6 +5,50 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### An operation with no request type sends no body (fix, both platforms)
+
+- `execute` encoded every request, so an operation the contract gives no `requestType`
+  went out as `{}` with `content-type` and a proof over the digest of `{}`. OkHttp refuses
+  any body on a GET, so on Android such a GET never left the device, and on both platforms
+  the proof signed a digest the contract does not specify for it. The bundle's rule,
+  `clientProofV1.proofInput.bodySha256`: "the literal string of 64 zero characters when an
+  operation has no body"
+  (`Contracts/fixtures/proof/proof-input.json`, vector `handshake-no-body`).
+- `SPFNCall.encode` / `SpfnCall.encode` now returns an optional value; `nil` / `null` means
+  the operation has no body. Such a request carries no body bytes and no `content-type`,
+  and its proof signs the absent-body digest. A declared body that happens to be empty is
+  still sent as `{}`. Existing encoders that return a value compile unchanged; code that
+  calls `encode` itself now receives an optional.
+- The core generator and the app-contract generator emit `nil` / `null` for an operation
+  without a request type. In the pinned contract those are `core.time` and
+  `auth.mfa.status`, both GET; their wire changes to no body, which is what the contract
+  already specified. Every operation with a body is byte for byte unchanged.
+
+### Generated calls from an app's own contract document (additive, build tool only)
+
+- **New: `:contract-codegen:spfnAppContractGenerate` / `spfnAppContractVerify`**, which read
+  an app's `@spfn/core:contract` document (`documentVersion: 1`) and a list of the
+  operations the app calls, and write Swift and Kotlin in one run into the directories, the
+  Swift namespace and the Kotlin package the consumer passes (`-Pspfn.appContract.*`, all
+  required, absolute paths). Each call is an `SPFNCall` / `SpfnCall` for the existing
+  `execute`; no module gains a dependency
+  (docs/architecture/app-contract-codegen.md, task 6 of custom-route-contract-design.md).
+- The type mapping table (§2 of that design) has 19 mapping rows (T1–T19; T3 `number` is
+  itself a refusal) and 10 refusal rows (R1–R10), each with a test on both platforms. A string set is **open**: a value the build does not
+  know decodes as `unknown(String)` / `Unknown(wireValue)` rather than failing the response.
+  Required-and-nullable and optional are kept apart: a required key that is absent fails as
+  `MISSING_FIELD`; a request body writes an explicit `null` for the first and omits the
+  second. `number`, maps, unions, recursion and a query on a proven operation are refused
+  by name.
+- Every generated file records the document's SHA-256 and the selected operations; verify
+  fails on a changed document first, then on a hand edit or a leftover file.
+- The generator's JSON reader accepts a fractional number when it reads an app document
+  (a JSON Schema bound such as `"minimum": 0.5`). The pinned bundle is still read
+  integers-only.
+- `spfnAppContractFixtureVerify` joins `check`: an invented document generates into the
+  `spfn-core` and `SPFNCoreTests` test sources, where `AppContractFixtureTest` /
+  `AppContractFixtureTests` decode real wire bytes with it.
+
 ### A bottom tab container: `TabHost` (additive)
 
 - **New, both: `TabHost(state:tabs:)` / `TabHost(state, tabs)`**, the app's top-level bottom

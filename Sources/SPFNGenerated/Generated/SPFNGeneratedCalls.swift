@@ -26,7 +26,7 @@ public enum SPFNGeneratedCalls
     /// Returns the server epoch used to timestamp clientProofV1 proofs.
     public static let coreTime: SPFNCall<Void, SPFNServerTimeResponse> = SPFNCall(
         operation: SPFNGeneratedOperations.coreTime,
-        encode: { _ in SPFNCanonicalValue.object([:]) },
+        encode: { _ in nil },
         decode: { try SPFNServerTimeResponse(canonical: $0) }
     )
 
@@ -82,7 +82,7 @@ public enum SPFNGeneratedCalls
     /// Reports whether the caller has a second factor, which methods, and how many recovery codes remain.
     public static let authMfaStatus: SPFNCall<Void, SPFNMfaStatusResponse> = SPFNCall(
         operation: SPFNGeneratedOperations.authMfaStatus,
-        encode: { _ in SPFNCanonicalValue.object([:]) },
+        encode: { _ in nil },
         decode: { try SPFNMfaStatusResponse(canonical: $0) }
     )
 

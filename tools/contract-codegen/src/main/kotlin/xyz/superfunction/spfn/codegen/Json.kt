@@ -15,6 +15,13 @@ sealed interface JsonValue
 
     data class Number(val value: Long) : JsonValue
 
+    /**
+     * A number with a fraction or an exponent, kept as written. Only an app contract
+     * document produces one — a validation keyword such as `"minimum": 0.5` — and the
+     * generator never emits it as a type (docs/architecture/app-contract-codegen.md T3).
+     */
+    data class Fraction(val text: String) : JsonValue
+
     data class Text(val value: String) : JsonValue
 
     data class Arr(val elements: List<JsonValue>) : JsonValue
@@ -44,9 +51,13 @@ fun Map<String, JsonValue>.required(key: String): JsonValue =
 
 object Json
 {
-    fun parse(text: String): JsonValue
+    /**
+     * `allowFractions` is off for the pinned bundle, whose grammar carries integers only,
+     * and on for an app contract document, whose JSON Schema may carry a fractional bound.
+     */
+    fun parse(text: String, allowFractions: Boolean = false): JsonValue
     {
-        val reader = Reader(text);
+        val reader = Reader(text, allowFractions);
         reader.skipWhitespace();
         val value = reader.readValue();
         reader.skipWhitespace();
@@ -57,7 +68,7 @@ object Json
         return value;
     }
 
-    private class Reader(private val text: String)
+    private class Reader(private val text: String, private val allowFractions: Boolean)
     {
         var offset: Int = 0
             private set
@@ -259,10 +270,29 @@ object Json
             {
                 offset += 1;
             }
+            if (allowFractions && offset < text.length && text[offset] in FRACTION_START)
+            {
+                return readFraction(start);
+            }
             val slice = text.substring(start, offset);
             val value = slice.toLongOrNull()
                 ?: throw JsonException("only integers are supported, got '$slice' at offset $start");
             return JsonValue.Number(value);
         }
+
+        private fun readFraction(start: Int): JsonValue
+        {
+            while (offset < text.length && (text[offset].isDigit() || text[offset] in FRACTION_CHARACTERS))
+            {
+                offset += 1;
+            }
+            val slice = text.substring(start, offset);
+            slice.toDoubleOrNull() ?: throw JsonException("invalid number '$slice' at offset $start");
+            return JsonValue.Fraction(slice);
+        }
     }
+
+    private val FRACTION_START = setOf('.', 'e', 'E');
+
+    private val FRACTION_CHARACTERS = setOf('.', 'e', 'E', '+', '-');
 }

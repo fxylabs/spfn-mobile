@@ -436,10 +436,10 @@ class BundleSectionTest
             val kotlinResponse = Names.kotlinType(operation.responseType!!);
             val swiftBlock = descriptorBlock(swift, "public static let $name:");
             assertTrue(swiftBlock.startsWith(" SPFNCall<Void, $swiftResponse> = SPFNCall("));
-            assertTrue(swiftBlock.contains("encode: { _ in SPFNCanonicalValue.object([:]) },"));
+            assertTrue(swiftBlock.contains("encode: { _ in nil },"));
             val kotlinBlock = descriptorBlock(kotlin, "\n    val $name:");
             assertTrue(kotlinBlock.startsWith(" SpfnCall<Unit, $kotlinResponse> = SpfnCall("));
-            assertTrue(kotlinBlock.contains("encode = { _ -> SpfnCanonicalValue.Obj(emptyMap()) },"));
+            assertTrue(kotlinBlock.contains("encode = { _ -> null },"));
         };
         assertEquals(2, Regex("SPFNCall<Void, ").findAll(swift).count());
         assertEquals(2, Regex("SpfnCall<Unit, ").findAll(kotlin).count());

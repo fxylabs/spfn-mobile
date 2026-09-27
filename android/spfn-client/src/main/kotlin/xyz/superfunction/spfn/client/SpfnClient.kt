@@ -73,7 +73,9 @@ class SpfnClient(
 
         // Encoded once, for both attempts. The proof is not: the re-sent request carries
         // the same bytes under a new nonce, a new timestamp and a new proof over them.
-        val canonicalBody = SpfnCanonicalJson.encode(call.encode(request));
+        // `null` is an operation with no request type: no body goes on the wire, and the
+        // proof signs the absent-body digest rather than the digest of `{}`.
+        val canonicalBody = call.encode(request)?.let { SpfnCanonicalJson.encode(it) };
 
         if (authClass == SpfnGeneratedAuthClass.NONE)
         {
@@ -118,7 +120,7 @@ class SpfnClient(
      * session, and this request presented none; an auth refusal here is the server's
      * final answer and passes through as itself.
      */
-    private suspend fun <Req, Resp> executeUnproven(call: SpfnCall<Req, Resp>, canonicalBody: ByteArray): Resp
+    private suspend fun <Req, Resp> executeUnproven(call: SpfnCall<Req, Resp>, canonicalBody: ByteArray?): Resp
     {
         val response = try
         {
@@ -130,8 +132,7 @@ class SpfnClient(
                     // every operation "proven or not — enrolment and login are where a
                     // stale client is met first, and they carry no proof", and this is
                     // that path.
-                    headers = listOf(SpfnWireHeaders.CONTENT_TYPE to SpfnWireHeaders.REQUEST_CONTENT_TYPE)
-                        + SpfnClientIdentity.headers,
+                    headers = contentTypeHeaders(canonicalBody) + SpfnClientIdentity.headers,
                     body = canonicalBody,
                     timeoutMillis = timeoutMillis
                 )
@@ -148,10 +149,18 @@ class SpfnClient(
         return read(response, call);
     }
 
+    /**
+     * `content-type` for a request that has a body, and nothing for one that has none —
+     * the same rule [SpfnSession.proofHeaders] applies on the proven path.
+     */
+    private fun contentTypeHeaders(canonicalBody: ByteArray?): List<Pair<String, String>> =
+        if (canonicalBody == null) emptyList()
+        else listOf(SpfnWireHeaders.CONTENT_TYPE to SpfnWireHeaders.REQUEST_CONTENT_TYPE)
+
     // ---- the two attempts --------------------------------------------------
 
     /** One request: fresh headers, one transport call, no interpretation of the answer. */
-    private suspend fun attempt(operation: SpfnOperation, canonicalBody: ByteArray): Attempt
+    private suspend fun attempt(operation: SpfnOperation, canonicalBody: ByteArray?): Attempt
     {
         try
         {
@@ -189,7 +198,7 @@ class SpfnClient(
      */
     private suspend fun <Req, Resp> retryOnce(
         call: SpfnCall<Req, Resp>,
-        canonicalBody: ByteArray,
+        canonicalBody: ByteArray?,
         presentedSessionId: String?,
         refusal: SpfnClientError.Auth
     ): Resp
@@ -227,7 +236,7 @@ class SpfnClient(
      */
     private suspend fun <Req, Resp> retryOnceAfterResynchronizing(
         call: SpfnCall<Req, Resp>,
-        canonicalBody: ByteArray
+        canonicalBody: ByteArray?
     ): Resp
     {
         coroutineContext.ensureActive();
