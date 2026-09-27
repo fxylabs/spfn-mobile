@@ -969,12 +969,13 @@ iOS는 재배치가 필요 없다"고 적혀 있었고, 그 문장 하나가 iOS
 "갈린다", 아니면 아직 안 재봤으니 **양쪽 다 처방을 받는다.**
 
 **탭 루트는 "`Screen`이 인셋을 가진다"의 예외 한 줄이다.** `TabHost`가 바를 보이는 탭
-루트에서는 하단 인셋(홈 인디케이터·내비게이션 바)을 **바가 쓴다.** 루트 본문은 그만큼과 바
-높이를 이미 소비된 것으로 받는다 — Android는 `TabHost`가 루트 콘텐츠에
-`consumeWindowInsets(navigationBars(아래) + 바 높이)`를 주고, iOS는
-`.safeAreaInset(edge: .bottom)`이 안전 영역을 줄인다. 그래서 `Screen` 본문의
+루트에서는 하단 인셋(홈 인디케이터·내비게이션 바)을 **바가 쓴다.** Android는 `TabHost`가 루트
+콘텐츠에 `consumeWindowInsets(navigationBars(아래) + 바 높이)`를 주므로, `Screen` 본문의
 `ime ∪ navigationBars`는 키보드가 없으면 0이고, 있으면 키보드가 루트와 겹치는 만큼이다. 바는
-키보드를 피하지 않는다 — 키보드 밑에 가려지고 루트는 다시 배치되지 않는다. push된 상세는 루트의
+키보드를 피하지 않는다 — 키보드 밑에 가려지고 루트는 다시 배치되지 않는다. iOS는 (2026-09-27
+개정부터) 바가 시스템 `TabView`의 것이라 **시스템이** 루트의 하단 안전 영역에 바를 더하고
+키보드 동작도 정한다. SDK는 iOS 바의 인셋과 키보드에 손대지 않는다 — 개정 전의
+`.safeAreaInset(edge: .bottom)`과 `.ignoresSafeArea(.keyboard)`는 지웠다. push된 상세는 루트의
 형제라 이 소비가 닿지 않고, 지금처럼 자기 `Screen` 본문이 인셋을 쓴다([P33](#p33)의 문장
 그대로). 바 자체는 스크롤 컨테이너 밖에 있어 항상 접근성 트리에 있다
 (docs/architecture/tab-host-design.md §6).
@@ -1199,19 +1200,29 @@ grep -rln 'swipe' examples/ui-spec/generated/flows/   # 가장자리 스와이�
 | R3 | 바 숨김 (`.toolbar(.hidden, for: .navigationBar)`), 강제 활성화 없이 | 스와이프 **모두 동작하지 않음** — 이 절의 증상 재확인 |
 
 R2가 뜻하는 것: 바를 두더라도 **뒤로 버튼을 숨기면** 같은 증상이 난다. 그래서 `Screen`의
-`leading` 항목은 뒤로 버튼을 대신하지 않고 그 옆에 붙는다. 탐지 명령은 그대로 쓴다 —
-`grep -rn 'toolbar(.hidden' Sources/`와 `grep -rn 'navigationBarBackButtonHidden' Sources/`
-둘 다 비어 있어야 한다.
+`leading` 항목은 뒤로 버튼을 대신하지 않고 그 옆에 붙는다. 탐지 명령은 이렇게 쓴다 —
+`grep -rn 'for: .navigationBar' Sources/ | grep -v toolbarBackground`와
+`grep -rn 'navigationBarBackButtonHidden' Sources/` 둘 다 비어 있어야 한다. 숨기는 막대가
+**탭 바**(`for: .tabBar`)이면 이 항목이 아니다: 탭 바를 숨겨도 `interactivePopGestureRecognizer`는
+그대로다. SDK에서 탭 바를 숨기는 곳은 `NavigationHost.swift`의 `TabBarHidden` 하나뿐이다(아래).
 
-**탭 바에서도 같은 것을 골랐다 (2026-09-27).** 하단 탭은 시스템 `TabView`가 아니라 SDK가 그린
+**탭 바에서는 처음에 같은 것을 골랐다가 iOS에서 되돌렸다 (2026-09-27).** 처음의 결정은 아래
+문단이다. **개정:** iOS 26에서 SDK 바가 플랫폼과 달라 보여서(시스템 바는 떠 있는 Liquid Glass
+캡슐이다) 유지보수자가 Q-A를 뒤집었다. **iOS는 시스템 `TabView`를 그대로 쓰고**, SDK가 push된
+도착 화면에 `.toolbar(.hidden, for: .tabBar)`를 붙인다(`NavigationHost.swift`의 `TabBarHidden`,
+`TabHost`가 만든 호스트에서만). 숨는 것은 탭 바이고 내비게이션 바가 아니므로 두 스와이프 뒤로는
+UIKit의 것 그대로다. U-1의 늦은 재등장(pop 뒤 약 0.23초)은 받아들였다: 가장자리 스와이프 중에는
+드러나는 루트에 바가 없고, 바는 pop이 끝난 뒤 따로 나타난다(셀 `tabs-c5`, 사람이 본다).
+Android는 아래 문단 그대로다.
+
+처음의 결정: 하단 탭은 시스템 `TabView`가 아니라 SDK가 그린
 바이고, 그 바는 **각 탭의 루트 화면 안에** 있다(docs/architecture/tab-host-design.md, 결정
 Q-A). `TabView`를 쓰면 push된 도착 화면마다 `.toolbar(.hidden, for: .tabBar)`로 탭 바를 숨기고
 pop 때 되살려야 하는데, 그 두 동작과 탭 안의 경로 바인딩 스택 모두에 iOS 17.4·18에서 보고된
 결함이 있다. 대조군 (가)를 시뮬레이터에서 잰 것이 U-1이다: iOS 18.2와 26.3 모두 **pop이 끝난
 뒤 약 0.23초가 지나서야 시스템 탭 바가 다시 나타났다.** 바가 루트의 일부이면 숨길 것이 없다 —
 상세는 루트 위에 쌓이는 형제 항목이라 바를 저절로 덮고, pop과 가장자리 스와이프는 바가 있는
-루트를 함께 드러낸다. 그래서 이 설계는 **어떤 막대도 숨기지 않고**, 위의 탐지 명령
-`grep -rn 'toolbar(.hidden' Sources/`는 탭이 들어온 뒤에도 비어 있어야 한다. 탭 루트에서는
+루트를 함께 드러낸다. 그래서 그 설계는 **어떤 막대도 숨기지 않았다.** 탭 루트에서는
 아래에 라우트가 없으므로 두 스와이프 모두 아무 일도 하지 않는다(셀 `tabs-c12`).
 
 셀에서 달라진 것: iOS의 뒤로는 시스템 버튼이라 SDK id(`screen.back`)가 없다. 생성된 셀은
@@ -1329,7 +1340,10 @@ u7b·u10b가 처음으로 실패했다 — 같은 라운드의 5커밋에 Androi
 
 **처방.** (2026-09-25부터 SDK에는 이 코드가 없다 — [P29](#p29)의 "지금 고른 것"대로 바를
 숨기지 않으므로 인식기를 건드릴 일이 없다. 아래는 화면 단위 수명주기로 공유 자원을 켜고 끄는
-모든 코드에 그대로 적용되는 교훈으로 남긴다.) 켜는 것만 화면이 하고, **끄는 판단은 제스처가 일어나는 순간에** 시킨다. iOS에서는
+모든 코드에 그대로 적용되는 교훈으로 남긴다. 2026-09-27부터 iOS `TabHost`의 push된 도착 화면은
+시스템 탭 바를 `.toolbar(.hidden, for: .tabBar)`로 숨기는데, 이것도 화면 단위 선언이지만 인식기를
+켜거나 끄지 않는다. 바가 숨은 채로 가장자리 스와이프를 하면 드러나는 탭 루트에 바가 없을 뿐,
+팝은 취소되지 않는다(셀 `tabs-c7`의 iOS 절반, `tabs-c5`).) 켜는 것만 화면이 하고, **끄는 판단은 제스처가 일어나는 순간에** 시킨다. iOS에서는
 인식기의 `delegate`를 공유 객체 하나로 두고 `gestureRecognizerShouldBegin`에서 내비게이션
 컨트롤러의 현재 깊이(`viewControllers.count > 1`)를 읽는다. 화면의 의견은 **그려질 때**
 만들어지고 제스처는 **나중에** 일어나므로, 그 사이에 깊이가 두 번 움직였을 수 있다 — 늦게

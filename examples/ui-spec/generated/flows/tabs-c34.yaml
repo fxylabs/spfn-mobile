@@ -32,8 +32,20 @@ name: tabs-c34
       text: "stack=.*"
     timeout: 45000
 
-- tapOn:
-    id: "tab.account"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: "tab.account"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          text: "Account"
+          below:
+            text: "stack=.*"
 
 - tapOn:
     id: "accountHome.profile"
@@ -64,8 +76,20 @@ name: tabs-c34
 - assertVisible:
     text: "tab=account"
 
-- tapOn:
-    id: "tab.home"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: "tab.home"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          text: "Home"
+          below:
+            text: "stack=.*"
 
 - assertVisible:
     text: "tab=home"

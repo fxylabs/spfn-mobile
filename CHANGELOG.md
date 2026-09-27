@@ -108,6 +108,28 @@ Entries under an unreleased heading describe repository state, not shipped softw
   `spfn-core` and `SPFNCoreTests` test sources, where `AppContractFixtureTest` /
   `AppContractFixtureTests` decode real wire bytes with it.
 
+### iOS `TabHost` is the system `TabView` (iOS only; public API unchanged)
+
+- The iOS bar is now the system's: `TabHost` renders a SwiftUI `TabView` with one tab per
+  `TabItem` — `Tab(value:)` on iOS 18 and later, `.tabItem` with `.tag` on iOS 17 — each
+  tab's content in its own `NavigationHost` as before. The SDK-drawn bar looked unlike the
+  platform on iOS 26, where the system bar is a floating Liquid Glass capsule. Android keeps
+  the SDK-drawn bar (docs/architecture/tab-host-design.md §2-1, decision Q-A revised).
+- A pushed destination in a tab hides the system bar with `.toolbar(.hidden, for: .tabBar)`,
+  which the tab's `NavigationHost` applies; an app writes nothing, and a tab's root shows the
+  bar. The bar comes back about 0.23 s after a pop has finished, and an edge swipe back
+  previews the root without it (§5 U-1); this is accepted.
+- Selection is a binding over `TabState`: pressing the selected tab still reaches
+  `select(_:depth:)`, so it pops to the root or bumps `TabScrollToTop` as before.
+- `TabItem.icon` and `selectedIcon` are handed to the system bar as template images, which it
+  tints with the theme's accent when selected. The system bar does not scale an app's own
+  image; give it a vector asset at the bar's glyph size.
+- Removed on iOS: the SDK bar, its `safeAreaInset` and its keyboard handling, the `.isTabBar`
+  container, the large content viewer and the `tab.<id>` identifier. The system owns the
+  bar's insets, keyboard behaviour and accessibility. A runner finds an iOS tab button by
+  its label; the generated tab cells now do, below the root's `stack=` readout, and keep
+  `tab.<id>` on Android.
+
 ### A bottom tab container: `TabHost` (additive)
 
 - **New, both: `TabHost(state:tabs:)` / `TabHost(state, tabs)`**, the app's top-level bottom

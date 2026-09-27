@@ -1,59 +1,65 @@
 #if canImport(SwiftUI)
-// SPFN Mobile — the bottom tab container: one NavigationHost per tab, and a bar the SDK draws.
+// SPFN Mobile — the bottom tab container: the system `TabView`, one NavigationHost per tab.
 //
 // Counterpart of android/spfn-ui/src/main/kotlin/xyz/superfunction/spfn/ui/TabHost.kt: same
-// names, same bar, same rules. Guarded whole, first line of code to last, the way every
-// SwiftUI file in this module is (docs/IMPLEMENTATION-PITFALLS.md P20). The design is
-// docs/architecture/tab-host-design.md; the short form is here so the code can be read
-// against it.
+// names, same `TabState`, same rules — but not the same bar. Guarded whole, first line of code
+// to last, the way every SwiftUI file in this module is (docs/IMPLEMENTATION-PITFALLS.md P20).
+// The design is docs/architecture/tab-host-design.md; the short form is here so the code can
+// be read against it.
 //
 // ---------------------------------------------------------------------------
-// Not the system `TabView`, and why the bar is in each tab's ROOT
+// The system `TabView`, and what that costs
 // ---------------------------------------------------------------------------
 //
-// A `TabView` needs every pushed destination to hide its bar with
-// `.toolbar(.hidden, for: .tabBar)` and the pop to bring it back, and both of those, and a
-// path-bound `NavigationStack` inside a tab, carry reported defects inside this package's
-// iOS 17–26 range; on the 18.2 and 26.3 simulators the system bar came back about 0.23 s
-// after a pop had finished (§2-1, §5 U-1). So the SDK draws the bar (decision Q-A), and puts
-// it where nothing has to hide it: in the root screen of each tab, as a bottom safe-area
-// inset. A pushed route is a navigation destination ABOVE that root, so it slides in over
-// the root and its bar together, and the edge swipe back previews the root with its bar.
-// No code here hides a bar, and P29's grep for `toolbar(.hidden` stays empty.
+// The bar is the platform's: on iOS 26 the floating Liquid Glass capsule with its selected
+// pill, before that the classic bar, and on both the system's own accessibility, large content
+// viewer and insets. An SDK-drawn bar looked like no other iOS app on 26, so the decision Q-A
+// was reopened and turned around (§2-1): iOS uses the system `TabView` as it is, and Android
+// keeps the bar the SDK draws. What was measured against this choice is accepted, not solved:
+// the system hides its bar for a pushed destination and brings it back about 0.23 s AFTER a
+// pop has finished (§5 U-1, iOS 18.2 and 26.3).
 //
-// The inset is attached ONCE, here, to whatever the app's root closure returns. A root that
-// re-renders re-renders inside it and does not add a second bar, and the bottom safe area is
-// the bar's to spend while it is shown: a `Screen` inside the root scrolls to end above it.
+// A pushed destination hides the bar with `.toolbar(.hidden, for: .tabBar)`, and the SDK
+// applies it — `NavigationHost` does, on the one destination it declares, when it stands in a
+// tab. The app writes nothing. A tab's root is not a destination, so depth 0 shows the bar.
+//
+// Selection runs through a binding whose getter is `TabState.selected` and whose setter is
+// `TabState.select(_:depth:)`. The system calls the setter for a press on the tab that is
+// already selected too (§5 U-3), which is how a reselect still pops to the root or bumps
+// `TabScrollToTop` as the case table says.
 //
 // ---------------------------------------------------------------------------
 // A tab once opened stays alive
 // ---------------------------------------------------------------------------
 //
-// Every tab opened at least once stays in a `ZStack`, hidden when not selected — invisible,
-// not hit-testable and out of the accessibility tree — so its `NavigationHost`'s store and
-// the scroll position UIKit holds are where they were left (decision Q-D). A tab never
-// opened is not built at all: its root would otherwise make its first read before anybody
-// looked at it (R6).
+// `TabView` keeps the view of every tab that has been shown, and builds a tab's content the
+// first time it is selected. The stores are not in those views: `TabStores` sits in this
+// view's `@State` and hands each tab's `NavigationHost` the same store on every render, so a
+// tab left at a depth is at that depth when it is selected again (decision Q-D).
 //
 // A modal or a sheet opened inside a tab needs nothing from this: `fullScreenCover` and
-// `sheet` are presented by the window and cover the bar wherever they are opened from.
+// `sheet` are presented by the window and cover the system bar wherever they are opened from.
 
 import SwiftUI
 
-/// One tab, declared as data: its id, what the bar shows for it, and its root content.
+/// One tab, declared as data: its id, what the system bar shows for it, and its root content.
 ///
 /// The root is erased to `AnyView` so that tabs whose roots have different types stand in
 /// one array; it is built once per render of its tab, the cost `Screen` pays for its items.
 public struct TabItem: Identifiable
 {
-    /// The tab's identity: ``TabState``'s id and the bar item's accessibility identifier
-    /// `tab.<id>`. lowerCamelCase, as a spec name is.
+    /// The tab's identity: ``TabState``'s id, and the Android bar item's test tag `tab.<id>`.
+    /// lowerCamelCase, as a spec name is. The iOS bar is the system's, whose buttons carry no
+    /// identifier of the SDK's: a runner finds them by their label.
     public let id: String
 
     /// The bar item's label.
     public let title: String
 
-    /// The bar item's mark, drawn as a template in the theme's colours.
+    /// The bar item's mark. Handed to the system bar as a template, so the bar tints it: an SF
+    /// Symbol as it is, and an app's own image by its alpha alone, whatever rendering its asset
+    /// catalog sets. The system bar does not scale an app's image, so that image is a vector
+    /// asset drawn at the bar's glyph size (about 25 pt in the Human Interface Guidelines).
     public let icon: Image
 
     /// The mark while the tab is selected. `nil` draws ``icon`` in both states.
@@ -106,11 +112,13 @@ public struct TabScrollToTop: Equatable, Sendable
     public static let none = TabScrollToTop(count: 0)
 }
 
-/// The bottom tab container: `tabs` in a bar the SDK draws, one navigation stack per tab.
+/// The bottom tab container: the system `TabView` with `tabs` in it, one navigation stack per
+/// tab.
 ///
 /// The app's top level. There is no ``NavigationHost`` above it — each tab IS one, and a
 /// `NavigationStack` inside another is a nesting SwiftUI does not support (§2-3). Theme it
-/// from outside, as a host: `TabHost(state: tabs, tabs: items).spfnTheme(brand)`.
+/// from outside, as a host: `TabHost(state: tabs, tabs: items).spfnTheme(brand)`; the bar's
+/// selected item takes the theme's accent.
 ///
 /// ```swift
 /// TabHost(
@@ -129,7 +137,7 @@ public struct TabScrollToTop: Equatable, Sendable
 /// ```
 ///
 /// `tabs`' ids must be `state`'s, in its order. A debug build stops on a mismatch; a release
-/// build draws the items `tabs` has.
+/// build shows the tabs `tabs` has.
 @MainActor
 public struct TabHost: View
 {
@@ -137,11 +145,9 @@ public struct TabHost: View
     private let tabs: [TabItem]
 
     /// One store per tab, made the first time a tab is drawn and kept for as long as this
-    /// view is: it is what a pop to a tab's root goes through.
+    /// view is: it is what a pop to a tab's root goes through, and what a tab selected again
+    /// finds its stack in.
     @State private var stores = TabStores()
-
-    /// The tabs opened at least once, which are the ones kept alive.
-    @State private var opened: Set<String> = []
 
     public init(state: TabState, tabs: [TabItem])
     {
@@ -150,169 +156,102 @@ public struct TabHost: View
         self.tabs = tabs
     }
 
+    /// iOS 18's `Tab(value:)` where it exists, and `.tabItem` with `.tag` on iOS 17, this
+    /// package's floor. Each branch is erased on its own so that neither type has to exist on
+    /// the other branch's systems.
     public var body: some View
     {
-        ZStack
+        if #available(iOS 18, macOS 15, *)
         {
-            ForEach(tabs)
-            { item in
-                if item.id == state.selected || opened.contains(item.id)
+            AnyView(
+                TabView(selection: selection)
                 {
-                    let shown = item.id == state.selected
-                    tab(item)
-                        .opacity(shown ? 1 : 0)
-                        .allowsHitTesting(shown)
-                        .accessibilityHidden(!shown)
+                    ForEach(tabs)
+                    { item in
+                        Tab(value: item.id)
+                        {
+                            tab(item)
+                        }
+                        label:
+                        {
+                            label(item)
+                        }
+                    }
                 }
-            }
+                .modifier(ThemeTint())
+            )
         }
-        .onChange(of: state.selected, initial: true)
+        else
         {
-            opened.insert(state.selected)
+            AnyView(
+                TabView(selection: selection)
+                {
+                    ForEach(tabs)
+                    { item in
+                        tab(item)
+                            .tabItem
+                            {
+                                label(item)
+                            }
+                            .tag(item.id)
+                    }
+                }
+                .modifier(ThemeTint())
+            )
         }
     }
 
-    /// One tab: its own host, and the app's root with the bar under it.
+    /// `TabState` as the selection the system bar reads and writes. Every press on the bar is
+    /// the setter, the selected tab's included, and it is `TabState` that says what it means.
+    private var selection: Binding<String>
+    {
+        Binding(
+            get:
+            {
+                state.selected
+            },
+            set:
+            { id in
+                press(id)
+            }
+        )
+    }
+
+    /// A press on the bar item `id`, asked about with the depth of the tab standing selected
+    /// when it came — the one whose stack a reselect pops.
+    private func press(_ id: String)
+    {
+        let store = stores.of(state.selected)
+        if state.select(id, depth: store.depth) == .popToRoot
+        {
+            store.shorten(to: 0)
+        }
+    }
+
+    /// One tab: its own host around the app's root, which hides the bar on what it pushes.
     private func tab(_ item: TabItem) -> some View
     {
-        let store = stores.of(item.id)
-        return NavigationHost(store: store)
+        NavigationHost(tabStore: stores.of(item.id))
         {
             item.root()
-                .safeAreaInset(edge: .bottom, spacing: 0)
-                {
-                    TabBar(state: state, tabs: tabs, store: store)
-                }
         }
         .environment(\.tabScrollToTop, TabScrollToTop(count: state.scrollToTop(for: item.id)))
     }
-}
 
-/// The bar: one item per tab, each an equal share of the width.
-///
-/// A container VoiceOver reads as a tab bar, whose items are buttons with the selected one
-/// marked selected (§6). It stays under the keyboard rather than riding up on it: the root's
-/// body gets out of the keyboard's way (K1) and the bar does not move for it (C-23, U-6).
-@MainActor
-private struct TabBar: View
-{
-    let state: TabState
-    let tabs: [TabItem]
-    let store: HostStackStore
-
-    @Environment(\.spfnTheme) private var theme
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View
+    /// What the bar shows for `item`: its title over its mark, the selected mark while the tab
+    /// is selected, both as templates the bar tints.
+    private func label(_ item: TabItem) -> some View
     {
-        let palette = theme.palette(for: scheme)
-        return HStack(spacing: 0)
+        Label
         {
-            ForEach(tabs)
-            { item in
-                TabBarItem(item: item, selected: item.id == state.selected)
-                {
-                    if state.select(item.id, depth: store.depth) == .popToRoot
-                    {
-                        store.shorten(to: 0)
-                    }
-                }
-            }
+            Text(item.title)
         }
-        .frame(maxWidth: .infinity)
-        .background(palette.surface)
-        .overlay(alignment: .top)
+        icon:
         {
-            Rectangle()
-                .fill(palette.handle)
-                .frame(height: Metrics.borderWidth)
+            (item.id == state.selected ? item.selectedIcon ?? item.icon : item.icon)
+                .renderingMode(.template)
         }
-        .accessibilityElement(children: .contain)
-        .modifier(TabBarTraits())
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-    }
-}
-
-/// One item: the mark over the label, in the accent when selected and the secondary text
-/// colour when not.
-///
-/// A plain `Button` whose label fills the item and carries a `contentShape`, so the whole
-/// share answers a finger and not only the letters (P39); at least the minimum touch target
-/// tall in its own frame (P21). The label is one line; past the first accessibility size the
-/// item stops growing and a long press shows the large content viewer, as the system bar does.
-@MainActor
-private struct TabBarItem: View
-{
-    let item: TabItem
-    let selected: Bool
-    let onTap: @MainActor () -> Void
-
-    @Environment(\.spfnTheme) private var theme
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View
-    {
-        let palette = theme.palette(for: scheme)
-        let tint = selected ? palette.accent : palette.textSecondary
-        return Button(action: onTap)
-        {
-            VStack(spacing: theme.spacing.space1)
-            {
-                (selected ? item.selectedIcon ?? item.icon : item.icon)
-                    .renderingMode(.template)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: Metrics.iconSize, height: Metrics.iconSize)
-                    .accessibilityHidden(true)
-                Text(item.title)
-                    .font(theme.typography.caption)
-                    .lineLimit(1)
-            }
-            .foregroundStyle(tint)
-            .padding(.vertical, theme.spacing.space1)
-            .frame(maxWidth: .infinity, minHeight: Metrics.touchTarget)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .accessibilityLabel(item.accessibilityLabel ?? item.title)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityIdentifier("tab.\(item.id)")
-        .modifier(LargeContentViewer(title: item.title))
-    }
-}
-
-/// The tab bar trait, where the platform has one. iOS 17 — this package's floor — is where
-/// `.isTabBar` arrived; macOS draws no tab bar of this kind and gets the container alone.
-private struct TabBarTraits: ViewModifier
-{
-    func body(content: Content) -> some View
-    {
-    #if os(iOS)
-        content.accessibilityAddTraits(.isTabBar)
-    #else
-        content
-    #endif
-    }
-}
-
-/// The large content viewer a system tab bar item shows on a long press at the largest
-/// sizes, which is what stands in for a label that stopped growing. iOS only.
-private struct LargeContentViewer: ViewModifier
-{
-    let title: String
-
-    func body(content: Content) -> some View
-    {
-    #if os(iOS)
-        content
-            .accessibilityShowsLargeContentViewer
-            {
-                Text(title)
-            }
-    #else
-        content
-    #endif
     }
 }
 

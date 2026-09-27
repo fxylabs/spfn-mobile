@@ -155,7 +155,8 @@ A flow is entered in one of three ways, and the difference is what it is drawn o
 
 Inside a `TabHost` two things follow. A `push` appends to the SELECTED tab's host, and each
 tab's stack moves alone. And a `modal` or a `sheet` still covers everything — the tab bar
-included — on both platforms: iOS's presentations are the window's, and on Android, where a
+included — on both platforms: iOS's presentations are the window's and cover the system tab
+bar with everything else, and on Android, where a
 cover fills only its parent and a tab root's parent stops at the bar, the `FlowHost` registers
 its presentation with the `TabHost`, which draws it in a layer over the tabs and the bar.
 
@@ -219,23 +220,31 @@ roots is refused by the second tab (a debug build stops). `TabHost` is an app's 
 a `NavigationHost` above it would nest one navigator inside another, which SwiftUI does not
 support and which Compose answers with two `NavDisplay`s fighting for the back.
 
-**The bar is drawn by the SDK, inside each tab's root.** Not the system `TabView`: hiding its
-bar on push and bringing it back on pop are exactly the behaviours with reported defects inside
-this package's iOS range, and on the simulators the system bar came back about 0.23 s after a
-pop had finished (P29). A pushed route is a sibling of the root, so it slides in over the root
-and its bar together, the edge swipe and the held predictive back preview the root WITH its
-bar, and no code hides a bar anywhere. Pressing the selected tab above its root pops it there —
-the store's `shorten(to: 0)`, the same reconciliation a platform pop takes — and on the root
-bumps `TabScrollToTop`, which an app's own list follows. Colours and type are the theme's
-existing keys: `surface`, `accent`, `textSecondary`, `handle`, `caption`.
+**The bar is the system's on iOS and the SDK's on Android.** iOS uses the system `TabView` as
+it is — `Tab(value:)` on iOS 18 and later, `.tabItem` with `.tag` on iOS 17 — because an SDK-drawn
+bar looked unlike the platform on iOS 26, where the system bar is a floating Liquid Glass capsule
+with a selected pill. The selection is a binding whose getter is `TabState.selected` and whose
+setter is `TabState.select(_:depth:)`; the system calls the setter for a press on the selected tab
+as well, which is how a reselect still reaches `TabState`. A pushed destination hides the system
+bar with `.toolbar(.hidden, for: .tabBar)`, which a tab's `NavigationHost` applies to the one
+destination it declares, so an app writes nothing; the bar comes back about 0.23 s after a pop
+has finished (tab-host-design §5 U-1), which the design accepts. The system owns the bar's
+insets, its keyboard behaviour and its accessibility; the SDK hands it a label and a template
+icon, and the theme's accent as the tint. On Android the SDK draws the bar in each tab's root:
+a pushed route is a sibling of the root, so it slides in over the root and its bar together, the
+held predictive back previews the root WITH its bar, and no code hides it. Pressing the selected
+tab above its root pops it there — the store's `shorten(to: 0)`, the same reconciliation a
+platform pop takes — and on the root bumps `TabScrollToTop`, which an app's own list follows.
+The Android bar's colours and type are the theme's existing keys: `surface`, `accent`,
+`textSecondary`, `handle`, `caption`.
 
 **The Android half hoists what a tab needs to survive leaving the composition.** Only the
 selected tab is composed, so each tab's `HostStackStore` is remembered by `TabHost` and handed
 to an internal `NavigationHost(host, root)`, and a `SaveableStateHolder` keeps each tab's saved
-state under its id. The iOS half keeps a tab it has opened alive in a `ZStack`, hidden,
-untouchable and out of the accessibility tree while another is selected. The system back on the
-root of a tab that is not the start tab selects the start tab (Android, decision Q-B); on the
-start tab's root it leaves the app.
+state under its id. On iOS the system `TabView` keeps every tab it has shown alive, and the
+stores are held by `TabHost` rather than by those views, so a tab left at a depth comes back at
+that depth. The system back on the root of a tab that is not the start tab selects the start
+tab (Android, decision Q-B); on the start tab's root it leaves the app.
 
 #### What closes a flow, and what only moves inside it
 
@@ -301,12 +310,13 @@ status bar inset unconsumed for its content, which pads for it itself. A host th
 root as well does not pad twice: Compose's `windowInsetsPadding` CONSUMES what it applies, so
 the header of a `Screen` inside an already-padded host adds nothing, and a sheet consumes the
 status bar inset before its content sees it because a sheet stands nowhere near the status
-bar. Inside a `TabHost` the tab root with its bar showing is the one exception: the bar
-stands on the bottom inset, and the root is told that inset and the bar's own height are spent
-(Android `consumeWindowInsets`, iOS `.safeAreaInset(edge: .bottom)`), so a root `Screen`'s
-body pads for the keyboard only where the keyboard overlaps it, and the bar stays under the
-keyboard rather than riding up on it. A pushed detail is a sibling of the root, so the
-consumption does not reach it and its own `Screen` spends the inset as everywhere else.
+bar. Inside a `TabHost` the tab root with its bar showing is the one exception. On Android the
+bar stands on the bottom inset, and the root is told that inset and the bar's own height are
+spent (`consumeWindowInsets`), so a root `Screen`'s body pads for the keyboard only where the
+keyboard overlaps it, and the bar stays under the keyboard rather than riding up on it. On iOS
+the bar is the system `TabView`'s, which adds it to the root's bottom safe area and decides its
+keyboard behaviour itself; the SDK touches neither. A pushed detail is a sibling of the root, so
+the consumption does not reach it and its own `Screen` spends the inset as everywhere else.
 A host app that does NOT use `Screen` still owns its own insets, which is the case
 `examples/android-compose` and `tools/harness` are in for their own rows
 (docs/IMPLEMENTATION-PITFALLS.md P25). A `fit` sheet measures the body's content and adds one

@@ -26,6 +26,9 @@
 //
 // The readouts are the example's (§3-7): `tab=<id>` and `stack=<n>` on each tab root, and
 // `scrollToTop=<n>`, which is the root's count of C-14's signal.
+//
+// The bar item is found per platform (`Step.TapTab`): by its tag `tab.<id>` on Android, where
+// the bar is the SDK's, and by its label on iOS, where it is the system `TabView`'s.
 
 package xyz.superfunction.spfn.uicodegen
 
@@ -90,7 +93,7 @@ object TabRules
         cell(
             "c1", bar.start.root, "idle", "tab.${bar.other.id}",
             "C-1 — pressing another tab selects it and shows its root; nothing moves in either tab's stack",
-            steps = listOf(Step.SeeId(tabId(bar.other)), Step.Tap(tabId(bar.other))),
+            steps = listOf(seeTab(bar.other), press(bar.other)),
             expect = listOf(tab(bar.other), "stack=0")
         ),
         cell(
@@ -98,7 +101,7 @@ object TabRules
             "C-2 and Q-D — the start tab was left two deep; pressing it shows that detail as it was left, " +
                 "with no bar on it",
             fixture = Fixtures.TAB_DEEP,
-            steps = listOf(Step.Tap(tabId(bar.start)), Step.Await("stack=2"), Step.NotSeeId(tabId(bar.start))),
+            steps = listOf(press(bar.start), Step.Await("stack=2"), noTab(bar.start)),
             expect = listOf("stack=2"),
             teardown = Rules.unwind(bar.startPush, 2)
         )
@@ -109,13 +112,13 @@ object TabRules
     private fun pushing(bar: Bar): List<Cell> = listOf(
         cell(
             "c3", bar.start.root, "idle", open(bar.start, bar.startPush.flow),
-            "C-3 — a pushed detail slides in over the tab's root and its bar together: the bar's items " +
-                "are not on screen",
+            "C-3 — a pushed detail hides the bar, covering it with the root on Android and hiding the " +
+                "system bar on iOS: the bar's items are not on screen",
             steps = listOf(
                 Step.Tap(open(bar.start, bar.startPush.flow)),
                 Step.Await("stack=1"),
-                Step.NotSeeId(tabId(bar.start)),
-                Step.NotSeeId(tabId(bar.other))
+                noTab(bar.start),
+                noTab(bar.other)
             ),
             expect = listOf("stack=1"),
             teardown = Rules.unwind(bar.startPush, 1)
@@ -127,19 +130,19 @@ object TabRules
                 Step.Tap(open(bar.start, bar.startPush.flow)),
                 Step.Await("stack=1"),
                 Step.HeaderBack("${Rules.literal(bar.start.title)}|Back"),
-                Step.SeeId(tabId(bar.start))
+                seeTab(bar.start)
             ),
             expect = listOf(tab(bar.start), "stack=0")
         ),
         cell(
             "c7", bar.startPush.chain.first().name, "idle", "systemBack",
             "C-7 and C-5 — the system back (Android) and the edge swipe (iOS) pop the detail, and the " +
-                "root comes back with its bar",
+                "root comes back with its bar (on iOS the system bar a moment after the pop)",
             steps = listOf(
                 Step.Tap(open(bar.start, bar.startPush.flow)),
                 Step.Await("stack=1"),
                 Step.SystemBack,
-                Step.SeeId(tabId(bar.start))
+                seeTab(bar.start)
             ),
             expect = listOf(tab(bar.start), "stack=0")
         ),
@@ -148,12 +151,12 @@ object TabRules
             "C-34 and N1 — each tab's stack moves alone: a push and a pop on one tab leave the start " +
                 "tab's stack where it stood",
             steps = listOf(
-                Step.Tap(tabId(bar.other)),
+                press(bar.other),
                 Step.Tap(open(bar.other, bar.otherPush.flow)),
                 Step.Await("stack=1"),
                 Step.SystemBack,
                 Step.SeeText(tab(bar.other)),
-                Step.Tap(tabId(bar.start))
+                press(bar.start)
             ),
             expect = listOf(tab(bar.start), "stack=0")
         )
@@ -167,7 +170,7 @@ object TabRules
             "C-9 and Q-B — on Android the system back on another tab's root selects the start tab; on " +
                 "iOS there is no such back and the tab stays (C-12)",
             steps = listOf(
-                Step.Tap(tabId(bar.other)),
+                press(bar.other),
                 Step.SeeText(tab(bar.other)),
                 Step.On("Android", listOf(Step.SystemBack, Step.SeeText(tab(bar.start)))),
                 Step.On("iOS", listOf(Step.SeeText(tab(bar.other))))
@@ -178,7 +181,7 @@ object TabRules
             "c12", bar.other.root, "idle", "systemBack",
             "C-12 — on iOS an edge swipe on a tab's root does nothing: there is no route under it",
             steps = listOf(
-                Step.Tap(tabId(bar.other)),
+                press(bar.other),
                 Step.On("iOS", listOf(Step.SystemBack))
             ),
             expect = listOf(tab(bar.other), "stack=0")
@@ -215,8 +218,9 @@ object TabRules
         ),
         manual(
             "c5", bar.startPush.chain.first().name, "edgeSwipe",
-            "C-5 — during an edge swipe back the root shows WITH its bar, sliding in together; released, " +
-                "no bar appears or blinks on its own",
+            "C-5 — during an edge swipe back the root shows WITHOUT the system bar; released, the bar " +
+                "appears about 0.23 s after the pop has finished (U-1, accepted); cancelled, the detail stays " +
+                "and the bar stays hidden",
             "iOS: open '${bar.startPush.flow.name}' from '${bar.start.root}', swipe back from the left edge " +
                 "slowly, half way, then all the way",
             listOf("stack=0")
@@ -239,14 +243,14 @@ object TabRules
             "C-13 — the selected tab pressed while it stands above its root asks for a pop to the root; " +
                 "the bar is not on screen then, so this row is TabState's",
             "unit", Fixtures.READY,
-            listOf(Step.Tap(tabId(bar.start))),
+            listOf(press(bar.start)),
             listOf("stack=0")
         ),
         cell(
             "c14", bar.start.root, "idle", "tab.${bar.start.id}",
             "C-14 and Q-C — the selected tab pressed on its root leaves the stack alone and counts one " +
                 "scroll-to-top, which the app's list follows",
-            steps = listOf(Step.SeeText(tab(bar.start)), Step.Tap(tabId(bar.start))),
+            steps = listOf(Step.SeeText(tab(bar.start)), press(bar.start)),
             expect = listOf(tab(bar.start), "stack=0", "scrollToTop=1")
         ),
         Cell(
@@ -263,8 +267,8 @@ object TabRules
 
     private fun presenting(bar: Bar): List<Cell>
     {
-        val openModal = listOf(Step.Tap(tabId(bar.other)), Step.Tap(open(bar.other, bar.modal.flow)), Step.Await("stack=1"));
-        val openSheet = listOf(Step.Tap(tabId(bar.other)), Step.Tap(open(bar.other, bar.sheet.flow)), Step.Await("stack=1"));
+        val openModal = listOf(press(bar.other), Step.Tap(open(bar.other, bar.modal.flow)), Step.Await("stack=1"));
+        val openSheet = listOf(press(bar.other), Step.Tap(open(bar.other, bar.sheet.flow)), Step.Await("stack=1"));
         val closeModal = closing(bar.modal);
         val closeSheet = closing(bar.sheet);
         return listOf(
@@ -334,7 +338,7 @@ object TabRules
             cell(
                 "c24", bar.start.root, "idle", "hideKeyboard",
                 "C-24 and K2 — putting the keyboard away shows the bar again, on the same tab",
-                steps = listOf(Step.Tap(field), Step.HideKeyboard, Step.SeeId(tabId(bar.start))),
+                steps = listOf(Step.Tap(field), Step.HideKeyboard, seeTab(bar.start)),
                 expect = listOf(tab(bar.start), "stack=0")
             ),
             cell(
@@ -428,7 +432,12 @@ object TabRules
     private fun manual(row: String, screen: String, action: String, rule: String, doIt: String, expect: List<String>): Cell =
         Cell("tabs-$row", screen, "idle", action, rule, "manual", Fixtures.READY, listOf(Step.ByHand(doIt)), expect)
 
-    private fun tabId(tab: TabDefinition): String = "tab.${tab.id}"
+    /** A press on [tab]'s bar item. Its label is the title, because the example sets no other. */
+    private fun press(tab: TabDefinition): Step = Step.TapTab(tab.id, Rules.literal(tab.title));
+
+    private fun seeTab(tab: TabDefinition): Step = Step.SeeTab(tab.id, Rules.literal(tab.title));
+
+    private fun noTab(tab: TabDefinition): Step = Step.NotSeeTab(tab.id, Rules.literal(tab.title));
 
     private fun tab(tab: TabDefinition): String = "tab=${tab.id}"
 

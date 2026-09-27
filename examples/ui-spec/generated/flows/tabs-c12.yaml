@@ -32,8 +32,20 @@ name: tabs-c12
       text: "stack=.*"
     timeout: 45000
 
-- tapOn:
-    id: "tab.account"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: "tab.account"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          text: "Account"
+          below:
+            text: "stack=.*"
 
 - runFlow:
     when:
