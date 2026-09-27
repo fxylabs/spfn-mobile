@@ -286,12 +286,12 @@ class AppContractTableTest
     }
 
     @Test
-    fun `T17 no request is Void or Unit and encodes an empty object`()
+    fun `T17 no request is Void or Unit and encodes no body`()
     {
         assertBoth(
             AppDocuments.document(AppDocuments.operation()),
-            listOf("-> SPFNCall<Void, GetThingResponse>", "encode: { _ in SPFNCanonicalValue.object([:]) }"),
-            listOf(": SpfnCall<Unit, GetThingResponse>", "encode = { _ -> SpfnCanonicalValue.Obj(emptyMap()) }")
+            listOf("-> SPFNCall<Void, GetThingResponse>", "encode: { _ in nil }"),
+            listOf(": SpfnCall<Unit, GetThingResponse>", "encode = { _ -> null }")
         );
     }
 

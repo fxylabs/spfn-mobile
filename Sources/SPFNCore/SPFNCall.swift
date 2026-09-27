@@ -16,12 +16,21 @@
 public struct SPFNCall<Request: Sendable, Response: Sendable>: Sendable
 {
     public let operation: SPFNOperation
-    public let encode: @Sendable (Request) throws -> SPFNCanonicalValue
+
+    /// The request body as a canonical value, or `nil` for an operation the contract
+    /// declares no request type for.
+    ///
+    /// `nil` is not an empty object. It means the request carries no body at all — no
+    /// bytes and no `content-type` — and its proof signs the absent-body digest, the
+    /// bundle's `clientProofV1.proofInput.bodySha256`: "the literal string of 64 zero
+    /// characters when an operation has no body". A declared body that happens to be
+    /// empty still encodes as `{}` and is digested like any other body.
+    public let encode: @Sendable (Request) throws -> SPFNCanonicalValue?
     public let decode: @Sendable (SPFNCanonicalValue) throws -> Response
 
     public init(
         operation: SPFNOperation,
-        encode: @escaping @Sendable (Request) throws -> SPFNCanonicalValue,
+        encode: @escaping @Sendable (Request) throws -> SPFNCanonicalValue?,
         decode: @escaping @Sendable (SPFNCanonicalValue) throws -> Response
     )
     {
@@ -40,7 +49,7 @@ extension SPFNCall where Response == SPFNNoResponse
     /// and writing that closure at each call site is how one of them ends up different.
     public static func noResponse(
         operation: SPFNOperation,
-        encode: @escaping @Sendable (Request) throws -> SPFNCanonicalValue
+        encode: @escaping @Sendable (Request) throws -> SPFNCanonicalValue?
     ) -> SPFNCall<Request, SPFNNoResponse>
     {
         SPFNCall(operation: operation, encode: encode, decode: { _ in SPFNNoResponse.value })

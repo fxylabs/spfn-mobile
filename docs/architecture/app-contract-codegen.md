@@ -85,8 +85,8 @@
 |---|---|---|---|
 | T14 | `request.params` | 호출 함수의 인자(경로에 나오는 순서). 값은 경로에 퍼센트 인코딩해 넣는다 | 속성은 `string` / `integer`만, 모두 필수. 속성 집합이 경로의 `:name` 집합과 정확히 같아야 한다. 인코딩: RFC 3986 unreserved(`A-Z a-z 0-9 - . _ ~`)만 그대로, 나머지는 UTF-8 바이트마다 `%XX`(대문자). 값이 통째로 `.`이나 `..`이면 점도 인코딩한다 — 경로 정규화가 세그먼트를 먹지 못하게 |
 | T15 | `request.query` | 호출 함수의 인자(이름 순, 선택 인자는 기본값 nil). `?k=v&…`로 경로 뒤에 붙인다. nil은 생략 | 스칼라(`string`·`integer`·`boolean`·문자열 enum)만. **`auth: none` 연산에서만.** `clientProofV1` 연산의 쿼리는 거부한다 — SDK는 `SPFNOperation.path`를 서명하고 서버는 쿼리를 뺀 경로로 검증하므로, 쿼리를 경로에 실으면 서명이 어긋나고 싣지 않으면 서명 밖의 값이 된다. 여는 것은 SDK 실행 경로의 변경이다(§7) |
-| T16 | `request.body` | `<Op>Body` 구조체가 호출의 Request 타입 | 객체만. `GET`의 본문은 거부 |
-| T17 | 요청 없음 | Request는 `Void` / `Unit`, 인코드는 빈 객체 | 코어의 `requestType` 없는 GET과 같은 모양 |
+| T16 | `request.body` | `<Op>Body` 구조체가 호출의 Request 타입 | 객체만. `GET`의 본문은 거부 — OkHttp는 GET에 본문을 싣지 못한다(`SpfnOkHttpTransportTest`가 고정) |
+| T17 | 요청 없음 | Request는 `Void` / `Unit`, 인코드는 `nil` / `null` — 본문 없음 | 코어의 `requestType` 없는 GET과 같은 모양. 실행 경로는 본문 바이트도 `content-type`도 보내지 않고, 증명은 absent-body digest(0 64개)를 서명한다 — 번들 `clientProofV1.proofInput.bodySha256`, 픽스처 `proof-input.json`의 `handshake-no-body`. 메서드가 아니라 요청 타입이 없다는 사실이 기준이므로 DELETE도 같다. 선언된 본문이 빈 객체이면 `{}`를 그대로 보낸다 |
 | T18 | `response: {type: object}` | `<Op>Response`, 디코드 | |
 | T19 | `response: {type: null}` | `SPFNNoResponse` / `SpfnNoResponse`, `noResponse` 팩토리, `declaresResponse: false` | SDK는 이 경우 204 + 빈 본문을 요구한다 — 코어 계약 0.10.0의 규칙 그대로 |
 
@@ -168,6 +168,5 @@ verify는 두 가지를 순서대로 본다.
 
 - **서명된 쿼리.** T15. `SPFNOperation`에 "서명하는 경로"와 "보내는 URL"을 나누는 SDK 변경이 필요하다.
 - **퍼센트 인코딩과 서명.** 서버(Hono)의 `c.req.path`는 `%XX`를 풀어서(`decodeURI`) 준다. 경로 인자에 인코딩이 필요한 문자(공백, non-ASCII)가 있으면 클라이언트는 인코딩된 경로를, 서버는 풀린 경로를 서명 입력으로 쓴다 — `clientProofV1` 연산에서 `PROOF_INVALID`. unreserved 문자만 쓰는 id에는 영향이 없다. 쿼리와 같은 SDK 변경으로 푼다.
-- **GET의 본문.** 실행 경로는 요청을 언제나 인코드해 본문으로 보낸다(`{}`). OkHttp는 GET의 본문을 거부하고(`SpfnOkHttpTransportTest`가 고정), 서버는 본문 없는 GET을 absent-body digest로 서명 검증한다. 생성된 GET 호출은 코어의 GET(`auth.mfa.status`)과 같은 설명자를 만들므로 같은 경로를 탄다. 실행 경로의 판단이지 생성기의 판단이 아니다.
 - **오류 본문.** 계약 문서는 성공 본문만 담는다. 오류는 SDK의 기존 봉투(`SPFNErrorEnvelope`)와 `SPFNClientError`로 읽는다.
 - **성공 상태 코드.** 문서에 없다. `{type: null}`이 204라는 것만 SDK 규칙으로 안다.

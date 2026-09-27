@@ -77,7 +77,9 @@ public struct SPFNClient: Sendable
 
         // Encoded once, for both attempts. The proof is not: the re-sent request carries
         // the same bytes under a new nonce, a new timestamp and a new proof over them.
-        let canonicalBody = SPFNCanonicalJSON.encode(try call.encode(request))
+        // `nil` is an operation with no request type: no body goes on the wire, and the
+        // proof signs the absent-body digest rather than the digest of `{}`.
+        let canonicalBody = try call.encode(request).map(SPFNCanonicalJSON.encode)
 
         switch authClass
         {
@@ -127,7 +129,7 @@ public struct SPFNClient: Sendable
     /// final answer and passes through as itself.
     private func executeUnproven<Request, Response>(
         _ call: SPFNCall<Request, Response>,
-        canonicalBody: [UInt8]
+        canonicalBody: [UInt8]?
     ) async throws -> Response
     {
         let response: SPFNTransportResponse
@@ -141,8 +143,7 @@ public struct SPFNClient: Sendable
                     // every operation "proven or not — enrolment and login are where a
                     // stale client is met first, and they carry no proof", and this is
                     // that path.
-                    headers: [(SPFNWireHeaders.contentType, SPFNWireHeaders.requestContentType)]
-                        + SPFNClientIdentity.headers,
+                    headers: Self.contentTypeHeaders(for: canonicalBody) + SPFNClientIdentity.headers,
                     body: canonicalBody,
                     timeoutMillis: timeoutMillis
                 )
@@ -155,10 +156,17 @@ public struct SPFNClient: Sendable
         return try Self.read(response, for: call)
     }
 
+    /// `content-type` for a request that has a body, and nothing for one that has none —
+    /// the same rule `SPFNSession.proofHeaders` applies on the proven path.
+    private static func contentTypeHeaders(for canonicalBody: [UInt8]?) -> [(String, String)]
+    {
+        canonicalBody == nil ? [] : [(SPFNWireHeaders.contentType, SPFNWireHeaders.requestContentType)]
+    }
+
     // MARK: - The two attempts
 
     /// One request: fresh headers, one transport call, no interpretation of the answer.
-    private func attempt(_ operation: SPFNOperation, canonicalBody: [UInt8]) async throws -> Attempt
+    private func attempt(_ operation: SPFNOperation, canonicalBody: [UInt8]?) async throws -> Attempt
     {
         do
         {
@@ -190,7 +198,7 @@ public struct SPFNClient: Sendable
     /// property of the shape rather than of a variable somebody could forget to reset.
     private func retryOnce<Request, Response>(
         _ call: SPFNCall<Request, Response>,
-        canonicalBody: [UInt8],
+        canonicalBody: [UInt8]?,
         presented sessionID: String?,
         failure: SPFNAuthFailure
     ) async throws -> Response
@@ -231,7 +239,7 @@ public struct SPFNClient: Sendable
     /// than bought another try — whatever the refusal turns out to be.
     private func retryOnceAfterResynchronizing<Request, Response>(
         _ call: SPFNCall<Request, Response>,
-        canonicalBody: [UInt8]
+        canonicalBody: [UInt8]?
     ) async throws -> Response
     {
         guard !Task.isCancelled

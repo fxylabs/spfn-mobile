@@ -16,10 +16,17 @@ package xyz.superfunction.spfn.core
  * the per-operation values that fill this in are generated — `SpfnGeneratedCalls` — with
  * neither this file nor the execute path changing. Keeping the operation inside the
  * descriptor is what stops a caller pairing `echo.send` with the codec for `items.list`.
+ *
+ * [encode] answers `null` for an operation the contract declares no request type for.
+ * `null` is not an empty object: the request carries no body at all — no bytes and no
+ * `content-type` — and its proof signs the absent-body digest, the bundle's
+ * `clientProofV1.proofInput.bodySha256`: "the literal string of 64 zero characters when
+ * an operation has no body". A declared body that happens to be empty still encodes as
+ * `{}` and is digested like any other body.
  */
 class SpfnCall<Req, Resp>(
     val operation: SpfnOperation,
-    val encode: (Req) -> SpfnCanonicalValue,
+    val encode: (Req) -> SpfnCanonicalValue?,
     val decode: (SpfnCanonicalValue) -> Resp
 )
 {
@@ -35,7 +42,7 @@ class SpfnCall<Req, Resp>(
         @JvmStatic
         fun <Req> noResponse(
             operation: SpfnOperation,
-            encode: (Req) -> SpfnCanonicalValue
+            encode: (Req) -> SpfnCanonicalValue?
         ): SpfnCall<Req, SpfnNoResponse> = SpfnCall(operation, encode) { SpfnNoResponse }
     }
 }

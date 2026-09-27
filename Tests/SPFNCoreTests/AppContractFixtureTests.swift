@@ -186,14 +186,14 @@ final class AppContractFixtureTests: XCTestCase
             text: "hello"
         )
         XCTAssertEqual(
-            SPFNCanonicalJSON.encodeToString(try FixtureAPI.putItemNote(itemId: "i1", noteNumber: 1).encode(body)),
+            SPFNCanonicalJSON.encodeToString(try XCTUnwrap(FixtureAPI.putItemNote(itemId: "i1", noteNumber: 1).encode(body))),
             "{\"attachments\":[{\"name\":\"a.txt\",\"object\":true,\"size\":12}],\"label\":null,\"mode\":\"append\",\"text\":\"hello\"}"
         )
     }
 
-    func testT17ACallWithoutARequestSendsAnEmptyObject() throws
+    func testT17ACallWithoutARequestEncodesNoBody() throws
     {
-        XCTAssertEqual(try FixtureAPI.getItem(itemId: "i1").encode(()), .object([:]))
+        XCTAssertNil(try FixtureAPI.getItem(itemId: "i1").encode(()))
     }
 
     func testT19ABodylessResponseDecodesToSPFNNoResponse() throws

@@ -11,7 +11,6 @@
 package xyz.superfunction.spfn.core.appcontract
 
 import xyz.superfunction.spfn.core.SpfnCall
-import xyz.superfunction.spfn.core.SpfnCanonicalValue
 import xyz.superfunction.spfn.core.SpfnNoResponse
 import xyz.superfunction.spfn.core.SpfnOperation
 
@@ -32,7 +31,7 @@ object FixtureAPI
             requiresSession = false,
             declaresResponse = true
         ),
-        encode = { _ -> SpfnCanonicalValue.Obj(emptyMap()) },
+        encode = { _ -> null },
         decode = { value -> GetItemResponse.decode(value) }
     )
 
@@ -46,7 +45,7 @@ object FixtureAPI
             requiresSession = false,
             declaresResponse = true
         ),
-        encode = { _ -> SpfnCanonicalValue.Obj(emptyMap()) },
+        encode = { _ -> null },
         decode = { value -> ListItemsResponse.decode(value) }
     )
 

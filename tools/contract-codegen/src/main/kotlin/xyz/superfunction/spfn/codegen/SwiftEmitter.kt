@@ -248,14 +248,15 @@ object SwiftEmitter
      * written here: the factory is where "there is nothing to decode" is written down
      * once, and a generated copy of that closure would be one more place for it to drift.
      * A GET the contract gives no `requestType` carries `Void`,
-     * because the caller that sends it today sends no request value at all.
+     * because the caller that sends it today sends no request value at all, and encodes
+     * to `nil`, which the execute path sends as no body under the absent-body digest.
      */
     private fun swiftCall(operation: Operation): String
     {
         val name = Names.lowerCamel(operation.id);
         val request = operation.requestType?.let { Names.swiftType(it) } ?: "Void";
         val encode = if (operation.requestType == null)
-            "{ _ in SPFNCanonicalValue.object([:]) }"
+            "{ _ in nil }"
         else "{ try \$0.canonicalValue() }";
 
         val responseType = operation.responseType;

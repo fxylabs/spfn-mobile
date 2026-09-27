@@ -24,7 +24,7 @@ extension FixtureAPI
                 requiresSession: false,
                 declaresResponse: true
             ),
-            encode: { _ in SPFNCanonicalValue.object([:]) },
+            encode: { _ in nil },
             decode: { try GetItemResponse(canonical: $0) }
         )
     }
@@ -41,7 +41,7 @@ extension FixtureAPI
                 requiresSession: false,
                 declaresResponse: true
             ),
-            encode: { _ in SPFNCanonicalValue.object([:]) },
+            encode: { _ in nil },
             decode: { try ListItemsResponse(canonical: $0) }
         )
     }

@@ -213,14 +213,14 @@ class AppContractFixtureTest
         );
         assertEquals(
             """{"attachments":[{"name":"a.txt","object":true,"size":12}],"label":null,"mode":"append","text":"hello"}""",
-            SpfnCanonicalJson.encodeToString(FixtureAPI.putItemNote("i1", 1).encode(body))
+            SpfnCanonicalJson.encodeToString(requireNotNull(FixtureAPI.putItemNote("i1", 1).encode(body)))
         );
     }
 
     @Test
-    fun `T17 a call without a request sends an empty object`()
+    fun `T17 a call without a request encodes no body`()
     {
-        assertEquals(SpfnCanonicalValue.Obj(emptyMap()), FixtureAPI.getItem("i1").encode(Unit));
+        assertNull(FixtureAPI.getItem("i1").encode(Unit));
     }
 
     @Test

@@ -36,7 +36,7 @@ object SpfnGeneratedCalls
     @JvmField
     val coreTime: SpfnCall<Unit, SpfnServerTimeResponse> = SpfnCall(
         operation = SpfnGeneratedOperations.coreTime,
-        encode = { _ -> SpfnCanonicalValue.Obj(emptyMap()) },
+        encode = { _ -> null },
         decode = { value -> SpfnServerTimeResponse.decode(value) }
     )
 
@@ -100,7 +100,7 @@ object SpfnGeneratedCalls
     @JvmField
     val authMfaStatus: SpfnCall<Unit, SpfnMfaStatusResponse> = SpfnCall(
         operation = SpfnGeneratedOperations.authMfaStatus,
-        encode = { _ -> SpfnCanonicalValue.Obj(emptyMap()) },
+        encode = { _ -> null },
         decode = { value -> SpfnMfaStatusResponse.decode(value) }
     )
 

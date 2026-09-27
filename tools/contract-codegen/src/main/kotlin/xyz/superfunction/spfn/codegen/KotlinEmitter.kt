@@ -291,14 +291,15 @@ object KotlinEmitter
      * written here: the factory is where "there is nothing to decode" is written down
      * once, and a generated copy of that lambda would be one more place for it to drift.
      * A GET the contract gives no `requestType` carries `Unit`,
-     * because the caller that sends it today sends no request value at all.
+     * because the caller that sends it today sends no request value at all, and encodes
+     * to `null`, which the execute path sends as no body under the absent-body digest.
      */
     private fun kotlinCall(operation: Operation): String
     {
         val name = Names.lowerCamel(operation.id);
         val request = operation.requestType?.let { Names.kotlinType(it) } ?: "Unit";
         val encode = if (operation.requestType == null)
-            "{ _ -> SpfnCanonicalValue.Obj(emptyMap()) }"
+            "{ _ -> null }"
         else "{ request -> request.canonicalValue() }";
 
         val responseType = operation.responseType;

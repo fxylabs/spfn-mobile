@@ -99,7 +99,7 @@ class AppKotlinEmitter(
         }
 
     private fun encoder(operation: AppOperation): String =
-        if (operation.body == null) "{ _ -> SpfnCanonicalValue.Obj(emptyMap()) }" else "{ body -> body.canonicalValue() }"
+        if (operation.body == null) "{ _ -> null }" else "{ body -> body.canonicalValue() }"
 
     private fun descriptor(operation: AppOperation): String = listOf(
         "SpfnOperation(",

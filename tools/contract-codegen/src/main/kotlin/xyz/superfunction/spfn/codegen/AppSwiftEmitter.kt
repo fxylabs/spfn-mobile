@@ -108,7 +108,7 @@ class AppSwiftEmitter(private val contract: AppContract, private val namespace: 
         }
 
     private fun encoder(operation: AppOperation): String =
-        if (operation.body == null) "{ _ in SPFNCanonicalValue.object([:]) }" else "{ \$0.canonicalValue() }"
+        if (operation.body == null) "{ _ in nil }" else "{ \$0.canonicalValue() }"
 
     /** The descriptor, laid out one field per line inside the call's argument list. */
     private fun descriptor(operation: AppOperation): String = listOf(
