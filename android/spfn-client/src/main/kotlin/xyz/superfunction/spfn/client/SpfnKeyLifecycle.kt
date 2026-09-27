@@ -43,6 +43,9 @@
 package xyz.superfunction.spfn.client
 
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import xyz.superfunction.spfn.auth.SpfnAuthException
@@ -258,7 +261,7 @@ class SpfnKeyLifecycle(
     private val transport: SpfnTransport,
     private val store: SpfnKeyMetadataStore,
     private val engine: SpfnKeystoreEngine,
-    private val baseUrl: String,
+    baseUrl: String,
     private val clock: SpfnClock = SpfnSystemClock(),
     private val proofClock: SpfnProofClock = SpfnProcessServerClock.shared,
     private val nonceGenerator: SpfnNonceGenerator = SpfnRandomNonceGenerator(),
@@ -268,6 +271,13 @@ class SpfnKeyLifecycle(
     private val newKeyId: () -> String = { UUID.randomUUID().toString().lowercase() }
 )
 {
+    /**
+     * The server every request goes to, without a trailing slash. Public so the event
+     * stream opens its GET on the server the token call it follows was signed for, rather
+     * than on a second copy of the URL an app could let drift.
+     */
+    val baseUrl: String = baseUrl.trimEnd('/')
+
     private val mutex = Mutex()
 
     /**
@@ -281,6 +291,22 @@ class SpfnKeyLifecycle(
      * So the mutex guards only the short critical sections and this flag guards the flow.
      */
     private val enrollmentInFlight = AtomicBoolean(false)
+
+    private val signedIn = MutableStateFlow(store.load(ACTIVE_SLOT)?.clientId)
+
+    /**
+     * Who is signed in: the client id stored with the active key, or null. Read-only —
+     * the only ways to change it are the `enroll…` flows and [wipe]. It moves after the
+     * store has been written, and a rotation keeps the client id, so it does not move then.
+     * The event stream observes it to close on sign-out and reopen for another account
+     * (docs/architecture/event-stream-design.md §3-3).
+     */
+    val signedInClientId: StateFlow<String?> = signedIn.asStateFlow()
+
+    /** The client [signedInClient] last built, and the key it signs with. Touched under [mutex]. */
+    private var signedInSigner: SignedInSigner? = null
+
+    private class SignedInSigner(val clientId: String, val keyId: String, val client: SpfnClient)
 
     // ---- observation -------------------------------------------------------
 
@@ -410,6 +436,7 @@ class SpfnKeyLifecycle(
                 // the retry would mint a second one.
                 mutex.withLock {
                     store.save(ACTIVE_SLOT, key.metadata(clientId = userId, createdAtMillis = clock.nowMillis()));
+                    publishSignedIn();
                 }
                 return SpfnEnrollmentResult(
                     clientId = userId,
@@ -664,6 +691,7 @@ class SpfnKeyLifecycle(
     {
         mutex.withLock {
             store.save(ACTIVE_SLOT, key.metadata(clientId = approval.clientId, createdAtMillis = clock.nowMillis()));
+            publishSignedIn();
         }
         return SpfnDeviceCodeEnrollmentResult(
             clientId = approval.clientId,
@@ -1037,6 +1065,39 @@ class SpfnKeyLifecycle(
             }
             store.delete(slot);
         }
+        publishSignedIn();
+    }
+
+    /**
+     * A client that signs with the key signed in now, or null when nobody is. Every call
+     * reads the active slot again, so the next call after a rotation signs with the new
+     * key and the next call after another account's enrollment signs as that account
+     * (docs/architecture/event-stream-design.md E-41, E-43). While the key stays the same
+     * the same client is returned, so its session — and the handshake that opened it — is
+     * reused rather than opened again per call.
+     *
+     * What the event stream signs its token call with: `execute` stays the only way a
+     * request is signed, and no signer outlives the key it was built over.
+     */
+    suspend fun signedInClient(): SpfnClient? = mutex.withLock { signerFor(activeProvider())?.client };
+
+    /** The held signer while it is still over [provider]'s key, a new one when not. */
+    private fun signerFor(provider: SpfnKeystoreKeyProvider?): SignedInSigner?
+    {
+        val held = signedInSigner;
+        signedInSigner = when
+        {
+            provider == null -> null
+            held != null && held.clientId == provider.clientId && held.keyId == provider.keyId -> held
+            else -> SignedInSigner(provider.clientId, provider.keyId, client(signer = provider))
+        };
+        return signedInSigner;
+    }
+
+    /** The stored client id, now. A rotation writes the same id, so the value holds. */
+    private fun publishSignedIn()
+    {
+        signedIn.value = store.load(ACTIVE_SLOT)?.clientId;
     }
 
     // ---- assembly ----------------------------------------------------------

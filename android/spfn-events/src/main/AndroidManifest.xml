@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    SPFN Mobile — the event stream module's one permission.
+
+    SpfnEventStreamHost registers a default-network callback, which needs
+    ACCESS_NETWORK_STATE: a normal permission, granted at install. It merges into the
+    manifest of an app that links this module and of no other app, so an app that only
+    renders state does not gain it (docs/architecture/event-stream-design.md §3-7).
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+</manifest>

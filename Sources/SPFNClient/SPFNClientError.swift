@@ -82,11 +82,17 @@ public struct SPFNServerFailure: Equatable, Sendable
     /// The envelope as it arrived. Server-chosen text; it never prints itself.
     public let envelope: SPFNErrorEnvelope
 
-    public init(code: SPFNGeneratedErrorCode, httpStatus: Int, envelope: SPFNErrorEnvelope)
+    /// The refusal's `Retry-After` header as the server wrote it, or nil. Carried, never
+    /// obeyed here: execute retries nothing but an auth refusal. The event stream reads it
+    /// on a 429 (`SPFNRetryAfter`). Server-chosen text, so the description leaves it out.
+    public let retryAfter: String?
+
+    public init(code: SPFNGeneratedErrorCode, httpStatus: Int, envelope: SPFNErrorEnvelope, retryAfter: String? = nil)
     {
         self.code = code
         self.httpStatus = httpStatus
         self.envelope = envelope
+        self.retryAfter = retryAfter
     }
 }
 
@@ -153,7 +159,7 @@ public enum SPFNClientError: Error, Equatable, Sendable
 // `description` alone is not enough — `String(reflecting:)` and `dump` reach an enum's
 // associated values through the mirror — so `debugDescription` is written out too. The
 // mirror itself is left alone: every child under it is either a number, a contract-owned
-// code, or an envelope that redacts itself.
+// code, an envelope that redacts itself, or a Retry-After value — a delay or a date.
 extension SPFNClientError: CustomStringConvertible, CustomDebugStringConvertible
 {
     public var description: String

@@ -39,6 +39,7 @@ and Maven coordinate lists from the graph.
 | `SPFNAuth` | `spfn-auth` | yes | core | swift-crypto (Linux) |
 | `SPFNClient` | `spfn-client` | yes | core, auth, generated | swift-crypto (Linux), OkHttp, coroutines (Android) |
 | `SPFNUI` | `spfn-ui` | yes | core | Compose ×3, Navigation 3 ×2, coroutines (Android) |
+| `SPFNEvents` | `spfn-events` | yes (toolkit-free types) | client | Compose runtime, Compose UI, lifecycle-process, coroutines (Android) |
 | `SPFNSocialApple` | — (declared absent) | — (declared absent) | client | — |
 | `SPFNSocialGoogle` | `spfn-social-google` | — (declared absent) | client | GoogleSignIn (trait), Credential Manager ×3 |
 
@@ -834,3 +835,52 @@ The session owns the clock, so the discard is asked of the session rather than o
 clock directly. The base URL is checked there for the same reason: a session is the one
 object every request passes through, proven or not, so refusing cleartext at its creation
 covers the enrolment path that carries no proof at all.
+
+## The event stream
+
+A native app receives the server's SSE events (`@spfn/core`'s `.events(router)`) through
+one object, `SPFNEventStream` / `SpfnEventStream` in the client module, and the SDK owns
+its connection (docs/architecture/event-stream-design.md). It sits beside the three layers
+above rather than inside them:
+
+| Piece | Where | What it reuses |
+| --- | --- | --- |
+| the one-use token | `POST <tokenPath>`, an `SPFNOperation` built from the configured path | `execute` — signed, `PROOF_EXPIRED` re-anchoring; no second request path. Sessionless by default (`requiresSession: false`, no handshake); `tokenRequiresSession: true` presents a session with its one re-handshake. Signed with `SPFNKeyLifecycle.signedInClient()`, the key signed in at the moment of the call |
+| the stream | `GET <streamPath>?token=…&events=…` over `SPFNStreamTransport` / `SpfnStreamTransport` | a second, streaming transport boundary with the same four errors, the same hardening (no cookie, no cache, no redirect, no library retry) and no deadline after the headers |
+| the decisions | `SPFNEventStreamMachine` / `SpfnEventStreamMachine` | nothing: a pure `(state, input) -> (state, effects)` table, E-1…E-56, unit-tested on Linux and the JVM |
+| the listeners | the listener hub | nothing: per-listener decode → condition → queue, L-1…L-18 |
+| the lifecycle | `SPFNEvents` / `spfn-events` | the platform: scene phase or `ProcessLifecycleOwner`, `SPFNKeyLifecycle.signedInClientID(s)`, `NWPathMonitor` or `ConnectivityManager` |
+
+The stream is built from the key lifecycle the app already has —
+`SPFNEventStream(keyLifecycle:configuration:)` / `SpfnEventStream(keyLifecycle, configuration,
+scope = …)` — not from a session, because a session is bound to one key and the stream lives
+across every sign-in. Each token call asks the lifecycle for a client over the key in the
+active slot at that moment: the same client while the key is the same, the new key's after a
+rotation (E-41), the other account's after it enrols (E-43), and none after `wipe()`, when
+nothing is sent (E-40). The stream GET goes to the lifecycle's `baseURL`, where that token
+was minted.
+
+A connection exists only while the app is in the foreground and somebody is signed in.
+The events module observes those three facts and hands them to the stream
+(`setForeground`, `setSignedIn`, `setNetworkAvailable`); an app without the module calls
+the same three itself. Screens only listen — by event name and an optional condition —
+and never open, pause or close anything: attaching and detaching a listener produces no
+input to the state machine, which is what makes navigation free of reconnects and keeps
+a condition from ever reaching the server.
+
+What a screen receives is a signal, not state. Besides the frames that decode and pass its
+condition, a listener gets `reread(attached)` when it attaches, `reread(opened(epoch))` on
+every new connection and `reread(overflow)` when its own queue filled up, and it reads
+again on each; delivery is at most once, and the reread is what covers a missed frame.
+When the server does not serve a configured name the stream reopens without it and that
+name's listeners get `unavailable` once (§10 Q-F). A 429 is retried after
+max(backoff, `Retry-After`), capped at five minutes — the one place in the SDK that reads
+`Retry-After`; `execute` only carries the header on `SPFNServerFailure.retryAfter`.
+
+The events module depends on the client module alone. It was designed with an edge to
+`ui` as well; nothing in it uses a `ui` type, so the edge was dropped, and `ui` keeps its
+promise that an app which only renders state links neither the client module nor this one.
+The module's Android manifest carries `ACCESS_NETWORK_STATE`, so only an app that links it
+gains the permission. Its SwiftUI and Network files are guarded whole, so on Linux it
+builds as its toolkit-free types (the scene tally and the signal rules).
+

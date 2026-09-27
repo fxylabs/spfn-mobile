@@ -5,7 +5,7 @@
 // stub cannot show — real TCP framing — is the reference-server work, not this one.
 
 import Foundation
-import SPFNClient
+@testable import SPFNClient
 
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -34,6 +34,10 @@ enum StubOutcome: Sendable
     /// Accepts the request and never answers, so the caller's cancellation is the only
     /// thing that can end the call.
     case hang
+
+    /// Answers the headers, then the body in the pieces given, one `didLoad` each: the
+    /// shape a stream's chunks arrive in.
+    case chunked(status: Int, headers: [String: String], chunks: [Data])
 }
 
 /// Shared state for `StubURLProtocol`.
@@ -165,12 +169,37 @@ final class StubURLProtocol: URLProtocol
 
         case .hang:
             break
+
+        case .chunked(let status, let headers, let chunks):
+            let response = HTTPURLResponse(
+                url: request.url ?? URL(string: "https://invalid.invalid")!,
+                statusCode: status,
+                httpVersion: "HTTP/1.1",
+                headerFields: headers
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            for chunk in chunks
+            {
+                client?.urlProtocol(self, didLoad: chunk)
+            }
+            client?.urlProtocolDidFinishLoading(self)
         }
     }
 
     override func stopLoading()
     {
         stubRegistry.recordStopLoading()
+    }
+
+    /// A stream transport whose sessions route every request through this stub.
+    static func streamTransport() -> SPFNURLSessionStreamTransport
+    {
+        SPFNURLSessionStreamTransport
+        {
+            let configuration = SPFNURLSessionTransport.hardenedConfiguration()
+            configuration.protocolClasses = [StubURLProtocol.self]
+            return configuration
+        }
     }
 
     /// A transport whose session routes every request through this stub.

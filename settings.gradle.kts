@@ -41,6 +41,7 @@ include(
     ":spfn-auth",
     ":spfn-client",
     ":spfn-ui",
+    ":spfn-events",
     ":spfn-social-google",
     ":contract-codegen",
     ":ui-codegen",
@@ -54,6 +55,7 @@ project(":spfn-generated").projectDir = file("android/spfn-generated")
 project(":spfn-auth").projectDir = file("android/spfn-auth")
 project(":spfn-client").projectDir = file("android/spfn-client")
 project(":spfn-ui").projectDir = file("android/spfn-ui")
+project(":spfn-events").projectDir = file("android/spfn-events")
 project(":spfn-social-google").projectDir = file("android/spfn-social-google")
 
 // Not an SDK module and never published. The contract generator is a build tool that

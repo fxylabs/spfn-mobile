@@ -11,6 +11,7 @@ package xyz.superfunction.spfn.client
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -994,6 +995,42 @@ class SpfnKeyLifecycleTest
         assertNull(store.load(SpfnKeyLifecycle.ACTIVE_SLOT));
         assertFalse(engine.contains("spfn-client-key-key-test-0001"));
         assertEquals(SpfnKeyLifecycleState.UNENROLLED, lifecycle.state());
+    }
+
+    // ---- the signed-in value the event stream observes ----------------------
+
+    /**
+     * `keyLifecycle_signedInClientID` (docs/architecture/event-stream-design.md §9-1): the
+     * stored client id after an enrollment, the same id after a rotation — which moves
+     * nothing — and null after a wipe or a revocation. The value is a read-only
+     * `StateFlow`; nothing on this type writes it but `enroll…` and `wipe`.
+     */
+    @Test
+    fun keyLifecycle_signedInClientID() = runBlocking {
+        val transport = ScriptedTransport(
+            listOf(answer("{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
+        );
+        val store = InMemoryKeyMetadataStore();
+        val lifecycle = makeLifecycle(transport, store, scriptedEngine(testKeyPair()), keyIds = listOf("key-test-0001"));
+        assertNull(lifecycle.signedInClientId.value);
+        assertFalse(lifecycle.signedInClientId is kotlinx.coroutines.flow.MutableStateFlow<*>);
+
+        lifecycle.enroll(provider = "google") { "id-token-test" };
+        assertEquals("user-test-0001", lifecycle.signedInClientId.value);
+
+        lifecycle.wipe();
+        assertNull(lifecycle.signedInClientId.value);
+
+        val install = rotatingInstall(ScriptedTransport(listOf(answer("{\"keyId\":\"key-test-0002\",\"success\":true}"))));
+        assertEquals("client-test-0001", install.lifecycle.signedInClientId.value);
+        val seen = mutableListOf<String?>();
+        val watcher = launch(kotlinx.coroutines.Dispatchers.Unconfined) { install.lifecycle.signedInClientId.collect { seen.add(it) } };
+        install.lifecycle.rotate();
+        assertEquals(listOf<String?>("client-test-0001"), seen);
+
+        install.lifecycle.noteSessionRevoked();
+        assertEquals(listOf("client-test-0001", null), seen);
+        watcher.cancel();
     }
 
     // ---- M7: the TTL judgment ----------------------------------------------

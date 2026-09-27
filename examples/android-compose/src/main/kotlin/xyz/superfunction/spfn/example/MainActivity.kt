@@ -123,12 +123,19 @@ private fun Example(
 )
 {
     var showsTabs by rememberSaveable { mutableStateOf(tabs) };
+    var showsEvents by rememberSaveable { mutableStateOf(false) };
     if (showsTabs)
     {
         ExampleTabs(cell = cell, fixture = fixture, container = container, receipts = receipts);
         return;
     }
-    ExampleRoot(cell = cell, fixture = fixture, container = container, receipts = receipts)
+    // The events demo is a third top, for the tab demo's reason: it is left the way an app is.
+    if (showsEvents)
+    {
+        EventsDemo();
+        return;
+    }
+    ExampleRoot(cell = cell, fixture = fixture, container = container, receipts = receipts, onEvents = { showsEvents = true })
     {
         Flows.openTabs(container, TabLaunch(container.tabs.start));
         showsTabs = true;
@@ -228,6 +235,7 @@ private fun ExampleRoot(
     fixture: String,
     container: AppContainer,
     receipts: ExampleReceiptStore,
+    onEvents: () -> Unit,
     onTabs: () -> Unit
 )
 {
@@ -249,7 +257,7 @@ private fun ExampleRoot(
                     .windowInsetsPadding(WindowInsets.systemBars)
             )
             {
-                Menu(container = container, cell = cell, depth = depth, receipt = receipt, onTabs = onTabs)
+                Menu(container = container, cell = cell, depth = depth, receipt = receipt, onEvents = onEvents, onTabs = onTabs)
                 {
                     receipt = receipts.write(
                         ExampleReceipt(
@@ -318,6 +326,7 @@ private fun Menu(
     cell: String,
     depth: Int,
     receipt: String,
+    onEvents: () -> Unit,
     onTabs: () -> Unit,
     onReceipt: () -> Unit
 )
@@ -337,6 +346,7 @@ private fun Menu(
                 PrimaryButton(title = flow, id = "menu.$flow", onTap = { Flows.open(container, flow) });
             };
             PrimaryButton(title = "tabs", id = "menu.tabs", onTap = onTabs);
+            PrimaryButton(title = "events", id = "menu.events", onTap = onEvents);
         }
     }
 }

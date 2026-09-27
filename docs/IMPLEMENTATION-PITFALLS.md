@@ -70,6 +70,10 @@
 | 같은 route 값을 두 번 push할 수 있는 흐름 작성, 라우트 타입 설계 (`FlowRoute` 구현) | [P41](#p41) [P31](#p31) [P15](#p15) |
 | 서버 상태를 바꾸는 호출의 오류 처리, 후보·임시 상태를 정리하는 코드 (키 회전, 2단계 등록, 멱등하지 않은 재전송) | [P42](#p42) [P9](#p9) [P19](#p19) |
 | 소셜 등록 응답 분기, MFA 요구 응답 처리 | [P43](#p43) [P15](#p15) [P42](#p42) |
+| 모듈 간선 추가·삭제, 새 Android 모듈의 의존성 선언 | [P44](#p44) [P13](#p13) |
+| Compose 효과(`DisposableEffect`·`onDispose`)를 Allman 괄호로 쓰기 | [P45](#p45) |
+| 상태 기계의 성질 테스트 (무작위 입력, 고정 시드) | [P46](#p46) [P7](#p7) |
+| `tools/validate/`에 두 플랫폼의 이름·테스트 이름 대조 추가 | [P47](#p47) [P5](#p5) [P7](#p7) |
 
 ---
 
@@ -2067,6 +2071,77 @@ M3 규칙이며, 결과 불명인 회전 후보를 유지하는 P42 규칙을 �
 
 **나온 곳.** w-gbd1v, 계약 0.13.0 재핀의 E1–E5 표. MFA 완료 흐름은 w-jz6yd로 분리.
 
+## P44. 모듈 간선 하나를 빼면 전이 해석이 바뀐다 — 검증 메타데이터가 먼저 안다 {#p44}
+
+**증상.** 이벤트 모듈(`spfn-events`)을 설계대로 `spfn-client`·`spfn-ui` 두 간선으로 두지
+않고, 쓰는 타입이 없는 `spfn-ui` 간선을 뺐다 (event-stream-design §10 Q-K). 빌드가
+`Dependency verification failed`로 멈췄다: `activity` 1.7.0, `activity-ktx` 1.7.0,
+`core-ktx` 1.1.0, `savedstate*` 1.3.x 등 8개 산출물. `spfn-ui`의 `activity-compose` 1.12.4가
+끌어올려 주던 버전이 없어지자 `compose-ui` 1.11.4가 선언한 **최소** 버전으로 해석된
+것이다. 새 좌표를 하나도 더하지 않았는데 새 산출물이 생겼다.
+
+**탐지.** `./gradlew --no-daemon :<모듈>:assembleDebug :<모듈>:testDebugUnitTest` —
+검증이 fail-closed이므로 해석이 바뀐 순간 이름을 댄다. 간선을 빼거나 바꾼 PR은
+`git diff gradle/verification-metadata.xml`에 늘어난 `<component>`를 PR 본문에 적는다.
+
+**처방.** 간선은 쓰는 타입으로 정하고 (쓰지 않는 간선은 렌더링만 하는 앱이 모듈 하나를 더
+링크하게 할 뿐이다), 해석이 바뀐 산출물의 체크섬은
+`./gradlew --no-daemon --write-verification-metadata sha256 <그 모듈의 태스크>`로 네트워크에서
+받아 더한다. 손으로 쓰지 않는다. "새 산출물이 아니다"라는 설계 문장은 그 간선이 있을
+때만 참이었다는 것을 설계에 적는다 (§3-7).
+
+**나온 곳.** 이벤트 스트림 구현 (`client/event-stream`).
+
+## P45. Allman 괄호에서 괄호 없는 후행 람다는 호출이 아니다 {#p45}
+
+**증상.** `DisposableEffect { …; onDispose` 줄바꿈 `{ … } }` — 이 저장소의 Allman 규칙대로
+여는 괄호를 다음 줄에 두었더니 Kotlin이 `Function invocation 'onDispose(...)' expected`와
+`Return type mismatch: expected 'DisposableEffectResult'`로 거부했다. `LaunchedEffect(key)`
+다음 줄의 `{`는 되는데, 인자 괄호가 없는 `onDispose` 다음 줄의 `{`는 호출의 후행 람다로
+읽히지 않고 따로 선 람다 식이 된다.
+
+**탐지.** 컴파일러가 잡는다. 다만 반환 타입이 `Unit`인 자리에서는 조용히 컴파일되고
+아무 일도 하지 않는 람다가 남을 수 있으므로, 괄호 없는 이름 뒤에서 줄을 바꾼 `{`를 찾는다:
+
+```sh
+rg -n -B1 '^\s*\{\s*$' android examples --glob '*.kt' | rg -B1 -- '-\s*[A-Za-z_]+\s*$'
+```
+
+**처방.** 인자가 없어도 빈 괄호를 쓴다: `onDispose()` 다음 줄에 `{`. 한 줄로 끝나는 람다는
+같은 줄에 둔다 (`onDispose { … }`).
+
+**나온 곳.** 이벤트 스트림 구현 (`SpfnEventStreamHost.kt`).
+
+## P46. 무작위 보행이 검사할 상태에 닿지 않으면 성질 테스트는 아무것도 증명하지 않는다 {#p46}
+
+**증상.** 상태 기계의 성질 테스트(`closed_leavesOnlyThroughCondition`, 입력 1 000개, 고정
+시드)가 처음에 조건 입력을 고르게 뽑았다. 입력의 대부분이 앞쪽·로그인·네트워크를 뒤집어
+보행의 82 %가 `idle`에 머물렀고, `closed`에는 한 번도 가지 않았다 — "closed에서는 조건
+말고는 벗어나지 않는다"는 성질이 검사할 순간 없이 통과할 뻔했다 (P7의 성질 테스트판).
+
+**탐지.** 보행이 끝난 뒤 목표 상태에 **닿았는지**를 단언한다 (`the walk never reached
+closed; widen the generator`). 이 단언이 첫 실행에서 실패했다.
+
+**처방.** 생성기를 연결 조건 쪽으로 기울인다 (앞쪽 4/5, 로그인 4/5, 네트워크 4/5). 닿음
+단언은 남긴다: 기계가 바뀌어 다시 닿지 않게 되면 같은 자리에서 실패한다.
+
+**나온 곳.** 이벤트 스트림 구현 (`SpfnEventStreamPropertyTest.kt`, `SPFNEventStreamPropertyTests.swift`).
+
+## P47. 이름 추출이 중첩 타입의 도우미를 테스트로 읽는다 {#p47}
+
+**증상.** validate.sh section 13에 이벤트 스트림 테스트 이름 대조를 넣으면서 Kotlin 쪽을
+`fun <이름>()` 모양으로 읽었다. `SpfnEventStreamMachineTest`의 중첩 클래스 `Run`이 가진
+`signedInForeground()`·`open()`·`closed()` 같은 도우미가 테스트 이름으로 읽혀 "Kotlin에만
+있다"로 실패했다. P5(틀린 곳을 읽는 추출)의 한 갈래다.
+
+**탐지.** 대조가 실패한 이름을 본다 — 셀 이름 모양(`e1_…`)이 아닌 것이 섞여 있었다.
+
+**처방.** 테스트는 클래스의 멤버, 한 단계 들여쓰기에만 있다. 추출을 `^    fun `/
+`^    func test_`로 묶어 두 단계 안쪽의 도우미를 어느 쪽도 읽지 않게 했다. 읽은 이름 수의
+바닥(80)은 그대로 둔다.
+
+**나온 곳.** 이벤트 스트림 구현 (validate.sh section 13).
+
 ## 원장
 
 change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서 나온 finding 수**를 적는다.
@@ -2091,6 +2166,7 @@ change set마다 라운드 수와, **이미 항목으로 있던 것을 놓쳐서
 | ui/scaffold-3i (modal·sheet 안 NavDisplay가 nav3 기본 전환을 쓰던 것 — 사람이 Z Flip4에서 잡음) | 1 (기기) | 1 | 0 |
 | ui/scaffold-3j (시트가 등장·퇴장 없이 나타나고 사라지던 것 — updateAnchors 스냅과 스택이 빈 즉시 제거; 사람이 Z Flip4에서 잡음) | 1 (기기) | 1 | 0 |
 | ui/scaffold-3k (iOS 버튼·헤더 아이콘의 탭 영역이 라벨 픽셀뿐이던 것 — plain 스타일에 배경이 Button 바깥; 사람이 iPhone 14 Pro에서 잡음) | 1 (기기) | 1 | 0 |
+| client/event-stream (이벤트 스트림 구현, 두 플랫폼) | 0 — 게이트가 스스로 잡음 | 4 (P44–P47) | 0 |
 
 **ui/scaffold-3e 읽는 법.** finding 셋 다 novel이고 뒤 칸은 0이다. 첫 라운드가 [P31](#p31)
 (사람이 아이폰에서 잡았다), 그 처방을 넣고 돌린 시뮬레이터 라운드가 [P32](#p32), 같은

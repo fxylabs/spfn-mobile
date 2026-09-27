@@ -99,12 +99,20 @@ class SpfnClient(
             return retryOnceAfterResynchronizing(call, canonicalBody);
         };
 
+        // A session-free operation refused for an expired proof gets the same one retry:
+        // it presented no session, so there is nothing to re-open, but its timestamp came
+        // from the anchor all the same, and without this branch the stale anchor outlives
+        // every call that could have replaced it.
         return try
         {
             read(first.response, call)
         }
         catch (refusal: SpfnClientError.Auth)
         {
+            if (refusal.failure.code == SpfnGeneratedErrorCode.PROOF_EXPIRED && first.sessionId == null)
+            {
+                return retryOnceAfterResynchronizing(call, canonicalBody);
+            }
             retryOnce(call, canonicalBody, first.sessionId, refusal)
         };
     }
@@ -228,7 +236,8 @@ class SpfnClient(
     }
 
     /**
-     * Re-anchors the proof clock and opens the session once more.
+     * Re-anchors the proof clock and sends the request once more — through a fresh
+     * handshake when it was the handshake that was refused.
      *
      * Straight-line for the same reason as [retryOnce]: the second attempt has no path
      * back into either function, so a refusal it meets is classified and thrown rather
@@ -288,7 +297,7 @@ class SpfnClient(
             {
                 throw SpfnClientError.Decoding(SpfnDecodingFailure.NOT_AN_ERROR_ENVELOPE, false);
             };
-            throw refusal(envelope, response.statusCode);
+            throw refusal(envelope, response.statusCode, SpfnRetryAfter.header(response.headers));
         }
 
         if (!call.operation.declaresResponse)
@@ -370,7 +379,7 @@ class SpfnClient(
      * envelope and never reaches here at all, so it cannot make the client re-handshake
      * against something that never refused a proof.
      */
-    private fun refusal(envelope: SpfnErrorEnvelope, httpStatus: Int): SpfnClientError
+    private fun refusal(envelope: SpfnErrorEnvelope, httpStatus: Int, retryAfter: String? = null): SpfnClientError
     {
         val code = try
         {
@@ -387,7 +396,7 @@ class SpfnClient(
         }
         else
         {
-            SpfnClientError.Server(SpfnServerFailure(code, httpStatus, envelope))
+            SpfnClientError.Server(SpfnServerFailure(code, httpStatus, envelope, retryAfter))
         };
     }
 

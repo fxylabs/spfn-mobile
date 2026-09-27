@@ -70,4 +70,6 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.okhttp.mockwebserver)
+    // `runTest` and virtual time: the event stream's timers run on the test scheduler.
+    testImplementation(libs.kotlinx.coroutines.test)
 }

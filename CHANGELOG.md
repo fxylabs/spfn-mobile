@@ -5,6 +5,65 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The server event stream (additive, both platforms; new module `SPFNEvents` / `spfn-events`)
+
+- **New in the client module: `SPFNEventStream` / `SpfnEventStream`**, one SSE connection to
+  an SPFN server's `.events(router)` that the SDK owns. It is built from the app's key
+  lifecycle, configured once (stream path, a derived or explicit token path, the fixed list
+  of event names) and handed three facts —
+  `setForeground`, `setSignedIn`, `setNetworkAvailable`; it connects only while the app is
+  in the foreground and signed in. The one-use token is an `SPFNOperation` sent through
+  `execute`, signed by the key signed in at the moment of the call, so one stream spans
+  rotations and account switches. It carries no session by default (`requiresSession: false`,
+  like an app's own signed calls), so a server that does not mount the client-proof handshake
+  still mints tokens; `tokenRequiresSession: true` in the configuration presents a session
+  opened through the handshake, with its one re-handshake, for a server that guards the
+  token route with sessions; the stream goes through a new streaming transport
+  boundary, `SPFNStreamTransport` / `SpfnStreamTransport`, with `URLSession`-delegate and
+  OkHttp adapters and no new dependency (docs/architecture/event-stream-design.md).
+- Screens listen with `listen(_:where:)` / `listen(payload, where)` — by name and an optional
+  condition — and receive `frame`, `reread(attached | opened(epoch) | overflow)` and, when
+  the server does not serve the name, `unavailable` once. Listening never touches the
+  connection. `SPFNEventPayload` / `SpfnEventPayload` pairs an event name with its decoder.
+- A 429 on the token call or the stream is retried after max(backoff, `Retry-After`), capped
+  at five minutes (`SPFNRetryAfter` / `SpfnRetryAfter`). To let the token call see the
+  header, `SPFNServerFailure` / `SpfnServerFailure` gains `retryAfter` (the raw header, default
+  `nil`/`null`); `execute` itself still retries nothing but an auth refusal. Source
+  compatible: the new initialiser parameter has a default. On Kotlin, `equals`/`hashCode`
+  now include it.
+- A 400 naming events the server does not know no longer closes the stream: it reopens with
+  the server's `validEvents`, and `open` carries the missing names as `unavailableEvents`.
+- `SPFNKeyLifecycle.signedInClientID` / `signedInClientIDs` and
+  `SpfnKeyLifecycle.signedInClientId: StateFlow<String?>`: the stored client id, read-only,
+  moved only by `enroll…` and `wipe()`. `signedInClient()`: a client over the key signed in
+  now, or `nil`/`null`, kept while the key stays the same; and a public `baseURL` / `baseUrl`
+  without its trailing slash.
+- **New module `SPFNEvents` / `xyz.superfunction.spfn:spfn-events`**, depending on the client
+  module only: `.spfnEventStream(_:keyLifecycle:)` / `SpfnEventStreamHost` at the root
+  (scene phase or `ProcessLifecycleOwner`, the key lifecycle, `NWPathMonitor` or
+  `ConnectivityManager`), and `.onSPFNEvent` / `SpfnEventEffect`, whose condition forms
+  require an `id` / `key`. Its Android manifest adds `ACCESS_NETWORK_STATE` to apps that link
+  it. New catalog alias `androidx-lifecycle-process` (2.10.0, already resolved before); eight
+  older AndroidX artifacts gained verification checksums because the module does not link
+  `spfn-ui` (docs/IMPLEMENTATION-PITFALLS.md P44).
+- The example apps gain an "events" screen over an in-app demo server.
+
+### An expired proof on a session-free operation re-anchors the clock (fix, both platforms)
+
+- `execute` re-anchored the proof clock on `PROOF_EXPIRED` only inside the re-handshake
+  retry, which returns early when the refused request presented no session. A proven
+  operation with `requiresSession: false` — an app's own signed calls and the event-stream
+  token call — therefore surfaced the refusal without discarding the anchor, and every
+  later proof was minted from the same stale anchor and refused too, for the life of the
+  process.
+- The server refuses a proof dated even 1 ms in its future. A fresh anchor trails the
+  server by one network leg — a few milliseconds on loopback — and the device's monotonic
+  source is not rate-disciplined against the server's wall clock, so tens of ppm of drift
+  spend that margin within a minute or two. That is the refusal the retry exists for.
+- Such a refusal now discards the anchor and re-sends once under a fresh proof, with no
+  handshake. A second refusal surfaces; any other refusal of a session-free operation is
+  still final.
+
 ### An operation with no request type sends no body (fix, both platforms)
 
 - `execute` encoded every request, so an operation the contract gives no `requestType`

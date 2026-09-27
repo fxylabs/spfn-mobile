@@ -103,9 +103,17 @@ public struct SPFNClient: Sendable
             return try await retryOnceAfterResynchronizing(call, canonicalBody: canonicalBody)
         }
 
+        // A session-free operation refused for an expired proof gets the same one retry:
+        // it presented no session, so there is nothing to re-open, but its timestamp came
+        // from the anchor all the same, and without this branch the stale anchor outlives
+        // every call that could have replaced it.
         do
         {
             return try Self.read(first.response, for: call)
+        }
+        catch SPFNClientError.auth(let failure) where failure.code == .proofExpired && first.sessionID == nil
+        {
+            return try await retryOnceAfterResynchronizing(call, canonicalBody: canonicalBody)
         }
         catch SPFNClientError.auth(let failure)
         {
@@ -232,7 +240,8 @@ public struct SPFNClient: Sendable
         return try Self.read(second.response, for: call)
     }
 
-    /// Re-anchors the proof clock and opens the session once more.
+    /// Re-anchors the proof clock and sends the request once more — through a fresh
+    /// handshake when it was the handshake that was refused.
     ///
     /// Straight-line for the same reason as `retryOnce`: the second attempt has no path
     /// back into either function, so a refusal it meets is classified and thrown rather
@@ -304,7 +313,7 @@ public struct SPFNClient: Sendable
             {
                 throw SPFNClientError.decoding(.notAnErrorEnvelope, onSuccessStatus: false)
             }
-            throw refusal(envelope, httpStatus: response.statusCode)
+            throw refusal(envelope, httpStatus: response.statusCode, retryAfter: SPFNRetryAfter.header(in: response.headers))
         }
 
         guard call.operation.declaresResponse
@@ -372,7 +381,7 @@ public struct SPFNClient: Sendable
     /// The status is carried, never consulted. A 401 an intermediary wrote carries no
     /// envelope and never reaches here at all, so it cannot make the client re-handshake
     /// against something that never refused a proof.
-    private static func refusal(_ envelope: SPFNErrorEnvelope, httpStatus: Int) -> SPFNClientError
+    private static func refusal(_ envelope: SPFNErrorEnvelope, httpStatus: Int, retryAfter: String? = nil) -> SPFNClientError
     {
         guard let code = try? SPFNGeneratedErrorCode.decode(envelope.code)
         else
@@ -382,7 +391,7 @@ public struct SPFNClient: Sendable
         guard code.isAuthFailure
         else
         {
-            return .server(SPFNServerFailure(code: code, httpStatus: httpStatus, envelope: envelope))
+            return .server(SPFNServerFailure(code: code, httpStatus: httpStatus, envelope: envelope, retryAfter: retryAfter))
         }
         return .auth(SPFNAuthFailure(code: code, httpStatus: httpStatus, envelope: envelope))
     }

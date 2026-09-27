@@ -209,9 +209,13 @@ public actor SPFNKeyLifecycle
     public static let activeSlot = "active"
     public static let candidateSlot = "rotation-candidate"
 
+    /// The server every request goes to, without a trailing slash. Public so the event
+    /// stream opens its GET on the server the token call it follows was signed for, rather
+    /// than on a second copy of the URL an app could let drift.
+    public nonisolated let baseURL: String
+
     private let transport: any SPFNTransport
     private let store: any SPFNKeyStore
-    private let baseURL: String
     private let clock: any SPFNClock
     private let proofClock: any SPFNProofClock
     private let nonceGenerator: any SPFNNonceGenerator
@@ -225,6 +229,13 @@ public actor SPFNKeyLifecycle
     /// app's sign-in — which lasts as long as a person takes — so this is what stands
     /// between two concurrent calls and two registered keys.
     private var enrollmentInFlight = false
+
+    /// Who watches `signedInClientIDs`, and the value they were last given.
+    private var signedInWatchers: [UUID: AsyncStream<String?>.Continuation] = [:]
+    private var lastSignedIn: String??
+
+    /// The client `signedInClient()` last built, and the key it signs with.
+    private var signedInSigner: (clientID: String, keyID: String, client: SPFNClient)?
 
     /// - Parameters:
     ///   - newKeyID: mints key identifiers; UUIDs by default. Injected so a suite can
@@ -245,7 +256,7 @@ public actor SPFNKeyLifecycle
     {
         self.transport = transport
         self.store = store
-        self.baseURL = baseURL
+        self.baseURL = SPFNSession.withoutTrailingSlash(baseURL)
         self.clock = clock
         self.proofClock = proofClock
         self.nonceGenerator = nonceGenerator
@@ -387,6 +398,7 @@ public actor SPFNKeyLifecycle
             key.record(clientID: userID, createdAtMillis: clock.nowMillis()),
             slot: Self.activeSlot
         )
+        publishSignedIn()
         return SPFNEnrollmentResult(clientID: userID, keyID: key.keyID, isNewUser: response.isNewUser ?? false)
     }
 
@@ -592,6 +604,7 @@ public actor SPFNKeyLifecycle
             key.record(clientID: approval.clientID, createdAtMillis: clock.nowMillis()),
             slot: Self.activeSlot
         )
+        publishSignedIn()
         return SPFNDeviceCodeEnrollmentResult(
             clientID: approval.clientID,
             keyID: key.keyID,
@@ -967,6 +980,77 @@ public actor SPFNKeyLifecycle
     {
         try store.delete(slot: Self.activeSlot)
         try store.delete(slot: Self.candidateSlot)
+        publishSignedIn()
+    }
+
+    // MARK: - The signed-in value the event stream observes
+
+    /// Who is signed in: the client id stored with the active key, or nil. Read-only — the
+    /// only ways to change it are the `enroll…` flows and `wipe()`. A rotation keeps the
+    /// client id, so it does not move then (docs/architecture/event-stream-design.md §3-3).
+    public var signedInClientID: String?
+    {
+        (try? store.load(slot: Self.activeSlot))?.clientID
+    }
+
+    /// `signedInClientID` and every change to it, current value first. Each value is
+    /// yielded after the store has been written.
+    public var signedInClientIDs: AsyncStream<String?>
+    {
+        let (stream, continuation) = AsyncStream.makeStream(of: String?.self)
+        let id = UUID()
+        signedInWatchers[id] = continuation
+        continuation.onTermination = { [weak self] _ in Task { await self?.stopWatching(id) } }
+        continuation.yield(signedInClientID)
+        lastSignedIn = .some(signedInClientID)
+        return stream
+    }
+
+    /// A client that signs with the key signed in now, or nil when nobody is. Every call
+    /// reads the active slot again, so the next call after a rotation signs with the new
+    /// key and the next call after another account's enrollment signs as that account
+    /// (docs/architecture/event-stream-design.md E-41, E-43). While the key stays the same
+    /// the same client is returned, so its session — and the handshake that opened it —
+    /// is reused rather than opened again per call.
+    ///
+    /// What the event stream signs its token call with: `execute` stays the only way a
+    /// request is signed, and no signer outlives the key it was built over.
+    public func signedInClient() throws -> SPFNClient?
+    {
+        guard let provider = try activeProvider()
+        else
+        {
+            signedInSigner = nil
+            return nil
+        }
+        if let held = signedInSigner, held.clientID == provider.clientID, held.keyID == provider.keyID
+        {
+            return held.client
+        }
+        let client = try client(signingWith: provider)
+        signedInSigner = (provider.clientID, provider.keyID, client)
+        return client
+    }
+
+    private func stopWatching(_ id: UUID)
+    {
+        signedInWatchers[id] = nil
+    }
+
+    /// Yields the stored value to every watcher when it differs from the last one yielded.
+    private func publishSignedIn()
+    {
+        let current = signedInClientID
+        guard lastSignedIn != .some(current)
+        else
+        {
+            return
+        }
+        lastSignedIn = .some(current)
+        for watcher in signedInWatchers.values
+        {
+            watcher.yield(current)
+        }
     }
 
     // MARK: - Assembly

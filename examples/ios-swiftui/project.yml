@@ -15,7 +15,7 @@
 # (docs/IMPLEMENTATION-PITFALLS.md P17): XcodeGen writes `traits = (...)` into the local
 # package reference and Xcode ignores it, so the harness declares its traits in a manifest
 # SwiftPM does read. This app needs no trait at all — it links no provider adapter — so it
-# takes the four products straight from the package and adds nothing.
+# takes the five products straight from the package and adds nothing.
 #
 # No signing identity is configured here on purpose: the validator forbids credential and
 # provisioning files in the tree. A simulator build passes CODE_SIGNING_ALLOWED=NO and a
@@ -54,6 +54,9 @@ targets:
         product: SPFNClient
       - package: SPFNMobile
         product: SPFNUI
+      # The events screen (Sources/EventsDemo.swift): onSPFNEvent and the environment key.
+      - package: SPFNMobile
+        product: SPFNEvents
     # NOT under `Generated/`. That directory belongs to tools/ui-codegen, whose write mode
     # DELETES every file it did not emit and whose verify mode fails on one it finds — so
     # an Info.plist written there is removed by the next `spfnGenerateUi` and fails

@@ -723,6 +723,41 @@ final class SPFNKeyLifecycleTests: XCTestCase
         XCTAssertEqual(state, .unenrolled)
     }
 
+    // MARK: - The signed-in value the event stream observes
+
+    /// `keyLifecycle_signedInClientID` (docs/architecture/event-stream-design.md §9-1): the
+    /// stored client id after an enrollment, the same id after a rotation — which yields
+    /// nothing — and nil after a wipe or a revocation. Both members are get-only.
+    func test_keyLifecycle_signedInClientID() async throws
+    {
+        let transport = ScriptedTransport([
+            .success(.json(200, "{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}")),
+        ])
+        let lifecycle = try makeLifecycle(transport, store: InMemoryKeyStore(), keys: [try testKey()], keyIDs: ["key-test-0001"])
+        let before = await lifecycle.signedInClientID
+        XCTAssertNil(before)
+
+        _ = try await lifecycle.enroll(provider: "google") { _ in "id-token-test" }
+        let enrolled = await lifecycle.signedInClientID
+        XCTAssertEqual(enrolled, "user-test-0001")
+
+        try await lifecycle.wipe()
+        let wiped = await lifecycle.signedInClientID
+        XCTAssertNil(wiped)
+
+        let install = try rotatingInstall(ScriptedTransport([
+            .success(.json(200, "{\"keyId\":\"key-test-0002\",\"success\":true}")),
+        ]))
+        var values = await install.lifecycle.signedInClientIDs.makeAsyncIterator()
+        let current = await values.next()
+        XCTAssertEqual(current, .some("client-test-0001"))
+        _ = try await install.lifecycle.rotate()
+        try await install.lifecycle.noteSessionRevoked()
+        // The rotation yielded nothing: the next value is the revocation's.
+        let next = await values.next()
+        XCTAssertEqual(next, .some(nil))
+    }
+
     // MARK: - M7: the TTL judgment
 
     func testRotationDueFollowsTheKeyPolicyTtl() async throws
