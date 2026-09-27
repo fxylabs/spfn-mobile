@@ -48,6 +48,22 @@ Entries under an unreleased heading describe repository state, not shipped softw
   `spfn-ui` (docs/IMPLEMENTATION-PITFALLS.md P44).
 - The example apps gain an "events" screen over an in-app demo server.
 
+### An expired proof on a session-free operation re-anchors the clock (fix, both platforms)
+
+- `execute` re-anchored the proof clock on `PROOF_EXPIRED` only inside the re-handshake
+  retry, which returns early when the refused request presented no session. A proven
+  operation with `requiresSession: false` — an app's own signed calls and the event-stream
+  token call — therefore surfaced the refusal without discarding the anchor, and every
+  later proof was minted from the same stale anchor and refused too, for the life of the
+  process.
+- The server refuses a proof dated even 1 ms in its future. A fresh anchor trails the
+  server by one network leg — a few milliseconds on loopback — and the device's monotonic
+  source is not rate-disciplined against the server's wall clock, so tens of ppm of drift
+  spend that margin within a minute or two. That is the refusal the retry exists for.
+- Such a refusal now discards the anchor and re-sends once under a fresh proof, with no
+  handshake. A second refusal surfaces; any other refusal of a session-free operation is
+  still final.
+
 ### An operation with no request type sends no body (fix, both platforms)
 
 - `execute` encoded every request, so an operation the contract gives no `requestType`

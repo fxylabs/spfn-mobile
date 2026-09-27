@@ -279,6 +279,35 @@ final class SPFNProcessServerClockTests: XCTestCase
         XCTAssertEqual(calls, 2, "one synchronization to anchor, and one shared re-synchronization")
     }
 
+    /// The field failure end to end: a monotonic source 50 ppm faster than the server's
+    /// wall clock, over a 2 ms round trip. The anchor starts 2 ms behind the server, the
+    /// drift eats that margin in about 40 s, and by 88 s every proof is dated in the
+    /// server's future and refused as expired. The one retry re-anchors and is admitted.
+    func testAProofThatDriftedIntoTheServersFutureIsReanchoredAndAdmitted() async throws
+    {
+        let server = DriftingServer(serverMillis: 1_750_000_000_000, latencyMillis: 2)
+        let monotonic = FakeMonotonicClock(10)
+        let client = SPFNClient(
+            transport: server,
+            session: try SPFNSession(
+                transport: server,
+                keyProvider: try ExecuteFixtures.syntheticProvider(clientID: SessionFixtureValues.clientID),
+                baseURL: baseURL,
+                clock: SPFNProcessServerClock(monotonicClock: monotonic)
+            )
+        )
+        _ = try await client.execute(ExecuteCalls.rotate, request: ExecuteFixtures.rotateRequest)
+
+        await server.advance(millis: 88_000)
+        monotonic.set(10 + 88_000 + 88_000 * 50 / 1_000_000)
+
+        let rotated = try await client.execute(ExecuteCalls.rotate, request: ExecuteFixtures.rotateRequest)
+
+        XCTAssertEqual(rotated, ExecuteFixtures.rotateResponse)
+        let answered = await server.answeredStatuses
+        XCTAssertEqual(answered, [200, 200, 401, 200, 200], "time, admitted, refused, time again, admitted")
+    }
+
     private func timeResponse(_ millis: Int64) -> String
     {
         "{\"serverTimeMillis\":\(millis)}"
@@ -319,5 +348,45 @@ private final class FakeMonotonicClock: SPFNMonotonicClock, @unchecked Sendable
         lock.lock()
         defer { lock.unlock() }
         nanos = rawNanos
+    }
+}
+
+/// A server with its own wall clock that answers `core.time` and admits a proof only when
+/// its timestamp is not in the server's future, as the replay window check does.
+private actor DriftingServer: SPFNTransport
+{
+    private var serverMillis: Int64
+    private let latencyMillis: Int64
+    private(set) var answeredStatuses: [Int] = []
+
+    init(serverMillis: Int64, latencyMillis: Int64)
+    {
+        self.serverMillis = serverMillis
+        self.latencyMillis = latencyMillis
+    }
+
+    func advance(millis: Int64)
+    {
+        serverMillis += millis
+    }
+
+    func execute(_ request: SPFNTransportRequest) async throws -> SPFNTransportResponse
+    {
+        let response = answer(request)
+        answeredStatuses.append(response.statusCode)
+        return response
+    }
+
+    private func answer(_ request: SPFNTransportRequest) -> SPFNTransportResponse
+    {
+        guard let issued = request.headers.first(where: { $0.0 == SPFNWireHeaders.issuedAtMillis }).flatMap({ Int64($0.1) })
+        else
+        {
+            // The answer left the server one round trip before the device received it.
+            return .json(200, "{\"serverTimeMillis\":\(serverMillis - latencyMillis)}")
+        }
+        return issued > serverMillis
+            ? .json(401, ExecuteFixtures.errorEnvelope(code: "PROOF_EXPIRED"))
+            : .json(200, ExecuteFixtures.rotateResponseBody)
     }
 }

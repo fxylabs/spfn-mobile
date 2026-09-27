@@ -667,6 +667,75 @@ class SpfnClientExecuteTest
         assertEquals("the re-handshake never happened", 2, transport.callCount);
     }
 
+    /**
+     * R8. A proven operation that presents no session still signs with a timestamp from the
+     * anchor, so its expired proof is a stale anchor like any other: re-anchored and re-sent
+     * once, with no handshake. Without this a drifted anchor refused every session-free
+     * call for the rest of the process.
+     */
+    @Test
+    fun aSessionFreeOperationRefusedAsExpiredResynchronizesAndResendsOnce() = runBlocking {
+        val clock = AnchoringProofClock(SessionFixtureValues.ISSUED_AT_MILLIS);
+        val transport = ScriptedTransport(
+            listOf(
+                answer(ExecuteFixtures.errorEnvelope("PROOF_EXPIRED"), statusCode = 401),
+                answer(ExecuteFixtures.ROTATE_RESPONSE_BODY)
+            )
+        );
+        val subject = client(transport, clock);
+
+        assertEquals(ExecuteFixtures.ROTATE_RESPONSE, subject.execute(ExecuteCalls.ROTATE, ExecuteFixtures.ROTATE_REQUEST));
+        assertEquals("the discarded anchor was fetched again", 2, clock.synchronizations);
+        assertEquals(
+            List(2) { baseUrl + SpfnGeneratedOperations.authKeysRotate.path },
+            transport.received.map { it.url }
+        );
+        assertNotEquals(
+            header(SpfnWireHeaders.NONCE, transport.received[0]),
+            header(SpfnWireHeaders.NONCE, transport.received[1])
+        );
+    }
+
+    /** R9. The session-free retry is the one retry too: a second expired proof surfaces. */
+    @Test
+    fun aSessionFreeOperationRefusedAsExpiredTwiceSurfaces() = runBlocking {
+        val clock = AnchoringProofClock(SessionFixtureValues.ISSUED_AT_MILLIS);
+        val transport = ScriptedTransport(
+            listOf(
+                answer(ExecuteFixtures.errorEnvelope("PROOF_EXPIRED"), statusCode = 401),
+                answer(ExecuteFixtures.errorEnvelope("PROOF_EXPIRED"), statusCode = 401)
+            )
+        );
+        val subject = client(transport, clock);
+
+        val thrown = failureOf { subject.execute(ExecuteCalls.ROTATE, ExecuteFixtures.ROTATE_REQUEST) };
+
+        assertTrue("got $thrown", thrown is SpfnClientError.Auth);
+        assertEquals(SpfnGeneratedErrorCode.PROOF_EXPIRED, (thrown as SpfnClientError.Auth).failure.code);
+        assertEquals(2, clock.synchronizations);
+        assertEquals("two requests, and then it stops", 2, transport.callCount);
+    }
+
+    /**
+     * R10. Any other refusal of a session-free operation is final: there is no session to
+     * re-open and no anchor to blame.
+     */
+    @Test
+    fun aSessionFreeOperationRefusedAsInvalidIsNotRetried() = runBlocking {
+        val clock = AnchoringProofClock(SessionFixtureValues.ISSUED_AT_MILLIS);
+        val transport = ScriptedTransport(
+            listOf(answer(ExecuteFixtures.errorEnvelope("PROOF_INVALID"), statusCode = 401))
+        );
+        val subject = client(transport, clock);
+
+        val thrown = failureOf { subject.execute(ExecuteCalls.ROTATE, ExecuteFixtures.ROTATE_REQUEST) };
+
+        assertTrue("got $thrown", thrown is SpfnClientError.Auth);
+        assertEquals(SpfnGeneratedErrorCode.PROOF_INVALID, (thrown as SpfnClientError.Auth).failure.code);
+        assertEquals("the anchor was never discarded", 1, clock.synchronizations);
+        assertEquals(1, transport.callCount);
+    }
+
     @Test
     fun aRefusedHandshakeIsSurfacedWithoutAnotherAttempt() = runBlocking {
         val transport = ScriptedTransport(

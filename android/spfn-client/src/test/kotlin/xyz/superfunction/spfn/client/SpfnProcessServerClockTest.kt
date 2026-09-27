@@ -238,6 +238,38 @@ class SpfnProcessServerClockTest
         assertEquals("one synchronization to anchor, and one shared re-synchronization", 2, transport.callCount);
     }
 
+    /**
+     * The field failure end to end: a monotonic source 50 ppm faster than the server's wall
+     * clock, over a 2 ms round trip. The anchor starts 2 ms behind the server, the drift
+     * eats that margin in about 40 s, and by 88 s every proof is dated in the server's
+     * future and refused as expired. The one retry re-anchors and is admitted.
+     */
+    @Test
+    fun aProofThatDriftedIntoTheServersFutureIsReanchoredAndAdmitted() = runBlocking {
+        val server = DriftingServer(serverMillis = 1_750_000_000_000, latencyMillis = 2);
+        val monotonic = FakeMonotonicClock(10);
+        val client = SpfnClient(
+            transport = server,
+            session = SpfnSession(
+                transport = server,
+                keyProvider = ExecuteFixtures.syntheticProvider(),
+                baseUrl = baseUrl,
+                clock = SpfnProcessServerClock(monotonic) { generatedClockOperation() }
+            )
+        );
+        client.execute(ExecuteCalls.ROTATE, ExecuteFixtures.ROTATE_REQUEST);
+
+        server.advance(88_000);
+        monotonic.set(10 + 88_000 + 88_000 * 50 / 1_000_000);
+
+        assertEquals(ExecuteFixtures.ROTATE_RESPONSE, client.execute(ExecuteCalls.ROTATE, ExecuteFixtures.ROTATE_REQUEST));
+        assertEquals(
+            "time, admitted, refused, time again, admitted",
+            listOf(200, 200, 401, 200, 200),
+            server.answeredStatuses
+        );
+    }
+
     private fun answer(body: String): ScriptedTransport.Outcome =
         ScriptedTransport.Outcome.Answer(jsonResponse(200, body))
 
@@ -278,5 +310,37 @@ private class FakeMonotonicClock(value: Long, rawNanos: Boolean = false) : SpfnM
     fun setRawNanos(value: Long)
     {
         nanos = value;
+    }
+}
+
+/**
+ * A server with its own wall clock that answers `core.time` and admits a proof only when its
+ * timestamp is not in the server's future, as the replay window check does.
+ */
+private class DriftingServer(private var serverMillis: Long, private val latencyMillis: Long) : SpfnTransport
+{
+    val answeredStatuses = mutableListOf<Int>()
+
+    fun advance(millis: Long)
+    {
+        serverMillis += millis;
+    }
+
+    override suspend fun execute(request: SpfnTransportRequest): SpfnTransportResponse
+    {
+        val response = answer(request);
+        answeredStatuses.add(response.statusCode);
+        return response;
+    }
+
+    private fun answer(request: SpfnTransportRequest): SpfnTransportResponse
+    {
+        val issued = request.headers.firstOrNull { it.first == SpfnWireHeaders.ISSUED_AT_MILLIS }?.second?.toLong()
+            // The answer left the server one round trip before the device received it.
+            ?: return jsonResponse(200, "{\"serverTimeMillis\":${serverMillis - latencyMillis}}");
+        return if (issued > serverMillis)
+            jsonResponse(401, ExecuteFixtures.errorEnvelope("PROOF_EXPIRED"))
+        else
+            jsonResponse(200, ExecuteFixtures.ROTATE_RESPONSE_BODY);
     }
 }
