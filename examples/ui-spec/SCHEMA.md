@@ -132,7 +132,7 @@ back on another tab's root returns to.
 
 | Field | Type | Rule |
 | --- | --- | --- |
-| `id` | string | The tab's id: `TabState`'s, the bar item's identifier `tab.<id>`, the readout `tab=<id>`. A spec name (refusal 15). |
+| `id` | string | The tab's id: `TabState`'s, the Android bar item's identifier `tab.<id>` (an iOS tab button is found by its title), the readout `tab=<id>`. A spec name (refusal 15). |
 | `title` | string | The bar item's label, and the title of the tab's root screen. |
 | `root` | string | The name of the tab's ROOT view, which the generator writes itself. A spec name, and not the name of a screen or a flow. |
 | `flows` | array of flow names | The flows the root opens, one control each (`<root>.<flow>`), in this order. A `push` flow appends to the tab's own stack; a `modal` or a `sheet` covers the bar. |

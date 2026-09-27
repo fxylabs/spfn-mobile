@@ -758,7 +758,7 @@
       "rule": "C-1 \u2014 pressing another tab selects it and shows its root; nothing moves in either tab's stack",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["see tab.account", "tap tab.account"],
+      "steps": ["seeTab account", "tapTab account"],
       "expect": ["tab=account", "stack=0"],
       "flow": "flows/tabs-c1.yaml"
     },
@@ -770,7 +770,7 @@
       "rule": "C-2 and Q-D \u2014 the start tab was left two deep; pressing it shows that detail as it was left, with no bar on it",
       "runner": "maestro",
       "fixture": "tabDeep",
-      "steps": ["tap tab.home", "await stack=2", "notSee tab.home"],
+      "steps": ["tapTab home", "await stack=2", "notSeeTab home"],
       "expect": ["stack=2"],
       "flow": "flows/tabs-c2.yaml"
     },
@@ -779,10 +779,10 @@
       "screen": "homeList",
       "state": "idle",
       "action": "homeList.itemDetail",
-      "rule": "C-3 \u2014 a pushed detail slides in over the tab's root and its bar together: the bar's items are not on screen",
+      "rule": "C-3 \u2014 a pushed detail hides the bar, covering it with the root on Android and hiding the system bar on iOS: the bar's items are not on screen",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["tap homeList.itemDetail", "await stack=1", "notSee tab.home", "notSee tab.account"],
+      "steps": ["tap homeList.itemDetail", "await stack=1", "notSeeTab home", "notSeeTab account"],
       "expect": ["stack=1"],
       "flow": "flows/tabs-c3.yaml"
     },
@@ -794,7 +794,7 @@
       "rule": "C-6 \u2014 the back in the detail's header pops to the tab's root, and the bar is there again",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["tap homeList.itemDetail", "await stack=1", "headerBack Home|Back", "see tab.home"],
+      "steps": ["tap homeList.itemDetail", "await stack=1", "headerBack Home|Back", "seeTab home"],
       "expect": ["tab=home", "stack=0"],
       "flow": "flows/tabs-c6.yaml"
     },
@@ -803,10 +803,10 @@
       "screen": "item",
       "state": "idle",
       "action": "systemBack",
-      "rule": "C-7 and C-5 \u2014 the system back (Android) and the edge swipe (iOS) pop the detail, and the root comes back with its bar",
+      "rule": "C-7 and C-5 \u2014 the system back (Android) and the edge swipe (iOS) pop the detail, and the root comes back with its bar (on iOS the system bar a moment after the pop)",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["tap homeList.itemDetail", "await stack=1", "systemBack", "see tab.home"],
+      "steps": ["tap homeList.itemDetail", "await stack=1", "systemBack", "seeTab home"],
       "expect": ["tab=home", "stack=0"],
       "flow": "flows/tabs-c7.yaml"
     },
@@ -818,7 +818,7 @@
       "rule": "C-34 and N1 \u2014 each tab's stack moves alone: a push and a pop on one tab leave the start tab's stack where it stood",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["tap tab.account", "tap accountHome.profile", "await stack=1", "systemBack", "see tab=account", "tap tab.home"],
+      "steps": ["tapTab account", "tap accountHome.profile", "await stack=1", "systemBack", "see tab=account", "tapTab home"],
       "expect": ["tab=home", "stack=0"],
       "flow": "flows/tabs-c34.yaml"
     },
@@ -830,7 +830,7 @@
       "rule": "C-9 and Q-B \u2014 on Android the system back on another tab's root selects the start tab; on iOS there is no such back and the tab stays (C-12)",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["tap tab.account", "see tab=account", "on Android: systemBack; see tab=home", "on iOS: see tab=account"],
+      "steps": ["tapTab account", "see tab=account", "on Android: systemBack; see tab=home", "on iOS: see tab=account"],
       "expect": ["stack=0"],
       "flow": "flows/tabs-c9.yaml"
     },
@@ -842,7 +842,7 @@
       "rule": "C-12 \u2014 on iOS an edge swipe on a tab's root does nothing: there is no route under it",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["tap tab.account", "on iOS: systemBack"],
+      "steps": ["tapTab account", "on iOS: systemBack"],
       "expect": ["tab=account", "stack=0"],
       "flow": "flows/tabs-c12.yaml"
     },
@@ -887,7 +887,7 @@
       "screen": "item",
       "state": "idle",
       "action": "edgeSwipe",
-      "rule": "C-5 \u2014 during an edge swipe back the root shows WITH its bar, sliding in together; released, no bar appears or blinks on its own",
+      "rule": "C-5 \u2014 during an edge swipe back the root shows WITHOUT the system bar; released, the bar appears about 0.23 s after the pop has finished (U-1, accepted); cancelled, the detail stays and the bar stays hidden",
       "runner": "manual",
       "fixture": "ready",
       "steps": ["byHand iOS: open 'itemDetail' from 'homeList', swipe back from the left edge slowly, half way, then all the way"],
@@ -914,7 +914,7 @@
       "rule": "C-13 \u2014 the selected tab pressed while it stands above its root asks for a pop to the root; the bar is not on screen then, so this row is TabState's",
       "runner": "unit",
       "fixture": "ready",
-      "steps": ["tap tab.home"],
+      "steps": ["tapTab home"],
       "expect": ["stack=0"],
       "flow": null
     },
@@ -926,7 +926,7 @@
       "rule": "C-14 and Q-C \u2014 the selected tab pressed on its root leaves the stack alone and counts one scroll-to-top, which the app's list follows",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["see tab=home", "tap tab.home"],
+      "steps": ["see tab=home", "tapTab home"],
       "expect": ["tab=home", "stack=0", "scrollToTop=1"],
       "flow": "flows/tabs-c14.yaml"
     },
@@ -950,7 +950,7 @@
       "rule": "C-16 \u2014 a modal opened inside a tab covers the whole screen, the bar included",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["tap tab.account", "tap accountHome.editProfile", "await stack=1"],
+      "steps": ["tapTab account", "tap accountHome.editProfile", "await stack=1"],
       "expect": ["stack=1"],
       "flow": "flows/tabs-c16.yaml"
     },
@@ -962,7 +962,7 @@
       "rule": "C-17 \u2014 a sheet opened inside a tab stands over the bar, and its scrim covers it",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["tap tab.account", "tap accountHome.accountSheet", "await stack=1"],
+      "steps": ["tapTab account", "tap accountHome.accountSheet", "await stack=1"],
       "expect": ["stack=1"],
       "flow": "flows/tabs-c17.yaml"
     },
@@ -974,7 +974,7 @@
       "rule": "C-19 \u2014 closing the modal uncovers the tab's root and its bar, on the same tab",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["tap tab.account", "tap accountHome.editProfile", "await stack=1", "tap editName.done"],
+      "steps": ["tapTab account", "tap accountHome.editProfile", "await stack=1", "tap editName.done"],
       "expect": ["tab=account", "stack=0"],
       "flow": "flows/tabs-c19.yaml"
     },
@@ -986,7 +986,7 @@
       "rule": "C-20 \u2014 on Android the system back on the modal's root closes the flow and is not the tab host's; iOS closes it with its close",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["tap tab.account", "tap accountHome.editProfile", "await stack=1", "on Android: systemBack", "on iOS: tap editName.done"],
+      "steps": ["tapTab account", "tap accountHome.editProfile", "await stack=1", "on Android: systemBack", "on iOS: tap editName.done"],
       "expect": ["tab=account", "stack=0"],
       "flow": "flows/tabs-c20.yaml"
     },
@@ -998,7 +998,7 @@
       "rule": "C-21 \u2014 on Android the system back closes the sheet and the tab stays where it was; iOS closes it with its own control",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["tap tab.account", "tap accountHome.accountSheet", "await stack=1", "on Android: systemBack", "on iOS: tap accountNote.done"],
+      "steps": ["tapTab account", "tap accountHome.accountSheet", "await stack=1", "on Android: systemBack", "on iOS: tap accountNote.done"],
       "expect": ["tab=account", "stack=0"],
       "flow": "flows/tabs-c21.yaml"
     },
@@ -1046,7 +1046,7 @@
       "rule": "C-24 and K2 \u2014 putting the keyboard away shows the bar again, on the same tab",
       "runner": "maestro",
       "fixture": "ready",
-      "steps": ["tap homeList.note", "hideKeyboard", "see tab.home"],
+      "steps": ["tap homeList.note", "hideKeyboard", "seeTab home"],
       "expect": ["tab=home", "stack=0"],
       "flow": "flows/tabs-c24.yaml"
     },

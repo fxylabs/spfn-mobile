@@ -1,4 +1,4 @@
-# SPFN Mobile — example cell tabs-c7: C-7 and C-5 — the system back (Android) and the edge swipe (iOS) pop the detail, and the root comes back with its bar
+# SPFN Mobile — example cell tabs-c7: C-7 and C-5 — the system back (Android) and the edge swipe (iOS) pop the detail, and the root comes back with its bar (on iOS the system bar a moment after the pop)
 #
 # GENERATED FILE — DO NOT EDIT.
 #
@@ -58,8 +58,20 @@ name: tabs-c7
           end: "90%, 50%"
           duration: 600
 
-- assertVisible:
-    id: "tab.home"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - assertVisible:
+          id: "tab.home"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - assertVisible:
+          text: "Home"
+          below:
+            text: "stack=.*"
 
 - assertVisible:
     text: "tab=home"

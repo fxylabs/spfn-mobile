@@ -85,20 +85,27 @@ public struct NavigationHost<Root: View>: View
     /// reason for this view to redraw.
     @State private var host: HostStackStore
 
+    /// Whether this host is a tab of a `TabHost`, whose pushed destinations hide the system
+    /// tab bar.
+    private let inTab: Bool
+
     public init(@ViewBuilder root: @escaping () -> Root)
     {
-        self.init(store: HostStackStore(), root: root)
+        self._host = State(initialValue: HostStackStore())
+        self.inTab = false
+        self.root = root
     }
 
-    /// The same host, standing on a store somebody else keeps.
+    /// A tab's host, standing on a store `TabHost` keeps.
     ///
-    /// `TabHost` is that somebody: it performs a tab's pop to the root through the store, and
-    /// it tells each tab's store which tab it is, so one flow cannot stand on two tabs' stacks
+    /// `TabHost` performs a tab's pop to the root through the store, and it tells each tab's
+    /// store which tab it is, so one flow cannot stand on two tabs' stacks
     /// (docs/architecture/tab-host-design.md §2-3, §3-4). `State(initialValue:)` is read once,
     /// on the first render, so the store handed over then is the one this host keeps.
-    init(store: HostStackStore, @ViewBuilder root: @escaping () -> Root)
+    init(tabStore store: HostStackStore, @ViewBuilder root: @escaping () -> Root)
     {
         self._host = State(initialValue: store)
+        self.inTab = true
         self.root = root
     }
 
@@ -110,6 +117,7 @@ public struct NavigationHost<Root: View>: View
                 .navigationDestination(for: HostEntry.self)
                 { entry in
                     host.screen(for: entry)
+                        .modifier(TabBarHidden(hidden: inTab))
                 }
         }
         .modifier(ThemeTint())
@@ -141,6 +149,27 @@ public struct NavigationHost<Root: View>: View
                 host.shorten(to: newPath.count)
             }
         )
+    }
+}
+
+/// The system tab bar hidden on a tab's pushed destination, and left alone everywhere else.
+///
+/// The SDK's half of "a pushed detail covers the bar" on iOS (docs/architecture/tab-host-design.md
+/// §2-2): SwiftUI's only way to say `hidesBottomBarWhenPushed`. It hides the TAB bar and not the
+/// navigation bar, so the edge and content swipes back stay UIKit's (P29). `.automatic` outside a
+/// tab leaves a `TabView` an app wraps a plain `NavigationHost` in to its own devices. macOS has no
+/// tab bar placement.
+private struct TabBarHidden: ViewModifier
+{
+    let hidden: Bool
+
+    func body(content: Content) -> some View
+    {
+    #if os(iOS)
+        content.toolbar(hidden ? .hidden : .automatic, for: .tabBar)
+    #else
+        content
+    #endif
     }
 }
 

@@ -218,6 +218,21 @@ class TabSpecTest
             c9.contains("      platform: Android\n    commands:\n") && c9.contains("          text: \"tab=home\"")
         );
         assertFalse("C-9 carries a bare system back", c9.lines().any { it == "- back" });
+
+        // The iOS bar is the system `TabView`'s: its buttons are found by label, below the
+        // root's readouts so the root's own title is never the one pressed; Android's by tag.
+        val c1 = generated.getValue("${target.tableRoot}/flows/tabs-c1.yaml");
+        assertTrue(
+            "C-1 does not press the system tab button by its label on iOS",
+            c1.contains(
+                "      platform: iOS\n    commands:\n      - tapOn:\n          text: \"Account\"\n" +
+                    "          below:\n            text: \"stack=.*\"\n"
+            )
+        );
+        assertTrue(
+            "C-1 does not press the SDK bar item by its tag on Android",
+            c1.contains("      platform: Android\n    commands:\n      - tapOn:\n          id: \"tab.account\"\n")
+        );
     }
 
     @Test

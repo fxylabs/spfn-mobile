@@ -50,7 +50,7 @@ what a screen SHOWS, and a screen never shows a cursor.
 - Every control the contract lists carries `<screen>.<action>` as its accessibility identifier (iOS) / test tag (Android), spelled exactly as the contract does.
 - Every readout the contract lists is a `SpfnText` in the mono role with the text `<name>=<value>` — `stack=2`, `state=ready`, `fixture=none`. Runners wait on these; they are part of the contract.
 - Nothing else carries an identifier. An identifier a runner does not read is noise a reviewer has to explain.
-- A tab bar item carries `tab.<id>` on both platforms (`tab.home`, `tab.account`); the bar itself carries none. A tab's root in the example app reads `tab=<id>` and `stack=<n>` (docs/architecture/tab-host-design.md §3-7).
+- A tab bar item carries `tab.<id>` on Android (`tab.home`, `tab.account`); the bar itself carries none. The iOS bar is the system `TabView`'s, whose buttons carry no SDK identifier: a runner finds one by its accessibility label (`TabItem.accessibilityLabel`, else its title), and the generated cells look for it below the root's `stack=` readout, because the root's navigation title above it is usually the same words. A tab's root in the example app reads `tab=<id>` and `stack=<n>` (docs/architecture/tab-host-design.md §3-7).
 - The flow's own way out carries `screen.close` on both platforms and `screen.back` on Android. The iOS back is the system navigation bar's button, which carries no SDK identifier: a runner finds it by its accessibility label, the title of the screen it goes back to or the platform's "Back", and the generated cells do exactly that.
 
 A `Paged` and a `Form` model **publish their readouts as strings** — `model.readouts` — and
