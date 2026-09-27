@@ -78,8 +78,6 @@ internal class SpfnEventListenerHub(private val deliveryBuffer: Int)
 
     val diagnostics: StateFlow<SpfnEventDiagnostics> = counts.asStateFlow();
 
-    val listenerCount: Int get() = synchronized(lock) { listeners.size };
-
     /** L-1: added, and its first signal is `attached` whatever the connection is doing. */
     fun <E> attach(name: String, decode: (SpfnCanonicalValue) -> E, condition: (E) -> Boolean): Listener<E>
     {

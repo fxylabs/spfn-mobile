@@ -219,11 +219,6 @@ final class SPFNEventListenerHub: @unchecked Sendable
         lock.withLock { counts }
     }
 
-    var listenerCount: Int
-    {
-        lock.withLock { listeners.count }
-    }
-
     /// L-1: added, and its first signal is `attached` whatever the connection is doing.
     func attach<Event: Sendable>(
         _ name: String,
