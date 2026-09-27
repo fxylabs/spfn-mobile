@@ -1,7 +1,7 @@
 # 설계 — 서버 이벤트 스트림 `EventStream`
 
-- 상태: 제안, 개정 2 (2026-09-27). 검토자가 §0–§3을 읽고 SSE(§2-1)와 설정된 경로로 만드는 토큰 호출(§2-2)을 받아들였다. 수명 분담(앱이 `start`/`suspend`/`resume`을 부르고 화면의 `subscribe`가 서버 쪽 이벤트 집합을 바꾸던 옛 §3-4·§3-5)은 거절되었고, 개정 1이 그 자리를 **SDK가 연결을 소유한다**로 바꾸었다. 개정 2는 개정 1의 답 셋을 적용한다: 수명 배선은 **새 작은 모듈** `SPFNEvents`/`spfn-events`가 갖고 `ui` 모듈은 코어에만 의존하는 채로 남는다 (Q-H), 거절로 닫힌 스트림은 앞쪽 복귀 때 다시 시도한다 (Q-I), 로그인 값은 `SPFNKeyLifecycle`의 읽기 전용 값이다 (Q-J). 그리고 요구 하나를 더한다: **청취자마다 데이터 조건**을 달고, SDK가 하나의 연결 위에서 청취자마다 거른다 (§2-5, §3-4, L-9–L-15). 남은 질문은 §10에 있다. 구현 전이다.
-- 대상: 클라이언트 모듈(`SPFNClient`, `spfn-client`)에 새로 들어갈 `SPFNEventStream`/`SpfnEventStream`, 그 상태 기계, 청취자 허브(조건 포함), SSE 줄 해석기, 스트림 전송 어댑터, 페이로드 서술 `SPFNEventPayload`/`SpfnEventPayload`. **새 모듈 `SPFNEvents`/`spfn-events`** (클라이언트 모듈과 `ui` 모듈에 의존)에 루트 부착, 세 관찰자, 화면 청취 API. `SPFNKeyLifecycle`/`SpfnKeyLifecycle`에 로그인 값을 내보내는 읽기 전용 멤버 하나. 기존 `SPFNClient.execute`, `SPFNSession`, 전송 계층, `ui` 모듈과 그 의존은 바뀌지 않는다
+- 상태: 받아들여짐, 개정 3 (2026-09-27). 개정 2까지의 경과: 검토자가 §0–§3을 읽고 SSE(§2-1)와 설정된 경로로 만드는 토큰 호출(§2-2)을 받아들였다. 수명 분담(앱이 `start`/`suspend`/`resume`을 부르고 화면의 `subscribe`가 서버 쪽 이벤트 집합을 바꾸던 옛 §3-4·§3-5)은 거절되었고, 개정 1이 그 자리를 **SDK가 연결을 소유한다**로 바꾸었다. 개정 2는 개정 1의 답 셋을 적용한다: 수명 배선은 **새 작은 모듈** `SPFNEvents`/`spfn-events`가 갖고 `ui` 모듈은 코어에만 의존하는 채로 남는다 (Q-H), 거절로 닫힌 스트림은 앞쪽 복귀 때 다시 시도한다 (Q-I), 로그인 값은 `SPFNKeyLifecycle`의 읽기 전용 값이다 (Q-J). 그리고 요구 하나를 더한다: **청취자마다 데이터 조건**을 달고, SDK가 하나의 연결 위에서 청취자마다 거른다 (§2-5, §3-4, L-9–L-15). 개정 3 (2026-09-27, 구현과 함께): 검토자가 §10의 남은 질문을 모두 정했다. 표에 닿은 것은 셋이다 — 429의 `Retry-After`를 따른다 (Q-D, E-6·E-19, 새 셀 E-53–E-56), 서버가 모르는 이름이 있으면 닫지 않고 서버가 아는 이름만으로 다시 연결한다 (Q-F, E-16을 바꾸고 E-52·L-16–L-18을 더함), 이벤트 모듈은 `ui` 타입을 쓰지 않으므로 `ui` 간선을 뺀다 (Q-K, §3-7). 나머지(Q-C·Q-G·Q-L·Q-M)는 제안대로이고, Q-B는 닫혀 질문에서 뺐다 (§2-2: CSRF는 웹 프록시를 지나는 쿠키 요청만 지킨다). 구현은 `client/event-stream` 브랜치에 있다.
+- 대상: 클라이언트 모듈(`SPFNClient`, `spfn-client`)에 새로 들어갈 `SPFNEventStream`/`SpfnEventStream`, 그 상태 기계, 청취자 허브(조건 포함), SSE 줄 해석기, 스트림 전송 어댑터, 페이로드 서술 `SPFNEventPayload`/`SpfnEventPayload`. **새 모듈 `SPFNEvents`/`spfn-events`** (클라이언트 모듈에 의존. `ui` 간선은 Q-K로 뺐다)에 루트 부착, 세 관찰자, 화면 청취 API. `SPFNKeyLifecycle`/`SpfnKeyLifecycle`에 로그인 값을 내보내는 읽기 전용 멤버 하나. `SPFNSession`, 전송 계층, `ui` 모듈과 그 의존은 바뀌지 않는다. `SPFNClient.execute`는 한 곳만 바뀐다: 서버 거절 `SPFNServerFailure`/`SpfnServerFailure`가 응답의 `Retry-After` 헤더를 그대로 싣는다 (`retryAfter`, 기본 `nil`). `execute`는 그 값을 읽지 않는다 — 인증 거절 말고는 재시도하지 않는다는 규칙이 그대로다 (Q-D)
 - 관련: [architecture README](README.md) "Three layers in the client module"·"The `ui` module"·"Three ways in", [custom-route-contract-design.md](custom-route-contract-design.md) §9 ("실시간은 계약이 담지 않는다"), [app-contract-codegen.md](app-contract-codegen.md), [tab-host-design.md](tab-host-design.md) (설계 문서의 모양), [IMPLEMENTATION-PITFALLS.md](../IMPLEMENTATION-PITFALLS.md) P40·P42, `tools/module-graph.json` (새 모듈의 줄, §3-7), SPFN 코어 이슈 fxylabs/spfn#111 ("describe the SSE event router in contracts/current.json", §7·§10), 서버 쪽 정본은 `@spfn/core` 패키지의 `src/event/README.md` ("SSE authentication (Token Exchange)", "Multi-instance broadcast", "Pitfalls & anti-patterns")
 
 ## 0. 요약
@@ -13,13 +13,13 @@
 | 연결의 주인 | **SDK.** 앱은 한 번 설정하고 (스트림 경로와 **고정된 이벤트 이름 목록**), 앱 루트에 한 번 붙인다. 그 뒤로 앱 코드는 연결을 열지도, 쉬게 하지도, 닫지도 않는다 |
 | 설정 | 스트림 경로 (기본 `/events/stream`), 토큰 경로는 서버와 같은 규칙으로 **파생한다** (`/events/stream` → `/events/token`, 따로 줄 수도 있다), 이벤트 이름 목록 (비면 거부). 목록이 곧 `events=` 쿼리이고, 앱이 사는 동안 바뀌지 않는다 |
 | 수명 입력 | **이벤트 모듈(`SPFNEvents`/`spfn-events`)이 관찰한다**: 앞쪽/뒤쪽 (iOS `scenePhase`, Android `ProcessLifecycleOwner`), 로그인 상태 (`SPFNKeyLifecycle`의 읽기 전용 로그인 값 — 저장된 클라이언트 id, `wipe()`가 지운다. 로그아웃하면 닫힌다, 다른 계정이면 새로 연다), 네트워크 (`NWPathMonitor`, `ConnectivityManager`). 세 입력을 클라이언트 모듈의 상태 기계에 넘긴다. 연결은 "앞쪽이고 로그인했다"일 때만 있다 |
-| 모듈 분담 | 클라이언트 모듈: 툴킷 없는 토큰 교환, SSE 해석기, 상태 기계, 재연결, 청취자 허브와 조건 평가. JVM과 Linux에서 단위 테스트로 돈다. **새 모듈 `SPFNEvents`/`spfn-events`** (클라이언트 모듈과 `ui` 모듈에 의존): 루트 부착, 세 관찰자, 화면 청취 API. **`ui` 모듈은 코어에만 의존하는 채로 남는다** — 그 모듈의 그래프 줄은 바뀌지 않는다 (§3-7, Q-H) |
+| 모듈 분담 | 클라이언트 모듈: 툴킷 없는 토큰 교환, SSE 해석기, 상태 기계, 재연결, 청취자 허브와 조건 평가. JVM과 Linux에서 단위 테스트로 돈다. **새 모듈 `SPFNEvents`/`spfn-events`** (클라이언트 모듈에만 의존 — `ui` 간선은 쓰는 타입이 없어 뺐다, Q-K): 루트 부착, 세 관찰자, 화면 청취 API. **`ui` 모듈은 코어에만 의존하는 채로 남는다** — 그 모듈의 그래프 줄은 바뀌지 않는다 (§3-7, Q-H) |
 | 화면 | **듣기만 한다.** 이벤트 이름 **과 데이터 조건**으로 듣는다 (`where:`): 조건이 참인 프레임과 다시 읽기 신호만 받는다. 붙은 순간과 새 `open(epoch)`마다 "다시 읽어라" 신호를 받는다. 화면이 떠나면 듣기가 끝난다. 설정에 없는 이름으로 들으려 하면 프로그래머 오류로 곧바로 거부한다. **화면의 붙고 떨어짐도, 조건도 연결을 건드리지 않는다: 이동은 재연결하지 않고, 서버 쪽 화면별 거르기는 없다** |
 | 청취 조건 | **SDK가 청취자마다 거른다** (§2-5). 순서: 디코드 → 조건 → 큐. 디코드 실패는 조건 전에 버려지고 `droppedFrames`로, 조건 거짓은 `filteredFrames`로 센다. 조건은 던지지 않는 순수 함수다: Swift는 `throws`가 없는 시그니처로 막고, Kotlin에서 던지면 **프로그래머 오류**로 그 청취자만 그 예외로 끝난다 (L-12). 조건은 붙는 순간 정해지고, 바꾸려면 다시 붙는다 (L-15) |
 | 이름과 페이로드 | 앱이 준다: 이름 문자열과 디코더, 또는 둘을 묶은 `SPFNEventPayload`/`SpfnEventPayload` 서술. 서버에서 생성하는 것은 상류에 요청했다 (fxylabs/spfn#111, §7·§10) |
-| 상태 | `idle(signedOut 또는 background)`, `connecting(attempt)`, `open(epoch)`, `retrying(attempt, delay, reason)`, `offline(attempt)`, `closed(reason)`. 모든 전이는 툴킷 없는 순수 상태 기계에 있다 (`Flow`, `TabState`처럼) |
+| 상태 | `idle(signedOut 또는 background)`, `connecting(attempt)`, `open(epoch, unavailableEvents)`, `retrying(attempt, delay, reason)`, `offline(attempt)`, `closed(reason)`. 모든 전이는 툴킷 없는 순수 상태 기계에 있다 (`Flow`, `TabState`처럼) |
 | 다시 읽기 규칙 | **신호가 오면 화면은 다시 읽는다.** 신호는 청취자가 붙을 때 한 번, 그 뒤 새 epoch(첫 열림, 재연결, 앱 복귀)마다 한 번, 그 청취자의 전달 버퍼가 넘칠 때 한 번. 프레임은 신호일 뿐 상태가 아니다 (최대 1회 전달) |
-| 재연결 | 초기 1 s, 배수 2, 상한 30 s, 지터는 계산값의 50–100 % 균등. 30 s 이상 열려 있던 연결이 끊기면 처음부터 다시 센다. 네트워크가 없으면 타이머 없이 `offline`에서 기다린다 |
+| 재연결 | 초기 1 s, 배수 2, 상한 30 s, 지터는 계산값의 50–100 % 균등. 30 s 이상 열려 있던 연결이 끊기면 처음부터 다시 센다. 네트워크가 없으면 타이머 없이 `offline`에서 기다린다. 429는 `Retry-After`를 따른다: 지연 = max(백오프, `Retry-After`), `Retry-After`는 5분에서 자르고, 읽을 수 없으면 무시한다 (Q-D) |
 | 침묵 감시 | 마지막 바이트 뒤 `2.5 × pingInterval` (기본 25 s) 동안 아무것도 오지 않으면 끊고 재연결한다. 한 곳(상태 기계)에서만 잰다. 전송의 읽기 타임아웃에 기대지 않는다 |
 | 이벤트 모듈 없는 앱 | 클라이언트 모듈만으로도 쓴다: 같은 객체의 `setForeground`, `setSignedIn`, `setNetworkAvailable`을 앱이 부르고 `listen(…, where:)`으로 듣는다 (§3-6). 상태 기계와 조건 규칙은 같다 |
 | 범위 밖 | APNs/FCM 푸시, 오프라인 큐, WebSocket, 백그라운드 연결 유지, 프레임 재전송(`Last-Event-ID`), 화면별 이벤트 집합, **서버 쪽 화면별 거르기**, 이벤트 이름·페이로드 코드 생성 (상류 대기) |
@@ -93,7 +93,7 @@
 
 (다)를 고른 이유: 토큰 경로는 계약의 사실이 아니라 서버 설정의 사실이다. 그 설정을 앱이 SDK에 그대로 알려 주는 것이 두 곳을 맞추는 가장 짧은 길이다. 그러면서도 "요청을 보내는 길은 `execute` 하나"라는 규칙(architecture README "Three layers")은 깨지지 않는다: 토큰 요청은 새 세션 헤더, 새 nonce, 새 증명을 달고 나가고, 인증 거부에는 재핸드셰이크 한 번이 따라온다.
 
-`authenticate`가 서명 요청을 받아 `c.get('auth').userId`를 채우는 것은 서버 쪽 사실이고 이 저장소가 확인할 수 없다. 앱 서버가 서명된 `POST /events/token`에 200을 주는지를 §5 U-1에서 잰다. 쿠키가 없는 요청이므로 CSRF 규칙(`x-spfn-csrf`)은 브라우저 경로의 것이고 여기에 해당하지 않아야 한다. 해당한다면 서버 설정의 결함이다 (§10 Q-B).
+`authenticate`가 서명 요청을 받아 `c.get('auth').userId`를 채우는 것은 서버 쪽 사실이고 이 저장소가 확인할 수 없다. 앱 서버가 서명된 `POST /events/token`에 200을 주는지를 §5 U-1에서 잰다. 쿠키가 없는 요청이므로 CSRF 규칙(`x-spfn-csrf`)은 브라우저 경로의 것이고 여기에 해당하지 않는다: CSRF는 웹 프록시를 지나는 쿠키 요청만 지키고, 서명된 요청은 CSRF 헤더를 싣지 않는다 (§10 Q-B, 닫음).
 
 **스트림 GET은 서명하지 않는다.** 서버는 스트림 경로에 미들웨어를 붙이지 않고 토큰만 본다. 서명을 붙여도 읽는 쪽이 없고, 증명 하나를 소모할 뿐이다. 스트림 요청은 `SPFNClientIdentity.headers`만 단다 (다른 모든 요청과 같다).
 
@@ -176,7 +176,7 @@
 |---|---|
 | `idle(reason)` | 연결할 조건이 아니다. `reason`: `signedOut` (로그인한 계정 없음, 생성 직후), `background` (로그인했지만 뒤쪽). 연결도 타이머도 없다. 두 조건이 다 거짓이면 `signedOut` |
 | `connecting(attempt)` | 토큰을 받거나 스트림을 여는 중. `attempt`는 마지막 안정 연결 뒤 몇 번째 시도인가 (1부터) |
-| `open(epoch)` | `connected` 프레임을 받았다. `epoch`는 이 객체가 열린 횟수, 1부터. 값이 바뀔 때마다 붙어 있는 청취자에게 `reread`가 간다 |
+| `open(epoch, unavailableEvents)` | `connected` 프레임을 받았다. `epoch`는 이 객체가 열린 횟수, 1부터. 값이 바뀔 때마다 붙어 있는 청취자에게 `reread`가 간다. `unavailableEvents`는 서버가 모른다고 답해 요청에서 뺀 설정 이름이다 (보통 빈 목록, Q-F, E-16) |
 | `retrying(attempt, delayMillis, reason)` | 다음 시도를 기다린다. `reason`: `network`, `silence`, `serverClosed`, `serverError(status)`, `tokenRejected`, `unreadable` |
 | `offline(attempt)` | 연결할 조건인데 네트워크가 없다. 타이머 없이 네트워크가 돌아오기를 기다린다 |
 | `closed(reason)` | 스스로 다시 시도하지 않는다. `reason`: `unauthorized`, `forbidden`, `unknownEvents([String])`. 조건 하나가 거짓이 되었다가 돌아올 때(뒤쪽 갔다 앞쪽, 다른 계정)만 벗어난다 (E-44) |
@@ -248,10 +248,10 @@ setContent
 
 | Swift | Kotlin |
 |---|---|
-| `enum SPFNEventSignal<Event: Sendable>: Sendable { case reread(SPFNRereadCause); case frame(Event) }` | `sealed interface SpfnEventSignal<out E> { data class Reread(val cause: SpfnRereadCause); data class Frame<E>(val value: E) }` |
+| `enum SPFNEventSignal<Event: Sendable>: Sendable { case reread(SPFNRereadCause); case frame(Event); case unavailable }` | `sealed interface SpfnEventSignal<out E> { data class Reread(val cause: SpfnRereadCause); data class Frame<E>(val value: E); data object Unavailable }` |
 | `enum SPFNRereadCause: Equatable, Sendable { case attached; case opened(epoch: Int); case overflow }` | `sealed interface SpfnRereadCause { data object Attached; data class Opened(val epoch: Int); data object Overflow }` |
 
-`frame`은 조건이 참인 프레임뿐이다. `reread`는 조건과 무관하게 언제나 온다 (값이 없으므로 조건을 적용할 것이 없다, L-13).
+`frame`은 조건이 참인 프레임뿐이다. `reread`는 조건과 무관하게 언제나 온다 (값이 없으므로 조건을 적용할 것이 없다, L-13). `unavailable`은 이 청취자의 이름을 서버가 모른다고 답해 스트림이 그 이름 없이 열렸다는 신호다: 청취자마다 한 번, 그 뒤로 그 이름의 프레임은 오지 않는다. 다시 읽기 신호는 계속 온다 (Q-F, L-16–L-18). 디버그 빌드에서는 이벤트 모듈이 빠진 이름을 한 번 경고한다.
 
 **페이로드 서술 (클라이언트 모듈).** 이름과 디코더를 한 곳에 묶는다. 지금은 앱이 손으로 쓰고 (§7), 서버에서 생성하게 되면 생성물이 같은 모양을 구현한다.
 
@@ -406,13 +406,13 @@ Q-H의 답: 수명 배선은 **새 작은 모듈**이 갖는다. `ui` 모듈은 
 **그래프 줄** (`tools/module-graph.json`, 한 줄 한 모듈 규칙, `ui` 줄 다음):
 
 ```json
-{"id": "events", "swiftTarget": "SPFNEvents", "androidModule": "spfn-events", "swiftDependsOn": ["SPFNClient", "SPFNUI"], "androidDependsOn": ["spfn-client", "spfn-ui"], "externalDeps": {"swift": [], "android": ["kotlinx-coroutines-core", "androidx-compose-runtime", "androidx-compose-ui", "androidx-lifecycle-process"]}}
+{"id": "events", "swiftTarget": "SPFNEvents", "androidModule": "spfn-events", "swiftDependsOn": ["SPFNClient"], "androidDependsOn": ["spfn-client"], "externalDeps": {"swift": [], "android": ["kotlinx-coroutines-core", "androidx-compose-runtime", "androidx-compose-ui", "androidx-lifecycle-process"]}}
 ```
 
 - `linux` 키가 없다: 모듈은 Linux에서 빌드된다. SwiftUI 파일(루트 부착, `onSPFNEvent`)은 `#if canImport(SwiftUI)`로, 경로 감시기 파일은 `#if canImport(Network)`로 통째로 감싸고, 장면 세기와 변환 함수는 보통의 Swift다 — `ui` 모듈의 `FlowHost.swift`와 같은 모양 (그 모듈의 노트가 `linux: false`를 고르지 않은 까닭과 같다).
 - `externalDeps.swift`는 비었다: SwiftUI·Network는 OS가 싣는다. Android는 네 별칭이다: `LaunchedEffect`·`CompositionLocal`(compose-runtime), `LocalContext`(compose-ui), `ProcessLifecycleOwner`(lifecycle-process), `Flow` 수집(coroutines). `lifecycle-process` 2.10.0은 새 카탈로그 별칭이지만 새로 받는 산출물이 아니다: 오늘 `spfn-ui`의 `releaseRuntimeClasspath`에 이미 있고 (`compose-foundation` → `emoji2` → `lifecycle-process`) 검증 메타데이터에도 있다.
 - 노트 하나를 더한다: 이벤트 모듈이 왜 따로 있는가 (`ui`의 코어 전용 약속을 지키려고), 무엇에 의존하는가, 그리고 연결의 주인은 클라이언트 모듈의 객체이고 이 모듈은 입력을 옮길 뿐이라는 것.
-- 클라이언트·`ui` 두 간선은 Q-H의 답이 정했다. 이벤트 모듈이 `ui`의 타입을 실제로 쓰는 자리는 구현 전이라 정해지지 않았다 (§10 Q-K).
+- 간선은 클라이언트 하나다 (개정 3, Q-K). 구현에서 이벤트 모듈이 `ui`의 타입을 쓰는 자리가 없었다: 루트 부착·청취 API·관찰자는 클라이언트 모듈과 툴킷만 쓴다. 그래서 `ui` 간선을 뺐다. 대가 하나가 드러났다: Android에서 `spfn-ui`의 `activity-compose`가 올려 주던 전이 버전이 없어져 `spfn-events` 혼자서는 `compose-ui`의 최소 버전(`activity` 1.7.0, `savedstate` 1.3.x 등 8개 산출물)으로 해석되고, 그 체크섬을 `gradle/verification-metadata.xml`에 더했다 ([P44](../IMPLEMENTATION-PITFALLS.md#p44)). `lifecycle-process` 2.10.0은 설계대로 새 산출물이 아니다.
 
 **`Package.swift` 윤곽:**
 
@@ -431,7 +431,7 @@ targets: [
     // three observers and the screen listening API. SwiftUI and Network are the OS's,
     // so no external product; the SwiftUI and Network files are guarded whole and the
     // module reduces to its toolkit-free types on Linux.
-    .target(name: "SPFNEvents", dependencies: ["SPFNClient", "SPFNUI"]),
+    .target(name: "SPFNEvents", dependencies: ["SPFNClient"]),
     …
     .testTarget(name: "SPFNEventsTests", dependencies: ["SPFNEvents", "SPFNClient"]),
 ]
@@ -445,7 +445,7 @@ include(…, ":spfn-ui", ":spfn-events", …)
 project(":spfn-events").projectDir = file("android/spfn-events")
 
 // android/spfn-events/build.gradle.kts
-extra["spfnModuleDependsOn"] = listOf("spfn-client", "spfn-ui")
+extra["spfnModuleDependsOn"] = listOf("spfn-client")
 extra["spfnSwiftCounterpart"] = "SPFNEvents"
 
 android
@@ -456,7 +456,6 @@ android
 dependencies
 {
     api(project(":spfn-client"))          // 공개 시그니처가 SpfnEventStream을 싣는다
-    api(project(":spfn-ui"))
     api(libs.kotlinx.coroutines.core)
     api(libs.androidx.compose.runtime)   // @Composable 공개 시그니처
     implementation(libs.androidx.compose.ui)
@@ -472,7 +471,7 @@ dependencies
 |---|---|---|
 | 1 (필수 배치) | — | 없음. 모듈별 경로는 8절이 읽는다 |
 | 7 (외부 의존성 허용 목록) | `android/spfn-events/build.gradle.kts`의 외부 의존성이 그래프의 네 별칭과 양방향으로 같다. `Package.swift`의 `SPFNEvents` 타깃이 외부 제품을 선언하지 않는다 | 그래프 줄 (위) |
-| 8 (모듈 그래프 정합) | `Sources/SPFNEvents`에 Swift 소스, `.library(name: "SPFNEvents", …)`, 타깃 의존이 `["SPFNClient", "SPFNUI"]`, `settings.gradle.kts`의 include와 `projectDir`, `android/spfn-events`의 빌드 스크립트와 Kotlin 소스, `spfnModuleDependsOn`, `spfnSwiftCounterpart = "SPFNEvents"`, CocoaPods 픽스처의 `s.subspec 'SPFNEvents'`와 두 `sp.dependency`. 모듈 수 7 → 8 (Swift 제품 수, Android 프로젝트 수). Linux 버킷: `linux` 키 없음 → Linux-capable. Apple 전용 import 검사: 가드 밖 `import SwiftUI`·`import Network`가 없다 | Apple 전용 프레임워크 목록(`APPLE_ONLY_FRAMEWORKS`)에 `Network`를 더한다 (SwiftUI를 더한 것과 같은 까닭). `tools/cocoapods-compat/generate-podspec.sh`로 픽스처를 다시 만든다 |
+| 8 (모듈 그래프 정합) | `Sources/SPFNEvents`에 Swift 소스, `.library(name: "SPFNEvents", …)`, 타깃 의존이 `["SPFNClient"]` (개정 3), `settings.gradle.kts`의 include와 `projectDir`, `android/spfn-events`의 빌드 스크립트와 Kotlin 소스, `spfnModuleDependsOn`, `spfnSwiftCounterpart = "SPFNEvents"`, CocoaPods 픽스처의 `s.subspec 'SPFNEvents'`와 `sp.dependency` 하나 (개정 3). 모듈 수 7 → 8 (Swift 제품 수, Android 프로젝트 수). Linux 버킷: `linux` 키 없음 → Linux-capable. Apple 전용 import 검사: 가드 밖 `import SwiftUI`·`import Network`가 없다 | Apple 전용 프레임워크 목록(`APPLE_ONLY_FRAMEWORKS`)에 `Network`를 더한다 (SwiftUI를 더한 것과 같은 까닭). `tools/cocoapods-compat/generate-podspec.sh`로 픽스처를 다시 만든다 |
 | 13 (두 플랫폼의 한 어휘) | 지금은 `Sources/SPFNUI`와 `android/spfn-ui`만 비교한다 | 새 모듈의 공개 이름 쌍(`spfnEventStream`↔`SpfnEventStreamHost`, `onSPFNEvent`↔`SpfnEventEffect`, 환경 키)을 같은 방식으로 비교하는 뿌리 한 쌍을 더한다. 클라이언트 모듈 쪽 이름(`SPFNEventStream`, `SPFNEventPayload` …)은 전송 테스트처럼 테스트 이름 짝으로 확인한다 (§9) |
 
 `tools/rc-verify/rc-verify.sh`는 그래프에서 모듈 목록을 읽으므로 바꿀 것이 없다. 루트 `build.gradle.kts`의 `spfnScaffoldCheck`는 `spfnModuleDependsOn`을 읽으므로 새 모듈의 간선이 실재하는 모듈을 가리키는지 스스로 본다. `RELEASE.md`·`CHANGELOG.md`에 새 좌표 `xyz.superfunction.spfn:spfn-events`와 새 Swift 제품, 권한 한 줄을 적는다. 게시·검증 목록은 그래프에서 읽으므로 한 줄씩 는다.
@@ -543,7 +542,7 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 | E-3 | T | 토큰 200 `{token}` | S(n) | 스트림 GET `?token=…&events=a,b` (설정의 이름을 정렬, 쉼표로). 토큰은 이 요청에만 쓰고 버린다 | |
 | E-4 | T | 토큰 `.auth(…)` (401/403 봉투) | X(`unauthorized`) | 재시도 없음. 다음 기회는 앞쪽 복귀나 다시 로그인 (E-44, E-43) | |
 | E-5 | T | 토큰 `.server(…)` 403 | X(`forbidden`) | | |
-| E-6 | T | 토큰 `.server(…)` 5xx, 429 | R(n+1, `serverError`) | 백오프. 429의 `Retry-After`는 읽지 않는다 (§10 Q-D) | |
+| E-6 | T | 토큰 `.server(…)` 5xx, 429 | R(n+1, `serverError`) | 백오프. 429이면 지연 = max(백오프, `Retry-After`) (Q-D). 헤더는 `execute`가 `SPFNServerFailure.retryAfter`에 그대로 싣고, 이벤트 모듈이 읽는다 (`execute`에는 `Retry-After` 규칙이 없었다). 봉투 없는 429(프록시)는 E-8로 가고 헤더를 읽지 않는다 | 개정 3 |
 | E-7 | T | 토큰 `.transport(connectivity/timedOut)` | R(n+1, `network`) | Net이 거짓이면 R/N 규칙으로 N | |
 | E-8 | T | 토큰 `.decoding(notAnErrorEnvelope, onSuccessStatus: false)` | R(n+1, `unreadable`) | 프레임워크 토큰 경로의 401 `{"error":…}`, 프록시의 HTML 502가 여기로 온다. 둘을 가를 수 없으므로 백오프로 둔다. 상한이 30 s라 폭주하지 않는다 (§10 Q-C) | |
 | E-9 | T | 토큰 2xx인데 본문을 못 읽음 | R(n+1, `unreadable`) | P42: 서버는 토큰을 발급했을 수 있다. 쓰지 않은 토큰은 30 s 뒤 사라지므로 버려도 해가 없다 | |
@@ -553,10 +552,10 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 | E-13 | S | `connected` 프레임 | O(e+1) | epoch를 올린다. **붙어 있는 청취자마다 큐를 비우고 `reread(.opened(e+1))`.** 안정 타이머(30 s) 시작 | 옛: 화면이 상태의 epoch를 봄 |
 | E-14 | S | 200인데 `text/event-stream`이 아님 | R(n+1, `unreadable`) | 앞에 선 프록시가 HTML을 준 경우 | |
 | E-15 | S | 401 | T(n) 한 번, 두 번째는 R(n+1, `tokenRejected`) | E-3의 토큰이 만료·소모됨. 즉시 새 토큰 | |
-| E-16 | S | 400 `invalidEvents` | X(`unknownEvents(이름들)`) | **설정 목록**에 서버가 모르는 이름이 있다 (앱이 서버보다 새 버전). 재시도해도 같다. 목록의 다른 이름을 듣는 화면도 프레임을 받지 못한다 (§10 Q-F) | 옛: 구독한 이름 |
+| E-16 | S | 400 `invalidEvents` (본문 `{"error","invalidEvents":[…],"validEvents":[…]}`), 요청 이름 ∩ `validEvents`가 비지 않고 요청보다 작다 | T(n) | **곧바로 좁혀서 다시 연다** (Q-F): 새 토큰 (토큰은 이름 검사 전에 소모된다), 요청 이름 = 요청 이름 ∩ `validEvents`. 빠진 설정 이름이 `open`의 `unavailableEvents`가 되고, 효과 `markUnavailable(이름들)`로 그 이름의 청취자마다 `unavailable` 한 번 (L-16). 좁힌 목록은 연결 조건이 떨어질 때(뒤쪽, 로그아웃, 다른 계정)까지 쓴다 — 앞쪽으로 돌아오면 전체 목록으로 다시 시도하므로 서버를 고친 뒤 회복한다 | 개정 3: 옛 X(`unknownEvents`) |
 | E-17 | S | 400 그 밖 | X(`unknownEvents([])`) | `events`가 비었다: 설정이 빈 목록을 거부하므로 일어날 수 없다. 디버그 빌드에서 멈춘다 | |
 | E-18 | S | 403 | X(`forbidden`) | `authorize`가 빈 목록 | |
-| E-19 | S | 5xx, 3xx | R(n+1, `serverError(status)`) | | |
+| E-19 | S | 5xx, 3xx, 429 | R(n+1, `serverError(status)`) | 429이면 지연 = max(백오프, 응답의 `Retry-After`) (Q-D) | 개정 3: 429 |
 | E-20 | S | 전송 오류 | R(n+1, `network`) | | |
 | E-21 | S | 침묵 감시 만료 (헤더 뒤 `connected` 없음) | R(n+1, `silence`) | 버퍼링하는 프록시. §5 U-5 | |
 | E-22 | O | 설정된 이름의 프레임, 그 이름의 청취자 1개 이상 | O(e) | 봉투를 벗겨 효과 `deliver(name, data)`로 허브에 넘긴다. 허브가 청취자마다 디코드 → 조건 → 큐 (L-9–L-11). 감시 재시작 | 옛: 구독한 이름. 개정 2: 조건 |
@@ -586,6 +585,11 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 | E-49 | I(`signedOut`) | `setForeground(_)`, `setNetworkAvailable(_)` | I(`signedOut`) | 조건만 기록한다. 로그인하면 E-1 또는 E-48 | 새 |
 | E-50 | I(`background`) | `setSignedIn(nil)` | I(`signedOut`) | 이유만 바뀐다. `setSignedIn(다른 id)`는 I(`background`) 그대로 (앞쪽으로 오면 새 계정으로 E-38) | 새 |
 | E-51 | T, S | `setNetworkAvailable(false)` | 그대로 | 진행 중인 호출은 스스로 끝난다. 실패하면 R/N 규칙으로 N | 새 |
+| E-52 | S | 400 `invalidEvents`, 요청 이름 ∩ `validEvents`가 비었다 (또는 요청보다 작지 않다 — 서버가 스스로 모순) | X(`unknownEvents(invalidEvents)`) | 들을 이름이 남지 않는다. 좁힘은 매번 줄어야 하므로 모순된 서버도 반복이 아니라 `closed`로 끝난다. E-44로 벗어난다 | 개정 3 |
+| E-53 | T, S | 429, `Retry-After: <초>` | R(n+1, `serverError(429)`) | 지연 = max(백오프, 초 × 1000). 백오프보다 짧으면 백오프 | 개정 3 |
+| E-54 | T, S | 429, `Retry-After: <HTTP-date>` (IMF-fixdate) | R(n+1, `serverError(429)`) | 지연 = max(백오프, 날짜 − 주입한 벽시계). 지난 날짜는 0 → 백오프 | 개정 3 |
+| E-55 | T, S | 429, 읽을 수 없는 `Retry-After` (빈 값, 음수, 소수, 다른 날짜 모양) | R(n+1, `serverError(429)`) | 헤더를 무시한다. 지연은 백오프 | 개정 3 |
+| E-56 | T, S | 429, 5분을 넘는 `Retry-After` | R(n+1, `serverError(429)`) | 5분(300 000 ms)에서 자른다. 사람은 이미 당겨서 새로 고친다 | 개정 3 |
 
 없앤 셀:
 
@@ -617,8 +621,11 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 | L-13 | 아무 상태 | `reread(.attached)`·`reread(.opened(e))`·`reread(.overflow)` | 조건과 무관하게 전달 | 새. 다시 읽기 신호에는 값이 없다. 조건이 거른 프레임 뒤의 상태도 다시 읽기가 덮는다 |
 | L-14 | O | 같은 이름에 청취자 둘, **조건이 다름** (예: 작업공간 A의 홈, 세션 X의 상세) | 각자 자기 디코드·조건으로. 한 프레임이 하나에만, 둘 다에, 어느 쪽에도 안 갈 수 있다 | 새. 연결 하나, 쿼리 그대로 |
 | L-15 | 아무 상태 | 조건이 잡은 값이 바뀐다 (뷰 `id`/`key` 바뀜, 모델의 태스크·코루틴 재시작) | L-2 다음 L-1: 옛 조건의 청취자 제거, 새 조건의 청취자 추가와 `reread(.attached)` | 새. 조건을 바꾸는 API는 없다. 연결 상태 그대로, 토큰 호출 없음 |
+| L-16 | 아무 상태 | `markUnavailable(이름들)` (E-16), 그 이름의 청취자가 붙어 있다 | 그 청취자마다 `unavailable` 한 번. 같은 이름이 다시 빠져도 두 번째는 없다 | 개정 3 (Q-F). 큐를 비우는 `opened`·`overflow`도 대기 중인 `unavailable`은 남긴다 |
+| L-17 | 아무 상태 | 이미 빠진 이름으로 청취자가 붙는다 | `reread(.attached)` 다음 `unavailable` | 개정 3. 이름 검사(L-3)는 설정 목록으로 하므로 거부되지 않는다 — 앱이 틀린 것이 아니라 서버가 아직 모른다 |
+| L-18 | O | 빠진 이름이 있는 채로 열림 | 다른 이름의 청취자는 평소대로 프레임과 `opened`를 받는다. 빠진 이름의 청취자도 `opened`는 받는다 (L-13) | 개정 3. 연결 하나, 좁힌 쿼리 하나 |
 
-셀 수: 제안 0은 47 (E-1–E-47). 개정 1은 **E 47개** (옛 43 유지·수정 + 새 4, 없앤 4) + **L 8개** = **55**. 개정 2는 E 47개 (E-22·E-24·E-44의 비고만 바뀜) + **L 15개** (L-1·L-4·L-7 수정, L-9–L-15 새로) = **62**. 모두 순수 단위 테스트다 (§9-1). 실제 네트워크와 기기 수명이 필요한 것은 §5의 U-셀이다.
+셀 수: 제안 0은 47 (E-1–E-47). 개정 1은 **E 47개** (옛 43 유지·수정 + 새 4, 없앤 4) + **L 8개** = **55**. 개정 2는 E 47개 (E-22·E-24·E-44의 비고만 바뀜) + **L 15개** (L-1·L-4·L-7 수정, L-9–L-15 새로) = **62**. 개정 3은 **E 52개** (E-6·E-16·E-19 수정, E-52–E-56 새로) + **L 18개** (L-16–L-18 새로) = **70**. 모두 순수 단위 테스트다 (§9-1). 실제 네트워크와 기기 수명이 필요한 것은 §5의 U-셀이다.
 
 **다시 읽기 규칙이 있는 자리.** L-1·L-5·L-15의 `attached`, E-13의 `opened(e)`, L-4의 `overflow`. 셋 모두 조건과 무관하다 (L-13). 화면 모델은 어느 것이든 받으면 한 번 읽는다. 첫 열림(epoch 1)도 포함한다: 화면의 첫 읽기와 스트림의 열림 사이에 커밋된 변화는 어느 쪽에서도 오지 않기 때문이다. 대가는 붙자마자 열리는 경우 읽기가 한 번 더 는 것이고, 모으기(§3-4)가 둘을 겹치면 하나로 줄인다.
 
@@ -680,7 +687,7 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 | id | 후보 | 탐지 |
 |---|---|---|
 | H-1 | **브라우저 식 자동 재시도는 죽은 토큰으로 다시 연결한다.** 한 번 쓰는 토큰이 URL에 있으므로, 전송이나 라이브러리가 같은 URL로 재시도하면 401만 돌아온다. 재연결은 언제나 토큰 호출부터 | OkHttp `retryOnConnectionFailure(false)`. 어댑터가 재시도하지 않는다는 테스트: 가짜 서버가 첫 요청을 끊으면 요청 수가 1 |
-| H-2 | **선로 위의 이름은 라우터 키다.** `defineEvent('session.activity', …)`를 `defineEventRouter({ sessionActivity })`에 넣으면 `events=` 쿼리도, `event:` 필드도, 봉투의 `event`도 `sessionActivity`다. 설정 목록에 점 찍힌 이름을 쓰면 400 `invalidEvents`로 스트림 전체가 닫힌다 (E-16) | `closed(unknownEvents)`를 앱이 기록하게 한다. 400 본문의 `validEvents`가 정답 목록이다 |
+| H-2 | **선로 위의 이름은 라우터 키다.** `defineEvent('session.activity', …)`를 `defineEventRouter({ sessionActivity })`에 넣으면 `events=` 쿼리도, `event:` 필드도, 봉투의 `event`도 `sessionActivity`다. 설정 목록에 점 찍힌 이름을 쓰면 400 `invalidEvents`가 오고, 스트림은 그 이름 없이 다시 열린다 — 그 이름의 화면은 `unavailable`만 받는다 (E-16, 개정 3). 모든 이름이 틀렸으면 `closed(unknownEvents)` (E-52) | `open`의 `unavailableEvents`와 디버그 빌드의 경고가 빠진 이름을 보인다. 400 본문의 `validEvents`가 정답 목록이다 |
 | H-3 | **엄격한 파서는 소수를 거부한다.** `SPFNCanonicalJSON.parse`는 정수만 받는다. 페이로드에 소수가 있으면 그 프레임은 디코드 실패로 버려진다 (E-24). 지금 서버의 페이로드는 문자열·정수·불리언뿐이다 | 서버 이벤트 스키마에 `Type.Number()` 소수가 들어오면 앱 쪽 디코드 실패 수가 오른다. 서버 쪽 리뷰에서 막는다 |
 | H-4 | **`wipe()`를 지나지 않는 로그아웃은 스트림을 닫지 않는다.** 스트림의 주체는 열린 순간에 정해지고 서버는 다시 묻지 않는다. SDK는 라이프사이클의 로그인 값으로 로그아웃을 안다 (E-40). 앱이 자기 상태만 지우고 키를 남기는 "로그아웃"을 만들면 SDK에게는 로그인 상태이고, 다음 사람이 이전 사람의 신호를 받는다 (신호일 뿐이고 읽기는 거부되지만, 어느 세션이 움직였는지는 샌다) | 예제 앱의 로그아웃 경로가 `wipe()`를 부르고 스트림이 `idle(signedOut)`이 된다는 테스트. 앱에도 같은 테스트를 권한다 |
 | H-5 | **읽기 타임아웃으로 침묵을 재면 두 플랫폼이 다르게 운다.** URLSession `timeoutInterval`은 유휴 기한이고 OkHttp `callTimeout`은 호출 전체 기한이다 (`SPFNURLSessionTransport`의 주석). 전체 기한이 붙은 스트림은 건강해도 그 시각에 끊긴다 | 침묵 감시는 상태 기계 하나. 스트림 어댑터의 `callTimeout`은 0이다는 테스트 |
@@ -706,9 +713,9 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 
 ### 9-1. 단위 (툴킷 없음, Linux와 JVM)
 
-`SPFNEventStreamMachineTests.swift` / `SpfnEventStreamMachineTest.kt`. 상태 기계는 `(state, conditions, input) -> (state, [effect])` 순수 함수다. 효과는 `mintToken`, `cancelToken`, `openStream(names)`, `closeStream`, `startSilenceTimer(ms)`, `startRetryTimer(ms)`, `startStableTimer(ms)`, `cancelTimers`, `deliver(name, value)`, `reread(epoch)`, `publish(state)`. 시계도 난수도 주입한다 (지터는 `U[0.5, 1.0]`를 내는 함수를 받는다). 테스트 이름은 셀 이름을 따른다: `e1_signedInForeground_mintsToken`, `e15_stream401_retriesTokenOnce_thenBacksOff`, `e40_signOut_closesOpenStream`, `e43_accountSwitch_reconnectsWithNewToken`, `e44_closed_leavesOnlyThroughBackground` … E-셀 47개 전부.
+`SPFNEventStreamMachineTests.swift` / `SpfnEventStreamMachineTest.kt`. 상태 기계는 `(state, conditions, input) -> (state, [effect])` 순수 함수다. 효과는 `mintToken`, `cancelToken`, `openStream(names)`, `closeStream`, `startSilenceTimer(ms)`, `startRetryTimer(ms)`, `startStableTimer(ms)`, `cancelTimers`, `deliver(name, value)`, `reread(epoch)`, `publish(state)`. 시계도 난수도 주입한다 (지터는 `U[0.5, 1.0]`를 내는 함수를 받는다). 테스트 이름은 셀 이름을 따른다: `e1_signedInForeground_mintsToken`, `e15_stream401_retriesTokenOnce_thenBacksOff`, `e40_signOut_closesOpenStream`, `e43_accountSwitch_reconnectsWithNewToken`, `e44_closed_leavesOnlyThroughBackground` … E-셀 52개 전부 (개정 3).
 
-`SPFNEventListenerHubTests.swift` / `SpfnEventListenerHubTest.kt`: L-셀 15개 (L-8은 이벤트 모듈 쪽, 아래. L-12는 Kotlin만: Swift에서는 컴파일되지 않는 코드라 테스트할 것이 없고, 그 사실은 시그니처가 증명한다). `l1_attach_sendsAttachedReread_noMachineInput`, `l3_unknownName_isRefused` (Kotlin은 `assertThrows`; Swift의 `preconditionFailure`는 프로세스를 멈추므로 검사를 `SPFNEventStreamConfiguration.contains(_:)` 순수 함수로 떼어 그 함수를 시험하고, 멈춤 자체는 시험하지 않는다), `l4_overflow_replacesQueueWithOneReread`, `l6_navigation_doesNotReconnect`, `l9_conditionTrue_enqueuesFrame`, `l10_conditionFalse_countsFilteredAndSendsNothing`, `l10_filteredFrames_doNotOverflow` (조건 거짓 프레임 `deliveryBuffer` × 2개 뒤에도 `overflow` 없음), `l11_decodeFailure_skipsCondition_countsDropped` (조건이 불렸는지 세는 가짜 조건이 0), `l12_conditionThrows_endsOnlyThatListener` (Kotlin: 그 `Flow`가 그 예외로 끝나고, 다른 청취자는 다음 프레임을 받고, 상태 기계 입력 0), `l13_reread_ignoresCondition` (늘 거짓인 조건에도 `attached`·`opened`·`overflow`), `l14_twoConditions_sameName_eachGetsOwnMatches`, `l15_conditionChange_reattaches_withoutReconnect`, `payload_listen_equalsNameListen` (서술 형태와 이름·디코더 형태가 같은 신호 열을 낸다).
+`SPFNEventListenerHubTests.swift` / `SpfnEventListenerHubTest.kt`: L-셀 18개 (개정 3) (L-8은 이벤트 모듈 쪽, 아래. L-12는 Kotlin만: Swift에서는 컴파일되지 않는 코드라 테스트할 것이 없고, 그 사실은 시그니처가 증명한다). `l1_attach_sendsAttachedReread_noMachineInput`, `l3_unknownName_isRefused` (Kotlin은 `assertThrows`; Swift의 `preconditionFailure`는 프로세스를 멈추므로 검사를 `SPFNEventStreamConfiguration.contains(_:)` 순수 함수로 떼어 그 함수를 시험하고, 멈춤 자체는 시험하지 않는다), `l4_overflow_replacesQueueWithOneReread`, `l6_navigation_doesNotReconnect`, `l9_conditionTrue_enqueuesFrame`, `l10_conditionFalse_countsFilteredAndSendsNothing`, `l10_filteredFrames_doNotOverflow` (조건 거짓 프레임 `deliveryBuffer` × 2개 뒤에도 `overflow` 없음), `l11_decodeFailure_skipsCondition_countsDropped` (조건이 불렸는지 세는 가짜 조건이 0), `l12_conditionThrows_endsOnlyThatListener` (Kotlin: 그 `Flow`가 그 예외로 끝나고, 다른 청취자는 다음 프레임을 받고, 상태 기계 입력 0), `l13_reread_ignoresCondition` (늘 거짓인 조건에도 `attached`·`opened`·`overflow`), `l14_twoConditions_sameName_eachGetsOwnMatches`, `l15_conditionChange_reattaches_withoutReconnect`, `payload_listen_equalsNameListen` (서술 형태와 이름·디코더 형태가 같은 신호 열을 낸다).
 
 추가로:
 
@@ -722,7 +729,7 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 | `listeners_neverReachMachine` | 무작위 붙기·떨어지기·조건(참·거짓·던짐) 1 000개가 상태 기계에 입력을 하나도 만들지 않고, 스트림 요청의 `events=`가 설정 목록 그대로다 |
 | `tokenPath_derived` | `/events/stream` → `/events/token`, `/sse` → `/token`, `/a/b/c` → `/a/b/token`, 쿼리 거부 |
 | `configuration_rejectsEmptyEvents` | 빈 목록, 빈 이름, 쉼표 든 이름 거부. 중복은 하나로. 쿼리 순서는 정렬 (없앤 E-2의 자리) |
-| `foregroundTally` | (Swift, `SPFNUI`의 툴킷 없는 파일) 장면 둘: 하나 `.background`, 하나 `.inactive` → 앞쪽. 둘 다 `.background` → 뒤쪽. 장면이 떠나면 센 것에서 빠진다 |
+| `foregroundTally` | (Swift, `SPFNEvents`의 툴킷 없는 파일) 장면 둘: 하나 `.background`, 하나 `.inactive` → 앞쪽. 둘 다 `.background` → 뒤쪽. 장면이 떠나면 센 것에서 빠진다 |
 | `keyLifecycle_signedInClientID` | `enroll` 뒤 저장된 id, `rotate` 뒤 같은 id(값을 내지 않는다), `wipe` 뒤 `nil`, `noteSessionRevoked` 뒤 `nil`. 쓰는 멤버가 없다 (읽기 전용) |
 
 `SPFNSSELineParserTests` / `SpfnSseLineParserTest`: 조각 경계가 줄 가운데, `\r\n`, `\r`, 여러 `data:` 줄 이어 붙이기, 주석, 필드 이름만 있는 줄, 빈 `event`(기본 `message`), UTF-8 멀티바이트가 조각 경계에서 잘림, 끝에 빈 줄 없이 스트림이 끝남(마지막 이벤트는 버린다 — SSE 규칙). 입력은 서버의 실제 모양을 고정한 픽스처 (`connected`, 이벤트, `ping`).
@@ -745,6 +752,18 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 
 ## 10. 검토자가 답할 질문
 
+남은 질문은 없다. 답한 것 (개정 3, 구현과 함께 — 표에 닿은 셀은 같은 PR에서 고쳤다):
+
+| id | 질문 | 답 |
+|---|---|---|
+| Q-C | 토큰 경로의 봉투 아닌 401(`Unable to identify subject`)을 재시도(E-8)로 둘 것인가, 닫을 것인가 | **재시도** (E-8 그대로). 프록시의 5xx HTML과 가를 수 없고, 상한 30 s가 폭주를 막는다. 상류가 이 응답을 SPFN 오류 봉투로 바꾸면 E-4로 옮긴다 |
+| Q-D | 429의 `Retry-After`를 읽을 것인가 | **읽는다** — 토큰 호출과 스트림 열기 둘 다. 지연 = max(백오프, `Retry-After`), `Retry-After`는 5분에서 자르고, 읽을 수 없는 값은 무시한다. `execute`에는 429/`Retry-After` 규칙이 없었다 (인증 거절 말고는 재시도하지 않는다). 그래서 규칙은 `SPFNRetryAfter`/`SpfnRetryAfter` 하나에 두고 두 자리가 함께 쓴다; `execute`는 `SPFNServerFailure.retryAfter`로 헤더를 싣기만 한다. E-6·E-19 수정, 새 셀 E-53(초)·E-54(HTTP-date)·E-55(읽을 수 없음)·E-56(상한 넘음) |
+| Q-F | 설정 목록에 서버가 모르는 이름이 있으면 (E-16), 아는 이름만으로 다시 연결할 것인가 | **다시 연결한다** — 서버의 `validEvents` ∩ 설정 이름으로. 빠진 이름은 상태(`open`의 `unavailableEvents`)에 보이고, 그 이름의 청취자마다 새 신호 `unavailable`이 한 번 가고, 디버그 빌드는 경고한다. 교집합이 비면 `closed(unknownEvents)` (E-52). E-16 교체, 새 셀 L-16–L-18 |
+| Q-G | 침묵 감시 2.5 × 핑 (25 s)이 사람에게 긴가 (U-7) | **25 s**, 설계대로. U-5·U-7 결과로 다시 본다 |
+| Q-K | 이벤트 모듈의 `ui` 간선은 무엇을 싣는가 | **뺐다.** 구현에서 `ui` 타입을 쓰는 자리가 없었다 (§3-7). 그래프 줄, `Package.swift`, `spfnModuleDependsOn`, CocoaPods 픽스처가 클라이언트 간선 하나다 |
+| Q-L | 조건이 던지는 경우(Kotlin)를 프로그래머 오류로 두는 것 (L-12)이 맞는가 | **맞다** (L-12 설계대로) |
+| Q-M | 뷰 수준에서 조건이 있으면 `id`/`key`를 필수로 받는 것 (§3-4, H-11)이 맞는가 | **맞다** (설계대로) |
+
 답한 것 (개정 2):
 
 | id | 질문 | 답 |
@@ -763,16 +782,3 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 | — | 전송을 SSE로 (§2-1 (가)) | **받아들여짐** |
 | — | 수명을 앱이 부르는 분담 (제안 0의 §3-4·§3-5) | **거절됨.** SDK가 연결을 소유하고 관찰자가 입력을 넘긴다, 화면은 듣기만 한다 (§2-4). 관찰자의 자리는 개정 2에서 이벤트 모듈로 옮겼다 |
 | Q-E | 경로 감시기를 SDK가 제공할 것인가 | **제공한다** (개정 1의 결정). 개정 2에서 자리는 이벤트 모듈이다. `NWPathMonitor`는 `#if canImport(Network)` 파일 안이라 Linux 규칙과 부딪히지 않고, `Context`는 Compose 호스트가 `LocalContext`에서 얻는다. 대가는 이벤트 모듈의 Android 권한 한 줄 (§3-7) |
-
-남은 것:
-
-| id | 질문 | 제안 |
-|---|---|---|
-| Q-B | 서명 요청에 CSRF 규칙이 걸리는 서버 설정을 SDK가 우회해야 하는가 | 우회하지 않는다. 쿠키 없는 서명 요청에 CSRF를 요구하는 것은 서버 설정의 결함으로 본다 (U-1에서 확인) |
-| Q-C | 토큰 경로의 봉투 아닌 401(`Unable to identify subject`)을 재시도(E-8)로 둘 것인가, 닫을 것인가 | 재시도. 프록시의 5xx HTML과 가를 수 없고, 상한 30 s가 폭주를 막는다. 상류가 이 응답을 SPFN 오류 봉투로 바꾸면 E-4로 옮긴다 |
-| Q-D | 429의 `Retry-After`를 읽을 것인가 | 이번에는 읽지 않는다. 토큰 경로에 속도 제한이 걸리면 다시 본다 |
-| Q-F | 설정 목록에 서버가 모르는 이름이 있으면 (E-16), 아는 이름만으로 다시 연결할 것인가 | 닫는다 (`unknownEvents`). 이름 하나가 목록의 모든 이름을 막지만, 조용히 줄이면 앱이 기다리는 신호가 안 온다는 사실이 숨는다. 화면은 `attached`와 당겨서 새로 고침으로 읽는다. 앱과 서버의 배포 순서(서버 먼저)로 막는다. Q-I의 답으로 서버를 고친 뒤 앞쪽 복귀에서 회복한다 |
-| Q-G | 침묵 감시 2.5 × 핑 (25 s)이 사람에게 긴가 (U-7) | 25 s로 시작하고 U-5·U-7 결과로 정한다 |
-| Q-K | 이벤트 모듈의 `ui` 간선은 무엇을 싣는가. 지금 설계에서 이벤트 모듈이 `ui`의 타입을 쓰는 자리는 없다 (루트 부착·청취 API·관찰자는 클라이언트 모듈과 툴킷만 쓴다). Android에서는 `spfn-ui`의 `api`가 Compose 런타임을 전이로 싣는다 | 답 Q-H대로 간선을 둔다. 구현 PR에서 쓰는 자리가 끝내 없으면 간선을 빼자고 그 PR에서 다시 묻는다 — 쓰지 않는 간선은 렌더링하지 않는 앱이 `ui`를 링크하게 할 뿐이다 |
-| Q-L | 조건이 던지는 경우(Kotlin)를 프로그래머 오류로 두는 것 (L-12)이 맞는가 | 맞다. 다른 선택(걸러진 것으로 친다)은 결함을 "신호가 안 온다"로 숨긴다. Swift는 시그니처가 이미 막는다 |
-| Q-M | 뷰 수준에서 조건이 있으면 `id`/`key`를 필수로 받는 것 (§3-4, H-11)이 맞는가. 다른 길은 조건 클로저를 매 그리기마다 갈아 끼우는 것인데, 그러면 조건이 바뀐 순간 `attached` 다시 읽기가 없고, 허브가 메인 스레드 밖에서 읽는 값을 메인 스레드가 바꾸게 된다 | 필수로 받는다 |

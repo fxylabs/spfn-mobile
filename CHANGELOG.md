@@ -5,6 +5,41 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The server event stream (additive, both platforms; new module `SPFNEvents` / `spfn-events`)
+
+- **New in the client module: `SPFNEventStream` / `SpfnEventStream`**, one SSE connection to
+  an SPFN server's `.events(router)` that the SDK owns. It is configured once (stream path,
+  a derived or explicit token path, the fixed list of event names) and handed three facts —
+  `setForeground`, `setSignedIn`, `setNetworkAvailable`; it connects only while the app is
+  in the foreground and signed in. The one-use token is an `SPFNOperation` sent through
+  `execute` (signed, one re-handshake); the stream goes through a new streaming transport
+  boundary, `SPFNStreamTransport` / `SpfnStreamTransport`, with `URLSession`-delegate and
+  OkHttp adapters and no new dependency (docs/architecture/event-stream-design.md).
+- Screens listen with `listen(_:where:)` / `listen(payload, where)` — by name and an optional
+  condition — and receive `frame`, `reread(attached | opened(epoch) | overflow)` and, when
+  the server does not serve the name, `unavailable` once. Listening never touches the
+  connection. `SPFNEventPayload` / `SpfnEventPayload` pairs an event name with its decoder.
+- A 429 on the token call or the stream is retried after max(backoff, `Retry-After`), capped
+  at five minutes (`SPFNRetryAfter` / `SpfnRetryAfter`). To let the token call see the
+  header, `SPFNServerFailure` / `SpfnServerFailure` gains `retryAfter` (the raw header, default
+  `nil`/`null`); `execute` itself still retries nothing but an auth refusal. Source
+  compatible: the new initialiser parameter has a default. On Kotlin, `equals`/`hashCode`
+  now include it.
+- A 400 naming events the server does not know no longer closes the stream: it reopens with
+  the server's `validEvents`, and `open` carries the missing names as `unavailableEvents`.
+- `SPFNKeyLifecycle.signedInClientID` / `signedInClientIDs` and
+  `SpfnKeyLifecycle.signedInClientId: StateFlow<String?>`: the stored client id, read-only,
+  moved only by `enroll…` and `wipe()`.
+- **New module `SPFNEvents` / `xyz.superfunction.spfn:spfn-events`**, depending on the client
+  module only: `.spfnEventStream(_:keyLifecycle:)` / `SpfnEventStreamHost` at the root
+  (scene phase or `ProcessLifecycleOwner`, the key lifecycle, `NWPathMonitor` or
+  `ConnectivityManager`), and `.onSPFNEvent` / `SpfnEventEffect`, whose condition forms
+  require an `id` / `key`. Its Android manifest adds `ACCESS_NETWORK_STATE` to apps that link
+  it. New catalog alias `androidx-lifecycle-process` (2.10.0, already resolved before); eight
+  older AndroidX artifacts gained verification checksums because the module does not link
+  `spfn-ui` (docs/IMPLEMENTATION-PITFALLS.md P44).
+- The example apps gain an "events" screen over an in-app demo server.
+
 ### An operation with no request type sends no body (fix, both platforms)
 
 - `execute` encoded every request, so an operation the contract gives no `requestType`
