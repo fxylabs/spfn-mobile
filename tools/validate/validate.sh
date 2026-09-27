@@ -1622,8 +1622,10 @@ done < "$TMP/linux-absent.txt"
 
 # SwiftUI joined this list with the `ui` module. It is Apple-only and `SPFNUI` builds on
 # Linux, so the one file that imports it — FlowHost.swift — is guarded whole, and this is
-# what makes that a rule rather than a habit.
-APPLE_ONLY_FRAMEWORKS='AuthenticationServices|UIKit|AppKit|LocalAuthentication|Security|SwiftUI'
+# what makes that a rule rather than a habit. Network joined it with the `events` module for
+# the same reason: `SPFNEvents` builds on Linux, and its path monitor is the one file that
+# imports Network, guarded whole (docs/architecture/event-stream-design.md §3-7).
+APPLE_ONLY_FRAMEWORKS='AuthenticationServices|UIKit|AppKit|LocalAuthentication|Security|SwiftUI|Network'
 APPLE_IMPORT_SCANNED=0
 APPLE_IMPORT_HITS=''
 while IFS= read -r source
@@ -2423,6 +2425,92 @@ then
     pass 'no source of SPFNUI reaches the SwiftUI dismiss environment value'
 else
     fail "SPFNUI reaches the dismiss environment value: $UI_DISMISS_HITS"
+fi
+
+# The event stream's lifecycle module is one vocabulary on both platforms too
+# (docs/architecture/event-stream-design.md §3-7). Its public names are not the same word on
+# the two sides — a SwiftUI modifier is a lowercase method on `View`, a Compose host is a
+# capitalised composable — so they are compared as declared PAIRS, and each pair is
+# COUNTED: `onSPFNEvent` and `SpfnEventEffect` are four overloads each, and an overload only
+# one platform has is a screen only one platform can write. A pair both sides read zero
+# times fails as unread rather than agreeing (P7).
+EVENTS_SWIFT_DIR=Sources/SPFNEvents
+EVENTS_KOTLIN_DIR=android/spfn-events/src/main/kotlin
+
+events_declarations()
+{
+    grep -rhE "$2" "$1" 2>/dev/null | grep -vcE '^[[:space:]]*(//|\*)' || true
+}
+
+compare_events_pair()
+{
+    SWIFT_COUNT=$(events_declarations "$EVENTS_SWIFT_DIR" "$2")
+    KOTLIN_COUNT=$(events_declarations "$EVENTS_KOTLIN_DIR" "$3")
+    if [ "$SWIFT_COUNT" -ge 1 ] && [ "$SWIFT_COUNT" = "$KOTLIN_COUNT" ]
+    then
+        pass "events: $1 is declared $SWIFT_COUNT time(s) on each platform"
+    else
+        fail "events: $1 is declared $SWIFT_COUNT time(s) in $EVENTS_SWIFT_DIR and $KOTLIN_COUNT in $EVENTS_KOTLIN_DIR"
+    fi
+}
+
+if [ -d "$EVENTS_SWIFT_DIR" ] && [ -d "$EVENTS_KOTLIN_DIR" ]
+then
+    compare_events_pair 'the root attachment (spfnEventStream, SpfnEventStreamHost)' \
+        '^[[:space:]]+public func spfnEventStream\(' '^fun SpfnEventStreamHost\('
+    compare_events_pair 'screen-level listening (onSPFNEvent, SpfnEventEffect)' \
+        '^[[:space:]]+public func onSPFNEvent<' '^fun <E> SpfnEventEffect\('
+    compare_events_pair 'the environment key (spfnEventStream, LocalSpfnEventStream)' \
+        '^[[:space:]]+public var spfnEventStream: SPFNEventStream\?' '^val LocalSpfnEventStream '
+    compare_events_pair 'the network signal (SPFNNetworkPathStatus, SpfnNetworkSignal)' \
+        '^public enum SPFNNetworkPathStatus' '^enum class SpfnNetworkSignal'
+else
+    fail "the events module is incomplete: $EVENTS_SWIFT_DIR or $EVENTS_KOTLIN_DIR is missing"
+fi
+
+# The client module's half of the event stream — the state machine, the listener hub, the
+# SSE parser, the whole stream over the fakes — is one table written twice, and the two
+# suites are how the two copies are held to it: every E- and L-cell is a test named for the
+# cell (§9-1). So the suites' test NAMES are compared, the way the design says: Swift's
+# `func test_<name>(` against Kotlin's `fun <name>(`. The names only one platform can have
+# are declared, both ways, like the Android-only ui names above: L-12 — a throwing condition
+# — does not compile in Swift, `stateConflation_doesNotLoseReread` is about `StateFlow`,
+# and `release_endsListenersAndStates` is about Swift's ownership of the stream object.
+EVENT_TEST_PAIRS='SPFNEventStreamMachineTests:SpfnEventStreamMachineTest SPFNEventListenerHubTests:SpfnEventListenerHubTest SPFNEventStreamPropertyTests:SpfnEventStreamPropertyTest SPFNSSELineParserTests:SpfnSseLineParserTest SPFNEventStreamTests:SpfnEventStreamTest'
+EVENT_TESTS_KOTLIN_ONLY='l12_conditionThrows_endsOnlyThatListener stateConflation_doesNotLoseReread'
+EVENT_TESTS_SWIFT_ONLY='release_endsListenersAndStates'
+: > "$TMP/event-tests-swift.txt"
+: > "$TMP/event-tests-kotlin.txt"
+for pair in $EVENT_TEST_PAIRS
+do
+    swift_file="Tests/SPFNClientTests/${pair%%:*}.swift"
+    kotlin_file="android/spfn-client/src/test/kotlin/xyz/superfunction/spfn/client/${pair#*:}.kt"
+    # A test is a member of its class, one indent in; a helper inside a nested class is
+    # two in and is read by neither side.
+    sed -n 's/^    func test_\([A-Za-z0-9_]*\)(.*/\1/p' "$swift_file" >> "$TMP/event-tests-swift.txt" 2>/dev/null || true
+    sed -n 's/^    fun \([a-z][A-Za-z0-9_]*\)().*/\1/p' "$kotlin_file" >> "$TMP/event-tests-kotlin.txt" 2>/dev/null || true
+done
+for name in $EVENT_TESTS_SWIFT_ONLY
+do
+    printf '%s\n' "$name" >> "$TMP/event-tests-kotlin.txt"
+done
+for name in $EVENT_TESTS_KOTLIN_ONLY
+do
+    printf '%s\n' "$name" >> "$TMP/event-tests-swift.txt"
+done
+sort -u -o "$TMP/event-tests-swift.txt" "$TMP/event-tests-swift.txt"
+sort -u -o "$TMP/event-tests-kotlin.txt" "$TMP/event-tests-kotlin.txt"
+EVENT_TESTS_READ=$(wc -l < "$TMP/event-tests-swift.txt" | tr -d ' ')
+EVENT_TESTS_ONLY_SWIFT=$(comm -23 "$TMP/event-tests-swift.txt" "$TMP/event-tests-kotlin.txt" | tr '\n' ' ')
+EVENT_TESTS_ONLY_KOTLIN=$(comm -13 "$TMP/event-tests-swift.txt" "$TMP/event-tests-kotlin.txt" | tr '\n' ' ')
+if [ "$EVENT_TESTS_READ" -lt 80 ]
+then
+    fail "the event stream test-name comparison read only $EVENT_TESTS_READ names; it did not run"
+elif [ -z "$(printf '%s%s' "$EVENT_TESTS_ONLY_SWIFT" "$EVENT_TESTS_ONLY_KOTLIN" | tr -d ' ')" ]
+then
+    pass "the event stream suites name the same $EVENT_TESTS_READ cells and properties on both platforms"
+else
+    fail "the event stream suites differ — only in Swift: ${EVENT_TESTS_ONLY_SWIFT:-none}| only in Kotlin: ${EVENT_TESTS_ONLY_KOTLIN:-none}"
 fi
 
 # ---------------------------------------------------------------------------
