@@ -742,7 +742,7 @@ class PagedFormTest
     @Test
     fun `no version 2 vocabulary reaches a version 1 spec's output`()
     {
-        val generated = generate(examplePath);
+        val generated = generate(withSpec("version-one", versionOneExample()));
         assertTrue("the example spec generated nothing to read", generated.size > 100);
 
         val forbidden = listOf(
@@ -818,6 +818,18 @@ class PagedFormTest
     }
 
     /**
+     * The shipped spec's two version 1 pieces, written as version 1 again.
+     *
+     * The example directory is version 3 since it carries the tab bar (`tabs.json`), and a
+     * version 3 spec may say anything a version 2 one may. What this regression is about is a
+     * spec that says `1`, so it is built from the pieces that carry no key of a later version,
+     * with their version put back — the tab piece left out, because `tabs` is refused in one.
+     */
+    private fun versionOneExample(): Map<String, String> =
+        pieces(examplePath, listOf("device-approval.json", "contracts/approveDevice.md"))
+            .mapValues { (_, text) -> text.replaceFirst("\"specVersion\": 3", "\"specVersion\": 1") }
+
+    /**
      * The shipped spec as a version 2 one whose single-field screen carries rules.
      *
      * Built from the real documents rather than invented, because the claim is about THAT
@@ -829,7 +841,7 @@ class PagedFormTest
     {
         val parts = pieces(examplePath, listOf("device-approval.json", "contracts/approveDevice.md"));
         return parts.mapValues { (_, text) ->
-            text.replaceFirst("\"specVersion\": 1", "\"specVersion\": 2")
+            text.replaceFirst("\"specVersion\": 3", "\"specVersion\": 2")
                 .replaceFirst(
                     "\"userCode\": { \"kind\": \"code\", \"label\": \"Code from the device\", " +
                         "\"submitOnReturn\": true, \"autofocus\": true }",

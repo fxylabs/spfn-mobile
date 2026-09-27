@@ -28,6 +28,7 @@ import xyz.superfunction.spfn.codegen.Json
 import xyz.superfunction.spfn.codegen.JsonValue
 import xyz.superfunction.spfn.codegen.Names
 import xyz.superfunction.spfn.codegen.Operation
+import xyz.superfunction.spfn.codegen.arr
 import xyz.superfunction.spfn.codegen.TypeDefinition
 import xyz.superfunction.spfn.codegen.bool
 import xyz.superfunction.spfn.codegen.number
@@ -359,14 +360,43 @@ data class FlowDefinition(
     }
 }
 
+/**
+ * One tab of the bottom bar: its id, its label, the root the generator draws for it, and the
+ * flows that root opens (docs/architecture/tab-host-design.md §9-2).
+ *
+ * The root is a NAME rather than a screen. A screen belongs to a flow and stands on a flow's
+ * stack; a tab's root is what the tab's `NavigationHost` stands ON, the place a pushed flow's
+ * first screen slides in over — the part of an app the menu is in the example today. So the
+ * generator writes the root itself, out of what this says: the readouts, one control per
+ * flow that opens it, and the flows' hosts.
+ */
+data class TabDefinition(
+    val id: String,
+    val title: String,
+    val root: String,
+    /** The flows this tab's root opens, in the order its controls are drawn. */
+    val flows: List<String>
+)
+
 data class Spec(
     val specVersion: Long,
     val manifestSha256: String,
     val services: List<ServiceDefinition>,
     val flows: List<FlowDefinition>,
-    val screens: List<ScreenDefinition>
+    val screens: List<ScreenDefinition>,
+    /** The bottom bar's tabs, in the bar's order, the first the start tab. Empty for none. */
+    val tabs: List<TabDefinition> = emptyList()
 )
 {
+    /** The tab whose root opens [flow], or null for a flow the menu opens. */
+    fun tabOf(flow: FlowDefinition): TabDefinition? = tabs.firstOrNull { flow.name in it.flows }
+
+    /** The tab whose root is called [root], or null. */
+    fun tabRooted(root: String): TabDefinition? = tabs.firstOrNull { it.root == root }
+
+    /** The flows [tab]'s root opens, in its order. */
+    fun flowsOf(tab: TabDefinition): List<FlowDefinition> = tab.flows.map { name -> flows.first { it.name == name } }
+
     /**
      * The screen called [name], or a refusal that names it.
      *
@@ -430,10 +460,14 @@ data class Spec(
         val keptFlows = flows.filter { it.name in wanted };
         val keptScreens = screens.filter { it.flow in wanted };
         val reached = keptScreens.flatMap { it.services }.toSet();
+        // The bar is kept whole or not at all: a bar with a tab missing is a bar nobody
+        // declared, and one whose tab lost a flow has a root control that opens nothing.
+        val keptTabs = if (tabs.all { tab -> tab.flows.all { it in wanted } }) tabs else emptyList();
         return copy(
             services = services.filter { it.name in reached },
             flows = keptFlows,
-            screens = keptScreens
+            screens = keptScreens,
+            tabs = keptTabs
         );
     }
 
@@ -454,18 +488,26 @@ data class Spec(
         /** The version that added `list` and `inputs.<i>.rules`. */
         const val PAGED_VERSION: Long = 2;
 
-        private val SUPPORTED_VERSIONS: List<Long> = listOf(SUPPORTED_VERSION, PAGED_VERSION);
+        /**
+         * The version that added the top-level `tabs`, and nothing else: a version 1 or 2
+         * file generates exactly what it generated before, and `tabs` in one of them is
+         * refused by name, for refusal 12's reason.
+         */
+        const val TABS_VERSION: Long = 3;
+
+        private val SUPPORTED_VERSIONS: List<Long> = listOf(SUPPORTED_VERSION, PAGED_VERSION, TABS_VERSION);
 
         fun read(specText: String, bundle: Bundle): Spec
         {
             val root = Json.parse(specText).obj();
-            checkKeys(root, setOf("specVersion", "contract", "services", "flows", "screens"), "");
+            checkKeys(root, setOf("specVersion", "contract", "services", "flows", "screens", "tabs"), "");
             val version = root.required("specVersion").numberOrRefusal();
             if (version !in SUPPORTED_VERSIONS)
             {
                 throw SpecException(
                     "specVersion is $version; this generator reads " +
-                        SUPPORTED_VERSIONS.joinToString(" and ") + ", and refuses to partially read another"
+                        SUPPORTED_VERSIONS.dropLast(1).joinToString(", ") + " and " + SUPPORTED_VERSIONS.last() +
+                        ", and refuses to partially read another"
                 );
             }
 
@@ -483,14 +525,112 @@ data class Spec(
             checkCollected(screens, bundle);
             checkShapes(screens, bundle);
             checkAuthoredViews(flows, screens, bundle);
+            val tabs = readTabs(root["tabs"], flows, screens, version);
 
             return Spec(
                 specVersion = version,
                 manifestSha256 = contract.required("manifestSha256").text(),
                 services = services,
                 flows = flows,
-                screens = screens
+                screens = screens,
+                tabs = tabs
             );
+        }
+
+        /**
+         * Refusal 16: the bottom bar's tabs, an ARRAY because their order is the bar's.
+         *
+         * Every other collection in a spec is an object keyed by name, and this one is not on
+         * purpose: the first tab is the start tab, and an object's key order is not something
+         * a JSON reader promises (decision Q-G). Refused, each by name:
+         *
+         *   - `tabs` in a spec older than version 3, for refusal 12's reason;
+         *   - `tabs` present and empty — a bar with nothing on it is a spec nobody finished;
+         *   - a tab id or a root that is not a spec name (refusal 15's rule), or that two tabs
+         *     share;
+         *   - a root that is also a screen or a flow — one name, two generated declarations;
+         *   - a flow a tab names that the spec does not declare, and a flow two tabs name:
+         *     one flow belongs to one tab, the rule `TabHost` enforces at run time (§2-3).
+         */
+        private fun readTabs(
+            value: JsonValue?,
+            flows: List<FlowDefinition>,
+            screens: List<ScreenDefinition>,
+            version: Long
+        ): List<TabDefinition>
+        {
+            if (value == null)
+            {
+                return emptyList();
+            }
+            if (version < TABS_VERSION)
+            {
+                throw SpecException(
+                    "tabs is a specVersion $TABS_VERSION key and this spec says $version; a spec whose " +
+                        "author expected a tab bar is refused rather than generated without one"
+                );
+            }
+            val tabs = value.arr().mapIndexed { index, element -> readTab(element.obj(), index) };
+            if (tabs.isEmpty())
+            {
+                throw SpecException("tabs is an empty list; a bar with no tabs is not a bar, and omitting the key is how a spec has none");
+            }
+            checkTabNames(tabs, flows, screens);
+            checkTabFlows(tabs, flows);
+            return tabs;
+        }
+
+        private fun readTab(entry: Map<String, JsonValue>, index: Int): TabDefinition
+        {
+            checkKeys(entry, setOf("id", "title", "root", "flows"), "tabs[$index].");
+            return TabDefinition(
+                id = entry.required("id").text(),
+                title = entry.required("title").text(),
+                root = entry.required("root").text(),
+                flows = entry.required("flows").arr().map { it.text() }
+            );
+        }
+
+        private fun checkTabNames(tabs: List<TabDefinition>, flows: List<FlowDefinition>, screens: List<ScreenDefinition>)
+        {
+            checkCollisions("tabs", tabs.map { it.id });
+            checkCollisions("tabs.root", tabs.map { it.root });
+            val declared = (flows.map { it.name } + screens.map { it.name }).map { UiNames.pascal(it) }.toSet();
+            tabs.forEach { tab ->
+                checkSpelling("tabs.${tab.id}", tab.id);
+                checkSpelling("tabs.${tab.id}.root", tab.root);
+                if (UiNames.pascal(tab.root) in declared)
+                {
+                    throw SpecException(
+                        "tabs.${tab.id}.root is '${tab.root}', which is also a flow or a screen; a tab's root is " +
+                            "a view of its own that the generator writes, and one name cannot be two declarations"
+                    );
+                }
+            };
+        }
+
+        private fun checkTabFlows(tabs: List<TabDefinition>, flows: List<FlowDefinition>)
+        {
+            val claimed = mutableMapOf<String, String>();
+            tabs.forEach { tab ->
+                tab.flows.forEach { flow ->
+                    if (flows.none { it.name == flow })
+                    {
+                        throw SpecException(
+                            "tabs.${tab.id}.flows names '$flow', which is not a flow this spec declares; its " +
+                                "flows are: " + flows.map { it.name }.sorted().joinToString(", ")
+                        );
+                    }
+                    val holder = claimed.put(flow, tab.id);
+                    if (holder != null)
+                    {
+                        throw SpecException(
+                            "tabs.$holder.flows and tabs.${tab.id}.flows both name '$flow'; one flow belongs to " +
+                                "one tab, or its detail would stand on both tabs' stacks at once"
+                        );
+                    }
+                };
+            };
         }
 
         /**

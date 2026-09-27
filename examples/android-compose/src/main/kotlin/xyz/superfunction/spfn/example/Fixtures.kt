@@ -42,7 +42,15 @@ class Fixture(
      * The stack the flow is opened at, or null to leave it on the screen the spec named
      * as its start. Cell u14 is the one that names a whole stack.
      */
-    val openAt: List<ApproveDeviceRoute>?
+    val openAt: List<ApproveDeviceRoute>?,
+    /**
+     * Where the tab demo stands at launch, or null for a launch that draws the menu.
+     *
+     * A tab cell (`tabs-c<n>`, docs/architecture/tab-host-design.md §4) draws the app's
+     * `TabHost` instead of the menu, because the tab host is an app's top level and does not
+     * stand inside the menu's `NavigationHost` (§2-3).
+     */
+    val tabs: TabLaunch? = null
 )
 {
     /**
@@ -65,6 +73,9 @@ class Fixture(
 
 object Fixtures
 {
+    /** The prefix of every tab demo cell, `tabs-c<n>`, named after the design's rows. */
+    private const val TAB_CELLS: String = "tabs";
+
     /** The code every flow types, and therefore the code a deep entry arrives holding. */
     const val USER_CODE: String = "ABCD-1234";
 
@@ -112,8 +123,35 @@ object Fixtures
         "u10", "u10b", "u13" -> sourceRefused()
         "u12" -> sourceRefusedOnce()
         "u14" -> deepReady()
-        else -> showcase(cell)
+        else -> tabCell(cell) ?: showcase(cell)
     }
+
+    /**
+     * A tab cell's fixture, or null. Every tab cell answers `ready`: the tab demo's flows read
+     * and write nothing.
+     *
+     * Three cells start somewhere a runner cannot tap its way to, which is what a deep link or
+     * the app's own `show` leaves behind — `tabDeep` in the table. The rest start on the start
+     * tab with every flow closed.
+     */
+    private fun tabCell(cell: String): Fixture?
+    {
+        if (cell.substringBefore('-') != TAB_CELLS || cell == TAB_CELLS)
+        {
+            return null;
+        }
+        return when (cell)
+        {
+            "tabs-c2" -> tabs("tabDeep", TabLaunch("account", "itemDetail", 2))
+            "tabs-c30" -> tabs("tabDeep", TabLaunch("account", "profile", 1))
+            "tabs-c33" -> tabs("tabDeep", TabLaunch("account", "profile", 2))
+            else -> tabs("ready", TabLaunch("home"))
+        };
+    }
+
+    /** The tab demo on the fake every cell gets, standing where [launch] says. */
+    fun tabs(name: String, launch: TabLaunch): Fixture =
+        Fixture(name, null, listOf(Answer.OK), listOf(Answer.OK), 0, null, launch)
 
     /** The menu: the same fake every cell gets, and no flow opened. */
     fun menu(): Fixture = Fixture("ready", null, listOf(Answer.OK), listOf(Answer.OK), 0, null)
@@ -180,3 +218,9 @@ object Fixtures
         listOf(ApproveDeviceRoute.EnterCode, ApproveDeviceRoute.ReviewDevice(userCode = USER_CODE))
     )
 }
+
+/**
+ * Where the tab demo stands at launch: the tab [selected], and [flow] — one of a tab's push
+ * flows — opened [depth] screens deep, or no flow at all.
+ */
+class TabLaunch(val selected: String, val flow: String? = null, val depth: Int = 0)

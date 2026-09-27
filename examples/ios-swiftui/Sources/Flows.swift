@@ -104,6 +104,47 @@ enum Flows
             + container.longScrollFlow.stack.count
     }
 
+    /// Stands the tab demo where `launch` says: every tab flow closed, the tab selected, and
+    /// the one flow it names opened at its depth — a deep link, in the order §3-5 of the design
+    /// gives, which is no order at all: the flow is the state and the tab's host follows it.
+    static func openTabs(_ container: AppContainer, _ launch: TabLaunch)
+    {
+        closeTabFlows(container)
+        container.tabs.show(launch.selected)
+        guard launch.depth > 0
+        else
+        {
+            return
+        }
+        switch launch.flow
+        {
+        case "itemDetail":
+            try? container.itemDetailFlow.open(at: Array([ItemDetailRoute.item, .itemMore].prefix(launch.depth)))
+        case "profile":
+            try? container.profileFlow.open(at: Array([ProfileRoute.profileSummary, .profileDetails].prefix(launch.depth)))
+        default:
+            return
+        }
+    }
+
+    /// How deep the tab demo stands: every tab flow's depth added up, the receipt's number.
+    static func tabDepth(_ container: AppContainer) -> Int
+    {
+        container.itemDetailFlow.stack.count
+            + container.profileFlow.stack.count
+            + container.editProfileFlow.stack.count
+            + container.accountSheetFlow.stack.count
+    }
+
+    /// The container opens every flow on its start screen; the tab demo starts with none open.
+    private static func closeTabFlows(_ container: AppContainer)
+    {
+        container.itemDetailFlow.close()
+        container.profileFlow.close()
+        container.editProfileFlow.close()
+        container.accountSheetFlow.close()
+    }
+
     private static func closeAll(_ container: AppContainer)
     {
         container.approveDeviceFlow.close()

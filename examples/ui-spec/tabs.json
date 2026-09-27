@@ -1,0 +1,59 @@
+{
+  "specVersion": 3,
+  "contract": { "manifestSha256": "8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e" },
+  "services": {},
+  "flows": {
+    "itemDetail": { "entry": "push", "start": "item" },
+    "profile": { "entry": "push", "start": "profileSummary" },
+    "editProfile": { "entry": "modal", "start": "editName" },
+    "accountSheet": { "entry": "sheet", "sheet": { "detent": "fit" }, "start": "accountNote" }
+  },
+  "screens": {
+    "item": {
+      "flow": "itemDetail",
+      "source": null,
+      "body": "lorem.short",
+      "title": "Item",
+      "actions": { "more": { "then": { "push": "itemMore" }, "role": "primary" } }
+    },
+    "itemMore": {
+      "flow": "itemDetail",
+      "source": null,
+      "body": "lorem.short",
+      "title": "More about the item",
+      "actions": { "done": { "then": "close", "role": "primary" } }
+    },
+    "profileSummary": {
+      "flow": "profile",
+      "source": null,
+      "body": "lorem.short",
+      "title": "Profile",
+      "actions": { "more": { "then": { "push": "profileDetails" }, "role": "primary" } }
+    },
+    "profileDetails": {
+      "flow": "profile",
+      "source": null,
+      "body": "lorem.short",
+      "title": "Profile details",
+      "actions": { "done": { "then": "close", "role": "primary" } }
+    },
+    "editName": {
+      "flow": "editProfile",
+      "source": null,
+      "body": "lorem.short",
+      "title": "Edit name",
+      "actions": { "done": { "then": "close", "role": "primary" } }
+    },
+    "accountNote": {
+      "flow": "accountSheet",
+      "source": null,
+      "body": "lorem.sheet",
+      "title": "A note on the account",
+      "actions": { "done": { "then": "close", "role": "primary" } }
+    }
+  },
+  "tabs": [
+    { "id": "home", "title": "Home", "root": "homeList", "flows": ["itemDetail"] },
+    { "id": "account", "title": "Account", "root": "accountHome", "flows": ["profile", "editProfile", "accountSheet"] }
+  ]
+}

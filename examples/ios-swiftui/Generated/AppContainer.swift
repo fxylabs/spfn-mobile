@@ -2,7 +2,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-alpha.3
 // spec:            examples/ui-spec
-// specSha256:      91e7628f407dafb74f4b501b4effac2b2277dc629c2a7ad4de42749f410ca018
+// specSha256:      0fbec833616cfb9717bb9d80a057d4069bae1f04d1c47d44f98d9becf08dce41
 // bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
 // contractVersion: 0.13.2
 //
@@ -28,8 +28,17 @@ public final class AppContainer
 {
     private let deviceApproval: any DeviceApprovalService
 
+    /// The `accountSheet` flow, open on its start screen.
+    public let accountSheetFlow: Flow<AccountSheetRoute>
+
     /// The `approveDevice` flow, open on its start screen.
     public let approveDeviceFlow: Flow<ApproveDeviceRoute>
+
+    /// The `editProfile` flow, open on its start screen.
+    public let editProfileFlow: Flow<EditProfileRoute>
+
+    /// The `itemDetail` flow, open on its start screen.
+    public let itemDetailFlow: Flow<ItemDetailRoute>
 
     /// The `keyboardForm` flow, open on its start screen.
     public let keyboardFormFlow: Flow<KeyboardFormRoute>
@@ -39,6 +48,9 @@ public final class AppContainer
 
     /// The `modalTour` flow, open on its start screen.
     public let modalTourFlow: Flow<ModalTourRoute>
+
+    /// The `profile` flow, open on its start screen.
+    public let profileFlow: Flow<ProfileRoute>
 
     /// The `pushTour` flow, open on its start screen.
     public let pushTourFlow: Flow<PushTourRoute>
@@ -55,20 +67,42 @@ public final class AppContainer
     /// The `sheetNav` flow, open on its start screen.
     public let sheetNavFlow: Flow<SheetNavRoute>
 
+    /// The tab bar's state: which of the spec's tabs is selected, on the first.
+    public let tabs: TabState
+
     public init(
         deviceApproval: any DeviceApprovalService
     )
     {
         self.deviceApproval = deviceApproval
+        self.accountSheetFlow = AccountSheetFlow()
         self.approveDeviceFlow = ApproveDeviceFlow()
+        self.editProfileFlow = EditProfileFlow()
+        self.itemDetailFlow = ItemDetailFlow()
         self.keyboardFormFlow = KeyboardFormFlow()
         self.longScrollFlow = LongScrollFlow()
         self.modalTourFlow = ModalTourFlow()
+        self.profileFlow = ProfileFlow()
         self.pushTourFlow = PushTourFlow()
         self.sheetFitFlow = SheetFitFlow()
         self.sheetFullFlow = SheetFullFlow()
         self.sheetHalfFlow = SheetHalfFlow()
         self.sheetNavFlow = SheetNavFlow()
+        // The spec reader refused an empty bar and a repeated id, which are the two
+        // things this initialiser refuses, so it cannot throw here.
+        self.tabs = try! TabState(tabs: ["home", "account"])
+    }
+
+    /// A fresh model for one appearance of `accountNote`.
+    public func accountNoteModel() -> AccountNoteModel
+    {
+        AccountNoteModel(flow: accountSheetFlow)
+    }
+
+    /// A fresh model for one appearance of `editName`.
+    public func editNameModel() -> EditNameModel
+    {
+        EditNameModel(flow: editProfileFlow)
     }
 
     /// A fresh model for one appearance of `enterCode`.
@@ -101,6 +135,18 @@ public final class AppContainer
         HalfOneModel(flow: sheetHalfFlow)
     }
 
+    /// A fresh model for one appearance of `item`.
+    public func itemModel() -> ItemModel
+    {
+        ItemModel(flow: itemDetailFlow)
+    }
+
+    /// A fresh model for one appearance of `itemMore`.
+    public func itemMoreModel() -> ItemMoreModel
+    {
+        ItemMoreModel(flow: itemDetailFlow)
+    }
+
     /// A fresh model for one appearance of `long`.
     public func longModel() -> LongModel
     {
@@ -129,6 +175,18 @@ public final class AppContainer
     public func navTwoModel() -> NavTwoModel
     {
         NavTwoModel(flow: sheetNavFlow)
+    }
+
+    /// A fresh model for one appearance of `profileDetails`.
+    public func profileDetailsModel() -> ProfileDetailsModel
+    {
+        ProfileDetailsModel(flow: profileFlow)
+    }
+
+    /// A fresh model for one appearance of `profileSummary`.
+    public func profileSummaryModel() -> ProfileSummaryModel
+    {
+        ProfileSummaryModel(flow: profileFlow)
     }
 
     /// A fresh model for one appearance of `reviewDevice`.

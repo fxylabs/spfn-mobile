@@ -31,6 +31,15 @@ all — it has no enrolment path of its own, so a client built against a configu
 refuse every call for want of a key, which is a refusal that says nothing about the screens a
 menu button opens. Reaching a real server is `tools/harness`'s whole subject.
 
+**A tab cell (`tabs-c<n>`) opens the TAB DEMO instead**, and so does the menu's last button,
+`menu.tabs`: the generated `AppTabs` — a `TabHost` with a list tab (`home`, which pushes a
+detail) and an account tab (`account`, with a push, a modal and a sheet) — drawn as the app's
+top level rather than inside the menu's `NavigationHost`, because a tab host is one
+(docs/architecture/tab-host-design.md). Each tab's root reads `tab=`, `stack=` and
+`scrollToTop=`, and carries the same receipt control the menu does. Three tab cells launch
+into a state a runner cannot tap its way to (`tabDeep`: a tab's flow already open at a depth,
+another tab selected).
+
 `examples/ui-spec/generated/device-approval.cases.md` is the table, and it is shared with
 the Compose app: the same cells, the same selectors, the same flow files. Its last section is
 the ten cells no runner drives — a swipe back, a sheet dragged past its threshold, a detent

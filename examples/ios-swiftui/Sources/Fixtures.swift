@@ -53,6 +53,14 @@ struct Fixture: Sendable
     /// as its start. Cell u14 is the one that names a whole stack.
     let openAt: [ApproveDeviceRoute]?
 
+    /// Where the tab demo stands at launch, or `nil` for a launch that draws the menu.
+    ///
+    /// A tab cell (`tabs-c<n>`, docs/architecture/tab-host-design.md §4) draws the app's
+    /// `TabHost` instead of the menu, because the tab host is an app's top level and does not
+    /// stand inside the menu's `NavigationHost` (§2-3). A `var` so the memberwise initialiser
+    /// keeps its default and every other fixture leaves it out.
+    var tabs: TabLaunch? = nil
+
     /// A fresh service for one run.
     func service() -> FakeDeviceApprovalService
     {
@@ -124,7 +132,7 @@ enum Fixtures
         case "u14":
             return deepReady()
         default:
-            return showcase(cell)
+            return tabCell(cell) ?? showcase(cell)
         }
     }
 
@@ -152,6 +160,44 @@ enum Fixtures
             return nil
         }
         return Fixture(name: "ready", flow: flow, answers: [.ok], writeAnswers: [.ok], pauseNanoseconds: 0, openAt: nil)
+    }
+
+    /// The prefix of every tab demo cell, `tabs-c<n>`, named after the design's rows. A set of
+    /// one, so the validator's reader finds it the way it finds the showcase flows.
+    private static let tabDemos: Set<String> = [
+        "tabs",
+    ]
+
+    /// A tab cell's fixture, or `nil`. Every tab cell answers `ready`: the tab demo's flows
+    /// read and write nothing.
+    ///
+    /// Three cells start somewhere a runner cannot tap its way to, which is what a deep link
+    /// or the app's own `show` leaves behind — `tabDeep` in the table. The rest start on the
+    /// start tab with every flow closed.
+    private static func tabCell(_ cell: String) -> Fixture?
+    {
+        guard let separator = cell.firstIndex(of: "-"), tabDemos.contains(String(cell[cell.startIndex ..< separator]))
+        else
+        {
+            return nil
+        }
+        switch cell
+        {
+        case "tabs-c2":
+            return tabs("tabDeep", TabLaunch(selected: "account", flow: "itemDetail", depth: 2))
+        case "tabs-c30":
+            return tabs("tabDeep", TabLaunch(selected: "account", flow: "profile", depth: 1))
+        case "tabs-c33":
+            return tabs("tabDeep", TabLaunch(selected: "account", flow: "profile", depth: 2))
+        default:
+            return tabs("ready", TabLaunch(selected: "home"))
+        }
+    }
+
+    /// The tab demo on the fake every cell gets, standing where `launch` says.
+    static func tabs(_ name: String, _ launch: TabLaunch) -> Fixture
+    {
+        Fixture(name: name, flow: nil, answers: [.ok], writeAnswers: [.ok], pauseNanoseconds: 0, openAt: nil, tabs: launch)
     }
 
     /// Every read and every write answers.
@@ -249,4 +295,13 @@ enum Fixtures
             openAt: [.enterCode, .reviewDevice(userCode: userCode)]
         )
     }
+}
+
+/// Where the tab demo stands at launch: the tab `selected`, and `flow` — one of a tab's push
+/// flows — opened `depth` screens deep, or no flow at all.
+struct TabLaunch: Sendable
+{
+    var selected: String
+    var flow: String? = nil
+    var depth: Int = 0
 }

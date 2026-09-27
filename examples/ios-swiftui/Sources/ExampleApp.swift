@@ -57,15 +57,48 @@ struct RootView: View
     @State private var launch = Launch.fromProcess()
     @State private var receipt = "none"
 
+    /// Whether the tab demo is drawn instead of the menu: a tab cell launches into it, and the
+    /// menu's `menu.tabs` switches to it.
+    @State private var showsTabs = false
+
+    /// Two tops and not the tab demo inside the menu, because a `TabHost` is an app's top
+    /// level: each tab is a `NavigationHost`, and a `NavigationStack` inside the menu's is a
+    /// nesting SwiftUI does not support (docs/architecture/tab-host-design.md §2-3).
     var body: some View
     {
-        NavigationHost
+        if showsTabs || launch.tabs
         {
-            ZStack
+            AppTabs(container: launch.container)
             {
-                menu
-                hosts
+                tabHeader
             }
+        }
+        else
+        {
+            NavigationHost
+            {
+                ZStack
+                {
+                    menu
+                    hosts
+                }
+            }
+        }
+    }
+
+    /// What the app draws at the top of every tab's root: the cell, the receipt and its
+    /// control. The tab root under it draws `tab=`, `stack=` and `scrollToTop=` itself.
+    private var tabHeader: some View
+    {
+        VStack(alignment: .leading, spacing: SPFNTokens.space4)
+        {
+            SpfnText("fixture=" + launch.cell, role: .mono)
+            SpfnText("receipt=" + receipt, role: .mono)
+            SecondaryButton(
+                title: "write receipt",
+                identifier: "example.receipt",
+                onTap: { receipt = write(depth: Flows.tabDepth(launch.container)) }
+            )
         }
     }
 
@@ -142,6 +175,15 @@ struct RootView: View
                         onTap: { Flows.open(launch.container, flow: flow) }
                     )
                 }
+                PrimaryButton(
+                    title: "tabs",
+                    identifier: "menu.tabs",
+                    onTap:
+                    {
+                        Flows.openTabs(launch.container, TabLaunch(selected: launch.container.tabs.start))
+                        showsTabs = true
+                    }
+                )
             }
             .padding(SPFNTokens.space4)
         }
@@ -184,6 +226,9 @@ struct Launch
     /// The app's graph, with exactly the flow this launch is about left open.
     let container: AppContainer
 
+    /// Whether this launch draws the tab demo rather than the menu.
+    let tabs: Bool
+
     static func fromProcess() -> Launch
     {
         let named = argument(named: "SPFN_UI_FIXTURE") ?? ""
@@ -194,7 +239,16 @@ struct Launch
         // menu button reaches `Flows.open` instead, and neither should be able to put a
         // second presentation over the first.
         Flows.openOnly(container, flow: fixture.flow, openAt: fixture.openAt)
-        return Launch(cell: named.isEmpty ? "none" : named, fixture: fixture.name, container: container)
+        if let tabs = fixture.tabs
+        {
+            Flows.openTabs(container, tabs)
+        }
+        return Launch(
+            cell: named.isEmpty ? "none" : named,
+            fixture: fixture.name,
+            container: container,
+            tabs: fixture.tabs != nil
+        )
     }
 
     /// The value after `-<name>` in this process's arguments, or `nil`.

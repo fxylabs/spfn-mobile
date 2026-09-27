@@ -3,7 +3,7 @@ GENERATED FILE — DO NOT EDIT.
 
 generator:       spfn-ui-codegen 0.1.0-alpha.3
 spec:            examples/ui-spec
-specSha256:      91e7628f407dafb74f4b501b4effac2b2277dc629c2a7ad4de42749f410ca018
+specSha256:      0fbec833616cfb9717bb9d80a057d4069bae1f04d1c47d44f98d9becf08dce41
 bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
 contractVersion: 0.13.2
 
@@ -13,7 +13,7 @@ Verified by:     ./gradlew :ui-codegen:spfnUiVerify
 
 # The showcase — the case table
 
-One row per cell of the screen table, across the 9 flows the spec declares.
+One row per cell of the screen table, across the 13 flows the spec declares.
 Every expectation is a READOUT, because a readout is the only thing both runners can
 read and neither can guess: `state=<…>` is the screen model's own state and
 `stack=<depth>` is the flow's.
@@ -77,6 +77,27 @@ proven on the JVM against the models and has no flow file.
 | `sheetHalf-close` | `halfOne` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
 | `sheetNav-reach` | `navTwo` | `idle` | `next` | maestro | `ready` | `stack=2`, `state=idle` | R5 — every push adds one route, so the stack is as deep as the tour is long |
 | `sheetNav-close` | `navTwo` | `idle` | `done` | maestro | `ready` | `stack=0` | R5 — close empties the stack whatever the depth and whatever presented it, so the flow is no longer on show |
+| `tabs-c1` | `homeList` | `idle` | `tab.account` | maestro | `ready` | `tab=account`, `stack=0` | C-1 — pressing another tab selects it and shows its root; nothing moves in either tab's stack |
+| `tabs-c2` | `accountHome` | `idle` | `tab.home` | maestro | `tabDeep` | `stack=2` | C-2 and Q-D — the start tab was left two deep; pressing it shows that detail as it was left, with no bar on it |
+| `tabs-c3` | `homeList` | `idle` | `homeList.itemDetail` | maestro | `ready` | `stack=1` | C-3 — a pushed detail slides in over the tab's root and its bar together: the bar's items are not on screen |
+| `tabs-c6` | `item` | `idle` | `headerBack` | maestro | `ready` | `tab=home`, `stack=0` | C-6 — the back in the detail's header pops to the tab's root, and the bar is there again |
+| `tabs-c7` | `item` | `idle` | `systemBack` | maestro | `ready` | `tab=home`, `stack=0` | C-7 and C-5 — the system back (Android) and the edge swipe (iOS) pop the detail, and the root comes back with its bar |
+| `tabs-c34` | `accountHome` | `idle` | `tab.home` | maestro | `ready` | `tab=home`, `stack=0` | C-34 and N1 — each tab's stack moves alone: a push and a pop on one tab leave the start tab's stack where it stood |
+| `tabs-c9` | `accountHome` | `idle` | `systemBack` | maestro | `ready` | `stack=0` | C-9 and Q-B — on Android the system back on another tab's root selects the start tab; on iOS there is no such back and the tab stays (C-12) |
+| `tabs-c12` | `accountHome` | `idle` | `systemBack` | maestro | `ready` | `tab=account`, `stack=0` | C-12 — on iOS an edge swipe on a tab's root does nothing: there is no route under it |
+| `tabs-c33` | `profileDetails` | `idle` | `systemBack` | maestro | `tabDeep` | `stack=0` | C-33 — backs go down the selected tab's own stack first, 2 to 1 to its root; only then, on Android, one more back selects the start tab |
+| `tabs-c13` | `itemMore` | `idle` | `tab.home` | unit | `ready` | `stack=0` | C-13 — the selected tab pressed while it stands above its root asks for a pop to the root; the bar is not on screen then, so this row is TabState's |
+| `tabs-c14` | `homeList` | `idle` | `tab.home` | maestro | `ready` | `tab=home`, `stack=0`, `scrollToTop=1` | C-14 and Q-C — the selected tab pressed on its root leaves the stack alone and counts one scroll-to-top, which the app's list follows |
+| `tabs-c15` | `item` | `idle` | `show` | unit | `ready` | `stack=1` | C-15 — the app's own `show` selects another tab without popping the one it leaves; `show` back returns to the detail as it was |
+| `tabs-c16` | `editName` | `idle` | `accountHome.editProfile` | maestro | `ready` | `stack=1` | C-16 — a modal opened inside a tab covers the whole screen, the bar included |
+| `tabs-c17` | `accountNote` | `idle` | `accountHome.accountSheet` | maestro | `ready` | `stack=1` | C-17 — a sheet opened inside a tab stands over the bar, and its scrim covers it |
+| `tabs-c19` | `editName` | `idle` | `editName.done` | maestro | `ready` | `tab=account`, `stack=0` | C-19 — closing the modal uncovers the tab's root and its bar, on the same tab |
+| `tabs-c20` | `editName` | `idle` | `systemBack` | maestro | `ready` | `tab=account`, `stack=0` | C-20 — on Android the system back on the modal's root closes the flow and is not the tab host's; iOS closes it with its close |
+| `tabs-c21` | `accountNote` | `idle` | `systemBack` | maestro | `ready` | `tab=account`, `stack=0` | C-21 — on Android the system back closes the sheet and the tab stays where it was; iOS closes it with its own control |
+| `tabs-c24` | `homeList` | `idle` | `hideKeyboard` | maestro | `ready` | `tab=home`, `stack=0` | C-24 and K2 — putting the keyboard away shows the bar again, on the same tab |
+| `tabs-c25` | `homeList` | `idle` | `homeList.itemDetail` | maestro | `ready` | `stack=1` | C-25 — a push from a root with the keyboard up puts the keyboard away and pushes |
+| `tabs-c26` | `homeList` | `idle` | `systemBack` | maestro | `ready` | `tab=home`, `stack=0` | C-26 — on Android the system back with the keyboard up only puts the keyboard away; the tab and its stack stay |
+| `tabs-c30` | `profileSummary` | `idle` | `systemBack` | maestro | `tabDeep` | `tab=account`, `stack=0` | C-30 and Q-E — a deep link shows another tab and opens its flow at a detail; a back from the detail goes to THAT tab's root, not to the tab the app was on |
 
 ## Running one
 
@@ -91,7 +112,7 @@ no cell opens the menu instead, on the same fake.
 
 ## What a person checks
 
-15 cells with no runner, for one of two reasons. Most are a GESTURE or a
+27 cells with no runner, for one of two reasons. Most are a GESTURE or a
 resting height, which is the class of thing a device runner reports success for
 whether or not the platform read it as the gesture it meant — cells u7b and u10b
 spent a Mac round on exactly that (`docs/IMPLEMENTATION-PITFALLS.md` P22). The rest
@@ -123,6 +144,18 @@ generated and anything written into it is lost on the next generation.
 | `sheetHalf-detent` | `sheetHalf` | `halfOne` | look at how tall the sheet stands, and compare the two platforms side by side | the sheet stands at about half the window on both platforms (`stack=1`) |  |  |
 | `sheetNav-snapBack` | `sheetNav` | `navOne` | drag the sheet's handle down a SHORT way — less than half its height — and let go | the sheet returns to the height it was standing at and the flow is untouched (`stack=1`) |  |  |
 | `sheetNav-dragAway` | `sheetNav` | `navTwo` | drag the sheet's handle down PAST half its height and let go | the whole flow closes rather than one route — a sheet is a presentation and a drag dismisses the presentation, from whatever depth it started at (`stack=0`) |  |  |
+| `tabs-c10` | `tab home` | `homeList` | Android: on the start tab's root, press the system back. The app goes to the background (a runner cannot assert on what is outside the app) | C-10 — the system back on the start tab's root leaves the app; the tab host does not take it (`stack=0`) |  |  |
+| `tabs-c11` | `tab account` | `accountHome` | Android, gesture navigation: select 'account', hold a back swipe at the edge, then release it; again, and cancel it | C-11 — a predictive back held on another tab's root shows no preview (the tab host took the gesture); released, the start tab is selected; cancelled, nothing changes (`tab=home`) |  |  |
+| `tabs-c5` | `itemDetail` | `item` | iOS: open 'itemDetail' from 'homeList', swipe back from the left edge slowly, half way, then all the way | C-5 — during an edge swipe back the root shows WITH its bar, sliding in together; released, no bar appears or blinks on its own (`stack=0`) |  |  |
+| `tabs-c8` | `itemDetail` | `item` | Android, gesture navigation: open 'itemDetail' from 'homeList', hold a back swipe at the edge, then release it; again, and cancel it | C-8 — a predictive back held on a detail previews the root WITH its bar; released pops, cancelled stays (`stack=0`) |  |  |
+| `tabs-c22` | `accountSheet` | `accountNote` | iOS: select 'account', open 'accountSheet', drag the sheet down past its threshold | C-22 — a sheet dragged down closes its flow, and the tab's root and bar are where they were (`tab=account`, `stack=0`) |  |  |
+| `tabs-c16b` | `editProfile` | `editName` | Android: open 'editProfile' and then 'accountSheet' on 'account', and tap with a finger where the bar was | C-16 and P36 — with a modal or a sheet up, a FINGER on the bar's place changes no tab (`tab=account`, `stack=1`) |  |  |
+| `tabs-c23` | `tab home` | `homeList` | Tap 'homeList.note' on 'home' and look at the bar and the body with the keyboard up | C-23 and K1 — with the keyboard up the root's body gets out of its way, and the bar does NOT ride up on it: the keyboard covers the bar (`tab=home`, `stack=0`) |  |  |
+| `tabs-c27` | `profile` | `profileSummary` | Select 'account', open 'profile', go to the home screen, come back | C-27 — sent to the background and brought back, everything is where it was: the tab, its depth, and the other tab's state (`stack=1`) |  |  |
+| `tabs-c28` | `tab account` | `accountHome` | Android, developer option 'Don't keep activities': select 'account', open 'profile', go to the home screen, come back | C-28 and Q-F — after a process death the selected tab comes back; the flows' stacks do not, so both tabs stand on their roots (`tab=account`, `stack=0`) |  |  |
+| `tabs-c29` | `profile` | `profileSummary` | Select 'account', open 'profile', rotate to landscape and back (on Android also with three-button navigation) | C-29 — a rotation or a window resize keeps the tab, its depth and the other tab's state; the bar stays at the bottom, on the navigation bar's inset and not twice over it (`stack=1`) |  |  |
+| `tabs-c31` | `profile` | `profileSummary` | Launch with SPFN_UI_FIXTURE=tabs-c30 and watch the first frame | C-31 and U-9 — a deep link into a tab never opened before: whether the first frame shows the root and then the push, or the detail at once (`stack=1`) |  |  |
+| `tabs-c32` | `editProfile` | `editName` | Open 'editProfile' on 'account', then deliver a deep link to 'home' | C-32 and Q-E — a deep link does not close a modal that is up; closing it first is the app's deep-link handler's job (`stack=1`) |  |  |
 
 Where a cell has to be walked to before the gesture, the walk is a tap on the
 controls named in the table's JSON `steps` — the same ids a flow file would use.

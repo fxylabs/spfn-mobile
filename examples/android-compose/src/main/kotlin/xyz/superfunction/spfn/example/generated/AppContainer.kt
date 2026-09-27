@@ -2,7 +2,7 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-alpha.3
 // spec:            examples/ui-spec
-// specSha256:      91e7628f407dafb74f4b501b4effac2b2277dc629c2a7ad4de42749f410ca018
+// specSha256:      0fbec833616cfb9717bb9d80a057d4069bae1f04d1c47d44f98d9becf08dce41
 // bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
 // contractVersion: 0.13.2
 //
@@ -15,34 +15,48 @@ import xyz.superfunction.spfn.client.SpfnClient
 import xyz.superfunction.spfn.client.SpfnKeyProvider
 import xyz.superfunction.spfn.client.SpfnSession
 import xyz.superfunction.spfn.client.SpfnTransport
+import xyz.superfunction.spfn.example.generated.flows.AccountSheetFlow
 import xyz.superfunction.spfn.example.generated.flows.ApproveDeviceFlow
+import xyz.superfunction.spfn.example.generated.flows.EditProfileFlow
+import xyz.superfunction.spfn.example.generated.flows.ItemDetailFlow
 import xyz.superfunction.spfn.example.generated.flows.KeyboardFormFlow
 import xyz.superfunction.spfn.example.generated.flows.LongScrollFlow
 import xyz.superfunction.spfn.example.generated.flows.ModalTourFlow
+import xyz.superfunction.spfn.example.generated.flows.ProfileFlow
 import xyz.superfunction.spfn.example.generated.flows.PushTourFlow
 import xyz.superfunction.spfn.example.generated.flows.SheetFitFlow
 import xyz.superfunction.spfn.example.generated.flows.SheetFullFlow
 import xyz.superfunction.spfn.example.generated.flows.SheetHalfFlow
 import xyz.superfunction.spfn.example.generated.flows.SheetNavFlow
+import xyz.superfunction.spfn.example.generated.flows.AccountSheetRoute
 import xyz.superfunction.spfn.example.generated.flows.ApproveDeviceRoute
+import xyz.superfunction.spfn.example.generated.flows.EditProfileRoute
+import xyz.superfunction.spfn.example.generated.flows.ItemDetailRoute
 import xyz.superfunction.spfn.example.generated.flows.KeyboardFormRoute
 import xyz.superfunction.spfn.example.generated.flows.LongScrollRoute
 import xyz.superfunction.spfn.example.generated.flows.ModalTourRoute
+import xyz.superfunction.spfn.example.generated.flows.ProfileRoute
 import xyz.superfunction.spfn.example.generated.flows.PushTourRoute
 import xyz.superfunction.spfn.example.generated.flows.SheetFitRoute
 import xyz.superfunction.spfn.example.generated.flows.SheetFullRoute
 import xyz.superfunction.spfn.example.generated.flows.SheetHalfRoute
 import xyz.superfunction.spfn.example.generated.flows.SheetNavRoute
+import xyz.superfunction.spfn.example.generated.screens.AccountNoteModel
+import xyz.superfunction.spfn.example.generated.screens.EditNameModel
 import xyz.superfunction.spfn.example.generated.screens.EnterCodeModel
 import xyz.superfunction.spfn.example.generated.screens.FitOneModel
 import xyz.superfunction.spfn.example.generated.screens.FormModel
 import xyz.superfunction.spfn.example.generated.screens.FullOneModel
 import xyz.superfunction.spfn.example.generated.screens.HalfOneModel
+import xyz.superfunction.spfn.example.generated.screens.ItemModel
+import xyz.superfunction.spfn.example.generated.screens.ItemMoreModel
 import xyz.superfunction.spfn.example.generated.screens.LongModel
 import xyz.superfunction.spfn.example.generated.screens.ModalOneModel
 import xyz.superfunction.spfn.example.generated.screens.ModalTwoModel
 import xyz.superfunction.spfn.example.generated.screens.NavOneModel
 import xyz.superfunction.spfn.example.generated.screens.NavTwoModel
+import xyz.superfunction.spfn.example.generated.screens.ProfileDetailsModel
+import xyz.superfunction.spfn.example.generated.screens.ProfileSummaryModel
 import xyz.superfunction.spfn.example.generated.screens.ReviewDeviceModel
 import xyz.superfunction.spfn.example.generated.screens.DefaultReviewDeviceUseCase
 import xyz.superfunction.spfn.example.generated.screens.TourOneModel
@@ -51,14 +65,24 @@ import xyz.superfunction.spfn.example.generated.screens.TourTwoModel
 import xyz.superfunction.spfn.example.generated.services.DefaultDeviceApprovalService
 import xyz.superfunction.spfn.example.generated.services.DeviceApprovalService
 import xyz.superfunction.spfn.ui.Flow
+import xyz.superfunction.spfn.ui.TabState
 
 /** The app's one graph: services in, flows and screen models out. */
 class AppContainer(
     private val deviceApproval: DeviceApprovalService
 )
 {
+    /** The `accountSheet` flow, open on its start screen. */
+    val accountSheetFlow: Flow<AccountSheetRoute> = AccountSheetFlow();
+
     /** The `approveDevice` flow, open on its start screen. */
     val approveDeviceFlow: Flow<ApproveDeviceRoute> = ApproveDeviceFlow();
+
+    /** The `editProfile` flow, open on its start screen. */
+    val editProfileFlow: Flow<EditProfileRoute> = EditProfileFlow();
+
+    /** The `itemDetail` flow, open on its start screen. */
+    val itemDetailFlow: Flow<ItemDetailRoute> = ItemDetailFlow();
 
     /** The `keyboardForm` flow, open on its start screen. */
     val keyboardFormFlow: Flow<KeyboardFormRoute> = KeyboardFormFlow();
@@ -68,6 +92,9 @@ class AppContainer(
 
     /** The `modalTour` flow, open on its start screen. */
     val modalTourFlow: Flow<ModalTourRoute> = ModalTourFlow();
+
+    /** The `profile` flow, open on its start screen. */
+    val profileFlow: Flow<ProfileRoute> = ProfileFlow();
 
     /** The `pushTour` flow, open on its start screen. */
     val pushTourFlow: Flow<PushTourRoute> = PushTourFlow();
@@ -83,6 +110,17 @@ class AppContainer(
 
     /** The `sheetNav` flow, open on its start screen. */
     val sheetNavFlow: Flow<SheetNavRoute> = SheetNavFlow();
+
+    /** The tab bar's state: which of the spec's tabs is selected, on the first. */
+    val tabs: TabState = TabState(listOf("home", "account"));
+
+    /** A fresh model for one appearance of `accountNote`. */
+    fun accountNoteModel(): AccountNoteModel =
+        AccountNoteModel(accountSheetFlow);
+
+    /** A fresh model for one appearance of `editName`. */
+    fun editNameModel(): EditNameModel =
+        EditNameModel(editProfileFlow);
 
     /** A fresh model for one appearance of `enterCode`. */
     fun enterCodeModel(): EnterCodeModel =
@@ -104,6 +142,14 @@ class AppContainer(
     fun halfOneModel(): HalfOneModel =
         HalfOneModel(sheetHalfFlow);
 
+    /** A fresh model for one appearance of `item`. */
+    fun itemModel(): ItemModel =
+        ItemModel(itemDetailFlow);
+
+    /** A fresh model for one appearance of `itemMore`. */
+    fun itemMoreModel(): ItemMoreModel =
+        ItemMoreModel(itemDetailFlow);
+
     /** A fresh model for one appearance of `long`. */
     fun longModel(): LongModel =
         LongModel(longScrollFlow);
@@ -123,6 +169,14 @@ class AppContainer(
     /** A fresh model for one appearance of `navTwo`. */
     fun navTwoModel(): NavTwoModel =
         NavTwoModel(sheetNavFlow);
+
+    /** A fresh model for one appearance of `profileDetails`. */
+    fun profileDetailsModel(): ProfileDetailsModel =
+        ProfileDetailsModel(profileFlow);
+
+    /** A fresh model for one appearance of `profileSummary`. */
+    fun profileSummaryModel(): ProfileSummaryModel =
+        ProfileSummaryModel(profileFlow);
 
     /** A fresh model for one appearance of `reviewDevice`. */
     fun reviewDeviceModel(userCode: String): ReviewDeviceModel =

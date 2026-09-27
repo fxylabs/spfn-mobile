@@ -191,8 +191,31 @@ object SpecInput
             manifestSha256 = first.spec.manifestSha256,
             services = mergeServices(pieces),
             flows = unique(pieces, "flows", { it.flows }, { it.name }),
-            screens = unique(pieces, "screens", { it.screens }, { it.name })
+            screens = unique(pieces, "screens", { it.screens }, { it.name }),
+            tabs = mergeTabs(pieces)
         );
+    }
+
+    /**
+     * The one piece's `tabs`, or none.
+     *
+     * Not a union: the ORDER of the tabs is the bar's order and the first is the start tab
+     * (docs/architecture/tab-host-design.md §3-1), and two lists joined in piece-name order
+     * would be an order nobody wrote. So one piece declares the bar and a second one is
+     * refused, naming both. That piece declares the tabs' flows too — a piece is read whole,
+     * and a tab naming a flow it cannot see is refused there before this is reached.
+     */
+    private fun mergeTabs(pieces: List<ReadPiece>): List<TabDefinition>
+    {
+        val declaring = pieces.filter { it.spec.tabs.isNotEmpty() };
+        if (declaring.size > 1)
+        {
+            throw SpecException(
+                "tabs is declared in both ${declaring[0].path} and ${declaring[1].path}; the bar is one " +
+                    "ordered list and lives in one place"
+            );
+        }
+        return declaring.firstOrNull()?.spec?.tabs ?: emptyList();
     }
 
     /** The two fields every piece of one spec states identically, or a refusal. */
