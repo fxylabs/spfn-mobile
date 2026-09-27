@@ -1,0 +1,579 @@
+{
+    "compatibilityPolicy": "perOperation",
+    "documentVersion": 1,
+    "operations": [
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "listItems",
+            "path": "/v1/items",
+            "request": {
+                "query": {
+                    "properties": {
+                        "archived": {
+                            "type": "boolean"
+                        },
+                        "cursor": {
+                            "type": "string"
+                        },
+                        "limit": {
+                            "maximum": 100,
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "sort": {
+                            "anyOf": [
+                                {
+                                    "const": "newest",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "oldest",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "required": [
+                        "limit"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "properties": {
+                                "archivedAt": {
+                                    "anyOf": [
+                                        {
+                                            "type": "null"
+                                        },
+                                        {
+                                            "type": "string"
+                                        }
+                                    ]
+                                },
+                                "default": {
+                                    "type": "string"
+                                },
+                                "id": {
+                                    "type": "string"
+                                },
+                                "in": {
+                                    "type": "boolean"
+                                },
+                                "kind": {
+                                    "anyOf": [
+                                        {
+                                            "const": "in_review",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "done",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "default",
+                                            "type": "string"
+                                        }
+                                    ]
+                                },
+                                "labels": {
+                                    "anyOf": [
+                                        {
+                                            "anyOf": [
+                                                {
+                                                    "const": "red",
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "const": "blue",
+                                                    "type": "string"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "lastEditor": {
+                                    "anyOf": [
+                                        {
+                                            "properties": {
+                                                "displayName": {
+                                                    "type": "string"
+                                                },
+                                                "id": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": [
+                                                "id",
+                                                "displayName"
+                                            ],
+                                            "type": "object"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "marker": {
+                                    "const": "v1",
+                                    "type": "string"
+                                },
+                                "note": {
+                                    "maxLength": 200,
+                                    "type": "string"
+                                },
+                                "owner": {
+                                    "properties": {
+                                        "displayName": {
+                                            "type": "string"
+                                        },
+                                        "id": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "displayName"
+                                    ],
+                                    "type": "object"
+                                },
+                                "pinned": {
+                                    "type": "boolean"
+                                },
+                                "rank": {
+                                    "minimum": 0,
+                                    "type": "integer"
+                                },
+                                "reviewers": {
+                                    "items": {
+                                        "properties": {
+                                            "displayName": {
+                                                "type": "string"
+                                            },
+                                            "id": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": [
+                                            "id",
+                                            "displayName"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "tags": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                "title": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "updatedAt": {
+                                    "description": "ISO 8601",
+                                    "format": "date-time",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "title",
+                                "rank",
+                                "pinned",
+                                "kind",
+                                "tags",
+                                "owner",
+                                "reviewers",
+                                "updatedAt",
+                                "marker",
+                                "default",
+                                "in",
+                                "lastEditor",
+                                "labels"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "nextCursor": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "items"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "clientProofV1",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getItem",
+            "path": "/v1/items/:itemId",
+            "request": {
+                "params": {
+                    "properties": {
+                        "itemId": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "itemId"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "item": {
+                        "properties": {
+                            "archivedAt": {
+                                "anyOf": [
+                                    {
+                                        "type": "null"
+                                    },
+                                    {
+                                        "type": "string"
+                                    }
+                                ]
+                            },
+                            "default": {
+                                "type": "string"
+                            },
+                            "id": {
+                                "type": "string"
+                            },
+                            "in": {
+                                "type": "boolean"
+                            },
+                            "kind": {
+                                "anyOf": [
+                                    {
+                                        "const": "in_review",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "const": "done",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "const": "default",
+                                        "type": "string"
+                                    }
+                                ]
+                            },
+                            "labels": {
+                                "anyOf": [
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "const": "red",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "blue",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "lastEditor": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "displayName": {
+                                                "type": "string"
+                                            },
+                                            "id": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": [
+                                            "id",
+                                            "displayName"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "marker": {
+                                "const": "v1",
+                                "type": "string"
+                            },
+                            "note": {
+                                "maxLength": 200,
+                                "type": "string"
+                            },
+                            "owner": {
+                                "properties": {
+                                    "displayName": {
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "id",
+                                    "displayName"
+                                ],
+                                "type": "object"
+                            },
+                            "pinned": {
+                                "type": "boolean"
+                            },
+                            "rank": {
+                                "minimum": 0,
+                                "type": "integer"
+                            },
+                            "reviewers": {
+                                "items": {
+                                    "properties": {
+                                        "displayName": {
+                                            "type": "string"
+                                        },
+                                        "id": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "id",
+                                        "displayName"
+                                    ],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "tags": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "title": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "updatedAt": {
+                                "description": "ISO 8601",
+                                "format": "date-time",
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "title",
+                            "rank",
+                            "pinned",
+                            "kind",
+                            "tags",
+                            "owner",
+                            "reviewers",
+                            "updatedAt",
+                            "marker",
+                            "default",
+                            "in",
+                            "lastEditor",
+                            "labels"
+                        ],
+                        "type": "object"
+                    },
+                    "matrix": {
+                        "items": {
+                            "items": {
+                                "type": "integer"
+                            },
+                            "type": "array"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "item",
+                    "matrix"
+                ],
+                "type": "object"
+            },
+            "since": "1.1.0"
+        },
+        {
+            "auth": "clientProofV1",
+            "interceptor": {},
+            "method": "PUT",
+            "name": "putItemNote",
+            "path": "/v1/items/:itemId/notes/:noteNumber",
+            "request": {
+                "body": {
+                    "properties": {
+                        "attachments": {
+                            "items": {
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "object": {
+                                        "type": "boolean"
+                                    },
+                                    "size": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "required": [
+                                    "name",
+                                    "size"
+                                ],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "label": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "mode": {
+                            "anyOf": [
+                                {
+                                    "const": "append",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "replace",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "pinned": {
+                            "type": "boolean"
+                        },
+                        "position": {
+                            "properties": {
+                                "column": {
+                                    "type": "integer"
+                                },
+                                "line": {
+                                    "type": "integer"
+                                }
+                            },
+                            "required": [
+                                "line",
+                                "column"
+                            ],
+                            "type": "object"
+                        },
+                        "text": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "text",
+                        "label",
+                        "mode",
+                        "attachments"
+                    ],
+                    "type": "object"
+                },
+                "params": {
+                    "properties": {
+                        "itemId": {
+                            "type": "string"
+                        },
+                        "noteNumber": {
+                            "type": "integer"
+                        }
+                    },
+                    "required": [
+                        "itemId",
+                        "noteNumber"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": true,
+            "response": {
+                "type": "null"
+            },
+            "since": "1.2.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getScore",
+            "path": "/v1/score",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "score": {
+                        "maximum": 1000.0,
+                        "minimum": 0.5,
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "score"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getAnything",
+            "path": "/v1/anything",
+            "request": {},
+            "requiresSession": false,
+            "response": {},
+            "since": "1.0.0"
+        }
+    ]
+}

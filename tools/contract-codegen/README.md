@@ -55,3 +55,66 @@ Field readers, canonical serialization and digests live in `SPFNCore` / `spfn-co
 hand-written and reviewed once. The generated files are a listing of the contract, not
 a place where logic hides. Reviewing a contract change should mean reading a diff of
 names and types.
+
+## An app's own contract document
+
+The same module generates calls for an app's own routes from the contract document the
+app's server build writes (`@spfn/core:contract`, `documentVersion: 1`). The design,
+the type mapping table and the naming rules are
+[docs/architecture/app-contract-codegen.md](../../docs/architecture/app-contract-codegen.md).
+
+```sh
+./gradlew :contract-codegen:spfnAppContractGenerate \
+    -Pspfn.appContract.document=/abs/app/contracts/current.json \
+    -Pspfn.appContract.operations=/abs/app/mobile/contract-operations.json \
+    -Pspfn.appContract.swiftOut=/abs/app/ios/Generated/API \
+    -Pspfn.appContract.swiftNamespace=AppAPI \
+    -Pspfn.appContract.kotlinOut=/abs/app/android/src/main/kotlin/com/example/generated/api \
+    -Pspfn.appContract.kotlinPackage=com.example.generated.api
+
+./gradlew :contract-codegen:spfnAppContractVerify   # same six properties
+```
+
+| Property | Meaning |
+| --- | --- |
+| `document` | the app's contract document |
+| `operations` | `{ "operations": ["getItem", …] }` — the operations the app calls; a name the document does not declare is refused |
+| `swiftOut`, `swiftNamespace` | the Swift directory, and the `public enum` every call and type is nested in |
+| `kotlinOut`, `kotlinPackage` | the Kotlin directory and package; the calls are `object <swiftNamespace>` |
+
+Every property is required and every path absolute. A missing one fails by name — the
+tasks never fall back to a default, because a misspelt property that silently checked
+something else would read as green.
+
+**Output.** Three files per platform: `<Namespace>.swift` / `<Namespace>Support.kt` (the
+namespace and the percent-encoding and decoding helpers), `<Namespace>Types` (one type per
+object and string set) and `<Namespace>Calls` (one function per operation returning an
+`SPFNCall` / `SpfnCall`). An app sends a call the way it sends a core one:
+
+```swift
+let answer = try await client.execute(AppAPI.getItem(itemId: id), request: ())
+```
+
+```kotlin
+val answer = client.execute(AppAPI.getItem(itemId = id), Unit)
+```
+
+Errors are the SDK's own `SPFNClientError` / `SpfnClientError`; a response that does not
+match the document is `notTheDeclaredResponse` / `NOT_THE_DECLARED_RESPONSE`.
+
+**Provenance.** Every generated file's header records the document's SHA-256 and the
+selected operations. `spfnAppContractVerify` fails when the document's digest differs from
+the one a header records, when a file differs from a fresh generation, and when an output
+directory holds a file the generator did not write (hidden files such as `.DS_Store`
+aside). Output directories hold generated files only; `spfnAppContractGenerate` deletes
+anything else in them.
+
+**Same boundary as above.** Zero network — the document, the selection and this
+repository's pinned contract (for the auth classes the execute path accepts) are read
+from disk — and deterministic: output depends on neither the document's key order nor the
+selection's order. No SDK module is involved in generation, and none gains a dependency.
+
+**Fixture.** `spfnAppContractFixtureGenerate` / `spfnAppContractFixtureVerify` run the same
+generator over the invented document in `src/test/resources/app-contract/`, into
+`android/spfn-core/src/test/kotlin/xyz/superfunction/spfn/core/appcontract/` and
+`Tests/SPFNCoreTests/AppContractFixture/`. The fixture verify is wired into `check`.
