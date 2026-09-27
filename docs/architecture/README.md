@@ -152,6 +152,12 @@ A flow is entered in one of three ways, and the difference is what it is drawn o
 | `modal` | `fullScreenCover` (`sheet` on macOS, which has no full-screen cover) | an opaque cover filling the parent |
 | `sheet(detent)` | `sheet` + `presentationDetents` | a sheet drawn out of `foundation` — scrim, drag handle, `AnchoredDraggableState` |
 
+Inside a `TabHost` two things follow. A `push` appends to the SELECTED tab's host, and each
+tab's stack moves alone. And a `modal` or a `sheet` still covers everything — the tab bar
+included — on both platforms: iOS's presentations are the window's, and on Android, where a
+cover fills only its parent and a tab root's parent stops at the bar, the `FlowHost` registers
+its presentation with the `TabHost`, which draws it in a layer over the tabs and the bar.
+
 A `Modal` entry COVERS. That is the one rule the host adds to the flow's own: a modal
 flow was presented over something, so both halves draw it as an opaque cover — a
 `fullScreenCover` on iOS, and on Android a surface that fills everything the host gave the
@@ -192,6 +198,43 @@ how a sheet and a scrolling screen inside it avoid competing for the same gestur
 any nested-scroll arbitration. What the two halves share is `SheetGeometry` — the heights,
 the dismissal threshold and the scrim's fade — written twice and tested twice against the
 same hand-written vectors.
+
+#### The tab host
+
+`TabHost` is the bottom tab container (docs/architecture/tab-host-design.md), and it is built
+out of the pieces above rather than beside them. Tabs are declared as data — `TabItem(id,
+title, icon, selectedIcon, accessibilityLabel, root)`, the array's order the bar's and the
+first the start tab — and the selection is `TabState`, which is to tabs what `Flow` is to a
+stack: free of every toolkit, its whole table (a press on another tab, a press on the
+selected one, the Android back on a tab's root, the app's own `show`) an ordinary unit suite
+on a JVM and on Linux. `TabState` is handed the selected tab's DEPTH and answers; it never
+holds a stack.
+
+**One `NavigationHost` per tab, and so one `HostStack` per tab.** N1 holds inside a tab
+exactly as it holds under one host, and there is no order between tabs: a back only ever goes
+to the selected tab's list. A `FlowHost(.push)` in a tab's root registers with that tab's host,
+because another tab's host is not in its environment; the same flow's host put in two tabs'
+roots is refused by the second tab (a debug build stops). `TabHost` is an app's top level —
+a `NavigationHost` above it would nest one navigator inside another, which SwiftUI does not
+support and which Compose answers with two `NavDisplay`s fighting for the back.
+
+**The bar is drawn by the SDK, inside each tab's root.** Not the system `TabView`: hiding its
+bar on push and bringing it back on pop are exactly the behaviours with reported defects inside
+this package's iOS range, and on the simulators the system bar came back about 0.23 s after a
+pop had finished (P29). A pushed route is a sibling of the root, so it slides in over the root
+and its bar together, the edge swipe and the held predictive back preview the root WITH its
+bar, and no code hides a bar anywhere. Pressing the selected tab above its root pops it there —
+the store's `shorten(to: 0)`, the same reconciliation a platform pop takes — and on the root
+bumps `TabScrollToTop`, which an app's own list follows. Colours and type are the theme's
+existing keys: `surface`, `accent`, `textSecondary`, `handle`, `caption`.
+
+**The Android half hoists what a tab needs to survive leaving the composition.** Only the
+selected tab is composed, so each tab's `HostStackStore` is remembered by `TabHost` and handed
+to an internal `NavigationHost(host, root)`, and a `SaveableStateHolder` keeps each tab's saved
+state under its id. The iOS half keeps a tab it has opened alive in a `ZStack`, hidden,
+untouchable and out of the accessibility tree while another is selected. The system back on the
+root of a tab that is not the start tab selects the start tab (Android, decision Q-B); on the
+start tab's root it leaves the app.
 
 #### What closes a flow, and what only moves inside it
 
@@ -257,7 +300,13 @@ status bar inset unconsumed for its content, which pads for it itself. A host th
 root as well does not pad twice: Compose's `windowInsetsPadding` CONSUMES what it applies, so
 the header of a `Screen` inside an already-padded host adds nothing, and a sheet consumes the
 status bar inset before its content sees it because a sheet stands nowhere near the status
-bar. A host app that does NOT use `Screen` still owns its own insets, which is the case
+bar. Inside a `TabHost` the tab root with its bar showing is the one exception: the bar
+stands on the bottom inset, and the root is told that inset and the bar's own height are spent
+(Android `consumeWindowInsets`, iOS `.safeAreaInset(edge: .bottom)`), so a root `Screen`'s
+body pads for the keyboard only where the keyboard overlaps it, and the bar stays under the
+keyboard rather than riding up on it. A pushed detail is a sibling of the root, so the
+consumption does not reach it and its own `Screen` spends the inset as everywhere else.
+A host app that does NOT use `Screen` still owns its own insets, which is the case
 `examples/android-compose` and `tools/harness` are in for their own rows
 (docs/IMPLEMENTATION-PITFALLS.md P25). A `fit` sheet measures the body's content and adds one
 header's height for the bar above it (`Metrics.headerHeight`), on both platforms (P34).

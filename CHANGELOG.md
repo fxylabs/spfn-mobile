@@ -5,6 +5,42 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### A bottom tab container: `TabHost` (additive)
+
+- **New, both: `TabHost(state:tabs:)` / `TabHost(state, tabs)`**, the app's top-level bottom
+  tab container (docs/architecture/tab-host-design.md). Tabs are data —
+  `TabItem(id, title, icon, selectedIcon, accessibilityLabel, root)`, the array's order the
+  bar's, the first the start tab — and each tab is its own `NavigationHost`, so each has its
+  own stack and a `FlowHost(.push)` in a tab's root appends to that tab's. The SDK draws the
+  bar on both platforms, inside each tab's root: a pushed detail covers it, the edge swipe
+  and the held predictive back preview the root with it, and nothing hides a bar. Colours
+  and type are the theme's existing keys; no theme key is added.
+- **New, both: `TabState`**, toolkit-free like `Flow`: `tabs`, `start`, `selected`,
+  `select(_:depth:)` answering a `TabSelection` (`switched`, `popToRoot`, `scrollToTop`,
+  `ignored`), `show(_:)` for the app and deep links, `back(depth:)` / `handlesBack(depth:)`
+  for Android's back, and `scrollToTop(for:)`. Pressing the selected tab above its root pops
+  it to the root; on its root it counts one `TabScrollToTop`, which the app's own list
+  follows (`@Environment(\.tabScrollToTop)`, `TabScrollToTop.current`). On Android the back
+  on a non-start tab's root selects the start tab, and on the start tab's root leaves.
+- **New, both: `SPFNUIError.noTabs`, `.duplicateTab`, `.unknownTab`** (Swift), and the same
+  refusals as `IllegalArgumentException` (Kotlin), from `TabState`'s initialiser. An app
+  that switches exhaustively over `SPFNUIError` gains three cases.
+- A modal or a sheet opened inside a tab covers the bar on both platforms: on Android a
+  `FlowHost(.modal/.sheet)` inside a `TabHost` registers with it and is drawn in a layer over
+  the tabs and the bar. Outside a `TabHost` nothing changes.
+- Accessibility: the bar is a tab bar container on iOS (`.isTabBar`, `.isSelected` on the
+  selected item, the large content viewer past the first accessibility size) and a
+  `selectableGroup` of `Role.Tab` items on Android; every item is at least the minimum touch
+  target in its own layout; the bar item's identifier is `tab.<id>`.
+- `spfn-ui` exposes `androidx.compose.ui` as `api` (was `implementation`), because
+  `TabItem` takes a `Painter`.
+- UI spec `specVersion` 3 adds the top-level `tabs` array (refusal 16). `tools/ui-codegen`
+  writes each example app's `AppTabs` scaffold, a `TabState` in the container, and the
+  design's case-table rows as cells `tabs-c<n>`; the example spec gains `tabs.json`, and
+  every piece moves to version 3. Both example apps gain a two-tab demo — a list tab that
+  pushes a detail, and an account tab with a push, a modal and a sheet — reached by a tab
+  cell's launch or the menu's `menu.tabs`.
+
 ### Contract 0.13.2: sign in by a code another device shows
 
 - Re-pin the unmodified primitives export at `dc90f70dee07b45a2eb1dc8f78b456c613cfdd46`

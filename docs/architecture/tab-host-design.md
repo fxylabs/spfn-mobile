@@ -1,6 +1,6 @@
 # 설계 — 하단 탭 컨테이너 `TabHost`
 
-- 상태: 제안 (2026-09-27). 기기 확인(§5) 전이다. §5의 결과로 §2의 선택이 바뀔 수 있다.
+- 상태: 승인, 구현됨 (2026-09-27). 검토자의 답은 §10에 적었다. §5의 U-1은 시뮬레이터에서 쟀고(아래), 나머지 U-셀은 구현 위에서 운영자가 기기로 잰다.
 - 대상: `SPFNUI`(iOS)와 `spfn-ui`(Android)에 새로 들어갈 `TabHost`, `TabItem`, `TabState`. 기존 `NavigationHost`, `HostStack`, `FlowHost`, `Screen`의 동작 일부
 - 관련: [architecture README](README.md) "The `ui` module"·"Three ways in"·"`Screen` owns the insets", [screen-header-design.md](screen-header-design.md), [IMPLEMENTATION-PITFALLS.md](../IMPLEMENTATION-PITFALLS.md) P21·P25·P29·P30·P31·P32·P33·P35·P36·P37·P39·P41, [UI-IMPLEMENTATION-GUIDE.md](../UI-IMPLEMENTATION-GUIDE.md) S1–S8·K1–K7
 
@@ -234,7 +234,7 @@ readout은 예제 앱의 것이다: `tab=<selected id>`는 각 탭 루트에, `s
 
 | id | 플랫폼 | 시험 | 볼 것 | 틀리면 |
 |---|---|---|---|---|
-| U-1 | iOS 17·18·26 | 대조군 (가): 시스템 `TabView` + 탭마다 `NavigationHost` + 도착 화면에 `.toolbar(.hidden, for: .tabBar)`. push, pop, 가장자리 스와이프를 녹화한다 | 바가 push와 함께 움직이는가, pop 뒤 깜빡이는가, 스와이프 중에 루트에 바가 있는가 | 모두 깨끗하면 §2-1을 다시 연다 |
+| U-1 | iOS 17·18·26 | 대조군 (가): 시스템 `TabView` + 탭마다 `NavigationHost` + 도착 화면에 `.toolbar(.hidden, for: .tabBar)`. push, pop, 가장자리 스와이프를 녹화한다 | 바가 push와 함께 움직이는가, pop 뒤 깜빡이는가, 스와이프 중에 루트에 바가 있는가 | 모두 깨끗하면 §2-1을 다시 연다. **잰 것 (2026-09-27, 설계 검토 중, iOS 18.2와 26.3 시뮬레이터): 두 버전 모두 pop이 끝난 뒤 약 0.23초가 지나서야 시스템 탭 바가 다시 나타났다.** 깨끗하지 않으므로 (나)를 유지한다 (Q-A) |
 | U-2 | iOS 18 | 대조군 (가)에서 탭 안의 경로 바인딩 스택에 한 번 push | `stack=1`인가, 화면이 두 번 쌓였는가 (포럼 759542) | 두 번이면 (가)를 확정 기각 |
 | U-3 | iOS 17·18·26 | 대조군 (가)에서 선택된 탭을 다시 누름 | `TabView(selection:)` setter가 불리는가, 시스템이 스택을 스스로 pop하는가, 그 pop이 경로 setter를 거쳐 흐름에 닿는가 | 기록만 한다 |
 | U-4 | iOS 26 | (나): 루트 d=0 → push → 가장자리 스와이프를 반쯤 하다 취소, 그리고 끝까지 | 스와이프 중에 루트와 바가 함께 보이는가, 취소 뒤 상세와 `stack=1`, 완료 뒤 `stack=0` | 바를 루트 밖으로 옮겨야 한다면 설계 전체를 다시 본다 |
@@ -336,6 +336,10 @@ readout은 예제 앱의 것이다: `tab=<selected id>`는 각 탭 루트에, `s
   ```
 
   거부 규칙(새로 번호를 매긴다): 탭 id가 이름 규칙을 어김, `root`가 없는 화면, 한 흐름이 두 탭에 나옴 (§2-3의 "한 흐름은 한 탭"), `tabs`가 있는데 비어 있음, id가 겹침. 배열 순서가 탭 순서이고 첫 번째가 시작 탭이다. 스펙의 다른 키(`flows`, `screens`)는 객체인데 여기만 배열인 이유는 순서가 의미를 갖기 때문이다 (§10 Q-G).
+
+  **구현에서 정한 것 — `root`는 화면이 아니라 루트 뷰의 이름이다.** 스펙의 화면은 모두 흐름에 속하고 흐름의 스택 위에 선다. 탭 루트는 그 스택이 서는 **자리**, 곧 탭의 `NavigationHost`의 루트라서 어느 흐름의 화면도 될 수 없다. 그리고 스펙 문법에는 "화면이 다른 흐름을 연다"가 없다 (거부 3). 그래서 `root`는 생성기가 직접 쓰는 루트 뷰의 이름이다: readout(`tab=`, `stack=`, `scrollToTop=`), 탭이 여는 흐름마다 컨트롤 하나(`<root>.<flow>`), 키보드 셀을 위한 입력칸(`<root>.note`), 맨 위로 스크롤을 따르는 행들, 그리고 그 흐름들의 호스트. 위 거부 규칙의 "`root`가 없는 화면"은 그래서 "`root`가 이미 있는 화면이나 흐름의 이름"으로 바뀌었다 — 한 이름이 두 선언이 될 수 없기 때문이다. 거부 16 전체는 `examples/ui-spec/SCHEMA.md`에 있다.
+- 조각 규칙: `tabs`는 한 조각만 선언한다 (탭 순서는 하나의 목록이다). 그 조각은 탭의 흐름도 함께 선언한다 — 조각은 따로 읽히므로 보이지 않는 흐름을 이름으로 부를 수 없다. 예제는 `examples/ui-spec/tabs.json`이다.
+- 셀 id는 `tabs-c<n>`, §4의 C-n 그대로다. C-4(바가 화면에 없다)와 C-18(예제의 상세 화면은 두 번째 흐름을 열지 않는다)은 셀이 없다. C-13과 C-15는 예제 앱의 JVM 단위 테스트(`TabCellTest`)다. 플랫폼마다 답이 다른 행(C-9·C-12·C-20·C-21·C-26·C-33)은 한 플로우 파일 안에서 `runFlow: when: platform`으로 나뉜다.
 - 생성기가 쓰는 것: 예제 앱의 `TabHost` 스캐폴드(두 앱 모두), `Rules.kt`의 탭 규칙 행 (T1–Tn, 이 문서의 C-셀에서 나온다. P10: 표를 구현에서 파생하지 않는다), 셀마다 Maestro 플로우 하나. 셀은 `tab=<id>`와 `stack=<n>` readout을 단언하고 `tab.<id>`를 id로 누른다.
 - 러너 종류: C-1–C-4, C-7, C-9, C-10, C-12, C-14–C-27, C-29–C-31, C-33, C-34는 `both` 또는 플랫폼 한쪽. C-5·C-8·C-11의 애니메이션 모양은 `manual`. C-28은 Android 러너가 "활동 유지 안 함"을 켤 수 없으면 `manual`. C-10(앱을 나감)은 Maestro가 앱 밖을 단언할 수 없으면 `manual`.
 - `CaseTable.headerBack`과 `systemBack`은 그대로 쓴다 (P30).
@@ -345,6 +349,21 @@ readout은 예제 앱의 것이다: `tab=<selected id>`는 각 탭 루트에, `s
 §5의 U-셀, 그리고 UI guide §6 5번: 셀마다 두 플랫폼의 스크린샷을 나란히.
 
 ## 10. 검토자가 답할 질문
+
+검토자의 답 (2026-09-27): 여덟 질문 모두 **제안대로** 정했다. Q-A는 시뮬레이터 측정(§5 U-1: iOS 18.2와 26.3에서 pop 뒤 약 0.23초 늦게 시스템 탭 바가 다시 나타남)을 근거로 (나)를 확정했다. 표의 "답" 열이 결정이고, 구현이 따른 것이다.
+
+| id | 답 | 구현에서 |
+|---|---|---|
+| Q-A | (나): SDK가 양 플랫폼 모두에서 바를 그린다. U-1 측정이 (가)를 받치지 않는다. U-1–U-3이 모든 지원 버전에서 깨끗해지면 다시 연다 | `TabHost.swift`, `TabHost.kt`. P29에 기록 |
+| Q-B | 시작 탭이 아닌 탭의 루트에서 Android 뒤로는 시작 탭으로 간다. 시작 탭 루트에서는 앱을 나간다. 탭 기록은 되짚지 않는다 | `TabState.back(depth:)`, `TabHost.kt`의 `BackHandler`. 셀 `tabs-c9`·`tabs-c33`, 사람 셀 `tabs-c10` |
+| Q-C | 맨 위로 스크롤은 앱의 일이다. `PagedView`는 신호를 스스로 따르지 않는다 | `TabScrollToTop`. 예제 루트가 따른다. 셀 `tabs-c14` |
+| Q-D | 다른 탭에 갔다 오면 떠날 때의 상세가 그대로 보인다. 다시 누르면 루트로 | `TabState.select`, 셀 `tabs-c2` |
+| Q-E | 딥 링크의 `show`는 떠 있는 모달·시트를 닫지 않는다. 앱의 딥 링크 처리기가 닫는다 | `TabState.show`. 사람 셀 `tabs-c32` |
+| Q-F | 이번에는 Android 프로세스 종료 뒤 흐름 스택을 복원하지 않는다. 선택 탭만 복원한다 | `TabHost.kt`의 `rememberSaveable`. 사람 셀 `tabs-c28` |
+| Q-G | 스펙의 `tabs`는 배열이다 | `specVersion` 3, 거부 16 |
+| Q-H | 바 전용 테마 키는 아직 두지 않는다 | 팔레트·타이포그래피의 기존 키만 (§3-6). validate section 15의 키 비교는 그대로 |
+
+아래는 검토 전에 물은 그대로의 질문과 제안이다.
 
 | id | 질문 | 제안 |
 |---|---|---|
