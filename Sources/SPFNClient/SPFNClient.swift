@@ -304,7 +304,7 @@ public struct SPFNClient: Sendable
             {
                 throw SPFNClientError.decoding(.notAnErrorEnvelope, onSuccessStatus: false)
             }
-            throw refusal(envelope, httpStatus: response.statusCode)
+            throw refusal(envelope, httpStatus: response.statusCode, retryAfter: SPFNRetryAfter.header(in: response.headers))
         }
 
         guard call.operation.declaresResponse
@@ -372,7 +372,7 @@ public struct SPFNClient: Sendable
     /// The status is carried, never consulted. A 401 an intermediary wrote carries no
     /// envelope and never reaches here at all, so it cannot make the client re-handshake
     /// against something that never refused a proof.
-    private static func refusal(_ envelope: SPFNErrorEnvelope, httpStatus: Int) -> SPFNClientError
+    private static func refusal(_ envelope: SPFNErrorEnvelope, httpStatus: Int, retryAfter: String? = nil) -> SPFNClientError
     {
         guard let code = try? SPFNGeneratedErrorCode.decode(envelope.code)
         else
@@ -382,7 +382,7 @@ public struct SPFNClient: Sendable
         guard code.isAuthFailure
         else
         {
-            return .server(SPFNServerFailure(code: code, httpStatus: httpStatus, envelope: envelope))
+            return .server(SPFNServerFailure(code: code, httpStatus: httpStatus, envelope: envelope, retryAfter: retryAfter))
         }
         return .auth(SPFNAuthFailure(code: code, httpStatus: httpStatus, envelope: envelope))
     }

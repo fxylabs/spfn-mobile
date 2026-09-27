@@ -226,6 +226,10 @@ public actor SPFNKeyLifecycle
     /// between two concurrent calls and two registered keys.
     private var enrollmentInFlight = false
 
+    /// Who watches `signedInClientIDs`, and the value they were last given.
+    private var signedInWatchers: [UUID: AsyncStream<String?>.Continuation] = [:]
+    private var lastSignedIn: String??
+
     /// - Parameters:
     ///   - newKeyID: mints key identifiers; UUIDs by default. Injected so a suite can
     ///     pin the wire bytes a flow produces against the fixtures.
@@ -387,6 +391,7 @@ public actor SPFNKeyLifecycle
             key.record(clientID: userID, createdAtMillis: clock.nowMillis()),
             slot: Self.activeSlot
         )
+        publishSignedIn()
         return SPFNEnrollmentResult(clientID: userID, keyID: key.keyID, isNewUser: response.isNewUser ?? false)
     }
 
@@ -592,6 +597,7 @@ public actor SPFNKeyLifecycle
             key.record(clientID: approval.clientID, createdAtMillis: clock.nowMillis()),
             slot: Self.activeSlot
         )
+        publishSignedIn()
         return SPFNDeviceCodeEnrollmentResult(
             clientID: approval.clientID,
             keyID: key.keyID,
@@ -967,6 +973,51 @@ public actor SPFNKeyLifecycle
     {
         try store.delete(slot: Self.activeSlot)
         try store.delete(slot: Self.candidateSlot)
+        publishSignedIn()
+    }
+
+    // MARK: - The signed-in value the event stream observes
+
+    /// Who is signed in: the client id stored with the active key, or nil. Read-only — the
+    /// only ways to change it are the `enroll…` flows and `wipe()`. A rotation keeps the
+    /// client id, so it does not move then (docs/architecture/event-stream-design.md §3-3).
+    public var signedInClientID: String?
+    {
+        (try? store.load(slot: Self.activeSlot))?.clientID
+    }
+
+    /// `signedInClientID` and every change to it, current value first. Each value is
+    /// yielded after the store has been written.
+    public var signedInClientIDs: AsyncStream<String?>
+    {
+        let (stream, continuation) = AsyncStream.makeStream(of: String?.self)
+        let id = UUID()
+        signedInWatchers[id] = continuation
+        continuation.onTermination = { [weak self] _ in Task { await self?.stopWatching(id) } }
+        continuation.yield(signedInClientID)
+        lastSignedIn = .some(signedInClientID)
+        return stream
+    }
+
+    private func stopWatching(_ id: UUID)
+    {
+        signedInWatchers[id] = nil
+    }
+
+    /// Yields the stored value to every watcher when it differs from the last one yielded.
+    private func publishSignedIn()
+    {
+        let current = signedInClientID
+        guard lastSignedIn != .some(current)
+        else
+        {
+            return
+        }
+        lastSignedIn = .some(current)
+        for watcher in signedInWatchers.values
+        {
+            watcher.yield(current)
+        }
     }
 
     // MARK: - Assembly
