@@ -1,0 +1,44 @@
+// GENERATED FILE — DO NOT EDIT.
+//
+// generator:       spfn-ui-codegen 0.1.0-alpha.3
+// spec:            examples/ui-spec
+// specSha256:      0fbec833616cfb9717bb9d80a057d4069bae1f04d1c47d44f98d9becf08dce41
+// bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
+// contractVersion: 0.13.2
+//
+// Regenerate with: ./gradlew :ui-codegen:spfnGenerateUi
+// Verified by:     ./gradlew :ui-codegen:spfnUiVerify
+
+import Foundation
+import Observation
+import SPFNUI
+
+/// The `profileSummary` screen's state and rules, with no toolkit in sight.
+///
+/// Constructor injection, so a test drives this class against a fake service and a
+/// real `Flow` with no device, no view and no server.
+@MainActor
+@Observable
+public final class ProfileSummaryModel
+{
+    /// What this screen's write is doing.
+    public private(set) var state: Busy = .idle
+
+    private let flow: Flow<ProfileRoute>
+
+    public init(
+        flow: Flow<ProfileRoute>
+    )
+    {
+        self.flow = flow
+    }
+
+    /// The flow's stack, so the screen can print its depth as a readout.
+    public var stack: [ProfileRoute] { flow.stack }
+
+    /// Moves on to the next screen.
+    public func more()
+    {
+        flow.push(.profileDetails)
+    }
+}

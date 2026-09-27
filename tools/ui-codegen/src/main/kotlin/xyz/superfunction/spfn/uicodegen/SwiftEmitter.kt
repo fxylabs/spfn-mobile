@@ -33,6 +33,8 @@ class SwiftEmitter(target: Target) : SwiftNames(target)
 
     private val failures = SwiftFailureEmitter(target);
 
+    private val tabs = SwiftTabsEmitter(target);
+
     // The container is the one emitter handed another: it builds every model, so it asks the
     // model emitter which of them take a validator rather than deriving that a second time.
     private val containers = SwiftContainerEmitter(target, models);
@@ -59,6 +61,10 @@ class SwiftEmitter(target: Target) : SwiftNames(target)
             }
         };
         files["$root/AppContainer.swift"] = containers.container(spec, bundle, inputs);
+        if (spec.tabs.isNotEmpty())
+        {
+            files["$root/AppTabs.swift"] = tabs.tabs(spec, inputs);
+        }
         return files;
     }
 

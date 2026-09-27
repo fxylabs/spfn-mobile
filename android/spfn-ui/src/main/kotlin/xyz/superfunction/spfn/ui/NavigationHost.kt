@@ -135,7 +135,21 @@ import kotlinx.coroutines.launch
 public fun NavigationHost(root: @Composable () -> Unit)
 {
     val scope = rememberCoroutineScope();
-    val host = remember(scope) { HostStackStore(scope) };
+    NavigationHost(host = remember(scope) { HostStackStore(scope) }, root = root);
+}
+
+/**
+ * The same host, standing on a store somebody else keeps.
+ *
+ * [TabHost] is that somebody. A tab that is not selected is not composed, and a store
+ * remembered in here would leave with it — and with it every flow's registration and the
+ * collectors that follow their stacks, so coming back to the tab would find its detail gone
+ * (docs/architecture/tab-host-design.md §2-4). The tab host remembers one store per tab in
+ * its own scope and hands it over; everything below is the one host either way.
+ */
+@Composable
+internal fun NavigationHost(host: HostStackStore, root: @Composable () -> Unit)
+{
     val entries = host.stack.collectAsState().value.entries;
 
     CompositionLocalProvider(LocalNavigationHost provides host) {
@@ -185,7 +199,15 @@ internal class HostRegistration(
  * [FlowHost], and a third door onto this would be a second way to write a stack that has one
  * writer on purpose.
  */
-internal class HostStackStore(private val scope: CoroutineScope)
+internal class HostStackStore(
+    private val scope: CoroutineScope,
+    /**
+     * Whether this store may take [register]'s owner. Always, outside a [TabHost]; inside
+     * one, a flow already registered with ANOTHER tab's store is refused here, because one
+     * flow standing on two tabs' stacks would put its detail on both at once (§2-3).
+     */
+    private val claim: (Any) -> Boolean = { true }
+)
 {
     private val mutableStack = MutableStateFlow(HostStack());
 
@@ -207,6 +229,10 @@ internal class HostStackStore(private val scope: CoroutineScope)
      */
     fun register(owner: Any, routes: StateFlow<List<Any>>, registration: HostRegistration)
     {
+        if (!claim(owner))
+        {
+            return;
+        }
         registrations[owner] = registration;
         if (collectors.containsKey(owner))
         {
@@ -223,8 +249,33 @@ internal class HostStackStore(private val scope: CoroutineScope)
      */
     fun sync(owner: Any, routes: List<Any>)
     {
+        if (owner !in registrations)
+        {
+            return;
+        }
         mutableStack.value = mutableStack.value.sync(owner, routes);
     }
+
+    /**
+     * Cuts this stack back to [count] entries, by telling every flow that loses routes how
+     * many it loses.
+     *
+     * A tab pressed while it stands above its root is this with a count of zero
+     * (docs/architecture/tab-host-design.md §3-4), and it is the SAME arithmetic as a
+     * platform pop: [HostStack.shortened] says what each owner lost, each flow spends that
+     * many `Flow.back`s, and a pushed flow told to go back past its root closes (N2). Nothing
+     * here writes the stack; the flows move and their entries follow, as with [back].
+     */
+    fun shorten(to: Int)
+    {
+        mutableStack.value.shortened(to).forEach { (owner, dropped) ->
+            val registration = registrations[owner] ?: return@forEach;
+            repeat(dropped) { registration.back(); };
+        };
+    }
+
+    /** How many entries stand on this store's root: the depth [TabHost] asks [TabState] about. */
+    val depth: Int get() = mutableStack.value.entries.size;
 
     /**
      * One system back, given to whoever is on top.

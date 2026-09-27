@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import xyz.superfunction.spfn.core.SpfnVersion
 import xyz.superfunction.spfn.example.generated.AppContainer
+import xyz.superfunction.spfn.example.generated.AppTabs
 import xyz.superfunction.spfn.example.generated.flows.ApproveDeviceFlowHost
 import xyz.superfunction.spfn.example.generated.flows.KeyboardFormFlowHost
 import xyz.superfunction.spfn.example.generated.flows.LongScrollFlowHost
@@ -81,15 +83,17 @@ class MainActivity : ComponentActivity()
         // pressing a menu button reaches `Flows.open` instead, and neither should be able to
         // put a second presentation over the first.
         Flows.openOnly(container, fixture.flow, fixture.openAt);
+        fixture.tabs?.let { Flows.openTabs(container, it) };
 
         val receipts = ExampleReceiptStore(this);
 
         setContent {
-            ExampleRoot(
+            Example(
                 cell = cell.ifEmpty { NONE },
                 fixture = fixture.name,
                 container = container,
-                receipts = receipts
+                receipts = receipts,
+                tabs = fixture.tabs != null
             );
         };
     }
@@ -99,6 +103,86 @@ class MainActivity : ComponentActivity()
         const val FIXTURE_EXTRA: String = "SPFN_UI_FIXTURE";
         const val NONE: String = "none";
     }
+}
+
+/**
+ * Which of the app's two tops is drawn: the menu, or the tab demo.
+ *
+ * Two tops and not the tab demo inside the menu, because a `TabHost` is an app's top level —
+ * each tab is a `NavigationHost`, and one inside the menu's would fight it for the back
+ * (docs/architecture/tab-host-design.md §2-3). A tab cell launches straight into the demo;
+ * a person reaches it from the menu's `menu.tabs`, and leaves it the way an app is left.
+ */
+@Composable
+private fun Example(
+    cell: String,
+    fixture: String,
+    container: AppContainer,
+    receipts: ExampleReceiptStore,
+    tabs: Boolean
+)
+{
+    var showsTabs by rememberSaveable { mutableStateOf(tabs) };
+    if (showsTabs)
+    {
+        ExampleTabs(cell = cell, fixture = fixture, container = container, receipts = receipts);
+        return;
+    }
+    ExampleRoot(cell = cell, fixture = fixture, container = container, receipts = receipts)
+    {
+        Flows.openTabs(container, TabLaunch(container.tabs.start));
+        showsTabs = true;
+    };
+}
+
+/**
+ * The tab demo: the generated `AppTabs`, with the app's own readouts and receipt control at
+ * the top of every tab's root.
+ *
+ * `testTagsAsResourceId` is set OUTSIDE the tab host, for P33's reason: a pushed route and
+ * the covers the tab host draws over its bar are not children of a tab's root, and a switch
+ * set inside one would not reach them (docs/architecture/tab-host-design.md §2-4).
+ *
+ * No system-bar padding here, unlike the menu's root: each tab's `Screen` spends the status
+ * bar in its header, the tab host's bar stands on the navigation bar, and a cover or a sheet
+ * the tab host draws over everything fills the window and pads for itself.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun ExampleTabs(
+    cell: String,
+    fixture: String,
+    container: AppContainer,
+    receipts: ExampleReceiptStore
+)
+{
+    var receipt by remember { mutableStateOf("none") };
+    val depth = Flows.tabDepth(container);
+
+    Box(modifier = Modifier.fillMaxSize().semantics { testTagsAsResourceId = true })
+    {
+        AppTabs(container)
+        {
+            Column(verticalArrangement = Arrangement.spacedBy(SpfnTokens.space4))
+            {
+                SpfnText(text = "fixture=$cell", role = TextRole.Mono);
+                SpfnText(text = "receipt=$receipt", role = TextRole.Mono);
+                SecondaryButton(title = "write receipt", id = "example.receipt")
+                {
+                    receipt = receipts.write(
+                        ExampleReceipt(
+                            cell = cell,
+                            fixture = fixture,
+                            stackDepth = depth,
+                            timestampMillis = System.currentTimeMillis(),
+                            sdkVersion = SpfnVersion.CURRENT,
+                            contractVersion = SpfnGeneratedContract.BINDING.importedVersion
+                        )
+                    );
+                };
+            }
+        };
+    };
 }
 
 /**
@@ -143,7 +227,8 @@ private fun ExampleRoot(
     cell: String,
     fixture: String,
     container: AppContainer,
-    receipts: ExampleReceiptStore
+    receipts: ExampleReceiptStore,
+    onTabs: () -> Unit
 )
 {
     var receipt by remember { mutableStateOf("none") };
@@ -164,7 +249,7 @@ private fun ExampleRoot(
                     .windowInsetsPadding(WindowInsets.systemBars)
             )
             {
-                Menu(container = container, cell = cell, depth = depth, receipt = receipt)
+                Menu(container = container, cell = cell, depth = depth, receipt = receipt, onTabs = onTabs)
                 {
                     receipt = receipts.write(
                         ExampleReceipt(
@@ -233,6 +318,7 @@ private fun Menu(
     cell: String,
     depth: Int,
     receipt: String,
+    onTabs: () -> Unit,
     onReceipt: () -> Unit
 )
 {
@@ -250,6 +336,7 @@ private fun Menu(
             Flows.ALL.forEach { flow ->
                 PrimaryButton(title = flow, id = "menu.$flow", onTap = { Flows.open(container, flow) });
             };
+            PrimaryButton(title = "tabs", id = "menu.tabs", onTap = onTabs);
         }
     }
 }

@@ -154,6 +154,26 @@ sealed interface Step
     data class SeeId(val id: String) : Step
 
     /**
+     * Asserts that NO control with this id is on screen.
+     *
+     * The tab cells' one negative: a pushed screen covers its tab's root and the bar with it,
+     * so the bar's items are not there to find (docs/architecture/tab-host-design.md C-3).
+     */
+    data class NotSeeId(val id: String) : Step
+
+    /** Asserts that a readout matching [pattern] is on screen, mid-cell. */
+    data class SeeText(val pattern: String) : Step
+
+    /**
+     * [steps] on one platform only, `Android` or `iOS`.
+     *
+     * For the rows the design gives each platform a different answer: a system back on a tab's
+     * root is Android's to take (Q-B) and there is nothing under an iOS tab root for an edge
+     * swipe to reach (C-12). One flow file still carries both, the way `systemBack` does.
+     */
+    data class On(val platform: String, val steps: List<Step>) : Step
+
+    /**
      * Scrolls until the control with this id is on screen.
      *
      * A no-op when it is already there, which is why it is emitted for every screen that
@@ -301,6 +321,14 @@ object Fixtures
     /** The first page answers at once and the second waits, so an append is visible in flight. */
     const val SLOW_SECOND: String = "slowSecond";
 
+    /**
+     * The tab demo launched in a state a runner could not tap its way into: a tab's flow
+     * already open at a depth, and a tab selected — what a deep link, or the app's own `show`,
+     * leaves behind (docs/architecture/tab-host-design.md C-2, C-30, C-33). Which flow, how
+     * deep and which tab is per cell, and the example apps say so beside this name.
+     */
+    const val TAB_DEEP: String = "tabDeep";
+
     /** The code a fixture answers for. One value, so every cell types the same thing. */
     const val USER_CODE: String = "ABCD-1234";
 }
@@ -368,7 +396,7 @@ private fun one(
  * covered: every showcase flow's deepest screen has to carry an action that closes, because
  * that is the one thing a runner must be able to do before it writes a receipt on the root.
  */
-private class Tour(spec: Spec, val flow: FlowDefinition)
+internal class Tour(spec: Spec, val flow: FlowDefinition)
 {
     val chain: List<ScreenDefinition> = build(spec, flow);
 
@@ -441,7 +469,7 @@ object Rules
                     "screen that collects a form; this spec declares none of the three"
             );
         }
-        return approval + paged + forms;
+        return approval + paged + forms + TabRules.cells(spec);
     }
 
     /**
@@ -497,7 +525,11 @@ object Rules
         // P and F tables below, which say what a paged read and a checked form do; a way-out
         // cell on top of them would be a third table asserting what the first two already
         // stand on.
-        val showcaseFlows = spec.flows.filter { it.name != flow.name && !drawnByHand(spec, it, bundle) };
+        // A flow a tab's root opens is not a showcase flow either: the menu does not host it,
+        // and its cells are the tab table's (TabRules), which open it from its tab.
+        val showcaseFlows = spec.flows.filter {
+            it.name != flow.name && !drawnByHand(spec, it, bundle) && spec.tabOf(it) == null
+        };
         // One flow speaks for the push entry, the way one flow speaks for each rule row: what
         // a pushed root's way out does is the same rule on all three of them, and three
         // copies of it would be three chances to check one thing and no chance to check
@@ -690,7 +722,7 @@ object Rules
      * to the deepest screen, and that screen's close. Nothing at all at depth zero, where the
      * flow is closed already.
      */
-    private fun unwind(tour: Tour, depth: Int): List<Step>
+    internal fun unwind(tour: Tour, depth: Int): List<Step>
     {
         if (depth == 0)
         {
@@ -707,7 +739,7 @@ object Rules
     private fun backLabel(under: ScreenDefinition): String = "${literal(under.title)}|Back"
 
     /** [text] as a regular expression that matches exactly it: every metacharacter escaped. */
-    private fun literal(text: String): String = text.map { character ->
+    internal fun literal(text: String): String = text.map { character ->
         if (character in "\\.^$|?*+()[]{}") "\\$character" else "$character"
     }.joinToString("");
 
@@ -718,7 +750,7 @@ object Rules
     private const val HOST_BACK_LABEL: String = "Back";
 
     /** Every tap that walks a tour from its start down to its deepest screen. */
-    private fun walk(tour: Tour): List<Step> = (1 until tour.chain.size).map { depth ->
+    internal fun walk(tour: Tour): List<Step> = (1 until tour.chain.size).map { depth ->
         Step.Tap("${tour.chain[depth - 1].name}.${tour.pushing(depth).name}")
     }
 

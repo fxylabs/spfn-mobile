@@ -31,6 +31,15 @@ nothing about the screens a menu button opens. The manifest now declares no INTE
 permission, so the app cannot send whichever way it was launched. Reaching a real server is
 `tools/harness`'s whole subject.
 
+**A tab cell (`tabs-c<n>`) opens the TAB DEMO instead**, and so does the menu's last button,
+`menu.tabs`: the generated `AppTabs` — a `TabHost` with a list tab (`home`, which pushes a
+detail) and an account tab (`account`, with a push, a modal and a sheet) — drawn as the app's
+top level rather than inside the menu's `NavigationHost`, because a tab host is one
+(docs/architecture/tab-host-design.md). Each tab's root reads `tab=`, `stack=` and
+`scrollToTop=`, and carries the same receipt control the menu does. Three tab cells launch
+into a state a runner cannot tap its way to (`tabDeep`: a tab's flow already open at a depth,
+another tab selected).
+
 `examples/ui-spec/generated/device-approval.cases.md` is the table: one row per cell, what
 it does, what it must then read out, and which fixture it runs under. A cell whose runner
 is `unit` has no flow — it is about a moment a device runner cannot hold still, such as a

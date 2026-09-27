@@ -47,6 +47,12 @@ internal class SwiftContainerEmitter(target: Target, private val models: SwiftMo
             appendLine("    public let ${flow.name}Flow: Flow<${route(flow)}>");
             appendLine();
         };
+        if (spec.tabs.isNotEmpty())
+        {
+            appendLine("    /// The tab bar's state: which of the spec's tabs is selected, on the first.");
+            appendLine("    public let tabs: TabState");
+            appendLine();
+        }
         append(containerInit(spec, bundle));
         spec.screens.forEach { screen -> append(modelFactory(spec, screen, bundle)) };
         appendLine();
@@ -79,6 +85,12 @@ internal class SwiftContainerEmitter(target: Target, private val models: SwiftMo
             appendLine("        self.${it.name}Validator = ${it.name}Validator");
         };
         spec.flows.forEach { appendLine("        self.${it.name}Flow = ${type(it.name, "Flow")}()") };
+        if (spec.tabs.isNotEmpty())
+        {
+            appendLine("        // The spec reader refused an empty bar and a repeated id, which are the two");
+            appendLine("        // things this initialiser refuses, so it cannot throw here.");
+            appendLine("        self.tabs = try! TabState(tabs: [${spec.tabs.joinToString(", ") { "\"${it.id}\"" }}])");
+        }
         appendLine("    }");
     }
 

@@ -20,9 +20,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import xyz.superfunction.spfn.example.generated.AppContainer
 import xyz.superfunction.spfn.example.generated.flows.ApproveDeviceRoute
+import xyz.superfunction.spfn.example.generated.flows.ItemDetailRoute
 import xyz.superfunction.spfn.example.generated.flows.KeyboardFormRoute
 import xyz.superfunction.spfn.example.generated.flows.LongScrollRoute
 import xyz.superfunction.spfn.example.generated.flows.ModalTourRoute
+import xyz.superfunction.spfn.example.generated.flows.ProfileRoute
 import xyz.superfunction.spfn.example.generated.flows.PushTourRoute
 import xyz.superfunction.spfn.example.generated.flows.SheetFitRoute
 import xyz.superfunction.spfn.example.generated.flows.SheetFullRoute
@@ -84,6 +86,48 @@ object Flows
             "keyboardForm" -> container.keyboardFormFlow.push(KeyboardFormRoute.Form)
             "longScroll" -> container.longScrollFlow.push(LongScrollRoute.Long)
         };
+    }
+
+    /**
+     * Stands the tab demo where [launch] says: every tab flow closed, the tab selected, and
+     * the one flow it names opened at its depth — a deep link, in the order §3-5 of the design
+     * gives, which is no order at all: the flow is the state and the tab's host follows it.
+     */
+    fun openTabs(container: AppContainer, launch: TabLaunch)
+    {
+        closeTabFlows(container);
+        container.tabs.show(launch.selected);
+        if (launch.depth == 0)
+        {
+            return;
+        }
+        when (launch.flow)
+        {
+            "itemDetail" -> container.itemDetailFlow.open(listOf(ItemDetailRoute.Item, ItemDetailRoute.ItemMore).take(launch.depth))
+            "profile" -> container.profileFlow.open(listOf(ProfileRoute.ProfileSummary, ProfileRoute.ProfileDetails).take(launch.depth))
+        };
+    }
+
+    /**
+     * How deep the tab demo stands: every tab flow's depth added up, the receipt's number.
+     *
+     * The flows of both tabs, and not only the selected tab's: the sum is what the app can
+     * state without asking the tab host which tab is on show.
+     */
+    @Composable
+    fun tabDepth(container: AppContainer): Int =
+        container.itemDetailFlow.stack.collectAsState().value.size +
+            container.profileFlow.stack.collectAsState().value.size +
+            container.editProfileFlow.stack.collectAsState().value.size +
+            container.accountSheetFlow.stack.collectAsState().value.size
+
+    /** The container opens every flow on its start screen; the tab demo starts with none open. */
+    private fun closeTabFlows(container: AppContainer)
+    {
+        container.itemDetailFlow.close();
+        container.profileFlow.close();
+        container.editProfileFlow.close();
+        container.accountSheetFlow.close();
     }
 
     private fun closeAll(container: AppContainer)

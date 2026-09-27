@@ -34,7 +34,7 @@ A directory spec is every `.json` file directly inside it and every `.md` docume
 its `contracts/`, and the spec is their **union**. Each piece is read whole, by the one
 reader, with every rule on this page applied to it — a document with a broken block fails
 exactly as a broken spec file fails, and names its own path. Only then are the pieces put
-together, under four rules, all of which are refusals:
+together, under five rules, all of which are refusals:
 
 | Rule | Why it is a refusal and not a merge |
 | --- | --- |
@@ -42,6 +42,7 @@ together, under four rules, all of which are refusals:
 | A service method two pieces both declare names the same operation | A piece is read whole, so a document whose screen calls `deviceApproval.approve` has to declare that method — overlap is expected and disagreement is the one case a merge would have to choose in. |
 | A flow name is declared in exactly one piece | One flow lives in one place. Two documents describing one flow is two truths about what is on the phone. |
 | A screen name is declared in exactly one piece | A screen belongs to the flow it names, and its flow is in one document, so it is too. |
+| `tabs` is declared by at most one piece | The bar is one ordered list, and two lists joined in piece-name order would be an order nobody wrote (version 3). |
 
 Every one of those refusals names both paths, because a collision is a fact about two files
 and a message naming one of them sends the reader to the wrong document.
@@ -87,18 +88,19 @@ and moving it later is moving one object between two files.
 
 | Field | Type | Rule |
 | --- | --- | --- |
-| `specVersion` | integer | `1` or `2`. A spec written for a later generator is refused, never partially read. |
+| `specVersion` | integer | `1`, `2` or `3`. A spec written for a later generator is refused, never partially read. |
 | `contract.manifestSha256` | string | The sha256 of the contract bundle this spec was written against. |
 | `services` | object | One entry per service. The key is the service name, in lowerCamelCase and checked (refusal 15). |
 | `flows` | object | One entry per flow. The key is the flow name, under the same rule. |
 | `screens` | object | One entry per screen. The key is the screen name, under the same rule. |
+| `tabs` | array, optional, **version 3** | The bottom tab bar, in its order. See below. |
 
-Every one of the five keys is required. There is no default for any of them: a spec that
+Every one of the first five keys is required. There is no default for any of them: a spec that
 omitted `services` is not a spec with no services, it is a spec somebody did not finish.
 
-### The two versions
+### The versions
 
-One reader reads both, because they are the same spec. **Version 2 adds two keys and changes
+One reader reads all three, because they are the same spec. **Version 2 adds two keys and changes
 nothing else**: `screens.<s>.list`, which makes a read arrive a page at a time, and
 `screens.<s>.inputs.<i>.rules`, which says what a field is checked against. A version 1 file
 generates exactly the files it generated before — `:ui-codegen:spfnUiVerify` is the gate that
@@ -108,6 +110,45 @@ What the version buys is the refusal in the other direction. A `list` or a `rule
 into a file that says `"specVersion": 1` is refused by name (refusal 12), because it is a spec
 whose author expected a screen this generator would not have emitted — the quiet failure the
 whole of this page's strictness is against.
+
+**Version 3 adds one key**, the top-level `tabs`, and changes nothing else. Version 1 and 2
+files generate what they generated before; `tabs` in one of them is refused by name
+(refusal 16). The example directory is version 3 in every piece, because the pieces of one
+spec state one version.
+
+## `tabs` (version 3)
+
+```json
+"tabs": [
+  { "id": "home",    "title": "Home",    "root": "homeList",    "flows": ["itemDetail"] },
+  { "id": "account", "title": "Account", "root": "accountHome", "flows": ["profile", "editProfile", "accountSheet"] }
+]
+```
+
+The bottom tab bar an app's `TabHost` draws (docs/architecture/tab-host-design.md). An ARRAY
+and not an object like every other collection here, because its order means something: the
+bar's order, and the first is the start tab — the one a launch selects and the one Android's
+back on another tab's root returns to.
+
+| Field | Type | Rule |
+| --- | --- | --- |
+| `id` | string | The tab's id: `TabState`'s, the bar item's identifier `tab.<id>`, the readout `tab=<id>`. A spec name (refusal 15). |
+| `title` | string | The bar item's label, and the title of the tab's root screen. |
+| `root` | string | The name of the tab's ROOT view, which the generator writes itself. A spec name, and not the name of a screen or a flow. |
+| `flows` | array of flow names | The flows the root opens, one control each (`<root>.<flow>`), in this order. A `push` flow appends to the tab's own stack; a `modal` or a `sheet` covers the bar. |
+
+The root is not a screen because a screen belongs to a flow and stands on that flow's stack,
+and a tab's root is what the tab's navigation stands ON. So the generator writes it whole:
+the readouts `tab=`, `stack=` (the tab's flows' depths added up) and `scrollToTop=`, one
+control per flow, a field `<root>.note` for the keyboard rows, and rows enough to scroll,
+which scroll back to the top when the selected tab is pressed on its root. It lands in
+`AppTabs.kt` / `AppTabs.swift` beside the container, and the container gains a `tabs`
+`TabState` on the first tab. A flow a tab opens is the tab table's (`tabs-c<n>`, the design's
+§4 rows) and gets no showcase cell: the menu does not host it.
+
+`tabs` is declared by ONE piece of a directory spec, which declares the tabs' flows too — a
+piece is read whole, and a tab cannot name a flow its piece does not see. In the example that
+piece is `tabs.json`.
 
 ## `services`
 
@@ -384,7 +425,7 @@ control the loudest thing on its screen.
 
 An action with neither `call` nor `then` is refused: it is a control that does nothing.
 
-## The fifteen refusals
+## The sixteen refusals
 
 The generator fails, and generates nothing at all, when:
 
@@ -459,6 +500,13 @@ The generator fails, and generates nothing at all, when:
     case; `object` is not a Kotlin declaration), and two names `pascal` writes the same way —
     `long` and `Long` are one `LongModel.swift`, and the second one written wins silently.
     See **What a name may be** below.
+16. **A tab bar the generator cannot draw.** `tabs` in a spec whose `specVersion` is below 3;
+    `tabs` present and empty (omitting the key is how a spec has no bar); a tab id or a root
+    that is not a spec name, or that two tabs share; a root that is also a screen or a flow
+    (one name, two declarations); a flow a tab names that the spec does not declare; one flow
+    named by two tabs — one flow belongs to one tab, or its detail would stand on both tabs'
+    stacks at once, which `TabHost` refuses at run time too; a key a tab does not have; and a
+    second piece of a directory spec declaring `tabs`.
 
 ## What a name may be
 

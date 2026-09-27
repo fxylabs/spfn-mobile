@@ -187,7 +187,7 @@ class CaseTable(target: Target)
         appendLine("| --- | --- | --- | --- | --- | --- | --- |");
         manual.forEach { cell ->
             appendLine(
-                "| `${cell.id}` | `${spec.screenNamed(cell.screen).flow}` | `${cell.screen}` " +
+                "| `${cell.id}` | `${where(spec, cell.screen)}` | `${cell.screen}` " +
                     "| ${gesture(cell)} " +
                     "| ${cell.rule} (${cell.expect.joinToString(", ") { "`$it`" }}) |  |  |"
             );
@@ -196,6 +196,13 @@ class CaseTable(target: Target)
         appendLine("Where a cell has to be walked to before the gesture, the walk is a tap on the");
         appendLine("controls named in the table's JSON `steps` — the same ids a flow file would use.");
     }
+
+    /**
+     * The flow a cell's screen belongs to, or — for a tab's root, which is no flow's screen —
+     * the tab it is the root of.
+     */
+    private fun where(spec: Spec, screen: String): String =
+        spec.tabRooted(screen)?.let { "tab ${it.id}" } ?: spec.screenNamed(screen).flow
 
     /** The one thing a person does in a manual cell, out of its by-hand step. */
     private fun gesture(cell: Cell): String = cell.steps
@@ -300,6 +307,27 @@ class CaseTable(target: Target)
         is Step.SeeId -> buildString {
             appendLine("- assertVisible:");
             appendLine("    id: \"${step.id}\"");
+        }
+        is Step.NotSeeId -> buildString {
+            appendLine("- assertNotVisible:");
+            appendLine("    id: \"${step.id}\"");
+        }
+        is Step.SeeText -> buildString {
+            appendLine("- assertVisible:");
+            appendLine("    text: \"${step.pattern}\"");
+        }
+        // The steps of one platform, as `systemBack` writes its own pair: a `runFlow` that the
+        // other platform skips. The inner commands are indented under `commands:` whole, so a
+        // step that is itself a pair of `runFlow`s nests — the half for the other platform
+        // simply never runs.
+        is Step.On -> buildString {
+            appendLine("- runFlow:");
+            appendLine("    when:");
+            appendLine("      platform: ${step.platform}");
+            appendLine("    commands:");
+            step.steps.forEach { inner ->
+                render(inner).lines().filter { it.isNotEmpty() }.forEach { appendLine("      $it") };
+            };
         }
         // Both platforms, like `hideKeyboard` and unlike `back`, and a no-op when the
         // element is already on screen — which is why a screen that declares a body gets
@@ -451,6 +479,9 @@ class CaseTable(target: Target)
         Step.Return -> "return"
         Step.HideKeyboard -> "hideKeyboard"
         is Step.SeeId -> "see ${step.id}"
+        is Step.NotSeeId -> "notSee ${step.id}"
+        is Step.SeeText -> "see ${step.pattern}"
+        is Step.On -> "on ${step.platform}: " + step.steps.joinToString("; ") { describe(it) }
         is Step.ScrollTo -> "scrollTo ${step.id}"
         is Step.ScrollToReadout -> "scrollTo ${step.pattern}"
         Step.ScrollRows -> "scrollRows"

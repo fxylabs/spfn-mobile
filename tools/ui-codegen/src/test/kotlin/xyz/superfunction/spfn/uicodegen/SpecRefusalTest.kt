@@ -40,9 +40,13 @@ class SpecRefusalTest
     /** The one contract document of the example spec, which is the ninth flow. */
     private val contractDocument = "contracts/approveDevice.md"
 
-    /** Every piece of the spec, by its name inside the directory. */
+    /**
+     * Every piece of the spec, by its name inside the directory. `tabs.json` is the tab bar
+     * and the four flows its tabs open (docs/architecture/tab-host-design.md §9-2).
+     */
     private val specPieces: Map<String, String> = listOf(
         "device-approval.json",
+        "tabs.json",
         contractDocument
     ).associateWith { File(repoRoot, "$specPath/$it").readText(Charsets.UTF_8) }
 
@@ -601,7 +605,7 @@ class SpecRefusalTest
     fun `one character inside the block moves the digest and only the digest line`()
     {
         val spaced = specPieces.getValue(contractDocument)
-            .replaceFirst("\"specVersion\": 1", "\"specVersion\":  1");
+            .replaceFirst("\"specVersion\": 3", "\"specVersion\":  3");
         assertNotEquals("the block was not edited", specPieces.getValue(contractDocument), spaced);
 
         // One spec path, rewritten in place between the runs, for the reason above.
@@ -914,7 +918,7 @@ class SpecRefusalTest
         // The whole spec still has to be read before it is narrowed, so the count below is
         // the evidence that narrowing dropped something rather than that nothing was there.
         val whole = generate(repoRoot, specPath).keys.filter { it.startsWith("${target.swiftRoot}/Views/") };
-        assertEquals("the unnarrowed target lost views of its own", 14, whole.size);
+        assertEquals("the unnarrowed target lost views of its own", 20, whole.size);
     }
 
     /**
@@ -941,7 +945,7 @@ class SpecRefusalTest
     {
         val models = generate(repoRoot, specPath)
             .filterKeys { it.startsWith("${target.kotlinRoot}/screens/") && it.endsWith("Model.kt") };
-        assertEquals("the generator wrote no Kotlin screen models to read", 14, models.size);
+        assertEquals("the generator wrote no Kotlin screen models to read", 20, models.size);
 
         var wide = 0;
         var cancellation = 0;
@@ -995,8 +999,8 @@ class SpecRefusalTest
         val generated = generate(repoRoot, specPath);
         val kotlin = generated.filterKeys { it.startsWith("${target.kotlinRoot}/views/") };
         val swift = generated.filterKeys { it.startsWith("${target.swiftRoot}/Views/") };
-        assertEquals("the generator wrote no Kotlin views to read", 14, kotlin.size);
-        assertEquals("the generator wrote no Swift views to read", 14, swift.size);
+        assertEquals("the generator wrote no Kotlin views to read", 20, kotlin.size);
+        assertEquals("the generator wrote no Swift views to read", 20, swift.size);
 
         kotlin.forEach { (path, content) ->
             assertTrue(
@@ -1420,14 +1424,14 @@ class SpecRefusalTest
     fun `a specVersion this generator does not read is refused`()
     {
         assertRefused(
-            "version-three",
-            replaceOnce("\"specVersion\": 1", "\"specVersion\": 3"),
-            "specVersion is 3; this generator reads 1 and 2"
+            "version-four",
+            replaceOnce("\"specVersion\": 3", "\"specVersion\": 4"),
+            "specVersion is 4; this generator reads 1, 2 and 3"
         );
 
         assertRefused(
             "version-text",
-            replaceOnce("\"specVersion\": 1", "\"specVersion\": \"1\""),
+            replaceOnce("\"specVersion\": 3", "\"specVersion\": \"3\""),
             "specVersion is not a number"
         );
     }

@@ -29,6 +29,7 @@ generator, not by hand.
 | Form state | `Form` — `fields` (one `FieldError?` per field), `submit` (a `Busy`); `isValid`, `canSubmit`, and `check` `edited` `submitting` `submitted` `submitFailed` | same names |
 | Field rules | `FieldError` — `.required` `.minLength(n)` `.maxLength(n)` `.kind(k)` `.custom(message:)`; `FieldRules`; `FieldValidator`; `FieldKind` — `.code` `.text` `.email` `.number` | same names |
 | Flow | `Flow`, `FlowRoute`, `FlowHost`, `NavigationHost` | same names |
+| Tabs | `TabHost(state:tabs:)`, `TabItem(id:title:icon:selectedIcon:accessibilityLabel:root:)`, `TabState` — `tabs` `start` `selected`, `select(_:depth:)` `show(_:)` `back(depth:)` `handlesBack(depth:)` `scrollToTop(for:)`; `TabSelection` — `.switched` `.popToRoot` `.scrollToTop` `.ignored`; `TabScrollToTop` read from `@Environment(\.tabScrollToTop)` | `TabHost(state, tabs)`, `TabItem(…)`, `TabState` with `selected` a `StateFlow`, `TabSelection.Switched` …; `TabScrollToTop.current` |
 | Components | `Screen`, `PrimaryButton` `SecondaryButton` `DestructiveButton` `TextButton`, `SpfnText`, `SpfnTextField`, `StatusText`, `LoadableView`, `PagedView`, header icons — 11 | same names, and `WayOutButton` (Android only: a screen drawn with `ScreenHeader.None` draws the flow's back or close with it) |
 | Screen header | `Screen(title:leading:principal:trailing:scroll:)` — every header argument optional; the three items go into the system navigation bar as `ToolbarItem`s, the back is the system's | `Screen(title, leading, principal, trailing, header, scroll)` — the same three slots in the SDK's header; `header = ScreenHeader.None` draws none (Android only) |
 | Way out | `ScreenWayOut` — `wayOut`, `back()`, `close()`; read from `@Environment(\.screenWayOut)`, `ScreenWayOut.none` outside a `FlowHost` | `ScreenWayOut`, same names; read from `ScreenWayOut.current`, `ScreenWayOut.None` outside a `FlowHost` |
@@ -49,6 +50,7 @@ what a screen SHOWS, and a screen never shows a cursor.
 - Every control the contract lists carries `<screen>.<action>` as its accessibility identifier (iOS) / test tag (Android), spelled exactly as the contract does.
 - Every readout the contract lists is a `SpfnText` in the mono role with the text `<name>=<value>` — `stack=2`, `state=ready`, `fixture=none`. Runners wait on these; they are part of the contract.
 - Nothing else carries an identifier. An identifier a runner does not read is noise a reviewer has to explain.
+- A tab bar item carries `tab.<id>` on both platforms (`tab.home`, `tab.account`); the bar itself carries none. A tab's root in the example app reads `tab=<id>` and `stack=<n>` (docs/architecture/tab-host-design.md §3-7).
 - The flow's own way out carries `screen.close` on both platforms and `screen.back` on Android. The iOS back is the system navigation bar's button, which carries no SDK identifier: a runner finds it by its accessibility label, the title of the screen it goes back to or the platform's "Back", and the generated cells do exactly that.
 
 A `Paged` and a `Form` model **publish their readouts as strings** — `model.readouts` — and
@@ -111,8 +113,10 @@ The five defects the 3-stage device round found, and the rule that now covers ea
 ## 5. Pitfalls to read before writing a view
 
 From `IMPLEMENTATION-PITFALLS.md`, the ones a view author meets: P21 (touch targets), P25
-(controls below the fold leave the accessibility tree), P27 (SwiftUI ancestor gestures),
-P29 (hiding the navigation bar kills the edge swipe), P34, P36, P39. Check the trigger table
+(controls below the fold leave the accessibility tree; a tab root's bottom inset is the bar's),
+P27 (SwiftUI ancestor gestures), P29 (hiding the navigation bar kills the edge swipe; the tab
+bar is not hidden either), P33 (what is set inside a tab's root reaches that root only), P34,
+P36, P39. Check the trigger table
 there for anything else the change touches.
 
 ## 6. What "done" looks like

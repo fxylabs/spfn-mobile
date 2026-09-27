@@ -33,6 +33,8 @@ class KotlinEmitter(target: Target) : KotlinNames(target)
 
     private val failures = KotlinFailureEmitter(target);
 
+    private val tabs = KotlinTabsEmitter(target);
+
     // The container is the one emitter handed another: it builds every model, so it asks the
     // model emitter which of them take a validator rather than deriving that a second time.
     private val containers = KotlinContainerEmitter(target, models);
@@ -59,6 +61,10 @@ class KotlinEmitter(target: Target) : KotlinNames(target)
             }
         };
         files["$root/AppContainer.kt"] = containers.container(spec, bundle, inputs);
+        if (spec.tabs.isNotEmpty())
+        {
+            files["$root/AppTabs.kt"] = tabs.tabs(spec, inputs);
+        }
         return files;
     }
 

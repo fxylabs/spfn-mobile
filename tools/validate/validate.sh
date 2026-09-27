@@ -2217,6 +2217,12 @@ UI_FORM_NAMES='FieldValidator PagedView'
 # and a type only one platform declares is compared by nothing at all.
 UI_SCREEN_NAMES='ScreenWayOut'
 
+# The tab host (docs/architecture/tab-host-design.md §3), by name for the reason the host
+# vocabulary is: `TabHost` is a `View` on one platform and a `@Composable fun` on the other,
+# and `TabItem` and `TabScrollToTop` are values an app writes down. What they DO is compared
+# below as types — `TabState`'s transitions and `TabSelection`'s answers.
+UI_TAB_NAMES='TabHost TabItem TabState TabSelection TabScrollToTop'
+
 # The names ONE platform declares on purpose, and which one. The design gives Android two
 # things iOS does not have: `ScreenHeader`, because only the Compose header is the SDK's to
 # turn off — on iOS the bar is the system's — and `WayOutButton`, because a screen with no
@@ -2369,6 +2375,12 @@ then
     # is a rule only one platform can state.
     compare_ui_type FieldKind case entry
     compare_ui_declared_names 'the host vocabulary' "$UI_HOST_NAMES"
+    # The tab host's state is the fourth rule set written twice as plain code, and the one a
+    # bar press and a system back are decided by: a transition only one platform has is a
+    # press or a back only one platform answers.
+    compare_ui_declared_names 'the tab vocabulary' "$UI_TAB_NAMES"
+    compare_ui_type TabState func fun
+    compare_ui_type TabSelection case entry
     compare_ui_declared_names 'the paged and form vocabulary' "$UI_FORM_NAMES"
     # The screen's way out: its name on both, and its two acts compared as a type. Its
     # properties are not compared, and that is the two languages rather than the vocabulary:
@@ -2547,12 +2559,13 @@ do
 done < "$TMP/example-dismiss-files.txt"
 
 # The floor is above what EITHER app's generated Swift comes to on its own — the example is
-# 41 files across nine flows and the harness is 9 across the one it is narrowed to — so a
+# 58 files across thirteen flows and the harness is 9 across the one it is narrowed to — so a
 # scan pointed at one root instead of two fails here rather than reporting the half it read
 # as clean. It was 10 while the spec had one flow and both apps generated it; the showcase
 # made the example alone clear that number four times over, and the probe case that takes
-# the harness root away stopped biting until this moved with it.
-if [ "$EXAMPLE_DISMISS_SCANNED" -ge 50 ]
+# the harness root away stopped biting until this moved with it. It was 50 until the tab bar
+# took the example alone to 58, and moved to 60 for the same reason.
+if [ "$EXAMPLE_DISMISS_SCANNED" -ge 60 ]
 then
     pass "the generated dismiss scan read all $EXAMPLE_DISMISS_SCANNED generated Swift sources in both apps"
 else

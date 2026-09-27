@@ -9,6 +9,9 @@
 
 package xyz.superfunction.spfn.ui
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -181,6 +184,65 @@ class HostStackTest
         // Not a shortening at all, and therefore nothing to report.
         assertEquals(emptyMap<Any, Int>(), stack.shortened(4));
         assertEquals(emptyMap<Any, Int>(), stack.shortened(9));
+    }
+
+    @Test
+    fun shortened_toZero_dropsEveryOwner()
+    {
+        val first = Any();
+        val second = Any();
+
+        var stack = HostStack();
+        stack = stack.sync(first, listOf(Halt("a1")));
+        stack = stack.sync(second, listOf(Halt("b1"), Halt("b2")));
+        stack = stack.sync(first, listOf(Halt("a1"), Halt("a2")));
+
+        // What a tab's pop to its root is (docs/architecture/tab-host-design.md §3-4, C-13):
+        // the same cut a platform makes back to the host's root, so every flow on the stack
+        // is told every route it lost, and a pushed flow told to go back past its root closes.
+        assertEquals(mapOf(first to 2, second to 2), stack.shortened(0));
+    }
+
+    @Test
+    fun store_shorten_spendsOneBackPerLostRoutePerOwner()
+    {
+        // Unconfined, so a registration's collector syncs at once and the test reads the
+        // store the moment it returns: nothing here is about timing.
+        val store = HostStackStore(CoroutineScope(Dispatchers.Unconfined));
+        val first = Any();
+        val second = Any();
+        val firstRoutes = MutableStateFlow<List<Any>>(listOf(Halt("a1"), Halt("a2")));
+        val secondRoutes = MutableStateFlow<List<Any>>(listOf(Halt("b1")));
+        val backs = mutableMapOf(first to 0, second to 0);
+        store.register(first, firstRoutes, HostRegistration(screen = {}, back = { backs[first] = backs.getValue(first) + 1 }));
+        store.register(second, secondRoutes, HostRegistration(screen = {}, back = { backs[second] = backs.getValue(second) + 1 }));
+        assertEquals(3, store.depth);
+
+        store.shorten(0);
+
+        // The fakes do not move their stacks, so the store's list stands where it was: the
+        // flows are what shorten it, and this counts what each was TOLD.
+        assertEquals(mapOf(first to 2, second to 1), backs.toMap());
+    }
+
+    @Test
+    fun store_refusesAnOwnerItsClaimRefuses()
+    {
+        // One flow on two tabs' stores: the second store's claim says no, so the flow is
+        // neither registered there nor synced there (docs/architecture/tab-host-design.md §2-3).
+        val owners = TabOwners();
+        val home = HostStackStore(CoroutineScope(Dispatchers.Unconfined)) { owners.claim(it, "home") };
+        val account = HostStackStore(CoroutineScope(Dispatchers.Unconfined)) { owners.claim(it, "account") };
+        val flow = Any();
+        val routes = MutableStateFlow<List<Any>>(listOf(Halt("a1")));
+
+        home.register(flow, routes, HostRegistration(screen = {}, back = {}));
+        account.register(flow, routes, HostRegistration(screen = {}, back = {}));
+        account.sync(flow, routes.value);
+
+        assertEquals(1, home.depth);
+        assertEquals(0, account.depth);
+        assertEquals(emptyList<HostEntry>(), account.stack.value.entries);
     }
 
     @Test

@@ -50,6 +50,10 @@ internal class KotlinContainerEmitter(target: Target, private val models: Kotlin
             appendLine("import $pkg.services.${type(it.name, "Service")}");
         };
         appendLine("import xyz.superfunction.spfn.ui.Flow");
+        if (spec.tabs.isNotEmpty())
+        {
+            appendLine("import xyz.superfunction.spfn.ui.TabState");
+        }
         if (validated(spec, bundle).isNotEmpty())
         {
             appendLine("import xyz.superfunction.spfn.ui.FieldValidator");
@@ -65,6 +69,12 @@ internal class KotlinContainerEmitter(target: Target, private val models: Kotlin
             appendLine("    val ${flow.name}Flow: Flow<${route(flow)}> = ${type(flow.name, "Flow")}();");
             appendLine();
         };
+        if (spec.tabs.isNotEmpty())
+        {
+            appendLine("    /** The tab bar's state: which of the spec's tabs is selected, on the first. */");
+            appendLine("    val tabs: TabState = TabState(listOf(${spec.tabs.joinToString(", ") { "\"${it.id}\"" }}));");
+            appendLine();
+        }
         spec.screens.forEach { screen -> append(modelFactory(spec, screen, bundle)) };
         append(liveFactory(spec, bundle));
         appendLine("}");

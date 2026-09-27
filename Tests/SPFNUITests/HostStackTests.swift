@@ -210,6 +210,24 @@ final class HostStackTests: XCTestCase
         XCTAssertEqual(stack.shortened(to: 9), [:])
     }
 
+    func test_shortened_toZero_dropsEveryOwner()
+    {
+        let first = Owner()
+        let second = Owner()
+        let firstId = ObjectIdentifier(first)
+        let secondId = ObjectIdentifier(second)
+
+        var stack = HostStack()
+        stack = stack.sync(owner: firstId, routes: [Halt(name: "a1")])
+        stack = stack.sync(owner: secondId, routes: [Halt(name: "b1"), Halt(name: "b2")])
+        stack = stack.sync(owner: firstId, routes: [Halt(name: "a1"), Halt(name: "a2")])
+
+        // What a tab's pop to its root is (docs/architecture/tab-host-design.md §3-4, C-13):
+        // the same cut a platform makes back to the host's root, so every flow on the stack
+        // is told every route it lost, and a pushed flow told to go back past its root closes.
+        XCTAssertEqual(stack.shortened(to: 0), [firstId: 2, secondId: 2])
+    }
+
     func test_anEmptyStack_dropsNothingAndHasNoTopOwner()
     {
         let stack = HostStack()

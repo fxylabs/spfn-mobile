@@ -1,0 +1,58 @@
+# SPFN Mobile — example cell tabs-c16: C-16 — a modal opened inside a tab covers the whole screen, the bar included
+#
+# GENERATED FILE — DO NOT EDIT.
+#
+# generator:       spfn-ui-codegen 0.1.0-alpha.3
+# spec:            examples/ui-spec
+# specSha256:      0fbec833616cfb9717bb9d80a057d4069bae1f04d1c47d44f98d9becf08dce41
+# bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
+# contractVersion: 0.13.2
+#
+# Regenerate with: ./gradlew :ui-codegen:spfnGenerateUi
+# Verified by:     ./gradlew :ui-codegen:spfnUiVerify
+
+appId: ${APP_ID}
+name: tabs-c16
+---
+- launchApp:
+    clearState: true
+    arguments:
+      SPFN_UI_FIXTURE: "tabs-c16"
+
+# The app is up once a screen is drawing its stack readout. That the right FIXTURE
+# is installed is proven at the end instead, by the receipt's own name: an app that
+# never got the launch argument writes no receipt for this cell at all.
+#
+# This first wait is the long one. The FIRST launch after an install or a wipe draws
+# later than every launch after it, and a cold start that outran this wait is a
+# stall reported as a cell failure — cell u14 did exactly that on a wiped emulator
+# on 2026-09-02 and passed twice warm. Every later wait stays at 20000.
+- extendedWaitUntil:
+    visible:
+      text: "stack=.*"
+    timeout: 45000
+
+- tapOn:
+    id: "tab.account"
+
+- tapOn:
+    id: "accountHome.editProfile"
+
+- extendedWaitUntil:
+    visible:
+      text: "stack=1"
+    timeout: 20000
+
+- assertVisible:
+    text: "stack=1"
+
+# The assertions are made. What follows only leaves the flow closed, so the
+# receipt control on the app's root is reachable on both platforms.
+- tapOn:
+    id: "editName.done"
+
+- tapOn:
+    id: "example.receipt"
+
+- assertVisible:
+    text: "receipt=receipt-tabs-c16-.*"

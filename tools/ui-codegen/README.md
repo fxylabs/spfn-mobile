@@ -47,10 +47,12 @@ lists in `build.gradle.kts` and a third would be a third task there.
 Each target gets the same KINDS of file per platform, one per thing the spec declares: a
 service protocol and its default implementation per service, a route enum with its flow and
 flow host per flow, a model per screen plus a use case for each screen that asks for one,
-one shared screen failure, a view skeleton per screen a flow has not taken back, and the
-container. How many that is, is the spec's answer and not a constant: the example target
-generates 41 files per platform from nine flows, and the harness — narrowed to one flow —
-generates 9 (section 21 of `tools/validate/validate.sh` counts both).
+one shared screen failure, a view skeleton per screen a flow has not taken back, the
+container, and — for a spec with a tab bar (`tabs`, specVersion 3) — `AppTabs`, the
+`TabHost` and one generated root per tab. How many that is, is the spec's answer and not a
+constant: the example target generates 58 files per platform from thirteen flows, four of
+them the tab bar's, and the harness — narrowed to one flow, which drops the bar — generates 9
+(section 21 of `tools/validate/validate.sh` counts both).
 
 The view skeleton is the one file a flow can take back. A flow whose `views` are
 `authored` has its screens written by hand from its contract document, and this generator
