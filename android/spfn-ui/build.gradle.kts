@@ -76,8 +76,9 @@ dependencies {
     api(libs.androidx.compose.runtime)
     // The content lambda's routes are laid out by Navigation 3, which needs Compose UI;
     // it arrives transitively either way, and a module that compiles against a type
-    // declares the artifact it comes from.
-    implementation(libs.androidx.compose.ui)
+    // declares the artifact it comes from. `api` since `TabItem` takes a `Painter` for its
+    // icon: a public signature's type is a consumer's compile dependency.
+    api(libs.androidx.compose.ui)
     // `fillMaxSize` and `background`, which are what a Modal entry's cover is made of.
     // This module still holds no widget: nothing here draws a control, and the whole of
     // what foundation is used for is stated in FlowHost.kt's header.

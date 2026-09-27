@@ -227,11 +227,20 @@ public final class Flow<Route: FlowRoute>
 
 /// What this module refuses.
 ///
-/// One case, because there is one refusal: `Flow.open(at:)` will not open a flow on nothing.
-/// The Kotlin counterpart raises `IllegalArgumentException` for the same call, which is that
-/// platform's shape for the same event.
+/// `Flow.open(at:)` will not open a flow on nothing, and `TabState` will not stand on a tab
+/// list it cannot select from. The Kotlin counterpart raises `IllegalArgumentException` for
+/// the same calls, which is that platform's shape for the same event.
 public enum SPFNUIError: Error, Equatable, Sendable
 {
     /// `Flow.open(at:)` was given an empty stack.
     case emptyStack
+
+    /// `TabState` was given no tabs.
+    case noTabs
+
+    /// `TabState` was given this id twice.
+    case duplicateTab(String)
+
+    /// `TabState` was asked to select an id that is not one of its tabs.
+    case unknownTab(String)
 }

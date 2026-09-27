@@ -83,10 +83,22 @@ public struct NavigationHost<Root: View>: View
     /// The host's own stack and the flows registered against it. `@State` so it outlives
     /// every recomposition of the root, and `@Observable` so a flow appending to it is a
     /// reason for this view to redraw.
-    @State private var host = HostStackStore()
+    @State private var host: HostStackStore
 
     public init(@ViewBuilder root: @escaping () -> Root)
     {
+        self.init(store: HostStackStore(), root: root)
+    }
+
+    /// The same host, standing on a store somebody else keeps.
+    ///
+    /// `TabHost` is that somebody: it performs a tab's pop to the root through the store, and
+    /// it tells each tab's store which tab it is, so one flow cannot stand on two tabs' stacks
+    /// (docs/architecture/tab-host-design.md §2-3, §3-4). `State(initialValue:)` is read once,
+    /// on the first render, so the store handed over then is the one this host keeps.
+    init(store: HostStackStore, @ViewBuilder root: @escaping () -> Root)
+    {
+        self._host = State(initialValue: store)
         self.root = root
     }
 
@@ -161,21 +173,49 @@ final class HostStackStore
 
     private var registrations: [ObjectIdentifier: HostRegistration] = [:]
 
+    /// Whether this store may take a flow. Always, outside a `TabHost`; inside one, a flow
+    /// already registered with ANOTHER tab's store is refused, because one flow on two tabs'
+    /// stacks would put its detail on both at once (docs/architecture/tab-host-design.md §2-3).
+    private let claim: @MainActor (ObjectIdentifier) -> Bool
+
+    init(claim: @escaping @MainActor (ObjectIdentifier) -> Bool = { _ in true })
+    {
+        self.claim = claim
+    }
+
+    /// How many entries stand on this store's root: the depth `TabHost` asks `TabState` about.
+    var depth: Int
+    {
+        stack.entries.count
+    }
+
     /// Says how a flow's routes are drawn and what its back does. Re-registering is how a
-    /// flow keeps its chrome current, so this replaces rather than refuses.
+    /// flow keeps its chrome current, so this replaces rather than refuses — unless the flow
+    /// belongs to another tab, which is refused whole.
     func register(owner: ObjectIdentifier, registration: HostRegistration)
     {
+        guard claim(owner)
+        else
+        {
+            return
+        }
         registrations[owner] = registration
     }
 
     /// Takes one flow's stack as it now is. A closed flow syncs nothing, which is how its
-    /// entries leave the host's stack.
+    /// entries leave the host's stack. A flow this store refused syncs nothing either.
     func sync(owner: ObjectIdentifier, routes: [AnyHashable])
     {
+        guard registrations[owner] != nil
+        else
+        {
+            return
+        }
         stack = stack.sync(owner: owner, routes: routes)
     }
 
-    /// Tells every flow that lost routes to a platform pop how many it lost.
+    /// Tells every flow that lost routes to a platform pop how many it lost. A tab pressed
+    /// while it stands above its root is the same call with a count of zero (§3-4).
     ///
     /// The flows are what shorten the stack: each `back` moves that flow's own state, the
     /// flow publishes it, and the entries follow. Nothing here writes `stack` directly, for

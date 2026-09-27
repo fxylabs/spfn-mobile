@@ -53,6 +53,32 @@ class JavaVisibilityTest
     }
 
     @Test
+    fun `TabHost is erased from Java's view`()
+    {
+        val host = Class.forName("xyz.superfunction.spfn.ui.TabHostKt")
+            .declaredMethods
+            .filter { it.name == "TabHost" };
+        assertEquals(1, host.size);
+        assertTrue("TabHost must carry ACC_SYNTHETIC so Java cannot call it", host[0].isSynthetic);
+    }
+
+    @Test
+    fun `every TabState transition stays callable from Java`()
+    {
+        val callable = TabState::class.java.declaredMethods
+            .filter { Modifier.isPublic(it.modifiers) && !it.isSynthetic && !it.name.contains('$') }
+            .map { it.name }
+            .toSortedSet();
+        assertEquals(
+            sortedSetOf(
+                "back", "getSelected", "getStart", "getTabs", "handlesBack", "scrollToTop",
+                "select", "show"
+            ),
+            callable
+        );
+    }
+
+    @Test
     fun `the theme wrapper is erased from Java's view`()
     {
         val wrapper = Class.forName("xyz.superfunction.spfn.ui.tokens.SpfnThemeKt")

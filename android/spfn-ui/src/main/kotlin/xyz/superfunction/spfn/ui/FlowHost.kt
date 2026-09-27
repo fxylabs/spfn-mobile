@@ -104,10 +104,14 @@ public fun <R : FlowRoute> FlowHost(flow: Flow<R>, entry: FlowEntry, content: @C
 {
     val routes: List<R> = flow.stack.collectAsState().value;
     val host = LocalNavigationHost.current;
+    val tabs = LocalTabOverlays.current;
 
     when
     {
         entry is FlowEntry.Push && host != null -> Appended(host, flow, routes, content)
+        // Inside a TabHost a cover or a sheet is drawn by the TAB HOST, over its bar, rather
+        // than here over the tab root alone (docs/architecture/tab-host-design.md §2-3).
+        entry !is FlowEntry.Push && tabs != null -> OverTabs(tabs, flow, entry, content)
         entry is FlowEntry.Modal -> ModalCover(flow, routes, content)
         // Before the empty-stack line, and that order is the rule rather than a preference: a
         // sheet's stack is empty for the whole of its exit, and a branch reached by an empty
@@ -152,6 +156,45 @@ private fun <R : FlowRoute> Appended(
         // yet is corrected the moment it is drawn again. The collector inside the store is
         // what carries every change; this is the first one.
         host.sync(flow, routes);
+    };
+}
+
+/**
+ * A modal or a sheet inside a [TabHost]: nothing drawn here, and a registration left behind.
+ *
+ * A cover fills its PARENT, and here the parent is a tab's root — the part of the window
+ * above the bar. Drawn in place it would leave the bar showing and pressable under a modal,
+ * which iOS's `fullScreenCover` never does. So the presentation is handed to the tab host,
+ * whose overlay layer stands over the bar and fills the window, and this composable is only
+ * the anchor the registration is made from — the shape [Appended] has for a pushed flow.
+ *
+ * Registered once and followed from the tab host's scope, for the reason [NavigationHost]
+ * gives: a tab that is not selected is not composed, and a registration that left with it
+ * would take a cover that is up off the screen.
+ */
+@Composable
+private fun <R : FlowRoute> OverTabs(
+    tabs: TabOverlays,
+    flow: Flow<R>,
+    entry: FlowEntry,
+    content: @Composable (R) -> Unit
+)
+{
+    val draw: @Composable () -> Unit = { Presentation(flow, entry, content) };
+    SideEffect {
+        tabs.present(flow, flow.isPresented, draw);
+    };
+}
+
+/** What [OverTabs] registers: the flow's cover or sheet, following its stack by itself. */
+@Composable
+private fun <R : FlowRoute> Presentation(flow: Flow<R>, entry: FlowEntry, content: @Composable (R) -> Unit)
+{
+    val routes: List<R> = flow.stack.collectAsState().value;
+    when (entry)
+    {
+        is FlowEntry.Sheet -> SheetCover(flow, entry, routes, content)
+        else -> ModalCover(flow, routes, content)
     };
 }
 
