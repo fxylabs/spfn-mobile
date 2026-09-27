@@ -1,7 +1,8 @@
 // SPFN Mobile — the bottom tab container: one NavigationHost per tab, and a bar the SDK draws.
 //
-// Counterpart of Sources/SPFNUI/TabHost.swift: same names, same bar, same rules. The design
-// is docs/architecture/tab-host-design.md, and the three decisions this file is made of are
+// Counterpart of Sources/SPFNUI/TabHost.swift: same names, same rules, not the same bar — iOS
+// uses the system `TabView` and this bar is the SDK's (§2-1). The design is
+// docs/architecture/tab-host-design.md, and the three decisions this file is made of are
 // stated there at length; the short form is here so the code can be read against it.
 //
 // ---------------------------------------------------------------------------

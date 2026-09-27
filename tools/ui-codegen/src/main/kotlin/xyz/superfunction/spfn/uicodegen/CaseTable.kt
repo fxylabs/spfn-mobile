@@ -308,10 +308,9 @@ class CaseTable(target: Target)
             appendLine("- assertVisible:");
             appendLine("    id: \"${step.id}\"");
         }
-        is Step.NotSeeId -> buildString {
-            appendLine("- assertNotVisible:");
-            appendLine("    id: \"${step.id}\"");
-        }
+        is Step.TapTab -> tabItem("tapOn", step.id, step.label)
+        is Step.SeeTab -> tabItem("assertVisible", step.id, step.label)
+        is Step.NotSeeTab -> tabItem("assertNotVisible", step.id, step.label)
         is Step.SeeText -> buildString {
             appendLine("- assertVisible:");
             appendLine("    text: \"${step.pattern}\"");
@@ -464,6 +463,37 @@ class CaseTable(target: Target)
         appendLine("          duration: 600");
     }
 
+    /**
+     * One [command] aimed at the tab bar item of tab [id], found the way each platform's bar
+     * can be found.
+     *
+     * Android's bar is the SDK's, and its item carries the SDK's tag, `tab.<id>`. iOS's is the
+     * system `TabView`'s since the bar stopped being the SDK's (docs/architecture/
+     * tab-host-design.md §2-1), and a system tab button carries no identifier of the SDK's: it
+     * is found by its accessibility label, matched as TEXT. `below` the root's `stack=`
+     * readout, because the root's title in the navigation bar ABOVE the readouts is usually the
+     * same words, and a press that found the title would pass without pressing any tab. The
+     * readout is on every tab root, so the anchor is there whenever the bar is; on a pushed
+     * screen with no bar, an anchor that is missing too finds nothing, which is what a
+     * negative asks.
+     */
+    private fun tabItem(command: String, id: String, label: String): String = buildString {
+        appendLine("- runFlow:");
+        appendLine("    when:");
+        appendLine("      platform: Android");
+        appendLine("    commands:");
+        appendLine("      - $command:");
+        appendLine("          id: \"tab.$id\"");
+        appendLine("- runFlow:");
+        appendLine("    when:");
+        appendLine("      platform: iOS");
+        appendLine("    commands:");
+        appendLine("      - $command:");
+        appendLine("          text: \"${yamlText(label)}\"");
+        appendLine("          below:");
+        appendLine("            text: \"stack=.*\"");
+    }
+
     /** [text] inside a YAML double-quoted scalar, where a backslash and a quote are escapes. */
     private fun yamlText(text: String): String = text.replace("\\", "\\\\").replace("\"", "\\\"");
 
@@ -479,7 +509,9 @@ class CaseTable(target: Target)
         Step.Return -> "return"
         Step.HideKeyboard -> "hideKeyboard"
         is Step.SeeId -> "see ${step.id}"
-        is Step.NotSeeId -> "notSee ${step.id}"
+        is Step.TapTab -> "tapTab ${step.id}"
+        is Step.SeeTab -> "seeTab ${step.id}"
+        is Step.NotSeeTab -> "notSeeTab ${step.id}"
         is Step.SeeText -> "see ${step.pattern}"
         is Step.On -> "on ${step.platform}: " + step.steps.joinToString("; ") { describe(it) }
         is Step.ScrollTo -> "scrollTo ${step.id}"

@@ -35,8 +35,20 @@ name: tabs-c14
 - assertVisible:
     text: "tab=home"
 
-- tapOn:
-    id: "tab.home"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: "tab.home"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          text: "Home"
+          below:
+            text: "stack=.*"
 
 - assertVisible:
     text: "tab=home"

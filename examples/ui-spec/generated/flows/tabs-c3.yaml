@@ -1,4 +1,4 @@
-# SPFN Mobile — example cell tabs-c3: C-3 — a pushed detail slides in over the tab's root and its bar together: the bar's items are not on screen
+# SPFN Mobile — example cell tabs-c3: C-3 — a pushed detail hides the bar, covering it with the root on Android and hiding the system bar on iOS: the bar's items are not on screen
 #
 # GENERATED FILE — DO NOT EDIT.
 #
@@ -40,11 +40,35 @@ name: tabs-c3
       text: "stack=1"
     timeout: 20000
 
-- assertNotVisible:
-    id: "tab.home"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - assertNotVisible:
+          id: "tab.home"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - assertNotVisible:
+          text: "Home"
+          below:
+            text: "stack=.*"
 
-- assertNotVisible:
-    id: "tab.account"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - assertNotVisible:
+          id: "tab.account"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - assertNotVisible:
+          text: "Account"
+          below:
+            text: "stack=.*"
 
 - assertVisible:
     text: "stack=1"

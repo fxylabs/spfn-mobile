@@ -154,12 +154,28 @@ sealed interface Step
     data class SeeId(val id: String) : Step
 
     /**
-     * Asserts that NO control with this id is on screen.
+     * Presses the tab bar item of the tab [id], whose label is [label].
      *
-     * The tab cells' one negative: a pushed screen covers its tab's root and the bar with it,
-     * so the bar's items are not there to find (docs/architecture/tab-host-design.md C-3).
+     * The bar is a different thing on each platform (docs/architecture/tab-host-design.md
+     * §2-1). Android's is the SDK's and its items carry the test tag `tab.<id>`. iOS's is the
+     * system `TabView`'s, whose buttons carry no identifier of the SDK's and are found by
+     * their accessibility LABEL, matched as text — below the root's readouts, because the
+     * root's own title in the navigation bar above them is usually the same words. The label
+     * is a regular expression, as every text selector is, and the rules escape it.
      */
-    data class NotSeeId(val id: String) : Step
+    data class TapTab(val id: String, val label: String) : Step
+
+    /** Asserts that the tab bar item of the tab [id] is on screen, found as [TapTab] finds it. */
+    data class SeeTab(val id: String, val label: String) : Step
+
+    /**
+     * Asserts that the tab bar item of the tab [id] is NOT on screen.
+     *
+     * The tab cells' one negative: a pushed screen hides the bar — on Android by covering the
+     * root the bar belongs to, on iOS by the system's `.toolbar(.hidden, for: .tabBar)` — so
+     * its items are not there to find (docs/architecture/tab-host-design.md C-3).
+     */
+    data class NotSeeTab(val id: String, val label: String) : Step
 
     /** Asserts that a readout matching [pattern] is on screen, mid-cell. */
     data class SeeText(val pattern: String) : Step

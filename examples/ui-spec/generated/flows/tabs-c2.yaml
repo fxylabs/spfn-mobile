@@ -32,16 +32,40 @@ name: tabs-c2
       text: "stack=.*"
     timeout: 45000
 
-- tapOn:
-    id: "tab.home"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: "tab.home"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          text: "Home"
+          below:
+            text: "stack=.*"
 
 - extendedWaitUntil:
     visible:
       text: "stack=2"
     timeout: 20000
 
-- assertNotVisible:
-    id: "tab.home"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - assertNotVisible:
+          id: "tab.home"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - assertNotVisible:
+          text: "Home"
+          below:
+            text: "stack=.*"
 
 - assertVisible:
     text: "stack=2"

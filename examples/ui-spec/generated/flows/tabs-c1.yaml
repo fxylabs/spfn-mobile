@@ -32,11 +32,35 @@ name: tabs-c1
       text: "stack=.*"
     timeout: 45000
 
-- assertVisible:
-    id: "tab.account"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - assertVisible:
+          id: "tab.account"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - assertVisible:
+          text: "Account"
+          below:
+            text: "stack=.*"
 
-- tapOn:
-    id: "tab.account"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: "tab.account"
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn:
+          text: "Account"
+          below:
+            text: "stack=.*"
 
 - assertVisible:
     text: "tab=account"
