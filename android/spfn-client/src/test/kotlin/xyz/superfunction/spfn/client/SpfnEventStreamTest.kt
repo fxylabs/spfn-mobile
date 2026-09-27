@@ -18,6 +18,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import xyz.superfunction.spfn.core.SpfnCanonicalValue
+import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import kotlin.random.Random
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -25,20 +26,13 @@ class SpfnEventStreamTest
 {
     private val attached = SpfnEventSignal.Reread(SpfnRereadCause.Attached);
 
-    private class Fixture(scope: TestScope)
+    private class Fixture(scope: TestScope, keyIds: List<String> = emptyList())
     {
         val tokens = TokenServer();
         val streams = SpfnFakeStreamTransport();
-        private val session = SpfnSession(
-            transport = tokens,
-            keyProvider = ExecuteFixtures.syntheticProvider(),
-            baseUrl = "https://example.invalid",
-            clock = FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS),
-            nonceGenerator = ScriptedNonceGenerator(emptyList())
-        );
+        val keyLifecycle = signedInLifecycle(tokens, keyIds);
         val events = SpfnEventStream(
-            client = SpfnClient(tokens, session),
-            session = session,
+            keyLifecycle = keyLifecycle,
             configuration = SpfnEventStreamConfiguration(events = listOf("sessionUnread", "sessionActivity")),
             transport = streams,
             scope = scope.backgroundScope,
@@ -210,6 +204,94 @@ class SpfnEventStreamTest
         assertTrue(fixture.streams.requests.single().url.endsWith("&events=sessionActivity,sessionUnread"));
         assertEquals(SpfnEventStreamState.Open(1), fixture.events.state.value);
     }
+
+    // ---- the token call signs with the key signed in at the moment of the call ----
+
+    /**
+     * E-41: a rotation leaves the open stream alone, and the next token call — here the
+     * reconnect after a drop — is signed by the new key, for the same account.
+     */
+    @Test
+    fun tokenCall_afterRotate_signsWithTheNewKey() = runTest {
+        val fixture = Fixture(this, keyIds = listOf("key-test-0002"));
+        fixture.tokens.routes[SpfnGeneratedOperations.authKeysRotate.path] = jsonResponse(200, "{\"keyId\":\"key-test-0002\",\"success\":true}");
+        val first = fixture.streams.enqueue();
+        open(fixture, first);
+        assertEquals(listOf("client-test-0001", "key-test-0001"), signer(fixture.tokens.tokenRequests.last()));
+
+        fixture.keyLifecycle.rotate();
+        runCurrent();
+        assertEquals("a rotation does not touch the connection", SpfnEventStreamState.Open(1), fixture.events.state.value);
+        fixture.streams.enqueue();
+        first.fail();
+        runCurrent();
+        advanceTimeBy(1_001);
+        runCurrent();
+        assertEquals(2, fixture.streams.requests.size);
+        assertEquals(2, fixture.tokens.tokenRequests.size);
+        assertEquals(listOf("client-test-0001", "key-test-0002"), signer(fixture.tokens.tokenRequests.last()));
+    }
+
+    /**
+     * E-43: another account's key is enrolled while the stream is open for the first; the
+     * token call that follows `setSignedIn(other)` signs as the other account.
+     */
+    @Test
+    fun tokenCall_afterSignedInAsOther_signsAsTheOtherAccount() = runTest {
+        val fixture = Fixture(this, keyIds = listOf("key-test-0002"));
+        fixture.tokens.routes["/_auth/oauth/google/native"] =
+            jsonResponse(200, "{\"mfaRequired\":false,\"isNewUser\":false,\"keyId\":\"key-test-0002\",\"userId\":\"client-test-0002\"}");
+        val first = fixture.streams.enqueue();
+        open(fixture, first);
+
+        fixture.keyLifecycle.wipe();
+        fixture.keyLifecycle.enroll(provider = "google") { "id-token-test" };
+        fixture.streams.enqueue();
+        fixture.events.setSignedIn("client-test-0002");
+        runCurrent();
+        assertTrue(first.cancelled);
+        assertEquals(2, fixture.streams.requests.size);
+        assertEquals(2, fixture.tokens.tokenRequests.size);
+        assertEquals(listOf("client-test-0002", "key-test-0002"), signer(fixture.tokens.tokenRequests.last()));
+    }
+
+    /**
+     * E-40: after a wipe nothing is sent. The sign-out the host passes on leaves the stream
+     * idle; a sign-in input with no key behind it sends nothing either.
+     */
+    @Test
+    fun afterWipe_noTokenCall_idleSignedOut() = runTest {
+        val fixture = Fixture(this);
+        val first = fixture.streams.enqueue();
+        open(fixture, first);
+        val sentBefore = fixture.tokens.requests.size;
+
+        fixture.keyLifecycle.wipe();
+        fixture.events.setSignedIn(fixture.keyLifecycle.signedInClientId.value);
+        runCurrent();
+        assertTrue(first.cancelled);
+        assertEquals(SpfnEventStreamState.Idle(SpfnIdleReason.SIGNED_OUT), fixture.events.state.value);
+
+        fixture.events.setSignedIn("client-test-0001");
+        runCurrent();
+        assertEquals(SpfnEventStreamState.Closed(SpfnCloseReason.Unauthorized), fixture.events.state.value);
+        assertEquals("no handshake and no token call without a key", sentBefore, fixture.tokens.requests.size);
+        assertEquals(1, fixture.streams.requests.size);
+    }
+
+    private fun TestScope.open(fixture: Fixture, connection: SpfnFakeStreamTransport.FakeStream)
+    {
+        fixture.events.setSignedIn("client-test-0001");
+        fixture.events.setForeground(true);
+        runCurrent();
+        connection.send(ServerFrames.CONNECTED);
+        runCurrent();
+        assertEquals(SpfnEventStreamState.Open(1), fixture.events.state.value);
+    }
+
+    /** The client id and key id a signed request names. */
+    private fun signer(request: SpfnTransportRequest): List<String?> =
+        listOf(SpfnWireHeaders.CLIENT_ID, SpfnWireHeaders.KEY_ID).map { name -> request.headers.firstOrNull { it.first == name }?.second };
 
     @Test
     fun token_neverPrinted() = runTest {

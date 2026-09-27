@@ -835,11 +835,20 @@ above rather than inside them:
 
 | Piece | Where | What it reuses |
 | --- | --- | --- |
-| the one-use token | `POST <tokenPath>`, an `SPFNOperation` built from the configured path | `execute` — signed, one re-handshake, `PROOF_EXPIRED` re-anchoring; no second request path |
+| the one-use token | `POST <tokenPath>`, an `SPFNOperation` built from the configured path | `execute` — signed, one re-handshake, `PROOF_EXPIRED` re-anchoring; no second request path. Signed with `SPFNKeyLifecycle.signedInClient()`, the key signed in at the moment of the call |
 | the stream | `GET <streamPath>?token=…&events=…` over `SPFNStreamTransport` / `SpfnStreamTransport` | a second, streaming transport boundary with the same four errors, the same hardening (no cookie, no cache, no redirect, no library retry) and no deadline after the headers |
 | the decisions | `SPFNEventStreamMachine` / `SpfnEventStreamMachine` | nothing: a pure `(state, input) -> (state, effects)` table, E-1…E-56, unit-tested on Linux and the JVM |
 | the listeners | the listener hub | nothing: per-listener decode → condition → queue, L-1…L-18 |
 | the lifecycle | `SPFNEvents` / `spfn-events` | the platform: scene phase or `ProcessLifecycleOwner`, `SPFNKeyLifecycle.signedInClientID(s)`, `NWPathMonitor` or `ConnectivityManager` |
+
+The stream is built from the key lifecycle the app already has —
+`SPFNEventStream(keyLifecycle:configuration:)` / `SpfnEventStream(keyLifecycle, configuration,
+scope = …)` — not from a session, because a session is bound to one key and the stream lives
+across every sign-in. Each token call asks the lifecycle for a client over the key in the
+active slot at that moment: the same client while the key is the same, the new key's after a
+rotation (E-41), the other account's after it enrols (E-43), and none after `wipe()`, when
+nothing is sent (E-40). The stream GET goes to the lifecycle's `baseURL`, where that token
+was minted.
 
 A connection exists only while the app is in the foreground and somebody is signed in.
 The events module observes those three facts and hands them to the stream

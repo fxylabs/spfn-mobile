@@ -9,6 +9,7 @@
 import XCTest
 @testable import SPFNClient
 import SPFNCore
+import SPFNGenerated
 
 final class SPFNEventStreamTests: XCTestCase
 {
@@ -158,6 +159,83 @@ final class SPFNEventStreamTests: XCTestCase
         XCTAssertEqual(fixture.streams.requests.count, 1)
         XCTAssertTrue(fixture.streams.requests.first?.url.hasSuffix("&events=sessionActivity,sessionUnread") ?? false)
         XCTAssertEqual(fixture.events.state, .open(epoch: 1))
+    }
+
+    // MARK: - The token call signs with the key signed in at the moment of the call
+
+    /// E-41: a rotation leaves the open stream alone, and the next token call — here the
+    /// reconnect after a drop — is signed by the new key, for the same account.
+    func test_tokenCall_afterRotate_signsWithTheNewKey() async throws
+    {
+        let fixture = try EventStreamFixture(keyIDs: ["key-test-0002"])
+        fixture.tokens.route(SPFNGeneratedOperations.authKeysRotate.path, .json(200, "{\"keyId\":\"key-test-0002\",\"success\":true}"))
+        let first = fixture.streams.enqueue()
+        let isOpen = await fixture.open(first)
+        XCTAssertTrue(isOpen)
+        XCTAssertEqual(Self.signer(of: fixture.tokens.tokenRequests.last), [SessionFixtureValues.clientID, "key-test-0001"])
+
+        _ = try await fixture.keyLifecycle.rotate()
+        XCTAssertEqual(fixture.events.state, .open(epoch: 1), "a rotation does not touch the connection")
+        fixture.streams.enqueue()
+        first.fail()
+        let retryHeld = await eventually { fixture.sleeper.pending.contains(1_000) }
+        XCTAssertTrue(retryHeld)
+        fixture.sleeper.fire(1_000)
+        let reconnected = await eventually { fixture.streams.requests.count == 2 }
+        XCTAssertTrue(reconnected)
+        XCTAssertEqual(fixture.tokens.tokenRequests.count, 2)
+        XCTAssertEqual(Self.signer(of: fixture.tokens.tokenRequests.last), [SessionFixtureValues.clientID, "key-test-0002"])
+    }
+
+    /// E-43: another account's key is enrolled while the stream is open for the first; the
+    /// token call that follows `setSignedIn(other)` signs as the other account.
+    func test_tokenCall_afterSignedInAsOther_signsAsTheOtherAccount() async throws
+    {
+        let fixture = try EventStreamFixture(keyIDs: ["key-test-0002"])
+        fixture.tokens.route(
+            "/_auth/oauth/google/native",
+            .json(200, "{\"mfaRequired\":false,\"isNewUser\":false,\"keyId\":\"key-test-0002\",\"userId\":\"client-test-0002\"}")
+        )
+        let first = fixture.streams.enqueue()
+        let isOpen = await fixture.open(first)
+        XCTAssertTrue(isOpen)
+
+        try await fixture.keyLifecycle.wipe()
+        _ = try await fixture.keyLifecycle.enroll(provider: "google") { _ in "id-token-test" }
+        fixture.streams.enqueue()
+        fixture.events.setSignedIn("client-test-0002")
+        let reconnected = await eventually { fixture.streams.requests.count == 2 && first.cancelled }
+        XCTAssertTrue(reconnected)
+        XCTAssertEqual(fixture.tokens.tokenRequests.count, 2)
+        XCTAssertEqual(Self.signer(of: fixture.tokens.tokenRequests.last), ["client-test-0002", "key-test-0002"])
+    }
+
+    /// E-40: after a wipe nothing is sent. The sign-out the attachment passes on leaves the
+    /// stream idle; a sign-in input with no key behind it sends nothing either.
+    func test_afterWipe_noTokenCall_idleSignedOut() async throws
+    {
+        let fixture = try EventStreamFixture()
+        let first = fixture.streams.enqueue()
+        let isOpen = await fixture.open(first)
+        XCTAssertTrue(isOpen)
+        let sentBefore = fixture.tokens.requests.count
+
+        try await fixture.keyLifecycle.wipe()
+        fixture.events.setSignedIn(await fixture.keyLifecycle.signedInClientID)
+        let signedOut = await eventually { fixture.events.state == .idle(.signedOut) && first.cancelled }
+        XCTAssertTrue(signedOut)
+
+        fixture.events.setSignedIn(SessionFixtureValues.clientID)
+        let refused = await eventually { fixture.events.state == .closed(.unauthorized) }
+        XCTAssertTrue(refused)
+        XCTAssertEqual(fixture.tokens.requests.count, sentBefore, "no handshake and no token call without a key")
+        XCTAssertEqual(fixture.streams.requests.count, 1)
+    }
+
+    /// The client id and key id a signed request names.
+    private static func signer(of request: SPFNTransportRequest?) -> [String?]
+    {
+        [SPFNWireHeaders.clientID, SPFNWireHeaders.keyID].map { name in request?.headers.first { $0.0 == name }?.1 }
     }
 
     func test_token_neverPrinted() async throws

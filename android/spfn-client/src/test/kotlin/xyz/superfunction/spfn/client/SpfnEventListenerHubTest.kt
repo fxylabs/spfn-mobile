@@ -57,16 +57,8 @@ class SpfnEventListenerHubTest
         val tokens = TokenServer();
         val streams = SpfnFakeStreamTransport();
         val connection = streams.enqueue();
-        private val session = SpfnSession(
-            transport = tokens,
-            keyProvider = ExecuteFixtures.syntheticProvider(),
-            baseUrl = "https://example.invalid",
-            clock = FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS),
-            nonceGenerator = ScriptedNonceGenerator(emptyList())
-        );
         val events = SpfnEventStream(
-            client = SpfnClient(tokens, session),
-            session = session,
+            keyLifecycle = signedInLifecycle(tokens),
             configuration = SpfnEventStreamConfiguration(events = listOf("sessionActivity", "sessionUnread")),
             transport = streams,
             scope = scope.backgroundScope,
@@ -323,9 +315,8 @@ class SpfnEventListenerHubTest
         val body = "{\"error\":\"Invalid event names\",\"invalidEvents\":[\"sessionUnread\"],\"validEvents\":[\"sessionActivity\"]}";
         val refusal = SpfnFakeStreamTransport();
         val tokens = TokenServer();
-        val session = SpfnSession(tokens, ExecuteFixtures.syntheticProvider(), "https://example.invalid", FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS), ScriptedNonceGenerator(emptyList()));
         val events = SpfnEventStream(
-            SpfnClient(tokens, session), session,
+            signedInLifecycle(tokens),
             SpfnEventStreamConfiguration(events = listOf("sessionActivity", "sessionUnread")),
             refusal, backgroundScope, jitter = { 1.0 }
         );

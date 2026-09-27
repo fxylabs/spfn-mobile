@@ -3,16 +3,19 @@
 // Counterpart of examples/android-compose/.../EventsDemo.kt.
 //
 // One SPFNEventStream over an in-app demo server, so the screen runs with no network at
-// all. The demo server answers the handshake and the token call behind the real `execute`,
-// then streams `connected` and a `sessionActivity` frame every 1.5 s, alternating two
+// all. The demo server answers the enrollment, the handshake and the token call behind the
+// real `execute`, then streams `connected` and a `sessionActivity` frame every 1.5 s, alternating two
 // workspaces; every fifth frame's payload is unreadable, so the dropped counter moves too.
 // The screen shows the design's readout: `stream=open(n)`, the frames, dropped, filtered and
 // reread counts, the last reread's cause, and a toggle that puts a condition on the listener.
 //
-// No `.spfnEventStream(_:keyLifecycle:)` here: the attachment observes a key lifecycle, and
-// this app enrols no key. The screen puts the stream in the environment itself and says it
-// is in the foreground while it is on screen, and a button stands in for sign-in — the
-// "client module only" wiring of §3-6.
+// The stream is built from the demo's key lifecycle and signs every token call with the key
+// signed in at that moment: "sign in" enrols a key against the demo server, "sign out"
+// wipes it. No `.spfnEventStream(_:keyLifecycle:)` here: the attachment follows the scene's
+// phase and this screen wants its own presence, so it does the attachment's jobs by hand —
+// it puts the stream in the environment, says it is in the foreground while it is on
+// screen, and passes the lifecycle's signed-in value on — the "client module only" wiring
+// of §3-6.
 
 import Foundation
 import SPFNClient
@@ -56,6 +59,14 @@ struct EventsDemo: View
                     demo.state = state
                 }
             }
+            .task
+            {
+                for await clientID in await demo.keyLifecycle.signedInClientIDs
+                {
+                    demo.signedIn = clientID != nil
+                    demo.stream.setSignedIn(clientID)
+                }
+            }
     }
 }
 
@@ -64,6 +75,7 @@ struct EventsDemo: View
 final class EventsDemoModel
 {
     let server = DemoEventServer()
+    let keyLifecycle: SPFNKeyLifecycle
     let stream: SPFNEventStream
     var state: SPFNEventStreamState = .idle(.signedOut)
     var frames = 0
@@ -74,19 +86,31 @@ final class EventsDemoModel
 
     init()
     {
-        // A literal https base URL and a literal event list: neither can be refused.
-        let session = try! SPFNSession(
+        keyLifecycle = SPFNKeyLifecycle(
             transport: server,
-            keyProvider: DemoKeyProvider(),
+            store: SPFNKeychainKeyStore(service: "xyz.superfunction.spfn.example.events-key"),
             baseURL: "https://events.example.invalid",
-            clock: DemoProofClock()
+            proofClock: DemoProofClock()
         )
+        // A literal event list: it cannot be refused.
         stream = SPFNEventStream(
-            client: SPFNClient(transport: server, session: session),
-            session: session,
+            keyLifecycle: keyLifecycle,
             configuration: try! SPFNEventStreamConfiguration(events: [SessionActivity.eventName]),
             transport: server
         )
+    }
+
+    /// Sign-in enrols a key against the demo server; sign-out wipes it.
+    func toggleSignIn() async
+    {
+        if signedIn
+        {
+            try? await keyLifecycle.wipe()
+        }
+        else
+        {
+            _ = try? await keyLifecycle.enroll(provider: "google") { _ in "demo-id-token" }
+        }
     }
 
     func receive(_ signal: SPFNEventSignal<SessionActivity>)
@@ -126,8 +150,7 @@ private struct EventsReadout: View
                     identifier: "events.signIn",
                     onTap:
                     {
-                        model.signedIn.toggle()
-                        model.stream.setSignedIn(model.signedIn ? "demo-client" : nil)
+                        Task { await model.toggleSignIn() }
                     }
                 )
                 PrimaryButton(title: "toggle condition", identifier: "events.condition", onTap: { model.onlyWorkspaceA.toggle() })
@@ -163,8 +186,8 @@ private struct EventsReadout: View
     }
 }
 
-/// The demo server: the handshake and the token behind `execute`, and a stream of frames.
-/// Nothing leaves the process; the URL is never dialled.
+/// The demo server: the enrollment, the handshake and the token behind `execute`, and a
+/// stream of frames. Nothing leaves the process; the URL is never dialled.
 final class DemoEventServer: SPFNTransport, SPFNStreamTransport, @unchecked Sendable
 {
     private let lock = NSLock()
@@ -186,6 +209,10 @@ final class DemoEventServer: SPFNTransport, SPFNStreamTransport, @unchecked Send
                 return minted
             }
             return Self.answer("{\"token\":\"demo-token-\(token)\"}")
+        }
+        if request.url.hasSuffix("/native")
+        {
+            return Self.answer(try Self.enrolled(request))
         }
         let expiry = Int64(Date().timeIntervalSince1970 * 1_000) + 300_000
         return Self.answer("{\"expiresAtMillis\":\(expiry),\"sessionId\":\"demo-session\"}")
@@ -232,6 +259,14 @@ final class DemoEventServer: SPFNTransport, SPFNStreamTransport, @unchecked Send
         return "{\"event\":\"sessionActivity\",\"data\":{\"sessionId\":\"s-\(sequence)\",\"wsId\":\"\(workspace)\"}}"
     }
 
+    /// Registers whichever key the enrollment names, for the demo account.
+    private static func enrolled(_ request: SPFNTransportRequest) throws -> String
+    {
+        let members = try SPFNDecoding.object(SPFNCanonicalJSON.parse(request.body ?? []), at: "$")
+        let keyID = try SPFNDecoding.string(members["keyId"], at: "$.keyId")
+        return "{\"mfaRequired\":false,\"isNewUser\":false,\"keyId\":\"\(keyID)\",\"userId\":\"demo-client\"}"
+    }
+
     private static func frame(_ name: String, _ data: String) -> [UInt8]
     {
         Array("event: \(name)\ndata: \(data)\n\n".utf8)
@@ -248,18 +283,6 @@ final class DemoEventServer: SPFNTransport, SPFNStreamTransport, @unchecked Send
             ],
             body: Array(body.utf8)
         )
-    }
-}
-
-/// Signs with zeros: the demo server reads no proof. Not a key, and nothing verifies it.
-struct DemoKeyProvider: SPFNKeyProvider
-{
-    let clientID = "demo-client"
-    let keyID = "demo-key"
-
-    func sign(_ message: [UInt8]) throws -> [UInt8]
-    {
-        [UInt8](repeating: 0, count: 64)
     }
 }
 

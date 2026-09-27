@@ -12,6 +12,10 @@
 // generation it was issued under. Every input is processed in order on the constructor's
 // scope, one at a time, so the machine's state is never touched concurrently.
 //
+// The token call is signed by the key signed in when it is made, not by one fixed at
+// construction: the object outlives every sign-in, rotation and account switch, and the
+// key lifecycle is the one place that knows which key that is (SpfnKeyLifecycle.signedInClient()).
+//
 // The token is never a field. It travels from the token call's result to the stream
 // request inside the two values between them, and it is printed as `redacted` (§6).
 //
@@ -35,6 +39,8 @@ import java.net.URLEncoder
 import kotlin.random.Random
 
 /**
+ * @param keyLifecycle whose signed-in key signs each token call, read again at every call
+ *   (E-41, E-43). The stream opens on its `baseUrl`.
  * @param scope where every input is processed and every effect runs. The app's scope, not
  *   a screen's: the stream outlives every screen.
  * @param sleeper the timers' clock: silence, retry and stable. Injected so a suite can
@@ -43,8 +49,7 @@ import kotlin.random.Random
  * @param jitter a factor in [0.5, 1.0] for each backoff delay.
  */
 class SpfnEventStream(
-    private val client: SpfnClient,
-    private val session: SpfnSession,
+    private val keyLifecycle: SpfnKeyLifecycle,
     val configuration: SpfnEventStreamConfiguration,
     private val transport: SpfnStreamTransport = SpfnOkHttpStreamTransport(),
     private val scope: CoroutineScope,
@@ -177,12 +182,19 @@ class SpfnEventStream(
     }
 
     /**
-     * The token call, through `execute`: signed, with its one re-handshake. Any failure is
-     * an input; a cancelled call's input carries a generation the machine has moved past.
+     * The token call, through `execute`: signed by the key signed in at this moment, with its
+     * one re-handshake. With nobody signed in nothing is sent, and the answer is the one an
+     * unsigned call would have met; the sign-out itself follows as `setSignedIn(null)`. Any
+     * failure is an input; a cancelled call's input carries a generation the machine has
+     * moved past.
      */
     private suspend fun mint(generation: Long): SpfnEventInput = try
     {
-        SpfnEventInput.TokenMinted(generation, client.execute(tokenCall(), Unit))
+        when (val client = keyLifecycle.signedInClient())
+        {
+            null -> SpfnEventInput.TokenFailed(generation, SpfnTokenFailure.Unauthorized)
+            else -> SpfnEventInput.TokenMinted(generation, client.execute(tokenCall(), Unit))
+        }
     }
     catch (failure: Exception)
     {
@@ -270,7 +282,7 @@ class SpfnEventStream(
     private fun streamRequest(names: List<String>, token: SpfnEventStreamToken): SpfnTransportRequest =
         SpfnTransportRequest(
             method = "GET",
-            url = session.baseUrl + configuration.streamPath +
+            url = keyLifecycle.baseUrl + configuration.streamPath +
                 "?token=" + encode(token.value) + "&events=" + names.joinToString(",") { encode(it) },
             // Not signed: the server reads only the token on this path, and a proof here
             // would be spent for nothing (§2-2). The identity headers ride as on every request.

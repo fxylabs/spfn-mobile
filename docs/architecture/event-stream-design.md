@@ -1,7 +1,7 @@
 # 설계 — 서버 이벤트 스트림 `EventStream`
 
 - 상태: 받아들여짐, 개정 3 (2026-09-27). 개정 2까지의 경과: 검토자가 §0–§3을 읽고 SSE(§2-1)와 설정된 경로로 만드는 토큰 호출(§2-2)을 받아들였다. 수명 분담(앱이 `start`/`suspend`/`resume`을 부르고 화면의 `subscribe`가 서버 쪽 이벤트 집합을 바꾸던 옛 §3-4·§3-5)은 거절되었고, 개정 1이 그 자리를 **SDK가 연결을 소유한다**로 바꾸었다. 개정 2는 개정 1의 답 셋을 적용한다: 수명 배선은 **새 작은 모듈** `SPFNEvents`/`spfn-events`가 갖고 `ui` 모듈은 코어에만 의존하는 채로 남는다 (Q-H), 거절로 닫힌 스트림은 앞쪽 복귀 때 다시 시도한다 (Q-I), 로그인 값은 `SPFNKeyLifecycle`의 읽기 전용 값이다 (Q-J). 그리고 요구 하나를 더한다: **청취자마다 데이터 조건**을 달고, SDK가 하나의 연결 위에서 청취자마다 거른다 (§2-5, §3-4, L-9–L-15). 개정 3 (2026-09-27, 구현과 함께): 검토자가 §10의 남은 질문을 모두 정했다. 표에 닿은 것은 셋이다 — 429의 `Retry-After`를 따른다 (Q-D, E-6·E-19, 새 셀 E-53–E-56), 서버가 모르는 이름이 있으면 닫지 않고 서버가 아는 이름만으로 다시 연결한다 (Q-F, E-16을 바꾸고 E-52·L-16–L-18을 더함), 이벤트 모듈은 `ui` 타입을 쓰지 않으므로 `ui` 간선을 뺀다 (Q-K, §3-7). 나머지(Q-C·Q-G·Q-L·Q-M)는 제안대로이고, Q-B는 닫혀 질문에서 뺐다 (§2-2: CSRF는 웹 프록시를 지나는 쿠키 요청만 지킨다). 구현은 `client/event-stream` 브랜치에 있다.
-- 대상: 클라이언트 모듈(`SPFNClient`, `spfn-client`)에 새로 들어갈 `SPFNEventStream`/`SpfnEventStream`, 그 상태 기계, 청취자 허브(조건 포함), SSE 줄 해석기, 스트림 전송 어댑터, 페이로드 서술 `SPFNEventPayload`/`SpfnEventPayload`. **새 모듈 `SPFNEvents`/`spfn-events`** (클라이언트 모듈에 의존. `ui` 간선은 Q-K로 뺐다)에 루트 부착, 세 관찰자, 화면 청취 API. `SPFNKeyLifecycle`/`SpfnKeyLifecycle`에 로그인 값을 내보내는 읽기 전용 멤버 하나. `SPFNSession`, 전송 계층, `ui` 모듈과 그 의존은 바뀌지 않는다. `SPFNClient.execute`는 한 곳만 바뀐다: 서버 거절 `SPFNServerFailure`/`SpfnServerFailure`가 응답의 `Retry-After` 헤더를 그대로 싣는다 (`retryAfter`, 기본 `nil`). `execute`는 그 값을 읽지 않는다 — 인증 거절 말고는 재시도하지 않는다는 규칙이 그대로다 (Q-D)
+- 대상: 클라이언트 모듈(`SPFNClient`, `spfn-client`)에 새로 들어갈 `SPFNEventStream`/`SpfnEventStream`, 그 상태 기계, 청취자 허브(조건 포함), SSE 줄 해석기, 스트림 전송 어댑터, 페이로드 서술 `SPFNEventPayload`/`SpfnEventPayload`. **새 모듈 `SPFNEvents`/`spfn-events`** (클라이언트 모듈에 의존. `ui` 간선은 Q-K로 뺐다)에 루트 부착, 세 관찰자, 화면 청취 API. `SPFNKeyLifecycle`/`SpfnKeyLifecycle`에 로그인 값을 내보내는 읽기 전용 멤버 하나, 토큰 호출이 서명할 클라이언트를 주는 `signedInClient()`, 공개된 `baseURL`/`baseUrl` (§3-1). `SPFNSession`, 전송 계층, `ui` 모듈과 그 의존은 바뀌지 않는다. `SPFNClient.execute`는 한 곳만 바뀐다: 서버 거절 `SPFNServerFailure`/`SpfnServerFailure`가 응답의 `Retry-After` 헤더를 그대로 싣는다 (`retryAfter`, 기본 `nil`). `execute`는 그 값을 읽지 않는다 — 인증 거절 말고는 재시도하지 않는다는 규칙이 그대로다 (Q-D)
 - 관련: [architecture README](README.md) "Three layers in the client module"·"The `ui` module"·"Three ways in", [custom-route-contract-design.md](custom-route-contract-design.md) §9 ("실시간은 계약이 담지 않는다"), [app-contract-codegen.md](app-contract-codegen.md), [tab-host-design.md](tab-host-design.md) (설계 문서의 모양), [IMPLEMENTATION-PITFALLS.md](../IMPLEMENTATION-PITFALLS.md) P40·P42, `tools/module-graph.json` (새 모듈의 줄, §3-7), SPFN 코어 이슈 fxylabs/spfn#111 ("describe the SSE event router in contracts/current.json", §7·§10), 서버 쪽 정본은 `@spfn/core` 패키지의 `src/event/README.md` ("SSE authentication (Token Exchange)", "Multi-instance broadcast", "Pitfalls & anti-patterns")
 
 ## 0. 요약
@@ -154,13 +154,15 @@
 | Swift | Kotlin |
 |---|---|
 | `SPFNEventStreamConfiguration(events: [String], streamPath: String = "/events/stream", tokenPath: String? = nil, pingIntervalMillis: Int64 = 10_000, backoff: SPFNEventStreamBackoff = .standard, deliveryBuffer: Int = 256) throws` | `SpfnEventStreamConfiguration(events: List<String>, streamPath: String = "/events/stream", tokenPath: String? = null, pingIntervalMillis: Long = 10_000, backoff: SpfnEventStreamBackoff = SpfnEventStreamBackoff.Standard, deliveryBuffer: Int = 256)` |
-| `SPFNEventStream(client: SPFNClient, session: SPFNSession, configuration: SPFNEventStreamConfiguration, transport: any SPFNStreamTransport = SPFNURLSessionStreamTransport())` | `SpfnEventStream(client: SpfnClient, session: SpfnSession, configuration: SpfnEventStreamConfiguration, transport: SpfnStreamTransport = SpfnOkHttpStreamTransport(), scope: CoroutineScope)` |
+| `SPFNEventStream(keyLifecycle: SPFNKeyLifecycle, configuration: SPFNEventStreamConfiguration, transport: any SPFNStreamTransport = SPFNURLSessionStreamTransport())` | `SpfnEventStream(keyLifecycle: SpfnKeyLifecycle, configuration: SpfnEventStreamConfiguration, transport: SpfnStreamTransport = SpfnOkHttpStreamTransport(), scope: CoroutineScope)` |
+| `SPFNKeyLifecycle.signedInClient() throws -> SPFNClient?`, `baseURL` | `SpfnKeyLifecycle.signedInClient(): SpfnClient?` (suspend), `baseUrl` |
 
 - **`events`는 앱이 이 스트림에서 받을 이름 전부다.** 서버 이벤트 라우터의 **키**다 (`defineEventRouter({ sessionActivity, … })`의 `sessionActivity`. `defineEvent('session.activity', …)`의 첫 인자는 선로에 나오지 않는다, §8 H-2). 정렬해 쉼표로 이은 것이 `events=` 쿼리다. 비었거나, 빈 문자열이나 쉼표를 담은 이름이 있으면 거부한다. 중복은 하나로 친다. 생성 뒤에 바뀌지 않는다: 바꾸는 API가 없다.
 - `tokenPath`가 `nil`이면 서버의 규칙으로 파생한다: `streamPath`의 마지막 `/` 뒤를 `token`으로 바꾼다. `/events/stream` → `/events/token`, `/sse` → `/token`. 경로는 `/`로 시작해야 하고, 쿼리를 담으면 거부한다.
 - 거부는 모두 생성 시각에: Swift `throws SPFNEventStreamError.invalidConfiguration(field)`, Kotlin `IllegalArgumentException`. 앱 합성 지점에서 한 번 일어나는 일이라 첫 실행에서 드러난다.
 - `pingIntervalMillis`는 **서버의** 핑 간격이다. SDK가 핑을 보내지 않는다. 침묵 감시는 이 값의 2.5배다. 서버가 `pingInterval`을 바꾸면 앱도 바꾼다.
-- 스트림 URL은 `session.baseURL + streamPath`다. `session`이 이미 https 또는 루프백 http만 받으므로 (D21) 스트림도 같은 규칙 아래에 있다. 새 검사가 없다.
+- **토큰 호출은 호출하는 순간 로그인한 키로 서명된다.** 스트림은 키 하나에 묶인 세션이 아니라 앱이 이미 가진 키 라이프사이클을 받고, 토큰 호출마다 `signedInClient()`에 묻는다. 라이프사이클은 활성 슬롯을 다시 읽어 그 키로 서명하는 `SPFNClient`를 준다: 키가 같으면 같은 클라이언트(세션과 핸드셰이크를 다시 쓴다), 회전 뒤에는 새 키의 클라이언트 (E-41), 다른 계정이 등록된 뒤에는 그 계정의 클라이언트 (E-43), `wipe()` 뒤에는 `nil`이고 그러면 아무것도 보내지 않는다 (토큰 실패 `unauthorized`로 읽고, 곧이어 오는 `setSignedIn(nil)`이 `idle(signedOut)`으로 만든다, E-40). 서명하는 길은 여전히 `execute` 하나다 — 라이프사이클 자신의 회전·등록 호출과 같은 조립이다. 앱 쪽 "활성 키 제공자"는 필요 없다.
+- 스트림 URL은 `keyLifecycle.baseURL + streamPath`다 (끝의 `/`는 뗀다). 스트림 GET은 늘 토큰 호출 뒤에 오고, 토큰 호출의 세션은 같은 URL로 만들어지며 https 또는 루프백 http만 받으므로 (D21) 스트림도 같은 규칙 아래에 있다. 새 검사가 없다.
 - `deliveryBuffer`는 **청취자 하나의** 큐 길이다 (§3-4).
 - `transport`는 스트림 전송이다. `SPFNTransport`(요청 하나, 응답 하나)와 다른 경계다 (§3-9).
 - 앱은 이 객체를 합성 지점에서 **하나** 만든다. 로그인·로그아웃을 지나도 같은 객체다 (계정은 입력이다, §3-3). 만들어진 객체는 `idle(signedOut)`에 있고 아무것도 보내지 않는다.
@@ -195,8 +197,7 @@
 struct ExampleApp: App
 {
     let events = try! SPFNEventStream(
-        client: client,
-        session: session,
+        keyLifecycle: keyLifecycle,
         configuration: .init(events: ["sessionActivity", "sessionUnread"])
     )
 
@@ -214,8 +215,7 @@ struct ExampleApp: App
 ```kotlin
 // Android — 액티비티의 setContent 안. 의존성 xyz.superfunction.spfn:spfn-events
 val events = SpfnEventStream(
-    client = client,
-    session = session,
+    keyLifecycle = keyLifecycle,
     configuration = SpfnEventStreamConfiguration(events = listOf("sessionActivity", "sessionUnread")),
     scope = applicationScope,
 );
@@ -574,7 +574,7 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 | E-38 | I(`background`) | `setForeground(true)` (A 있음) | T(1), Net 거짓이면 N(1) | 백오프 없이. 다음 `connected`에서 새 epoch → 청취자는 뒤에 가 있던 동안을 다시 읽는다 | 옛 `resume()` |
 | E-39 | I, X | 프레임, 타이머, 토큰·전송 결과 (늦게 도착) | 그대로 | 버린다. 모든 비동기 결과는 발급 번호를 달고 오고, 현재 번호가 아니면 버린다 | 옛: P에서 |
 | E-40 | S, O, R, N, X | `setSignedIn(nil)` (로그아웃) | I(`signedOut`) | 스트림 닫음, 타이머 끔. **SDK가 한다.** 열린 스트림은 토큰을 받은 주체의 프레임을 계속 받으므로 로그아웃과 함께 닫혀야 한다 (§8 H-4) | 옛: 앱의 `stop()` 의무 |
-| E-41 | O | 키 회전 (`SPFNKeyLifecycle.rotate()`) | O(e) | 아무 일도 없다. 클라이언트 id가 그대로라 `setSignedIn`이 오지 않는다. 스트림은 열린 순간의 주체에 묶이고, 키에 묶이지 않는다. 다음 토큰 호출은 새 키로 서명된다 | |
+| E-41 | O | 키 회전 (`SPFNKeyLifecycle.rotate()`) | O(e) | 아무 일도 없다. 클라이언트 id가 그대로라 `setSignedIn`이 오지 않는다. 스트림은 열린 순간의 주체에 묶이고, 키에 묶이지 않는다. 다음 토큰 호출은 새 키로 서명된다 (`signedInClient()`, §3-1) | |
 | E-42 | T | 세션 폐기 (`noteSessionRevoked`) 뒤 토큰 호출 | E-4 또는 T 성공 | `execute`의 재핸드셰이크가 처리한다. `noteSessionRevoked`는 `wipe()`이므로 곧이어 `setSignedIn(nil)`이 와서 E-10이 된다 | |
 | E-43 | T, S, O, R, N, X | `setSignedIn(다른 id)` | T(1), Net 거짓이면 N(1) | 스트림 닫음, 타이머 끔, 토큰 호출 취소. 새 계정의 토큰으로 연다. 다음 `connected`에서 새 epoch | 옛: 앱이 `stop()` 후 새 객체 |
 | E-44 | X | `setForeground(false)` | I(`background`) | `closed`에서 벗어나는 길 (Q-I, **받아들여짐**: 거절로 닫힌 스트림은 앞쪽 복귀 때 다시 시도한다). 앞쪽으로 돌아오면 E-38로 다시 시도한다. 사람이 앱을 오가는 빈도로만 재시도하므로 폭주하지 않는다. 서버를 고쳤거나 다시 배포했으면 여기서 회복한다 | 옛: X에서 `start()` |
@@ -658,7 +658,7 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 | 토큰은 기록되지 않는다 | 토큰 응답 타입(`SPFNEventStreamToken`)의 `description`/`toString()`은 `SPFNEventStreamToken(redacted)`. 토큰은 스트림 요청 하나를 만드는 동안만 지역 변수로 있고 필드에 저장되지 않는다 |
 | 토큰을 실은 URL은 기록되지 않는다 | 스트림 요청은 `SPFNTransportRequest`로 만든다. 그 `description`은 이미 URL을 싣지 않는다 ("a nonce can live in a query parameter"). 어댑터의 오류 문자열은 `URLError` 코드 숫자와 OkHttp 예외 타입 이름만 싣는다. `localizedDescription`은 URL을 담을 수 있으므로 쓰지 않는다. 상태의 `reason`에도 URL이 없다 |
 | 한 번 쓰고, 짧게 산다 | 서버의 사실 (30 s, `GETDEL`). SDK는 재연결마다 새로 받고, 받은 토큰을 다시 쓰지 않는다 (E-15의 재시도도 새 토큰) |
-| 전송은 TLS | 스트림 URL은 `session.baseURL`에서 온다. 세션이 만들어질 때 https 또는 루프백 http만 받는다 (D21, `SPFNSession.isTrusted`). 에뮬레이터의 `10.0.2.2`는 거부된다 — `adb reverse`로 루프백을 쓴다. 새 예외는 없다 |
+| 전송은 TLS | 스트림 URL은 `keyLifecycle.baseURL`에서 온다. 그 앞의 토큰 호출은 같은 URL로 만든 세션을 지나고, 세션은 만들어질 때 https 또는 루프백 http만 받는다 (D21, `SPFNSession.isTrusted`). 에뮬레이터의 `10.0.2.2`는 거부된다 — `adb reverse`로 루프백을 쓴다. 새 예외는 없다 |
 | 쿠키 없음, 리다이렉트 없음 | §3-9. 리다이렉트를 따르면 토큰을 실은 URL이 다른 호스트로 갈 수 있다 |
 | 페이로드는 기록되지 않는다 | 디코드 실패는 수만 센다 (E-24, L-11). 조건이 거른 프레임도 수만 센다 (L-10). 조건이 던진 예외(L-12)는 앱의 예외라 SDK가 감싸지도 메시지를 붙이지도 않는다. 이벤트 이름은 기록해도 된다 |
 | 조건은 권한이 아니다 | 청취자의 조건(§2-5)은 화면이 관심 있는 프레임을 고르는 편의다. 프레임을 누구에게 보낼지는 여전히 서버의 `filter`만 정한다. 조건은 기기 안에서 돌고 서버에 가지 않으므로, 앱이 조건으로 "다른 사람의 작업공간은 거른다"를 대신하면 안 된다 |
@@ -731,6 +731,9 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 | `configuration_rejectsEmptyEvents` | 빈 목록, 빈 이름, 쉼표 든 이름 거부. 중복은 하나로. 쿼리 순서는 정렬 (없앤 E-2의 자리) |
 | `foregroundTally` | (Swift, `SPFNEvents`의 툴킷 없는 파일) 장면 둘: 하나 `.background`, 하나 `.inactive` → 앞쪽. 둘 다 `.background` → 뒤쪽. 장면이 떠나면 센 것에서 빠진다 |
 | `keyLifecycle_signedInClientID` | `enroll` 뒤 저장된 id, `rotate` 뒤 같은 id(값을 내지 않는다), `wipe` 뒤 `nil`, `noteSessionRevoked` 뒤 `nil`. 쓰는 멤버가 없다 (읽기 전용) |
+| `tokenCall_afterRotate_signsWithTheNewKey` | (`SPFNEventStreamTests` / `SpfnEventStreamTest`, 진짜 라이프사이클) 열린 스트림은 `rotate()`에 그대로이고, 끊긴 뒤 다음 토큰 호출의 `x-spfn-key-id`가 새 키, `x-spfn-client-id`는 같은 계정 (E-41) |
+| `tokenCall_afterSignedInAsOther_signsAsTheOtherAccount` | 열린 채 `wipe()`와 다른 계정의 `enroll` 뒤 `setSignedIn(다른 id)`: 옛 스트림을 닫고, 새 토큰 호출이 다른 계정의 클라이언트 id와 키로 서명된다 (E-43) |
+| `afterWipe_noTokenCall_idleSignedOut` | `wipe()` 뒤 `setSignedIn(nil)`이면 `idle(signedOut)`. 키 없이 로그인 입력이 와도 핸드셰이크도 토큰 호출도 없고 `closed(unauthorized)` (E-40) |
 
 `SPFNSSELineParserTests` / `SpfnSseLineParserTest`: 조각 경계가 줄 가운데, `\r\n`, `\r`, 여러 `data:` 줄 이어 붙이기, 주석, 필드 이름만 있는 줄, 빈 `event`(기본 `message`), UTF-8 멀티바이트가 조각 경계에서 잘림, 끝에 빈 줄 없이 스트림이 끝남(마지막 이벤트는 버린다 — SSE 규칙). 입력은 서버의 실제 모양을 고정한 픽스처 (`connected`, 이벤트, `ping`).
 

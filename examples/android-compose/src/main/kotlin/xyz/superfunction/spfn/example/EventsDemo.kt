@@ -3,21 +3,24 @@
 // Counterpart of examples/ios-swiftui/Sources/EventsDemo.swift.
 //
 // One SpfnEventStream over an in-app demo server, so the screen runs with no network at all
-// (the app's manifest has no INTERNET permission). The demo server answers the handshake
-// and the token call behind the real `execute`, then streams `connected` and a
+// (the app's manifest has no INTERNET permission). The demo server answers the enrollment,
+// the handshake and the token call behind the real `execute`, then streams `connected` and a
 // `sessionActivity` frame every 1.5 s, alternating two workspaces; every fifth frame's
 // payload is unreadable, so the dropped counter moves too. What the screen shows is the
 // design's readout: `stream=open(n)`, the frames, dropped, filtered and reread counts, the
 // last reread's cause, and a toggle that puts a condition on the listener.
 //
-// No SpfnEventStreamHost here: the host observes a key lifecycle, and this app enrols no
-// key. The screen does the host's two remaining jobs by hand — it provides the stream and
-// says it is in the foreground while it is composed — and a button stands in for sign-in,
-// which is the "client module only" wiring of §3-6. Leaving the screen is leaving the
-// foreground; the stream idles and the next visit reads again on `opened`.
+// The stream is built from the demo's key lifecycle and signs every token call with the key
+// signed in at that moment: "sign in" enrols a Keystore key against the demo server, "sign
+// out" wipes it. No SpfnEventStreamHost here: the host follows the whole app's foreground and
+// this screen wants its own, so it does the host's jobs by hand — it provides the stream,
+// says it is in the foreground while it is composed, and passes the lifecycle's signed-in
+// value on — which is the "client module only" wiring of §3-6. Leaving the screen is leaving
+// the foreground; the stream idles and the next visit reads again on `opened`.
 
 package xyz.superfunction.spfn.example
 
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -33,26 +37,28 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
-import xyz.superfunction.spfn.client.SpfnClient
+import xyz.superfunction.spfn.client.SpfnAndroidKeystoreEngine
 import xyz.superfunction.spfn.client.SpfnEventPayload
 import xyz.superfunction.spfn.client.SpfnEventSignal
 import xyz.superfunction.spfn.client.SpfnEventStream
 import xyz.superfunction.spfn.client.SpfnEventStreamConfiguration
 import xyz.superfunction.spfn.client.SpfnEventStreamState
-import xyz.superfunction.spfn.client.SpfnKeyProvider
+import xyz.superfunction.spfn.client.SpfnKeyLifecycle
 import xyz.superfunction.spfn.client.SpfnProofClock
-import xyz.superfunction.spfn.client.SpfnSession
+import xyz.superfunction.spfn.client.SpfnSharedPreferencesKeyMetadataStore
 import xyz.superfunction.spfn.client.SpfnStreamResponse
 import xyz.superfunction.spfn.client.SpfnStreamTransport
 import xyz.superfunction.spfn.client.SpfnTransport
 import xyz.superfunction.spfn.client.SpfnTransportRequest
 import xyz.superfunction.spfn.client.SpfnTransportResponse
 import xyz.superfunction.spfn.client.SpfnWireHeaders
+import xyz.superfunction.spfn.core.SpfnCanonicalJson
 import xyz.superfunction.spfn.core.SpfnCanonicalValue
 import xyz.superfunction.spfn.events.LocalSpfnEventStream
 import xyz.superfunction.spfn.events.SpfnEventEffect
@@ -86,29 +92,36 @@ data class SessionActivity(val sessionId: String, val wsId: String)
 fun EventsDemo()
 {
     val scope = rememberCoroutineScope();
+    val context = LocalContext.current;
     val server = remember { DemoEventServer() };
-    val stream = remember { demoStream(server, scope) };
+    val keyLifecycle = remember { demoKeyLifecycle(server, context) };
+    val stream = remember { demoStream(keyLifecycle, server, scope) };
     DisposableEffect(stream)
     {
         stream.setForeground(true);
         onDispose { stream.setForeground(false) };
     };
+    LaunchedEffect(stream)
+    {
+        keyLifecycle.signedInClientId.collect { stream.setSignedIn(it) };
+    };
     CompositionLocalProvider(LocalSpfnEventStream provides stream)
     {
-        EventsReadout(stream, server);
+        EventsReadout(stream, keyLifecycle, server);
     };
 }
 
 @Composable
-private fun EventsReadout(stream: SpfnEventStream, server: DemoEventServer)
+private fun EventsReadout(stream: SpfnEventStream, keyLifecycle: SpfnKeyLifecycle, server: DemoEventServer)
 {
+    val scope = rememberCoroutineScope();
+    val signedInClientId by keyLifecycle.signedInClientId.collectAsState();
     val state by stream.state.collectAsState();
     val diagnostics by stream.diagnostics.collectAsState();
     var frames by remember { mutableIntStateOf(0) };
     var rereads by remember { mutableIntStateOf(0) };
     var lastCause by remember { mutableStateOf("none") };
     var onlyWorkspaceA by remember { mutableStateOf(false) };
-    var signedIn by remember { mutableStateOf(false) };
 
     SpfnEventEffect(SessionActivity, key = onlyWorkspaceA, where = { !onlyWorkspaceA || it.wsId == "w-a" })
     {
@@ -138,10 +151,9 @@ private fun EventsReadout(stream: SpfnEventStream, server: DemoEventServer)
             SpfnText(text = "filtered=${diagnostics.filteredFrames}", role = TextRole.Mono);
             SpfnText(text = "rereads=$rereads last=$lastCause", role = TextRole.Mono);
             SpfnText(text = "condition=${if (onlyWorkspaceA) "wsId == w-a" else "none"}", role = TextRole.Mono);
-            PrimaryButton(title = if (signedIn) "sign out" else "sign in", id = "events.signIn")
+            PrimaryButton(title = if (signedInClientId != null) "sign out" else "sign in", id = "events.signIn")
             {
-                signedIn = !signedIn;
-                stream.setSignedIn(if (signedIn) DEMO_CLIENT_ID else null);
+                scope.launch { runCatching { toggleSignIn(keyLifecycle) } };
             };
             PrimaryButton(title = "toggle condition", id = "events.condition") { onlyWorkspaceA = !onlyWorkspaceA };
             SecondaryButton(title = "drop connection", id = "events.drop") { server.dropConnection() };
@@ -160,26 +172,40 @@ private fun describe(state: SpfnEventStreamState): String = when (state)
     is SpfnEventStreamState.Closed -> "closed(${state.reason})"
 };
 
-private fun demoStream(server: DemoEventServer, scope: CoroutineScope): SpfnEventStream
+/** Sign-in enrols a key against the demo server; sign-out wipes it. */
+private suspend fun toggleSignIn(keyLifecycle: SpfnKeyLifecycle)
 {
-    val session = SpfnSession(
+    if (keyLifecycle.signedInClientId.value == null)
+    {
+        keyLifecycle.enroll(provider = "google") { "demo-id-token" };
+    }
+    else
+    {
+        keyLifecycle.wipe();
+    }
+}
+
+/** A real Keystore key under its own metadata name, enrolled against the demo server. */
+private fun demoKeyLifecycle(server: DemoEventServer, context: Context): SpfnKeyLifecycle =
+    SpfnKeyLifecycle(
         transport = server,
-        keyProvider = DemoKeyProvider,
+        store = SpfnSharedPreferencesKeyMetadataStore(context, name = "xyz.superfunction.spfn.example.events-key"),
+        engine = SpfnAndroidKeystoreEngine(),
         baseUrl = DEMO_BASE_URL,
-        clock = DemoProofClock
+        proofClock = DemoProofClock
     );
-    return SpfnEventStream(
-        client = SpfnClient(server, session),
-        session = session,
+
+private fun demoStream(keyLifecycle: SpfnKeyLifecycle, server: DemoEventServer, scope: CoroutineScope): SpfnEventStream =
+    SpfnEventStream(
+        keyLifecycle = keyLifecycle,
         configuration = SpfnEventStreamConfiguration(events = listOf(SessionActivity.eventName)),
         transport = server,
         scope = scope
     );
-}
 
 /**
- * The demo server: the handshake and the token behind `execute`, and a stream of frames.
- * Nothing leaves the process; the URL is never dialled.
+ * The demo server: the enrollment, the handshake and the token behind `execute`, and a
+ * stream of frames. Nothing leaves the process; the URL is never dialled.
  */
 private class DemoEventServer : SpfnTransport, SpfnStreamTransport
 {
@@ -191,15 +217,20 @@ private class DemoEventServer : SpfnTransport, SpfnStreamTransport
         drops.trySend(Unit);
     }
 
-    override suspend fun execute(request: SpfnTransportRequest): SpfnTransportResponse =
-        if (request.url.endsWith("/events/token"))
-        {
-            answer("{\"token\":\"demo-token-${++minted}\"}")
-        }
-        else
-        {
-            answer("{\"expiresAtMillis\":${System.currentTimeMillis() + 300_000},\"sessionId\":\"demo-session\"}")
-        };
+    override suspend fun execute(request: SpfnTransportRequest): SpfnTransportResponse = when
+    {
+        request.url.endsWith("/events/token") -> answer("{\"token\":\"demo-token-${++minted}\"}")
+        request.url.endsWith("/native") -> answer(enrolled(request))
+        else -> answer("{\"expiresAtMillis\":${System.currentTimeMillis() + 300_000},\"sessionId\":\"demo-session\"}")
+    };
+
+    /** Registers whichever key the enrollment names, for the demo account. */
+    private fun enrolled(request: SpfnTransportRequest): String
+    {
+        val members = (SpfnCanonicalJson.parse(request.body ?: ByteArray(0)) as SpfnCanonicalValue.Obj).members;
+        val keyId = (members["keyId"] as SpfnCanonicalValue.Text).value;
+        return "{\"mfaRequired\":false,\"isNewUser\":false,\"keyId\":\"$keyId\",\"userId\":\"$DEMO_CLIENT_ID\"}";
+    }
 
     override suspend fun open(request: SpfnTransportRequest): SpfnStreamResponse
     {
@@ -245,16 +276,6 @@ private class DemoEventServer : SpfnTransport, SpfnStreamTransport
             ),
             body = body.toByteArray(Charsets.UTF_8)
         );
-}
-
-/** Signs with zeros: the demo server reads no proof. Not a key, and nothing verifies it. */
-private object DemoKeyProvider : SpfnKeyProvider
-{
-    override val clientId: String = DEMO_CLIENT_ID
-
-    override val keyId: String = "demo-key"
-
-    override fun sign(message: ByteArray): ByteArray = ByteArray(64);
 }
 
 /** The device's own clock: there is no server time to anchor to. */

@@ -3,7 +3,8 @@
 // [SpfnFakeStreamTransport] is the stream boundary with a script: a test queues a response
 // (status, headers), then pushes chunks into it, ends it quietly or fails it. [TokenServer]
 // answers the token call behind `execute` — the handshake it needs first, then one token per
-// call — and records what it was sent. No socket anywhere (design §9-2).
+// call — and the key lifecycle's own calls from [TokenServer.routes], and records what it was
+// sent. [signedInLifecycle] is the install the stream signs with. No socket anywhere (design §9-2).
 //
 // EventStreamTestDoubles.swift is the counterpart.
 
@@ -82,10 +83,15 @@ class SpfnFakeStreamTransport : SpfnStreamTransport
 class TokenServer(private val tokenPath: String = "/events/token") : SpfnTransport
 {
     val tokenAnswers = ArrayDeque<SpfnTransportResponse>();
+
+    /** What any other path answers, by path suffix. */
+    val routes = mutableMapOf<String, SpfnTransportResponse>();
     private val recorded = mutableListOf<SpfnTransportRequest>();
     private var minted = 0;
 
-    val tokenRequests: List<SpfnTransportRequest> get() = synchronized(this) { recorded.filter { it.url.endsWith(tokenPath) } };
+    val requests: List<SpfnTransportRequest> get() = synchronized(this) { recorded.toList() };
+
+    val tokenRequests: List<SpfnTransportRequest> get() = requests.filter { it.url.endsWith(tokenPath) };
 
     override suspend fun execute(request: SpfnTransportRequest): SpfnTransportResponse
     {
@@ -99,9 +105,35 @@ class TokenServer(private val tokenPath: String = "/events/token") : SpfnTranspo
                 jsonResponse(200, SessionFixtureValues.HANDSHAKE_RESPONSE_BODY)
             scripted != null -> scripted
             request.url.endsWith(tokenPath) -> jsonResponse(200, "{\"token\":\"token-${synchronized(this) { ++minted }}\"}")
-            else -> jsonResponse(404, ExecuteFixtures.errorEnvelope("Error"))
+            else -> routes.entries.firstOrNull { request.url.endsWith(it.key) }?.value
+                ?: jsonResponse(404, ExecuteFixtures.errorEnvelope("Error"))
         };
     }
+}
+
+/**
+ * An install signed in as `client-test-0001` with `key-test-0001`, over [transport]; keys the
+ * lifecycle generates later are named by [keyIds], in order. The base URL ends in a slash,
+ * which the stream URL must not double.
+ */
+fun signedInLifecycle(transport: SpfnTransport, keyIds: List<String> = emptyList()): SpfnKeyLifecycle
+{
+    val store = InMemoryKeyMetadataStore();
+    val engine = FakeKeystoreEngine(hasStrongBox = false);
+    val clock = FakeClock(SessionFixtureValues.ISSUED_AT_MILLIS);
+    val key = SpfnKeystoreCustodyKey.generate("key-test-0001", engine);
+    store.save(SpfnKeyLifecycle.ACTIVE_SLOT, key.metadata(clientId = SessionFixtureValues.CLIENT_ID, createdAtMillis = clock.nowMillis()));
+    val remaining = keyIds.toMutableList();
+    return SpfnKeyLifecycle(
+        transport = transport,
+        store = store,
+        engine = engine,
+        baseUrl = "https://example.invalid/",
+        clock = clock,
+        proofClock = clock,
+        nonceGenerator = ScriptedNonceGenerator(emptyList()),
+        newKeyId = { remaining.removeFirstOrNull() ?: "key-unexpected" }
+    );
 }
 
 /** The SSE frames the server writes, spelled as `@spfn/core` 0.3.0-beta.13 spells them. */

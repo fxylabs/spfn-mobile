@@ -8,11 +8,13 @@ Entries under an unreleased heading describe repository state, not shipped softw
 ### The server event stream (additive, both platforms; new module `SPFNEvents` / `spfn-events`)
 
 - **New in the client module: `SPFNEventStream` / `SpfnEventStream`**, one SSE connection to
-  an SPFN server's `.events(router)` that the SDK owns. It is configured once (stream path,
-  a derived or explicit token path, the fixed list of event names) and handed three facts —
+  an SPFN server's `.events(router)` that the SDK owns. It is built from the app's key
+  lifecycle, configured once (stream path, a derived or explicit token path, the fixed list
+  of event names) and handed three facts —
   `setForeground`, `setSignedIn`, `setNetworkAvailable`; it connects only while the app is
   in the foreground and signed in. The one-use token is an `SPFNOperation` sent through
-  `execute` (signed, one re-handshake); the stream goes through a new streaming transport
+  `execute` (signed, one re-handshake) and signed by the key signed in at the moment of the
+  call, so one stream spans rotations and account switches; the stream goes through a new streaming transport
   boundary, `SPFNStreamTransport` / `SpfnStreamTransport`, with `URLSession`-delegate and
   OkHttp adapters and no new dependency (docs/architecture/event-stream-design.md).
 - Screens listen with `listen(_:where:)` / `listen(payload, where)` — by name and an optional
@@ -29,7 +31,9 @@ Entries under an unreleased heading describe repository state, not shipped softw
   the server's `validEvents`, and `open` carries the missing names as `unavailableEvents`.
 - `SPFNKeyLifecycle.signedInClientID` / `signedInClientIDs` and
   `SpfnKeyLifecycle.signedInClientId: StateFlow<String?>`: the stored client id, read-only,
-  moved only by `enroll…` and `wipe()`.
+  moved only by `enroll…` and `wipe()`. `signedInClient()`: a client over the key signed in
+  now, or `nil`/`null`, kept while the key stays the same; and a public `baseURL` / `baseUrl`
+  without its trailing slash.
 - **New module `SPFNEvents` / `xyz.superfunction.spfn:spfn-events`**, depending on the client
   module only: `.spfnEventStream(_:keyLifecycle:)` / `SpfnEventStreamHost` at the root
   (scene phase or `ProcessLifecycleOwner`, the key lifecycle, `NWPathMonitor` or

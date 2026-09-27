@@ -40,10 +40,10 @@ final class SPFNForegroundTallyTests: XCTestCase
 
     func test_sharedTally_isOnePerStream_andLeavesWithItsLastScene() throws
     {
-        let session = try SPFNSession(transport: NoTransport(), keyProvider: NoKey(), baseURL: "https://example.invalid")
+        let keyLifecycle = SPFNKeyLifecycle(transport: NoTransport(), store: NoKeys(), baseURL: "https://example.invalid")
         let configuration = try SPFNEventStreamConfiguration(events: ["a"])
-        let one = SPFNEventStream(client: SPFNClient(transport: NoTransport(), session: session), session: session, configuration: configuration)
-        let other = SPFNEventStream(client: SPFNClient(transport: NoTransport(), session: session), session: session, configuration: configuration)
+        let one = SPFNEventStream(keyLifecycle: keyLifecycle, configuration: configuration)
+        let other = SPFNEventStream(keyLifecycle: keyLifecycle, configuration: configuration)
         let scene = UUID()
 
         XCTAssertTrue(SPFNForegroundTally.shared(for: one) === SPFNForegroundTally.shared(for: one))
@@ -63,13 +63,15 @@ private struct NoTransport: SPFNTransport
     }
 }
 
-private struct NoKey: SPFNKeyProvider
+/// A store with nothing in it: nobody is signed in, and nothing is kept.
+private struct NoKeys: SPFNKeyStore
 {
-    let clientID = "client-test-0001"
-    let keyID = "key-test-0001"
-
-    func sign(_ message: [UInt8]) throws -> [UInt8]
+    func load(slot: String) throws -> SPFNStoredKey?
     {
-        throw SPFNTransportError.connectivity("no key in this suite")
+        nil
     }
+
+    func save(_ record: SPFNStoredKey, slot: String) throws {}
+
+    func delete(slot: String) throws {}
 }

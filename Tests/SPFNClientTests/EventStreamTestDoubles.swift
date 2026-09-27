@@ -102,12 +102,14 @@ final class SPFNFakeStreamTransport: SPFNStreamTransport, @unchecked Sendable
 }
 
 /// Answers the handshake the session opens first, then the token path with `token-1`,
-/// `token-2`, … — or with whatever `script` queues, in order, before falling back.
+/// `token-2`, … — or with whatever `script` queues, in order, before falling back. Any
+/// other path answers what `route` set for it: the key lifecycle's own calls.
 final class TokenServer: SPFNTransport, @unchecked Sendable
 {
     private let tokenPath: String
     private let lock = NSLock()
     private var scripted: [SPFNTransportResponse] = []
+    private var routes: [String: SPFNTransportResponse] = [:]
     private var recorded: [SPFNTransportRequest] = []
     private var minted = 0
 
@@ -116,14 +118,29 @@ final class TokenServer: SPFNTransport, @unchecked Sendable
         self.tokenPath = tokenPath
     }
 
+    var requests: [SPFNTransportRequest]
+    {
+        lock.withLock { recorded }
+    }
+
     var tokenRequests: [SPFNTransportRequest]
     {
-        lock.withLock { recorded.filter { $0.url.hasSuffix(tokenPath) } }
+        requests.filter { $0.url.hasSuffix(tokenPath) }
     }
 
     func script(_ response: SPFNTransportResponse)
     {
         lock.withLock { scripted.append(response) }
+    }
+
+    func route(_ path: String, _ response: SPFNTransportResponse)
+    {
+        lock.withLock { routes[path] = response }
+    }
+
+    private func routed(_ request: SPFNTransportRequest) -> SPFNTransportResponse?
+    {
+        lock.withLock { routes.first { request.url.hasSuffix($0.key) }?.value }
     }
 
     func execute(_ request: SPFNTransportRequest) async throws -> SPFNTransportResponse
@@ -151,6 +168,10 @@ final class TokenServer: SPFNTransport, @unchecked Sendable
         if request.url.hasSuffix(SPFNGeneratedOperations.authClientProofHandshake.path)
         {
             return .json(200, SessionFixtureValues.handshakeResponseBody)
+        }
+        if let routed = routed(request)
+        {
+            return routed
         }
         return .json(404, ExecuteFixtures.errorEnvelope(code: "Error"))
     }
@@ -308,26 +329,37 @@ struct Activity: SPFNEventPayload, Equatable
     }
 }
 
-/// A stream over the fakes with a real session and a real `execute` in front of the token.
+/// A stream over the fakes with a real key lifecycle, a real session and a real `execute` in
+/// front of the token. The install starts signed in as `client-test-0001` with
+/// `key-test-0001`; keys the lifecycle generates later are named by `keyIDs`, in order.
 struct EventStreamFixture
 {
     let tokens = TokenServer()
     let streams = SPFNFakeStreamTransport()
     let sleeper = ManualSleeper()
+    let store = InMemoryKeyStore()
+    let keyLifecycle: SPFNKeyLifecycle
     let events: SPFNEventStream
 
-    init(events names: [String] = ["sessionUnread", "sessionActivity"]) throws
+    init(events names: [String] = ["sessionUnread", "sessionActivity"], keyIDs: [String] = []) throws
     {
-        let session = try SPFNSession(
+        let clock = FakeClock(SessionFixtureValues.issuedAtMillis)
+        let key = SPFNCustodyKey.generate(keyID: "key-test-0001", preferSecureEnclave: false)
+        try store.save(key.record(clientID: SessionFixtureValues.clientID, createdAtMillis: clock.nowMillis()), slot: SPFNKeyLifecycle.activeSlot)
+        let queued = ScriptedQueue(keyIDs)
+        keyLifecycle = SPFNKeyLifecycle(
             transport: tokens,
-            keyProvider: ExecuteFixtures.syntheticProvider(),
-            baseURL: "https://example.invalid",
-            clock: FakeClock(SessionFixtureValues.issuedAtMillis),
-            nonceGenerator: ScriptedNonceGenerator([])
+            store: store,
+            // A trailing slash, which the stream URL must not double.
+            baseURL: "https://example.invalid/",
+            clock: clock,
+            proofClock: clock,
+            nonceGenerator: ScriptedNonceGenerator([]),
+            newKeyID: { queued.next() ?? "key-unexpected" },
+            makeKey: { SPFNCustodyKey.generate(keyID: $0, preferSecureEnclave: false) }
         )
         events = SPFNEventStream(
-            client: SPFNClient(transport: tokens, session: session),
-            session: session,
+            keyLifecycle: keyLifecycle,
             configuration: try SPFNEventStreamConfiguration(events: names),
             transport: streams,
             sleeper: sleeper,

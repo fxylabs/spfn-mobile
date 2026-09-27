@@ -16,6 +16,10 @@
 // starts; nothing the engine starts holds this object. When the app lets go of it, `deinit`
 // finishes the inbox, the loop ends and the engine cancels whatever is still running.
 //
+// The token call is signed by the key signed in when it is made, not by one fixed at
+// construction: the object outlives every sign-in, rotation and account switch, and the
+// key lifecycle is the one place that knows which key that is (SPFNKeyLifecycle.signedInClient()).
+//
 // The token is never a field. It travels from the token call's result to the stream
 // request inside the two values between them, and it describes itself as `redacted` (§6).
 //
@@ -32,13 +36,14 @@ public final class SPFNEventStream: Sendable
     private let inbox: AsyncStream<SPFNEventInput>.Continuation
 
     /// - Parameters:
+    ///   - keyLifecycle: whose signed-in key signs each token call, read again at every call
+    ///     (E-41, E-43). The stream opens on its `baseURL`.
     ///   - sleeper: the timers' clock — silence, retry and stable. Injected so a suite can
     ///     fire them without waiting.
     ///   - clock: wall time, read for a Retry-After given as an HTTP-date.
     ///   - jitter: a factor in [0.5, 1.0] for each backoff delay.
     public init(
-        client: SPFNClient,
-        session: SPFNSession,
+        keyLifecycle: SPFNKeyLifecycle,
         configuration: SPFNEventStreamConfiguration,
         transport: any SPFNStreamTransport = SPFNURLSessionStreamTransport(),
         sleeper: any SPFNSleeper = SPFNTaskSleeper(),
@@ -52,8 +57,8 @@ public final class SPFNEventStream: Sendable
         let engine = SPFNEventStreamEngine(
             machine: SPFNEventStreamMachine(configuration: configuration, jitter: jitter),
             services: SPFNEventStreamServices(
-                client: client,
-                baseURL: session.baseURL,
+                keyLifecycle: keyLifecycle,
+                baseURL: keyLifecycle.baseURL,
                 configuration: configuration,
                 transport: transport,
                 sleeper: sleeper,
@@ -167,18 +172,25 @@ struct SPFNEventStreamServices: Sendable
     static let streamHeadersTimeoutMillis: Int64 = 15_000
     static let refusalBodyLimit = 65_536
 
-    let client: SPFNClient
+    let keyLifecycle: SPFNKeyLifecycle
     let baseURL: String
     let configuration: SPFNEventStreamConfiguration
     let transport: any SPFNStreamTransport
     let sleeper: any SPFNSleeper
     let clock: any SPFNClock
 
-    /// The token call, through `execute`: signed, with its one re-handshake.
+    /// The token call, through `execute`: signed by the key signed in at this moment, with
+    /// its one re-handshake. With nobody signed in nothing is sent, and the answer is the
+    /// one an unsigned call would have met; the sign-out itself follows as `setSignedIn(nil)`.
     func mint(generation: Int64) async -> SPFNEventInput
     {
         do
         {
+            guard let client = try await keyLifecycle.signedInClient()
+            else
+            {
+                return .tokenFailed(generation: generation, failure: .unauthorized)
+            }
             return .tokenMinted(generation: generation, token: try await client.execute(tokenCall(), request: ()))
         }
         catch

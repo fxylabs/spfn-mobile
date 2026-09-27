@@ -457,7 +457,7 @@ public actor SPFNSession
         )
     }
 
-    private static func withoutTrailingSlash(_ url: String) -> String
+    static func withoutTrailingSlash(_ url: String) -> String
     {
         var trimmed = url
         while trimmed.hasSuffix("/")
