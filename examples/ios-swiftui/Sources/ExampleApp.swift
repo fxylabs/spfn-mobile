@@ -61,12 +61,20 @@ struct RootView: View
     /// menu's `menu.tabs` switches to it.
     @State private var showsTabs = false
 
+    /// Whether the events demo is drawn instead: a third top, left the way an app is left,
+    /// for the tab demo's reason (EventsDemo.swift).
+    @State private var showsEvents = false
+
     /// Two tops and not the tab demo inside the menu, because a `TabHost` is an app's top
     /// level: each tab is a `NavigationHost`, and a `NavigationStack` inside the menu's is a
     /// nesting SwiftUI does not support (docs/architecture/tab-host-design.md §2-3).
     var body: some View
     {
-        if showsTabs || launch.tabs
+        if showsEvents
+        {
+            EventsDemo()
+        }
+        else if showsTabs || launch.tabs
         {
             AppTabs(container: launch.container)
             {
@@ -184,6 +192,7 @@ struct RootView: View
                         showsTabs = true
                     }
                 )
+                PrimaryButton(title: "events", identifier: "menu.events", onTap: { showsEvents = true })
             }
             .padding(SPFNTokens.space4)
         }

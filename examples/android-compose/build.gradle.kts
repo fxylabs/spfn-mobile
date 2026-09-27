@@ -94,6 +94,8 @@ dependencies {
     implementation(project(":spfn-generated"))
     implementation(project(":spfn-client"))
     implementation(project(":spfn-ui"))
+    // The events screen (EventsDemo.kt): SpfnEventEffect and LocalSpfnEventStream.
+    implementation(project(":spfn-events"))
 
     implementation(libs.androidx.compose.runtime)
     implementation(libs.androidx.compose.ui)
