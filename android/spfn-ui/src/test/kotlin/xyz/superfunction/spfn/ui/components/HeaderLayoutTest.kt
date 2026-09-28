@@ -5,7 +5,8 @@
 // has no Compose UI test infrastructure, so a width decided inside the composable is a width
 // nothing on a JVM can read. Each case below is a kind of screen the header is drawn on,
 // asserted as the title's offset from the header's start edge at the default gutter: 16dp
-// with no leading slot, 16 + 48 + 16 = 80dp with one.
+// with no leading slot, and with one Material 3's small top app bar — the slot 4dp from the
+// edge, its mark centred at 28dp, the title at 4 + 48 + 4 = 56dp.
 //
 // What it does NOT prove is that `Header` spends these numbers the way their names say. That
 // is a measurement on a device; this suite holds the half a refactor breaks silently.
@@ -28,6 +29,8 @@ class HeaderLayoutTest
     {
         val layout = HeaderLayout.of(gutter, appLeading = false, wayOut = WayOut.None);
         assertNull(layout.leadingSlot);
+        assertNull(layout.leadingCentre);
+        assertEquals(gutter, layout.edgeStart);
         assertEquals(16.dp, layout.titleStart);
     }
 
@@ -36,7 +39,16 @@ class HeaderLayoutTest
     {
         val layout = HeaderLayout.of(gutter, appLeading = false, wayOut = WayOut.Back);
         assertEquals(Metrics.TOUCH_TARGET, layout.leadingSlot);
-        assertEquals(80.dp, layout.titleStart);
+        assertEquals(56.dp, layout.titleStart);
+    }
+
+    @Test
+    fun `a back stands where Material's navigation icon stands`()
+    {
+        val layout = HeaderLayout.of(gutter, appLeading = false, wayOut = WayOut.Back);
+        assertEquals(4.dp, layout.edgeStart);
+        assertEquals(28.dp, layout.leadingCentre);
+        assertEquals(gutter, layout.leadingCentre!! - Metrics.MARK_SIZE / 2);
     }
 
     @Test
@@ -46,8 +58,25 @@ class HeaderLayoutTest
         {
             val layout = HeaderLayout.of(gutter, appLeading = true, wayOut = wayOut);
             assertEquals(Metrics.TOUCH_TARGET, layout.leadingSlot);
-            assertEquals(80.dp, layout.titleStart);
+            assertEquals(28.dp, layout.leadingCentre);
+            assertEquals(56.dp, layout.titleStart);
         }
+    }
+
+    @Test
+    fun `a wider gutter moves the mark and the title by the same amount`()
+    {
+        val layout = HeaderLayout.of(24.dp, appLeading = false, wayOut = WayOut.Back);
+        assertEquals(36.dp, layout.leadingCentre);
+        assertEquals(24.dp + Metrics.MARK_SIZE + 24.dp, layout.titleStart);
+    }
+
+    @Test
+    fun `a gutter narrower than the mark's inset puts the slot at the edge`()
+    {
+        val layout = HeaderLayout.of(8.dp, appLeading = false, wayOut = WayOut.Back);
+        assertEquals(0.dp, layout.edgeStart);
+        assertEquals(Metrics.TOUCH_TARGET, layout.titleStart);
     }
 
     @Test

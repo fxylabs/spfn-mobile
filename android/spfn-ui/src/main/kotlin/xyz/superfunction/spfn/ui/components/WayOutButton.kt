@@ -7,9 +7,9 @@
 // The header's own two controls are drawn by the same two functions, so a screen with the
 // SDK's header and a screen with the app's show one control with one id.
 //
-// The size split is P21's: the mark is 20dp and the box around it is `Metrics.TOUCH_TARGET`
+// The size split is P21's: the mark is 24dp and the box around it is `Metrics.TOUCH_TARGET`
 // in BOTH directions, and the size constraints come before `clickable`, so the touch area is
-// the 48dp box rather than the 20dp mark Compose would then expand past its neighbours.
+// the 48dp box rather than the 24dp mark Compose would then expand past its neighbours.
 
 package xyz.superfunction.spfn.ui.components
 
@@ -28,7 +28,7 @@ import xyz.superfunction.spfn.ui.SpfnStrings
 import xyz.superfunction.spfn.ui.WayOut
 
 /**
- * The way out of the screen being composed: a back chevron, a close X, or nothing.
+ * The way out of the screen being composed: a back arrow, a close X, or nothing.
  *
  * Reads [ScreenWayOut.current], so it draws what the SDK's header would have drawn in the
  * same place — a back on a stack of two or more and on the root of a pushed flow, an X on the
@@ -64,7 +64,7 @@ internal fun BackControl(onClick: () -> Unit, modifier: Modifier = Modifier)
 {
     HeaderControl(label = SpfnStrings.controlBack, id = "screen.back", onClick = onClick, modifier = modifier)
     {
-        BackChevron();
+        BackArrow();
     }
 }
 
