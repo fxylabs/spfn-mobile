@@ -5,6 +5,19 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Android `Screen` header: an empty leading slot takes no width (Android only; public API unchanged)
+
+- The header's leading slot used to be laid out at 48dp whether or not it drew anything, so
+  the title of a flow root with no back, a sheet root and a tab root started 80dp from the
+  edge (gutter + 48dp + gutter). It is now laid out only when it draws something — the app's
+  `leading`, or the flow's back — and otherwise the title (or `principal` item) starts at the
+  header's 16dp gutter, which is where Material 3's top app bar puts its title with no
+  navigation icon. A screen with a back or an app item still gets the 48dp slot. The
+  decision is read from state before layout (`HeaderLayout`), never measured.
+- The trailing slot is unchanged: it keeps its 48dp minimum, so a sheet's X stays where it
+  was. The old rule that the centre stands in the same place on every screen of a flow is
+  withdrawn. iOS is untouched; its bar is the system's.
+
 ### The server event stream (additive, both platforms; new module `SPFNEvents` / `spfn-events`)
 
 - **New in the client module: `SPFNEventStream` / `SpfnEventStream`**, one SSE connection to

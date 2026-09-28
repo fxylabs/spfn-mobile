@@ -120,7 +120,10 @@ public enum class ScreenHeader
  * @param leading the header's left slot. Left out, the flow decides — a back chevron on a
  *   stack of two or more and on the root of a pushed flow, and nothing on the root of a flow
  *   presented over something (`Flow.wayOut`). A host app that passes one overrides that
- *   entirely.
+ *   entirely. When the slot draws nothing it takes no width and the title starts at the
+ *   header's gutter (`space4`, 16dp by default), as Material 3's top app bar does with no
+ *   navigation icon; with a back or an item it is a 48dp slot and the title starts a gutter
+ *   past it.
  * @param principal the header's centre, drawn instead of the title.
  * @param trailing the header's right slot. Left out, the flow decides — an X on the root of
  *   a modal or a sheet, and nothing anywhere else. A host app that passes one overrides that
@@ -186,12 +189,17 @@ private fun Extent.asHeight(): Modifier = when (this)
 /**
  * The header, and the only place the status bar inset is spent.
  *
- * The two outer slots are laid out at the minimum touch target whether or not they hold
- * anything, so the centre sits in the same place on every screen of a flow and a control that
- * appears does not move it (docs/IMPLEMENTATION-PITFALLS.md P21 is the other half of that
- * size: a control smaller than 48dp reports a rectangle its neighbour has already claimed).
- * The centre is the title or the app's principal item, and either takes all the width the two
- * slots leave — the same box, so a principal item moves nothing either.
+ * The leading slot is laid out only when something is drawn in it — the app's `leading`, or
+ * the flow's back — and then at the minimum touch target (docs/IMPLEMENTATION-PITFALLS.md P21:
+ * a control smaller than 48dp reports a rectangle its neighbour has already claimed). When it
+ * draws nothing it takes no width and the centre starts at the header's gutter, which is where
+ * Material 3's top app bar puts its title when it has no navigation icon
+ * (m3.material.io/components/top-app-bar/specs). Whether it draws is read from state before
+ * layout ([HeaderLayout]), never measured. The trailing slot keeps its minimum width either
+ * way, so an X stands in the same place on every screen that has one.
+ *
+ * The centre is the title or the app's principal item, and either takes all the width the
+ * slots leave — the same box, so a principal item starts where a title would.
  */
 @Composable
 private fun Header(
@@ -202,6 +210,7 @@ private fun Header(
 )
 {
     val gutter = LocalSpfnTheme.current.spacing.space4;
+    val layout = HeaderLayout.of(gutter, appLeading = leading != null, wayOut = ScreenWayOut.current.wayOut);
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -211,15 +220,21 @@ private fun Header(
         verticalAlignment = Alignment.CenterVertically
     )
     {
-        Box(modifier = Modifier.sizeIn(minWidth = Metrics.TOUCH_TARGET), contentAlignment = Alignment.CenterStart)
+        if (layout.leadingSlot != null)
         {
-            if (leading != null) leading() else FlowBack();
+            Box(modifier = Modifier.sizeIn(minWidth = layout.leadingSlot), contentAlignment = Alignment.CenterStart)
+            {
+                if (leading != null) leading() else FlowBack();
+            }
         }
-        Box(modifier = Modifier.weight(1f).padding(horizontal = gutter), contentAlignment = Alignment.CenterStart)
+        Box(
+            modifier = Modifier.weight(1f).padding(start = layout.centreStart, end = layout.centreEnd),
+            contentAlignment = Alignment.CenterStart
+        )
         {
             if (principal != null) principal() else SpfnText(text = title ?: "", role = TextRole.Title);
         }
-        Box(modifier = Modifier.sizeIn(minWidth = Metrics.TOUCH_TARGET), contentAlignment = Alignment.CenterEnd)
+        Box(modifier = Modifier.sizeIn(minWidth = layout.trailingSlot), contentAlignment = Alignment.CenterEnd)
         {
             if (trailing != null) trailing() else FlowClose();
         }
@@ -266,14 +281,15 @@ private fun ColumnScope.share(extent: Extent): Modifier = when (extent)
  * The header's LEFT slot when the app passed none: the flow's back, or nothing.
  *
  * The chrome arrives from `FlowHost`, which is the only thing that knows both how the flow
- * was entered and how deep it stands. A `Screen` composed outside a host reads the default
+ * was entered and how deep it stands. [HeaderLayout.drawsFlowBack] is the test, and `Header`
+ * asks it too, to decide before layout whether this slot takes any width. A `Screen` composed outside a host reads the default
  * — no control at all — rather than inventing one.
  */
 @Composable
 private fun FlowBack()
 {
     val wayOut = ScreenWayOut.current;
-    if (wayOut.wayOut == WayOut.Back)
+    if (HeaderLayout.drawsFlowBack(wayOut.wayOut))
     {
         BackControl(onClick = wayOut::back);
     }
