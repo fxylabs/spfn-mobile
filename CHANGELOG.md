@@ -5,6 +5,27 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Android header marks follow Material: the back is the arrow, the close Material's X, 24dp (Android only; public API unchanged)
+
+- The Android back mark was a stroked chevron — the iOS mark — at 20dp. It is now Material's
+  `arrow_back` (a shaft with an arrowhead), and the close is Material's `close`, both filled at
+  Material's 24dp icon size inside the unchanged 48dp touch target and tinted with the
+  palette's text colour. They are built from Material Icons' path data (Apache License 2.0)
+  with compose-ui's vector builder, so the module still depends on no Material artifact. The
+  back mirrors in a right-to-left layout; the close does not. `WayOutButton` draws the same
+  marks. Labels, the `screen.back` / `screen.close` ids and the touch target are unchanged.
+- A header's leading slot now stands where Material 3's small top app bar puts its navigation
+  icon: with the default 16dp gutter the slot starts 4dp from the edge, the mark is centred at
+  28dp (was 40dp) and the title starts at 56dp (was 80dp). An app's own `leading` item stands
+  in the same slot. A header with no leading slot is unchanged (title at 16dp). The tab bar's
+  icon size stays 20dp. iOS is untouched; its bar is the system's.
+- The trailing slot mirrors it, where Material puts its action icon: when it holds the flow's
+  close or the app's own `trailing` item, the slot ends 4dp from the edge, the mark is centred
+  28dp from it (was 40dp) and the title ends 56dp from it (was 80dp; Material's title may run
+  to its action's box, 52dp). An empty trailing slot is unchanged: the title ends 80dp from the
+  edge. A `trailing` row of several actions has only its outermost aligned to the gutter; an
+  item that draws nothing still counts as an item. `WayOutButton` outside a header is unchanged.
+
 ### Android `Screen` header: an empty leading slot takes no width (Android only; public API unchanged)
 
 - The header's leading slot used to be laid out at 48dp whether or not it drew anything, so
