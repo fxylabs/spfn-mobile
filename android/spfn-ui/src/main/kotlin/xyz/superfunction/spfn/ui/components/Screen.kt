@@ -96,7 +96,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import xyz.superfunction.spfn.ui.ScreenWayOut
-import xyz.superfunction.spfn.ui.WayOut
 import xyz.superfunction.spfn.ui.tokens.LocalSpfnTheme
 import xyz.superfunction.spfn.ui.tokens.spfnPalette
 
@@ -128,7 +127,11 @@ public enum class ScreenHeader
  * @param principal the header's centre, drawn instead of the title.
  * @param trailing the header's right slot. Left out, the flow decides — an X on the root of
  *   a modal or a sheet, and nothing anywhere else. A host app that passes one overrides that
- *   entirely, which is also how a screen suppresses the flow's own close.
+ *   entirely, which is also how a screen suppresses the flow's own close. With an X or an
+ *   item the 48dp slot stands where Material's action icon stands — its 24dp mark ending a
+ *   gutter from the edge, centred 28dp from it by default — and the title ends a gutter short
+ *   of the mark (56dp from the edge by default); an empty slot leaves the title ending 80dp
+ *   from the edge. Passing an item that draws nothing still counts as an item.
  * @param header whether the SDK's header is drawn at all. [ScreenHeader.None] draws none,
  *   leaves the status bar inset to the content, and ignores the four header parameters above.
  * @param scroll whether the body scrolls. A body that scrolls also gets out of the
@@ -198,7 +201,9 @@ private fun Extent.asHeight(): Modifier = when (this)
  * (m3.material.io/components/top-app-bar/specs). When it draws, it stands where that bar's
  * navigation icon stands: its mark at the gutter and the title a gutter past the mark. Whether it draws is read from state before
  * layout ([HeaderLayout]), never measured. The trailing slot keeps its minimum width either
- * way, so an X stands in the same place on every screen that has one.
+ * way; when it holds a control — the flow's X or the app's `trailing` — it stands where that
+ * bar's action icon stands, its mark ending at the gutter and the title a gutter short of the
+ * mark, so an X stands in the same place on every screen that has one.
  *
  * The centre is the title or the app's principal item, and either takes all the width the
  * slots leave — the same box, so a principal item starts where a title would.
@@ -212,13 +217,18 @@ private fun Header(
 )
 {
     val gutter = LocalSpfnTheme.current.spacing.space4;
-    val layout = HeaderLayout.of(gutter, appLeading = leading != null, wayOut = ScreenWayOut.current.wayOut);
+    val layout = HeaderLayout.of(
+        gutter,
+        appLeading = leading != null,
+        appTrailing = trailing != null,
+        wayOut = ScreenWayOut.current.wayOut
+    );
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .windowInsetsPadding(WindowInsets.statusBars)
             .heightIn(min = Metrics.HEADER_HEIGHT)
-            .padding(start = layout.edgeStart, end = gutter),
+            .padding(start = layout.edgeStart, end = layout.edgeEnd),
         verticalAlignment = Alignment.CenterVertically
     )
     {
@@ -307,7 +317,7 @@ private fun FlowBack()
 private fun FlowClose()
 {
     val wayOut = ScreenWayOut.current;
-    if (wayOut.wayOut == WayOut.Close)
+    if (HeaderLayout.drawsFlowClose(wayOut.wayOut))
     {
         CloseControl(onClick = wayOut::close);
     }

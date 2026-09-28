@@ -1,4 +1,4 @@
-// SPFN Mobile — where a `Screen` header's title starts, and what decides it.
+// SPFN Mobile — where a `Screen` header's title starts and ends, and what decides it.
 //
 // There is no counterpart file on iOS: that half hands its header to the system navigation
 // bar, and the system bar already places its title the way this file now does.
@@ -20,7 +20,8 @@
 // and then moved. As a pure function it also has cells a JVM test can read, for the reason
 // `ScreenLayout.kt` states: this repository has no Compose UI test infrastructure.
 //
-// The trailing slot keeps its minimum width either way, so a sheet's X stays where it was.
+// The trailing slot keeps its minimum width either way: an empty one still holds the title a
+// touch target short of the end, as it always has.
 //
 // ---------------------------------------------------------------------------
 // A leading slot stands where Material's navigation icon stands
@@ -41,6 +42,27 @@
 // gutter moves the mark and the title the way it moves a title with no slot. An app's own
 // leading item stands in the same box, at Material's navigation-icon position, so an item
 // drawn at the touch target lines up with the SDK's back.
+//
+// ---------------------------------------------------------------------------
+// A trailing mark stands where Material's action icon stands
+// ---------------------------------------------------------------------------
+//
+// The trailing side mirrors that rule. Material's bar pads its action icons 4dp from the end,
+// so a single action's 24dp mark runs from 40dp to 16dp from the end and is centred at 28dp;
+// the header used to put its trailing box a whole gutter in, the X centred at 40dp. Now, when
+// the trailing slot holds a control — the flow's close, or the app's `trailing` — the mark's
+// end edge is at the gutter, the box a mark's inset nearer the edge (4dp at the default
+// gutter), and the centre's content ends a gutter short of the mark: 56dp from the end, where
+// it used to end at 80dp. Material's title has no end padding of its own; it may run up to the
+// action button's box, 52dp from the end, so the SDK's title stops 4dp sooner, the same 4dp it
+// keeps on the start side. An empty trailing slot is laid out exactly as before: the box a
+// gutter from the end and the centre ending a gutter short of it, 80dp — Material's title
+// with no action could run to 4dp from the end.
+//
+// Only the OUTERMOST touch target is placed. An app's `trailing` that draws a row of 48dp
+// actions has its last mark at the gutter, and the ones before it follow at 48dp steps, as
+// Material's actions do; wider or narrower items are the app's to size. `WayOutButton`, the
+// way out drawn outside a header, has no gutter to line up with and is not placed here.
 
 package xyz.superfunction.spfn.ui.components
 
@@ -50,16 +72,20 @@ import androidx.compose.ui.unit.dp
 import xyz.superfunction.spfn.ui.WayOut
 
 /**
- * How a header's three boxes share its width, on its START side.
+ * How a header's three boxes share its width.
  *
  * [leadingSlot] is the leading box's minimum width, or `null` when there is no leading box at
  * all. [edgeStart] is the header's own padding before the first box, and [centreStart] the
  * centre box's padding on the leading side: both are a gutter less a mark's inset beside a
  * leading control, so its mark and not its box lines up with the gutter; with no leading box
- * the header's gutter stands before the centre and the centre adds nothing. Both sides are
- * START and END rather than left and right, so a right-to-left layout mirrors all of it.
+ * the header's gutter stands before the centre and the centre adds nothing.
+ *
+ * [trailingControl] is whether the trailing box, which is always laid out, holds a control.
+ * [edgeEnd] and [centreEnd] are then a gutter less a mark's inset, as on the start side, and
+ * a gutter each when it is empty. Both sides are START and END rather than left and right, so
+ * a right-to-left layout mirrors all of it.
  */
-internal data class HeaderLayout(val gutter: Dp, val leadingSlot: Dp?)
+internal data class HeaderLayout(val gutter: Dp, val leadingSlot: Dp?, val trailingControl: Boolean)
 {
     /** The header's padding before its first box: a gutter, or a gutter less a mark's inset before a leading control. */
     val edgeStart: Dp
@@ -69,9 +95,13 @@ internal data class HeaderLayout(val gutter: Dp, val leadingSlot: Dp?)
     val centreStart: Dp
         get() = if (leadingSlot == null) 0.dp else besideMark;
 
-    /** The centre box's padding towards the trailing slot, which is always laid out. */
+    /** The centre box's padding towards the trailing slot: a gutter short of its mark, or of its empty box. */
     val centreEnd: Dp
-        get() = gutter;
+        get() = if (trailingControl) besideMark else gutter;
+
+    /** The header's padding after its last box: a gutter, or a gutter less a mark's inset after a trailing control. */
+    val edgeEnd: Dp
+        get() = if (trailingControl) besideMark else gutter;
 
     /** The trailing box's minimum width, the same whether or not it holds anything. */
     val trailingSlot: Dp
@@ -85,12 +115,26 @@ internal data class HeaderLayout(val gutter: Dp, val leadingSlot: Dp?)
         get() = leadingSlot?.let { edgeStart + Metrics.TOUCH_TARGET / 2 };
 
     /**
+     * How far from the header's END edge the centre of a touch-target control in the trailing
+     * slot stands, or `null` when it holds none — the flow's X, or the app's outermost action.
+     */
+    val trailingCentre: Dp?
+        get() = if (trailingControl) edgeEnd + Metrics.TOUCH_TARGET / 2 else null;
+
+    /**
      * How far from the header's start edge the centre's content starts — the title, or the
      * app's principal item, which stand in the same box. A leading item wider than the touch
      * target pushes it further; this is the least it can be.
      */
     val titleStart: Dp
         get() = edgeStart + (leadingSlot ?: 0.dp) + centreStart;
+
+    /**
+     * How far from the header's END edge the centre's content may run to at most — a trailing
+     * item wider than the touch target stops it sooner.
+     */
+    val titleEnd: Dp
+        get() = edgeEnd + trailingSlot + centreEnd;
 
     /**
      * A gutter less the distance from a touch target's edge to its centred mark, and never
@@ -102,13 +146,20 @@ internal data class HeaderLayout(val gutter: Dp, val leadingSlot: Dp?)
     internal companion object
     {
         /**
-         * The layout for a header whose app passed a leading item ([appLeading]) or not, on a
-         * screen whose flow offers [wayOut].
+         * The layout for a header whose app passed a leading item ([appLeading]) and a trailing
+         * item ([appTrailing], none unless said) or not, on a screen whose flow offers [wayOut].
          */
-        fun of(gutter: Dp, appLeading: Boolean, wayOut: WayOut): HeaderLayout =
-            HeaderLayout(gutter, if (appLeading || drawsFlowBack(wayOut)) Metrics.TOUCH_TARGET else null);
+        fun of(gutter: Dp, appLeading: Boolean, appTrailing: Boolean = false, wayOut: WayOut): HeaderLayout =
+            HeaderLayout(
+                gutter,
+                leadingSlot = if (appLeading || drawsFlowBack(wayOut)) Metrics.TOUCH_TARGET else null,
+                trailingControl = appTrailing || drawsFlowClose(wayOut)
+            );
 
         /** Whether the flow's own back is drawn in the leading slot: the one input `FlowBack` reads. */
         fun drawsFlowBack(wayOut: WayOut): Boolean = wayOut == WayOut.Back;
+
+        /** Whether the flow's own close is drawn in the trailing slot: the one input `FlowClose` reads. */
+        fun drawsFlowClose(wayOut: WayOut): Boolean = wayOut == WayOut.Close;
     }
 }

@@ -17,8 +17,14 @@ Entries under an unreleased heading describe repository state, not shipped softw
 - A header's leading slot now stands where Material 3's small top app bar puts its navigation
   icon: with the default 16dp gutter the slot starts 4dp from the edge, the mark is centred at
   28dp (was 40dp) and the title starts at 56dp (was 80dp). An app's own `leading` item stands
-  in the same slot. A header with no leading slot is unchanged (title at 16dp), and so is the
-  trailing side. The tab bar's icon size stays 20dp. iOS is untouched; its bar is the system's.
+  in the same slot. A header with no leading slot is unchanged (title at 16dp). The tab bar's
+  icon size stays 20dp. iOS is untouched; its bar is the system's.
+- The trailing slot mirrors it, where Material puts its action icon: when it holds the flow's
+  close or the app's own `trailing` item, the slot ends 4dp from the edge, the mark is centred
+  28dp from it (was 40dp) and the title ends 56dp from it (was 80dp; Material's title may run
+  to its action's box, 52dp). An empty trailing slot is unchanged: the title ends 80dp from the
+  edge. A `trailing` row of several actions has only its outermost aligned to the gutter; an
+  item that draws nothing still counts as an item. `WayOutButton` outside a header is unchanged.
 
 ### Android `Screen` header: an empty leading slot takes no width (Android only; public API unchanged)
 
