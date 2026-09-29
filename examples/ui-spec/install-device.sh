@@ -173,6 +173,21 @@ install_ios()
 #
 # A wireless serial is `host:port` and goes in the same variable: `adb -s` takes either, and
 # nothing here parses the value.
+#
+# Both launches CLEAR THE TASK, and that is the whole of the fix for a launch reading the
+# cell before it. `SPFN_UI_FIXTURE` arrives as an intent extra, and what decides whether a
+# start reuses an existing task is `Intent.filterEquals`, which compares the action, the
+# data and the component and NOT the extras. So a second `am start` on this component
+# matches the task the first one rooted whatever extras it carries: the activity is never
+# recreated, `onCreate` never runs, and the app goes on drawing the fixture of the launch
+# before. An Android run on 2026-09-02 opened with no fixture and read `fixture=u5`.
+#
+# `--activity-clear-task` with `--activity-new-task` — the flag is defined only alongside it
+# — finishes whatever is in that task before this launch's activity starts, so every start
+# from here is as new as the runner's `launchApp: clearState: true` and reads the extras it
+# was actually given. It is on the fixture branch as well as the fixture-less one, because
+# the fault is not about which extras were passed: the launch that names `--fixture u5`
+# after one that named `--fixture u14` is the same reused task read the same wrong way.
 install_android()
 {
     SERIAL=$(required_env SPFN_ANDROID_SERIAL \
@@ -190,9 +205,11 @@ install_android()
     if [ -n "$FIXTURE" ]
     then
         adb -s "$SERIAL" shell am start -n "$APP_ID/.MainActivity" \
+            --activity-clear-task --activity-new-task \
             --es "$FIXTURE_KEY" "$FIXTURE"
     else
-        adb -s "$SERIAL" shell am start -n "$APP_ID/.MainActivity"
+        adb -s "$SERIAL" shell am start -n "$APP_ID/.MainActivity" \
+            --activity-clear-task --activity-new-task
     fi
 }
 
