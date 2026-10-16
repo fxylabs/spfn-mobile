@@ -1,7 +1,8 @@
 # 설계 — 네이티브 상태 클라이언트 `StateClient`
 
 - 상태: **제안** (2026-10-16, 작업 단위 `w-hyg8j`). 받아들여진 항목은 없다. 항목마다 따로 승인한다 (CONTRIBUTING, "위임 설계 산출물은 통짜로 승인받지 않는다"). 코드는 승인 뒤에 쓴다.
-- 대상: **새 모듈 `SPFNState`/`spfn-state`** (클라이언트 모듈에만 의존)에 들어갈 `SPFNStateClient`/`SpfnStateClient`, 상태 서술 `SPFNStateDescriptor`/`SpfnStateDescriptor`, 항목·연결 상태 타입, 순서 저장소. 그리고 이 설계가 **전제로 요구하는** 클라이언트 모듈 `SPFNEventStream`/`SpfnEventStream`의 확장 넷 (S-1–S-4, §5-1). 그 확장은 [event-stream-design.md](event-stream-design.md)의 개정 4로 따로 승인받는다. 이 문서는 그 모양만 정한다.
+- 개정 1 (2026-10-17, 운영자 결정 `01m52pdtgpxkbdp0z3jc0kg5a9`, PR #90 검토): 열린 질문 둘의 권고를 뒤집었다. **Q-G → 앱 계약 코드젠이 상태 서술을 생성한다** (§2-13-2, §2-13-4, §5-2 P-a). **Q-F → 관찰 어댑터는 SDK의 `events` 모듈에 있다** (§2-12, §3-6, §7). 나머지 항목은 아직 판단 전이다 — 상태는 그대로 제안이다.
+- 대상: **새 모듈 `SPFNState`/`spfn-state`** (클라이언트 모듈에만 의존)에 들어갈 `SPFNStateClient`/`SpfnStateClient`, 상태 서술 `SPFNStateDescriptor`/`SpfnStateDescriptor`, 항목·연결 상태 타입, 순서 저장소. 앱 계약 코드젠(`tools/contract-codegen`)이 상태 서술을 내는 출력 하나 (§2-13-4). 이벤트 모듈 `SPFNEvents`/`spfn-events`의 관찰 어댑터 (§2-12). 그리고 이 설계가 **전제로 요구하는** 클라이언트 모듈 `SPFNEventStream`/`SpfnEventStream`의 확장 넷 (S-1–S-4, §5-1). 그 확장은 [event-stream-design.md](event-stream-design.md)의 개정 4로 따로 승인받는다. 이 문서는 그 모양만 정한다.
 - 원본: `@spfn/core/state/client` — `packages/core/src/state/README.md`의 "Browser"부터 "Types"까지, "`at`", "Contract", 그리고 `client.ts`·`client-store.ts`·`client-types.ts`·`types.ts`. 이 문서가 README를 인용할 때는 절 이름과 문장을 그대로 적는다. 세 플랫폼이 갈라지지 않게 하려는 것이다.
 - 서버 쪽 사실은 spfn 작업 사본(`packages/core/src/event/sse/handler.ts`, `connection-registry.ts`, `types.ts`의 `ConnectedPayload`·`SSESubscriptionChange`)에서 읽었다 (§1-2).
 - 소비자: Superself `docs/workspace/app-root-package.md` §3.1 (키 없는 스냅샷 한 번, 그다음 앱이 도출한 키로 키 있는 상태), §6 (네이티브 어댑터), §7 (`server` 변수 ok · reconnecting · failed · error), §9·§12 (U4·U5는 상태 클라이언트를 프로토콜과 가짜 뒤에 둔다).
@@ -22,8 +23,9 @@
 | `revoked` | README 표의 여덟 행 그대로. 표시는 값과 따로 `(id, key)`마다, 해제는 **연결(epoch)로** 한다 (§2-8) | 제안 |
 | 연결 상태 | `connected · reconnecting(attempt) · failed`. 스트림 상태에서 표 하나로 도출한다. `offline(n)`은 `reconnecting(n)` (§2-9) | 제안 |
 | `initial` | 이미 읽은 스냅샷(`snapshot()`의 답, 또는 테스트 픽스처)으로 만든다. 매니페스트와 값이 생성 시각에 들어가고, `revoked`는 표시하지 않는다 (§2-10) | 제안 |
-| API | 두 언어 같은 이름. `subscribe`·`current`·`get`·`write`·`snapshot`·`connection`·`subscribeConnection`·`retry`·`close`. 항목은 `loading · ready(frame) · revoked(frame?)` — Swift 연관값 enum, Kotlin sealed (§2-11, §2-13) | 제안 |
-| 관찰 어댑터 | 코어는 `AsyncStream`/`Flow`만. `@Observable` 모델·`@Composable` 훅은 이 단위에 없다. 앱 루트 패키지(U4·U5)가 만든다 (§2-12) | 제안 |
+| API | 두 언어 같은 이름. `subscribe`·`current`·`get`·`write`·`snapshot`·`connection`·`subscribeConnection`·`retry`·`close`. 항목은 `loading · ready(frame) · revoked(frame?)` — Swift 연관값 enum, Kotlin sealed. 멤버가 받는 서술은 앱이 쓰지 않는다: 생성된 `AppStates.<id>`다 (§2-11, §2-13) | 제안 |
+| 상태 서술 (Q-G) | **앱 계약 코드젠이 생성한다.** 선택에 `getStates`가 있으면, 그 파생 응답 스키마의 `states`가 상태 id를 대고, id마다 `get<Id>State`(필수)·`put<Id>State`(있으면)를 이름과 모양으로 확인한다. 출력: `AppStates.<id>` (`SPFNStateDescriptor`/`SpfnStateDescriptor`, 쓰기가 있으면 쓰기 서술), `AppStates.all`, `AppStates.events` (`state.<id>.changed`), `AppStates.snapshot`. `keyFields`는 읽기 연산의 쿼리에서 온다. 앱은 상태마다 아무것도 쓰지 않는다 (§2-13-2, §2-13-4) | **결정** (운영자, 2026-10-17) |
+| 관찰 어댑터 (Q-F) | **SDK가 `events` 모듈에 둔다** — `@spfn/core/state/react`의 짝. Swift `@SPFNServerState`·`@SPFNConnectionStatus` (`@Observable` 모델 `SPFNServerStateModel`), Kotlin `rememberServerState`·`rememberConnectionStatus`. 루트 부착이 상태 클라이언트를 함께 받는다. 현재 값 먼저, 메인 액터, 뷰가 떠나면 해지. `state` 모듈은 툴킷 없는 그대로이고, 그래프에 간선 `events → state` 하나가 는다 (§2-12, §7) | **결정** (운영자, 2026-10-17) |
 
 ## 1. 맥락과 요구
 
@@ -89,8 +91,9 @@ Superself 앱의 루트는 서버가 가진 사실 몇 개로 갈 곳을 정한�
 (가)를 고른 이유: 의존이 `client` 하나로 가장 짧고, 툴킷이 없으며, 쓰지 않는 앱은 링크하지 않는다. `events` 모듈을 거치지 않으므로 Android에서 Compose를 끌고 오지 않는다. 대가는 산출물 하나다 (§7).
 
 - `externalDeps.swift`: 없음. `externalDeps.android`: `kotlinx-coroutines-core` — 공개 시그니처가 `Flow`·`StateFlow`를 싣는다 (`spfn-client`는 이것을 `implementation`으로 두므로 새 모듈이 `api`로 선언해야 한다).
-- `linux` 키 없음: 모듈 전체가 Linux에서 빌드되고 테스트된다. SwiftUI·Observation import가 없다. 앞으로 어댑터 파일을 이 모듈에 둔다면 그 파일만 `#if canImport(SwiftUI)`로 통째로 감싼다 (`ui`의 `FlowHost.swift`, `events`의 부착 파일과 같은 모양, P20).
-- `@Composable` 훅은 넣지 않는다 (§2-12). 넣는 순간 Compose runtime 별칭이 이 줄에 붙고 (가)의 이유가 사라진다.
+- `linux` 키 없음: 모듈 전체가 Linux에서 빌드되고 테스트된다. SwiftUI·Observation import가 없다. 어댑터는 이 모듈에 오지 않으므로 가드할 파일이 없다.
+- **관찰 어댑터는 `events` 모듈에 있다** (§2-12, Q-F 결정 2026-10-17). 간선은 `events → state` 하나이고 방향이 거꾸로가 아니다: `state`는 `client` 하나에만 의존하는 줄 그대로, 툴킷도 Compose 별칭도 얻지 않는다. 어댑터를 이 모듈에 넣었다면 Compose runtime 별칭이 이 줄에 붙고 (가)의 이유가 사라졌을 것이다 — 운영자의 결정은 그 이유를 지킨 채 어댑터를 SDK로 가져온다.
+- 모듈 의존을 한 줄로: `client` ← `state` ← `events` (어댑터), `client` ← `events` (스트림 부착). 앱 계약 생성물(`AppAPI`·`AppStates`)은 앱의 소스이고 `state`와 `client`에 의존한다 — SDK 모듈은 생성물에 의존하지 않는다.
 
 ### 2-2. 스트림: 앱의 스트림 하나를 같이 쓴다 (제안)
 
@@ -108,7 +111,7 @@ Superself 앱의 루트는 서버가 가진 사실 몇 개로 갈 곳을 정한�
 
 (가)를 고른 이유: 이벤트 스트림 설계가 받아들인 "연결은 하나" (개정 1)를 지키고, 루트 부착을 늘리지 않는다. 키 변경은 작업공간 전환이고, 그때 화면은 어차피 다시 읽는다 — 다른 청취자의 다시 읽기 한 번은 그 이동에 묻힌다.
 
-- 앱은 스트림 설정의 `events`에 **상태마다 `state.<id>.changed`** 를 적는다. 이벤트 스트림의 규칙 "앱이 설정하는 이름 목록은 고정이다"를 그대로 따른다. 상태 클라이언트는 생성 시각에 서술마다 그 이름이 설정에 있는지 보고, 없으면 프로그래머 오류다 (L-3과 같은 거부: Swift `preconditionFailure`, Kotlin `IllegalArgumentException`).
+- 앱은 스트림 설정의 `events`에 **상태마다 `state.<id>.changed`** 를 싣는다 — 손으로 적지 않고 생성된 `AppStates.events`를 더한다 (§2-13-2, §2-13-1). 이벤트 스트림의 규칙 "앱이 설정하는 이름 목록은 고정이다"를 그대로 따른다. 상태 클라이언트는 생성 시각에 서술마다 그 이름이 설정에 있는지 보고, 없으면 프로그래머 오류다 (L-3과 같은 거부: Swift `preconditionFailure`, Kotlin `IllegalArgumentException`).
 - 원본 "Every event requested: `events=` lists `state.<id>.changed` for every state of the manifest … never only the subscribed ones"는 네이티브에서 "서술한 상태 모두"가 된다. 앱이 서술하지 않은 상태는 구독할 수도 없으므로 (타입이 없다) grant를 받을 일도 없다. 매니페스트에만 있는 상태는 무시한다.
 - 원본의 "열고 닫는" 수명(첫 구독에 열고, 마지막 구독이 떠나면 닫는다)은 네이티브에 없다. 연결은 SDK 수명을 따른다 (event-stream-design L-2: "마지막 청취자여도 연결은 열려 있다"). 관찰되는 결과는 맞춘다: 구독이 없으면 연결 상태는 `reconnecting(0)`이고 (C-2), 쿼리는 비고 (K-5), 첫 스냅샷의 재시도 수는 처음부터다 (C-18).
 
@@ -127,7 +130,7 @@ Superself 앱의 루트는 서버가 가진 사실 몇 개로 갈 곳을 정한�
 
 (가)를 고른 이유: 상태 라우트는 앱의 계약 표면이고, 앱 계약 코드젠이 바로 그것을 위해 있다. 클라이언트가 라우트 이름을 모르면 서버의 `path` 옵션이나 이름 규칙이 바뀌어도 SDK가 따라 바뀔 일이 없다. 앱 루트 계획(app-root-package §12 U6)은 (다)를 적었으나, 상태 라우트는 앱 서버의 것이라 코어 번들에 들어갈 수 없다 — 이 단위의 브리프가 (가)로 바로잡았다.
 
-- 서술(§2-13-2)은 상태마다 **읽기 호출을 만드는 함수** `(key) -> SPFNCall<Void, Response>`와, 쓰기가 있으면 **쓰기 호출을 만드는 함수** `(key) -> SPFNCall<Body, Response>`를 받는다. 키를 생성 함수의 인자로 옮기는 한 줄은 앱이 쓴다 (`{ AppAPI.getAiAccountsState(workspaceId: $0["workspaceId"]) }`).
+- 서술(§2-13-2)은 상태마다 **읽기 호출을 만드는 함수** `(key) -> SPFNCall<Void, Response>`와, 쓰기가 있으면 **쓰기 호출을 만드는 함수** `(key) -> SPFNCall<Body, Response>`를 받는다. 키를 생성 함수의 인자로 옮기는 한 줄도 앱 계약 코드젠이 쓴다 (`{ AppAPI.getAiAccountsState(workspaceId: $0["workspaceId"]!) }`, §2-13-2).
 - 스냅샷도 같다: `(query) -> SPFNCall<Void, Response>` 하나. 상태 클라이언트는 그 호출의 `operation`과 `encode`를 쓰고, `decode`는 **감싼다**: 생성 디코더로 문서와 맞는지 검사한 뒤 정규값(`SPFNCanonicalValue`)을 그대로 받는다. 스냅샷의 `states`와 `manifest`는 문서에 적힌 모양이므로 상태 클라이언트가 직접 읽는다. `SPFNCall`의 이니셜라이저와 세 필드가 공개라서 새 실행 경로가 없다.
 - 읽기·쓰기 호출도 같은 방식으로 감싸 정규값을 남긴다. 같은 값인지 가르는 데 쓴다 (§2-5).
 - 서명할 클라이언트는 `SPFNKeyLifecycle.signedInClient()`에 호출마다 묻는다 — 이벤트 스트림의 토큰 호출과 같은 자리 (event-stream-design §3-1). `nil`(로그아웃)이면 보내지 않고, 앱이 부른 호출은 거부되고, 자동 읽기는 `onError`로 간다.
@@ -253,7 +256,7 @@ Superself 앱의 루트는 서버가 가진 사실 몇 개로 갈 곳을 정한�
 
 원본의 멤버를 이름 그대로 옮긴다. 다른 점은 셋이다.
 
-1. **id 대신 서술.** 원본은 `typeof states`로 id·키·값을 타입에 싣는다. 네이티브에는 서버 타입이 없으므로 앱이 상태마다 서술 값 하나를 만들고 (§2-13-2), 모든 멤버가 서술을 받는다. 서술의 제네릭이 값·데이터 타입을 싣는다. 쓰기가 있는 상태만 쓰기 서술 타입이 되므로, 쓰기 없는 상태의 `write`는 컴파일되지 않는다 — 원본 "Typed only for a state with a write"의 짝. 원본의 런타임 거부("A `write` on a state the manifest marks `write: false` rejects naming the state, before any request")도 남긴다: 서술과 서버의 매니페스트가 어긋날 때 (I-11).
+1. **id 대신 서술.** 원본은 `typeof states`로 id·키·값을 타입에 싣는다. 네이티브에는 서버 타입이 없으므로 앱 계약 코드젠이 상태마다 서술 값 하나를 만들고 (§2-13-2, §2-13-4), 모든 멤버가 서술을 받는다. 서술의 제네릭이 값·데이터 타입을 싣는다. 쓰기가 있는 상태만 쓰기 서술 타입이 되므로, 쓰기 없는 상태의 `write`는 컴파일되지 않는다 — 원본 "Typed only for a state with a write"의 짝. 원본의 런타임 거부("A `write` on a state the manifest marks `write: false` rejects naming the state, before any request")도 남긴다: 서술과 서버의 매니페스트가 어긋날 때 (I-11).
 2. **청취자 대신 열.** 원본 `subscribe(id, key, listener)`는 해지 함수를 돌려준다. 네이티브는 이벤트 스트림의 `listen`처럼 **열**을 돌려준다: Swift `AsyncStream`, Kotlin `Flow`. 열이 소비되는 동안이 구독이고, 소비를 끝내면 (태스크 취소, 수집 취소) 해지다. 원본 "The same function subscribed twice is two subscriptions"는 열 둘로 그대로 성립한다. 열은 **현재 항목을 먼저** 낸다 — 원본 훅이 `getSnapshot`을 먼저 읽는 것의 짝이다.
 3. **`{ value, data }`와 상태.** 원본 `StateEntry`는 `status`와 선택적 `at`·`value`·`data`의 유니언이고, 훅은 `'loading'`을 더한다. 네이티브는 셋을 하나의 열거로:
 
@@ -268,17 +271,40 @@ Superself 앱의 루트는 서버가 가진 사실 몇 개로 갈 곳을 정한�
 - 값 타입 `Value`는 생성된 응답의 `value` 필드 타입이다. 문자열 상수 유니언이면 생성기의 열린 enum (`unknown(String)`/`Unknown`)이다 (app-contract-codegen T11). 상태 클라이언트는 값의 모양을 모른다.
 - 원본 `current()`는 항목이 없으면 `undefined`다. 네이티브 `current`는 `.loading`을 돌려준다 — 원본 훅이 `undefined`를 `'loading'`으로 읽는 것과 같다. 원본의 `undefined`와 `'loading'`을 가를 소비자가 없다.
 
-### 2-12. 관찰 어댑터는 이 단위에 없다 (제안)
+### 2-12. 관찰 어댑터는 `events` 모듈에 있다 (결정, 운영자 2026-10-17)
 
-원본의 `useServerState`·`useConnectionStatus`는 `@spfn/core/state/react`에 따로 있다. 네이티브의 짝은 Swift `@Observable` 모델, Kotlin `@Composable` 훅이다.
+원본: "`@spfn/core/state/react` puts one state into a component." 훅 둘 — `useServerState(client, id, key?)`, `useConnectionStatus(client)` — 이 `useSyncExternalStore` 위에 서고, "`react` … is an **optional peer** … `@spfn/core/state/client` is framework-neutral." 네이티브의 짝은 Swift `@Observable` 모델과 그것을 뷰에 싣는 속성 래퍼, Kotlin `@Composable` 함수다.
 
-| | 이 단위에 없음 — 앱 루트 패키지가 만든다 (**제안**) | `state` 모듈 안에 |
+| | `events` 모듈 (**결정**, Q-F) | 앱 루트 패키지가 만든다 (첫 권고, 뒤집힘) | `state` 모듈 안 |
+|---|---|---|---|
+| 원본과의 대응 | `@spfn/core/state/react`의 짝. 툴킷을 이미 가진 모듈이 툴킷 쪽 반을 갖고, 툴킷 없는 반(`state`)은 그대로다 — 원본의 `client`/`react` 나눔과 같은 선 | 앱마다 같은 열 줄을 다시 쓴다. Superself 밖의 앱은 짝이 없다 | 같은 모듈에 두 반 |
+| 비용 | 간선 `events → state` 하나 (§7). `events`를 링크하는 앱은 `state`(툴킷 없음, `client`와 coroutines만)도 링크한다 | 없음 | Android `state`에 Compose runtime 별칭. §2-1 (가)의 이유가 사라진다 |
+| 앱이 쓰는 코드 | 상태마다 선언 한 줄 (§2-13-4) | 상태마다 모델의 필드·구독 루프·취소 | 같다 |
+| 기존 메커니즘 | `events`의 `onSPFNEvent`·`SpfnEventEffect`: 환경에서 객체를 찾고, 뷰가 떠나면 듣기가 끝나고, 루트 부착 없이 쓰면 프로그래머 오류 (event-stream-design §3-4). 어댑터가 같은 규칙을 따른다 | — | — |
+
+운영자의 근거: 웹 앱이 쓰는 코드(`createStateClient` + `useServerState` + `useConnectionStatus`)와 견주면, Q-F와 Q-G를 함께 뒤집어야 네이티브 앱이 웹보다 더 쓰는 것이 **스트림 생성 한 줄과 루트 부착 한 줄**로 준다 (§2-13-4의 비교표).
+
+**API** (이벤트 모듈. Swift는 `#if canImport(SwiftUI)`로 통째로 감싼 파일, Kotlin은 `spfn-events`):
+
+| 역할 | Swift | Kotlin |
 |---|---|---|
-| 기존 메커니즘 | `events` 모듈이 화면 청취를 `onSPFNEvent`·`SpfnEventEffect`로 따로 둔 것 | 같은 모듈에 가드한 파일 (`FlowHost.swift` 모양) |
-| 비용 | 없음 | Android에 Compose runtime 별칭, §2-1 (가)의 이유가 사라진다 |
-| 소비자 | 앱 루트 패키지가 이미 `AppRootModel`(`@Observable`)과 `rememberAppRoot`를 만든다 (app-root-package §6). 그 모델이 `subscribe` 열을 읽는다 | 앱 루트 밖의 화면이 직접 쓴다 |
+| 루트 부착 (기존 것에 인자 하나) | `func spfnEventStream(_ stream: SPFNEventStream, keyLifecycle: SPFNKeyLifecycle, stateClient: SPFNStateClient) -> some View` — 기존 두 인자 판의 겹침 | `SpfnEventStreamHost(stream: SpfnEventStream, keyLifecycle: SpfnKeyLifecycle, stateClient: SpfnStateClient? = null, content: @Composable () -> Unit)` |
+| 환경 | `EnvironmentValues.spfnStateClient: SPFNStateClient?` | `LocalSpfnStateClient` (`staticCompositionLocalOf`, 기본값은 던진다) |
+| 상태 하나 | `@propertyWrapper struct SPFNServerState<Value, Data>: DynamicProperty` — `init(_ state: SPFNStateDescriptor<Value, Data>, key: SPFNStateKey = [:])`, `wrappedValue: SPFNStateEntry<Value, Data>`, `projectedValue: SPFNServerStateModel<Value, Data>` | `@Composable fun <V, D> rememberServerState(state: SpfnStateDescriptor<V, D>, key: SpfnStateKey = emptyMap()): State<SpfnStateEntry<V, D>>` |
+| 모델 | `@MainActor @Observable public final class SPFNServerStateModel<Value, Data>` — `entry`, 편의 `status`·`frame`·`value` (§2-11). 공개 이니셜라이저 없음: 래퍼가 만든다 | (Compose `State`가 그 자리다) |
+| 연결 상태 | `@propertyWrapper struct SPFNConnectionStatus: DynamicProperty` — `wrappedValue: SPFNStateConnection`, `projectedValue: SPFNConnectionStatusModel` (`@Observable`, `connection`) | `@Composable fun rememberConnectionStatus(): State<SpfnStateConnection>` |
+| 툴킷 없는 몸 | `@MainActor final class SPFNServerStateDriver<Value, Data>` — `update(client:state:key:)`, `end()`, `entry`, 바뀜 콜백. 모델과 래퍼는 이것 위의 얇은 껍질이다 | `class SpfnServerStateDriver<V, D>` — 같은 멤버, 수집은 부르는 코루틴에서 |
 
-코어의 열(`AsyncStream`/`Flow`, 현재 값 먼저, 바뀔 때만)이면 어댑터는 열 줄이다. 앱 루트 밖에서 쓸 곳이 나오면 그때 `events` 모듈(이미 SwiftUI·Compose를 가진)에 더한다 (§6 Q-F).
+쓰기와 다시 시도는 어댑터에 없다. 앱은 환경의 클라이언트로 `write`·`retry()`를 부른다 (§2-13-3). 원본의 훅이 `write`를 결과에 싣는 것은 TypeScript가 상태 id로 쓰기 유무를 타입에 싣기 때문이다. Swift 속성 래퍼는 선언된 타입에서 제네릭을 추론하므로 입력 타입을 하나 더 실으면 키 있는 선언이 길어진다 — 한 줄의 `state.write(AppStates.consent, input: …)`가 더 짧다.
+
+**행동.** 모두 이벤트 모듈의 기존 규칙에 묶는다.
+
+- **현재 값 먼저.** 첫 그리기가 `client.current(state, key)`를 동기로 읽는다 — 원본 훅의 `getSnapshot`. 캐시된 항목이나 `initial`이 있으면 첫 그리기부터 `ready`이고 `loading`을 거치지 않는다 (A-1). 그다음 `subscribe` 열을 소비한다. 열의 첫 항목은 같은 값이므로 다시 그리지 않는다. 본 적 없는 키는 항목이 생길 때까지 `loading`이다 (A-2). 연결 상태도 같다: `connection()`을 먼저, 그다음 `subscribeConnection()` (A-7).
+- **메인 액터에서.** Swift의 드라이버·모델은 `@MainActor`이고, 열의 소비는 메인 액터에 묶인 태스크가 한다. Kotlin은 `LaunchedEffect` 안에서 수집한다 — 컴포지션의 메인 디스패처다. 상태 클라이언트의 엔진(내부 actor, 받은 스코프)은 메인이 아니다. 그 경계를 넘는 것은 열의 원소 하나뿐이다 (A-6).
+- **키는 값으로 비교한다.** 원본: "The key is compared by its fields (stable-stringified), so `{ workspaceId }` written inline does not resubscribe on every render; another `workspaceId` unsubscribes and subscribes." Swift는 `DynamicProperty.update()`(본문을 그리기 전마다)에서 `(클라이언트, id, 키)`를 앞의 값과 `==`로 견주고, Kotlin은 `LaunchedEffect(client, state.id, key)`의 키 같음으로 견준다. 같으면 아무것도 하지 않고 (A-3), 다르면 앞 구독을 끝내고 새 키의 현재 값 먼저 새 구독을 연다 (A-4). 키가 바뀌는 것은 `onSPFNEvent(id:)`·`SpfnEventEffect(key)`의 `id`/`key`가 바뀌는 것과 같은 자리다 (event-stream-design §3-4).
+- **뷰가 떠나면 해지.** 이벤트 모듈 규칙 "듣기의 끝은 청취자의 끝이다"의 짝 (event-stream-design §3-4): 구독은 열의 소비이고, 소비가 취소되면 상태 클라이언트에서 해지된다 (§2-11, K-5, C-18). Kotlin은 `SpfnEventEffect`와 같다 — `LaunchedEffect`가 컴포지션을 떠날 때 취소된다. Swift 속성 래퍼에는 `.task`가 없다: 모델이 소비 태스크를 쥐고, SwiftUI가 그 뷰의 상태 저장소를 놓을 때(뷰가 계층을 떠날 때) 모델의 `deinit`이 태스크를 취소한다 (A-5). `onSPFNEvent`의 `.task`와 다른 한 곳은 **다른 화면에 가려진 뷰**다 — `.task`는 사라질 때 취소되고, 래퍼는 계층에 남아 있는 동안 구독을 쥔다. 상태 구독은 연결 쿼리에 키를 싣는 일이라, 가려질 때마다 끊으면 그 키의 마지막 구독이 떠나 재연결한다 (K-5) — 이벤트 모듈의 "이동은 재연결하지 않는다" (L-6)를 깨는 쪽이다. 돌아왔을 때 보이는 값은 어느 쪽이든 같다: 본 적 있는 키는 캐시된 `ready`를 먼저 보이고 재연결의 프레임이 덮는다 (K-12).
+- **루트 부착 없이 쓰면 프로그래머 오류다.** 환경에 상태 클라이언트가 없으면 Swift `preconditionFailure`, Kotlin `IllegalStateException` — `onSPFNEvent`·`SpfnEventEffect`와 같다 (A-8). 부착이 받은 상태 클라이언트의 스트림이 부착된 스트림과 다르면 부착하는 순간 프로그래머 오류다: 쿼리의 주인은 그 스트림의 상태 클라이언트 하나다 (§2-2, A-9).
+- Linux·JVM: 드라이버와 부착 검사는 툴킷이 없어 Linux·JVM 단위 테스트로 돈다 (`SPFNForegroundTally`와 같은 자리). SwiftUI 래퍼·모델과 Compose 함수는 그 위의 몇 줄이다.
 
 ### 2-13. 공개 API (제안)
 
@@ -295,6 +321,8 @@ Superself 앱의 루트는 서버가 가진 사실 몇 개로 갈 곳을 정한�
 | 연결 상태 | 상태 | `enum SPFNStateConnection { case connected; case reconnecting(attempt: Int); case failed }` | `sealed interface SpfnStateConnection { data object Connected; data class Reconnecting(val attempt: Int); data object Failed }` |
 | 초기값 | 상태 | `SPFNStateInitial(snapshot:query:)` | `SpfnStateInitial(snapshot, query)` |
 | 스트림 확장 | 클라이언트 | `setQuery(_:)`, `listenWire(_:)`, `SPFNWireSignal`, `SPFNStreamConnected`, `reconnectNow()` (§5-1) | `setQuery`, `listenWire`, `SpfnWireSignal`, `SpfnStreamConnected`, `reconnectNow()` |
+| 관찰 어댑터 | 이벤트 | `SPFNServerState`, `SPFNServerStateModel`, `SPFNConnectionStatus`, `SPFNConnectionStatusModel`, `SPFNServerStateDriver`, `EnvironmentValues.spfnStateClient`, `spfnEventStream(_:keyLifecycle:stateClient:)` (§2-12) | `rememberServerState`, `rememberConnectionStatus`, `SpfnServerStateDriver`, `LocalSpfnStateClient`, `SpfnEventStreamHost(…, stateClient)` |
+| 생성된 상태 | 앱 (코드젠 출력) | `AppStates.<id>`, `AppStates.all`, `AppStates.events`, `AppStates.snapshot` (§2-13-2) | 같은 이름, `object AppStates` |
 
 #### 2-13-1. 설정과 생성
 
@@ -303,39 +331,131 @@ Superself 앱의 루트는 서버가 가진 사실 몇 개로 갈 곳을 정한�
 | `SPFNStateClientConfiguration(stream: SPFNEventStream, keyLifecycle: SPFNKeyLifecycle, states: [any SPFNAnyStateDescriptor], snapshot: @escaping @Sendable (SPFNStateKey) -> SPFNCall<Void, some Sendable>, onError: @escaping @Sendable (Error) -> Void = SPFNStateClient.logError, retryDelayMillis: Int64 = 3_000, maxRetries: Int = 0, initial: SPFNStateInitial? = nil)` | `SpfnStateClientConfiguration(stream: SpfnEventStream, keyLifecycle: SpfnKeyLifecycle, states: List<SpfnStateDescriptor<*, *>>, snapshot: (SpfnStateKey) -> SpfnCall<Unit, *>, onError: (Throwable) -> Unit = SpfnStateClient::logError, retryDelayMillis: Long = 3_000, maxRetries: Int = 0, initial: SpfnStateInitial? = null)` |
 | `SPFNStateClient(configuration:)` | `SpfnStateClient(configuration, scope: CoroutineScope)` |
 
+설정은 생성물을 받는다. 앱이 손으로 쓰는 값은 스트림·라이프사이클·스코프뿐이다:
+
+```swift
+// 앱 합성 지점. AppStates는 앱 계약 코드젠의 출력이다 (§2-13-2).
+let events = try SPFNEventStream(
+    keyLifecycle: keyLifecycle,
+    configuration: .init(events: AppStates.events + ["sessionActivity"])
+)
+let state = try SPFNStateClient(configuration: .init(
+    stream: events,
+    keyLifecycle: keyLifecycle,
+    states: AppStates.all,
+    snapshot: AppStates.snapshot
+))
+```
+
+```kotlin
+val events = SpfnEventStream(
+    keyLifecycle = keyLifecycle,
+    configuration = SpfnEventStreamConfiguration(events = AppStates.events + listOf("sessionActivity")),
+    scope = applicationScope,
+);
+val state = SpfnStateClient(
+    SpfnStateClientConfiguration(
+        stream = events,
+        keyLifecycle = keyLifecycle,
+        states = AppStates.all,
+        snapshot = AppStates.snapshot,
+    ),
+    scope = applicationScope,
+);
+```
+
+- 스트림의 이름 목록에 `AppStates.events`를 더하는 것은 앱이다: 스트림은 상태 말고도 앱의 다른 이벤트를 싣고, "앱이 설정하는 이름 목록은 고정이다"는 이벤트 스트림의 규칙 그대로다. 빠뜨리면 생성 시각의 거부가 상태 이름을 댄다 (아래 첫 항목).
+
 - 생성 시각의 거부 (프로그래머 오류, 이벤트 스트림 설계 §3-1과 같은 자리): 서술의 id가 겹침, 서술의 이벤트 이름 `state.<id>.changed`가 스트림 설정에 없음, 같은 스트림에 상태 클라이언트가 이미 있음 (쿼리의 주인은 하나, §2-2). Swift `throws SPFNStateClientError.invalidConfiguration(field)`, Kotlin `IllegalArgumentException`.
 - `onError`는 원본과 같은 것을 받는다: "a failure of something the client ran on its own — the first snapshot, the snapshot after the stream opened, the read after a grant — and a refused `subscribe`". 앱이 부른 호출은 거부로 끝난다. 기본은 오류 이름만 기록한다 — 키와 값은 앱의 데이터라 기록하지 않는다 (원본 `notify`의 "The state id only: the key is the app's data").
 - 취소는 실패가 아니다 (P16): `close()`가 끊은 읽기, 소비가 끝난 구독의 취소는 `onError`로 가지 않는다. 그물이 넓은 `catch`는 취소 절을 먼저 둔다 (P26).
 - 동시성: `public final class SPFNStateClient: Sendable` — 동기 읽기(`current`, `connection`)는 잠금 하나 아래의 값을, 나머지는 내부 actor 엔진이 한다. `SPFNEventStream`과 같은 모양이다. Kotlin은 받은 스코프에서 돈다.
 
-#### 2-13-2. 상태 서술
+#### 2-13-2. 상태 서술 — 생성된 타입 (Q-G 결정, 운영자 2026-10-17)
+
+서술의 모양은 그대로다. 바뀐 것은 누가 쓰느냐다: **앱 계약 코드젠이 상태마다 하나를 생성하고, 앱은 쓰지 않는다.** 이니셜라이저는 공개로 남는다 — 픽스처와 테스트가 가짜 호출로 서술을 만든다.
 
 | Swift | Kotlin |
 |---|---|
 | `SPFNStateDescriptor<Value, Data>.init<Response>(id: String, keyFields: [String] = [], read: @escaping @Sendable (SPFNStateKey) -> SPFNCall<Void, Response>, frame: @escaping @Sendable (Response) -> SPFNStateFrame<Value, Data>)` | `SpfnStateDescriptor<V, D>(id: String, keyFields: List<String> = emptyList(), read: (SpfnStateKey) -> SpfnCall<Unit, R>, frame: (R) -> SpfnStateFrame<V, D>)` |
 | `func writable<Input, Response>(write: @escaping @Sendable (SPFNStateKey) -> SPFNCall<Input, Response>, frame: @escaping @Sendable (Response) -> SPFNStateFrame<Value, Data>) -> SPFNWritableStateDescriptor<Value, Data, Input>` | `fun <I, R> writable(write: (SpfnStateKey) -> SpfnCall<I, R>, frame: (R) -> SpfnStateFrame<V, D>): SpfnWritableStateDescriptor<V, D, I>` |
 
+**생성 규칙.** 항목마다 견준 길과 함께 (저장소의 설계 문서 관례):
+
+| 항목 | 결정 | 견준 길 | 까닭 |
+|---|---|---|---|
+| 알아보는 규칙 | **이름 + 모양, `getStates`가 닻이다.** 선택된 `getStates`(GET, 본문 없음, 응답이 필수 `at: string`·`states: object`·`manifest: object`이고 `states`와 `manifest`의 속성 집합이 같다)의 `states` 속성 이름이 상태 id다. id마다 `get<Id>State`(`<Id>`는 첫 글자 대문자)가 문서에 있어야 하고, GET이고, 응답이 정확히 `{ at: string, value, data? }`이며 `value`·`data` 스키마가 `getStates`의 그 id 항목과 같다. `put<Id>State`가 있으면 PUT이고 응답이 읽기와 같다. 닻이 없으면 아무것도 알아보지 않는다: `get<Id>State`는 보통의 호출로만 생성된다 | (나) 이름 패턴만 (`get*State`·`put*State`·`getStates`): 앱이 손으로 만든 라우트 `getFooState`가 상태가 된다. (다) 문서의 표시: spfn의 `.contract()`는 **표시를 싣지 않는다** — 상태 연산은 보통 연산과 같은 키(`name`·`method`·`path`·`auth`·`requiresSession`·`since`·`request`·`response`)만 갖는다 (`@spfn/core/state` README "Contract", `defineState`의 `StateContract`). 표시를 더하려면 상류 변경이 먼저이고, 이 생성기는 모르는 연산 키를 거부하므로(R10) 표시를 싣는 서버가 옛 생성기를 모두 깬다 | 문서가 이미 가진 것만으로 닫힌다. `getStates`의 응답은 라우터가 **파생한** 스키마라서 상태 id 목록이 곧 서버의 선언이다 — 이름 패턴이 우연히 맞는 손 라우트는 그 목록에 없다. 상류가 나중에 표시를 더하면 대조로 쓰고 이 규칙을 바꾸지 않는다 |
+| 선택 | 연산 선택(`contract-operations.json`)에 **`getStates` 하나**를 적으면, 그 스키마가 대는 id의 `get<Id>State`·`put<Id>State`가 함께 선택된다. 생성 파일 머리의 `operations:`가 그것을 모두 적는다. 앱이 그것을 따로 적어도 오류가 아니다 | 상태 연산을 앱이 하나씩 적는다 | 상태마다 앱이 한 줄을 쓰는 것이 결정이 없애려는 것이다. 서버에 상태를 더하면 재생성만으로 서술이 생긴다 (digest가 바뀌므로 verify가 재생성을 요구한다, app-contract-codegen §5) |
+| 출력과 이름 | `AppStates.<id>`: 쓰기가 없으면 `SPFNStateDescriptor<Value, Data>`/`SpfnStateDescriptor<V, D>`, 있으면 `SPFNWritableStateDescriptor<Value, Data, Input>`/`SpfnWritableStateDescriptor<V, D, I>`. `Value`는 읽기 응답의 `value` 필드의 생성 타입(app-contract-codegen §3: 객체·enum이면 `Get<Id>StateResponseValue`, 스칼라면 T1·T2·T4), `Data`는 `Get<Id>StateResponseData` 또는 `SPFNNoStateData`/`Unit`, `Input`은 `Put<Id>StateBody`. `AppStates.all` (`[any SPFNAnyStateDescriptor]`/`List<SpfnStateDescriptor<*, *>>`), `AppStates.events` (`[String]`/`List<String>`, `state.<id>.changed`), `AppStates.snapshot`. 순서는 모두 id 순 (문서 키 순서에 기대지 않는다, app-contract-codegen §1-3) | 출력을 `AppAPI` 네임스페이스 안에 (`AppAPI.States.consent`) | 상태는 호출이 아니라 호출 둘을 묶은 값이다. 네임스페이스를 따로 두면 `AppAPI`의 타입 이름 공간과 부딪히지 않는다 |
+| 스냅샷 호출 | **생성된 `AppStates.snapshot`** — `(SPFNStateKey) -> SPFNCall<Void, GetStatesResponse>`, 쿼리의 필드를 `AppAPI.getStates(…)`의 이름 붙은 인자로 옮긴다 | 지금처럼 `AppAPI.getStates`를 앱이 감싼다 (`{ AppAPI.getStates(workspaceId: $0["workspaceId"]) }`) | 감싸는 한 줄은 키 필드 이름을 앱이 다시 적는 일이다 — 읽기 서술의 키 옮기기와 같은 것이고, 같은 까닭으로 생성한다. `AppAPI.getStates`는 그대로 있다: 앱이 `snapshot()` 밖에서 부를 수 있다 |
+| `keyFields`의 출처 | **읽기 연산의 쿼리.** `get<Id>State`의 `request.query` 속성 이름 (모두 필수 `string`이어야 한다 — spfn `.key()`가 그렇게만 허락한다), 이름 순. 키 없는 상태는 쿼리가 없다. `put<Id>State`의 쿼리는 같은 집합이어야 한다 | `getStates` 응답의 `manifest.<id>.key` | 매니페스트 스키마는 `key: string[]`라는 **타입**만 싣고 값을 싣지 않는다 — 값은 런타임에만 있다. 쿼리 속성 집합은 문서에 있는 값이다 |
+| 매니페스트와 어긋날 때 | **K-8 그대로.** 서버가 진실이다: 매니페스트의 키 필드가 서술의 `keyFields`와 다르면 그 상태의 구독은 두 집합을 이름으로 댄 오류로 `onError`에 가고 거부된다. 그리고 상태 클라이언트는 키의 필드 집합이 서술의 `keyFields`와 다른 키로 `read`·`write`를 만들지 않는다 — 같은 거부가 매니페스트를 알기 전에도 선다. 그래서 생성된 읽기 함수는 늘 모든 키 필드를 받는다 (`key["workspaceId"]!`, `key.getValue("workspaceId")`) | 생성 코드가 빠진 필드를 빈 문자열로 채운다 | 빈 문자열은 서버에서 다른 키다 — 조용히 틀린 값을 읽는다. 어긋남은 서버가 키를 바꾼 뒤 재생성하지 않은 앱이고, 계약 게이트가 필수 쿼리의 추가를 거부하므로 드물다 |
+| 거부 (이름을 대고 멈춘다) | (1) 값·데이터 스키마를 표가 담지 못한다 — `Type.Unknown`(R1), 소수(T3), 객체 유니언(R3): 상태 id와 경로를 댄다. `getStates`의 응답이 **모든** 상태의 값을 실으므로 한 상태가 생성 전체를 막는다. 그 상태를 `.contract()`에서 빼거나 스키마를 고친다. (2) `getStates`의 id에 `get<Id>State`가 없다, 메서드·응답 모양이 위와 다르다, 읽기와 스냅샷의 값 스키마가 다르다, 쓰기의 쿼리나 응답이 읽기와 다르다, 쓰기 본문이 객체가 아니다 (T16). (3) id가 `^[a-z][a-zA-Z0-9]*$`가 아니다 (spfn `defineState`와 같은 규칙). (4) id가 `all`·`events`·`snapshot`이다 — 생성 멤버와 겹친다 (R9). (5) 키 있는 상태의 필드가 `getStates`의 쿼리에 없다 (스냅샷을 그 키로 읽을 수 없다). 그리고 기존 T15: `clientProofV1` 연산의 쿼리 (P-c) | 표 밖의 값을 `SPFNCanonicalValue`로 두고 생성한다 | 기존 R1·T3·R3 행과 같은 판단이다 (P8): 추측해 방출하면 컴파일되는 거짓말이다. 정규값 탈출구는 앱 계약 코드젠이 다른 연산에도 열지 않은 문이다 |
+| 네임스페이스와 파일 | 새 Gradle 속성 `spfn.appContract.statesNamespace` (예: `AppStates`). **선택에 `getStates`가 있으면 필수, 없으면 주면 거부.** 출력은 기존 출력 디렉터리에 파일 하나씩: `<StatesNamespace>.swift`, `<StatesNamespace>.kt` (`object`). 머리·verify 규칙은 다른 생성 파일과 같다 | `<swiftNamespace>States`로 파생 (`AppAPIStates`) | 기존 여섯 속성처럼 기본값으로 빠지지 않는다 — 오타가 초록으로 읽히면 P8(3)이다. 기존 소비자(상태 없음)의 태스크는 그대로 돈다 |
+
+생성 결과 (Superself의 두 상태를 예로. `AppAPI`는 같은 실행의 호출 출력이다):
+
 ```swift
-// 앱의 합성 지점. AppAPI는 앱 계약 코드젠의 출력이다.
-let aiAccounts = SPFNStateDescriptor(
-    id: "aiAccounts",
-    keyFields: ["workspaceId"],
-    read: { key in AppAPI.getAiAccountsState(workspaceId: key["workspaceId"] ?? "") },
-    frame: { SPFNStateFrame(at: $0.at, value: $0.value, data: SPFNNoStateData()) }
-)
+// GENERATED FILE — DO NOT EDIT. (머리는 app-contract-codegen §5와 같다)
+public enum AppStates
+{
+    public static let aiAccounts = SPFNStateDescriptor(
+        id: "aiAccounts",
+        keyFields: ["workspaceId"],
+        read: { key in AppAPI.getAiAccountsState(workspaceId: key["workspaceId"]!) },
+        frame: { SPFNStateFrame(at: $0.at, value: $0.value, data: SPFNNoStateData()) }
+    )
+
+    public static let consent = SPFNStateDescriptor(
+        id: "consent",
+        read: { _ in AppAPI.getConsentState() },
+        frame: { SPFNStateFrame(at: $0.at, value: $0.value, data: $0.data) }
+    ).writable(
+        write: { _ in AppAPI.putConsentState() },
+        frame: { SPFNStateFrame(at: $0.at, value: $0.value, data: $0.data) }
+    )
+
+    public static let all: [any SPFNAnyStateDescriptor] = [aiAccounts, consent]
+
+    public static let events: [String] = ["state.aiAccounts.changed", "state.consent.changed"]
+
+    public static let snapshot: @Sendable (SPFNStateKey) -> SPFNCall<Void, AppAPI.GetStatesResponse> =
+        { query in AppAPI.getStates(workspaceId: query["workspaceId"]) }
+}
 ```
 
 ```kotlin
-val aiAccounts = SpfnStateDescriptor(
-    id = "aiAccounts",
-    keyFields = listOf("workspaceId"),
-    read = { key -> AppAPI.getAiAccountsState(workspaceId = key.getValue("workspaceId")) },
-    frame = { SpfnStateFrame(it.at, it.value, Unit) },
-);
+// GENERATED FILE — DO NOT EDIT.
+object AppStates
+{
+    val aiAccounts = SpfnStateDescriptor(
+        id = "aiAccounts",
+        keyFields = listOf("workspaceId"),
+        read = { key -> AppAPI.getAiAccountsState(workspaceId = key.getValue("workspaceId")) },
+        frame = { SpfnStateFrame(it.at, it.value, Unit) },
+    );
+
+    val consent = SpfnStateDescriptor(
+        id = "consent",
+        read = { AppAPI.getConsentState() },
+        frame = { SpfnStateFrame(it.at, it.value, it.data) },
+    ).writable(
+        write = { AppAPI.putConsentState() },
+        frame = { SpfnStateFrame(it.at, it.value, it.data) },
+    );
+
+    val all: List<SpfnStateDescriptor<*, *>> = listOf(aiAccounts, consent);
+
+    val events: List<String> = listOf("state.aiAccounts.changed", "state.consent.changed");
+
+    val snapshot: (SpfnStateKey) -> SpfnCall<Unit, GetStatesResponse> =
+        { query -> AppAPI.getStates(workspaceId = query["workspaceId"]) };
+}
 ```
 
-- `frame`은 생성된 응답에서 세 필드를 꺼내는 한 줄이다. 응답 타입이 상태마다 달라서 SDK가 대신 쓸 수 없다. 앱 계약 코드젠이 상태 서술을 직접 만들게 할지는 §6 Q-G.
-- `keyFields`는 앱의 선언이다. 서버의 매니페스트가 다르면 구독이 거부된다 (K-8) — 서버가 진실이다.
+- `frame`은 생성된 응답에서 세 필드를 꺼내는 한 줄이다. 응답 타입이 상태마다 달라서 SDK가 대신 쓸 수 없고, 그래서 생성기가 쓴다.
+- 생성기는 SDK 모듈에 의존하지 않는 채로 남는다 (tools/contract-codegen README "No SDK module is involved in generation"): 이름 `SPFNStateDescriptor` 등을 문자열로 방출할 뿐이다. 생성 파일을 컴파일하는 앱이 `SPFNState`/`spfn-state`를 링크한다.
+- 생성기 픽스처(`src/test/resources/app-contract/`)에 상태 라우터 하나 — 키 없는 쓰기 상태, 키 있는 상태, `.data()` 있는 상태 — 와 거부 문서들을 더한다. 생성된 `AppStates` 픽스처는 상태 모듈의 테스트 타깃(`Tests/SPFNStateTests`, `spfn-state/src/test`)에 들어가 상태 클라이언트 테스트가 그것을 서술로 쓴다 — 생성물과 클라이언트가 함께 컴파일되는 증거다.
 
 #### 2-13-3. 멤버
 
@@ -351,6 +471,25 @@ val aiAccounts = SpfnStateDescriptor(
 | `retry()` | `func retry()` | `fun retry()` | §2-9. `connected`이거나, 첫 스냅샷이 진행 중이거나, 구독이 없으면 아무것도 하지 않는다 |
 | `close()` | `func close()` | `fun close()` | 모든 구독 열을 끝내고, 연결 상태 열도 끝내고, 원선 청취자를 떼고, 쿼리를 비운다 (`setQuery([:])`). **스트림은 닫지 않는다** — 앱의 것이다. 상태는 `reconnecting(0)`. 멱등. 뒤의 `subscribe`가 다시 시작한다 |
 | (진단) | `droppedFrames: Int` | `droppedFrames: Int` | 디코드에 실패해 버린 프레임 수 (§2-4) |
+
+#### 2-13-4. 앱이 쓰는 코드 — 웹과 나란히
+
+Q-F와 Q-G를 뒤집은 근거가 이 표다 (운영자, 2026-10-17). 웹 줄은 spfn README의 "Browser"·"`useConnectionStatus(client)`"·"Connection status" 예에서 그대로 옮겼다. 같은 두 상태 — 키 없는 쓰기 상태 `consent`, 키 있는 `runtime` — 로 쓴다.
+
+| 무엇 | 웹 (`@spfn/core/state/client` + `/react`) | Swift | Kotlin | 네이티브가 더 쓰는 것 |
+|---|---|---|---|---|
+| 상태 선언 | `import type { states } from '@/server/states';` | 없음 — `AppStates`는 생성물 | 없음 — `AppStates`는 생성물 | 없음 |
+| 스트림 | `sse: createAuthSSEClient()` (클라이언트 설정 안) | `let events = try SPFNEventStream(keyLifecycle: keyLifecycle, configuration: .init(events: AppStates.events))` | `val events = SpfnEventStream(keyLifecycle, SpfnEventStreamConfiguration(events = AppStates.events), applicationScope);` | **한 줄** (스트림이 앱 전체의 것이라 따로 만든다, §2-2) |
+| 클라이언트 | `export const state = createStateClient<typeof states>({ sse: …, api: { baseUrl: '/api/rpc' } });` | `let state = try SPFNStateClient(configuration: .init(stream: events, keyLifecycle: keyLifecycle, states: AppStates.all, snapshot: AppStates.snapshot))` | `val state = SpfnStateClient(SpfnStateClientConfiguration(events, keyLifecycle, AppStates.all, AppStates.snapshot), applicationScope);` | 없음 (같은 한 줄) |
+| 루트 부착 | 없음 (모듈 싱글턴을 가져온다) | `.spfnEventStream(events, keyLifecycle: keyLifecycle, stateClient: state)` | `SpfnEventStreamHost(events, keyLifecycle, stateClient = state) { … }` | **한 줄** (이벤트 스트림의 부착에 인자 하나 — 수명 관찰자는 어차피 붙는다) |
+| 키 없는 상태 | `const consent = useServerState(state, 'consent');` | `@SPFNServerState(AppStates.consent) var consent` | `val consent by rememberServerState(AppStates.consent)` | 없음 |
+| 키 있는 상태 | `const runtime = useServerState(state, 'runtime', { workspaceId });` | `@SPFNServerState var runtime: SPFNStateEntry<AppAPI.GetRuntimeStateResponseValue, SPFNNoStateData>` 와 뷰의 `init`에서 `_runtime = SPFNServerState(AppStates.runtime, key: ["workspaceId": workspaceID])` | `val runtime by rememberServerState(AppStates.runtime, key = mapOf("workspaceId" to workspaceId))` | Swift만 한 줄 — 속성 래퍼의 인자는 뷰의 다른 속성을 읽지 못한다 (SwiftData `@Query`와 같은 제약) |
+| 읽기 | `consent.status === 'loading'`, `consent.value === 'pending'` | `consent.status == .loading`, `consent.value == .pending` | `consent.status == SpfnStateStatus.Loading`, `consent.value == ...Pending` | 없음 |
+| 쓰기 | `consent.write({ termsVersion: '2026-10', marketing })` | `try await state.write(AppStates.consent, input: .init(marketing: marketing, termsVersion: "2026-10"))` | `state.write(AppStates.consent, PutConsentStateBody(marketing = marketing, termsVersion = "2026-10"))` | 뷰가 클라이언트를 환경에서 꺼내는 한 줄 (`@Environment(\.spfnStateClient)`, `LocalSpfnStateClient.current`) — 어댑터가 `write`를 싣지 않는 까닭은 §2-12 |
+| 연결 상태 | `const connection = useConnectionStatus(state);` | `@SPFNConnectionStatus var connection` | `val connection by rememberConnectionStatus()` | 없음 |
+| 다시 시도 | `state.retry()` | `state.retry()` | `state.retry()` | 없음 |
+
+뒤집기 전에는 여기에 상태마다 서술 다섯 줄(Q-G), 이름 목록에 상태마다 한 줄, 스냅샷 감싸기 한 줄, 그리고 앱이 만드는 `@Observable` 모델·`@Composable` 훅(Q-F)이 더 있었다.
 
 ## 3. 경우의 수 표
 
@@ -468,6 +607,22 @@ val aiAccounts = SpfnStateDescriptor(
 | I-11 | 매니페스트 `consent.write = false`, 서술은 쓰기 서술 | `write(consent, …)` | 요청 전에 거부, 상태 이름을 댐 | Man: "A `write` on a state the manifest marks `write: false` rejects naming the state, before any request" |
 | I-12 | 매니페스트 모름 | 첫 스냅샷이 실패한 채 앱의 `get` | `get` 거부. 기다리던 구독은 C-9대로 | Man: "A first snapshot that fails goes to `onError` (or rejects the call that needed it)" |
 
+### 3-6. A — 관찰 어댑터 (이벤트 모듈, 개정 1)
+
+Hook = "`useServerState(client, id, key?)`", Conn = "`useConnectionStatus(client)`". 짝의 근거는 이벤트 모듈의 규칙(event-stream-design §3-4)이다.
+
+| id | 전 | 도착 | 후 | 근거 |
+|---|---|---|---|---|
+| A-1 | `(consent)`가 `ready(t1, A)` (캐시 또는 `initial`) | 뷰가 처음 그려짐 (`@SPFNServerState(AppStates.consent)` / `rememberServerState(AppStates.consent)`) | 첫 그리기가 `ready(t1, A)` — `loading`을 거치지 않음. 구독 열의 첫 항목(같은 값)은 다시 그리지 않음 | Hook: "`getSnapshot` is `client.current(id, key)`"; "it shows the value when the client was built with `initial`" |
+| A-2 | 그 키의 항목 없음 | 첫 그리기, 그 뒤 첫 스냅샷의 항목 | `loading`, 그다음 `ready` | Hook: "A key never seen is `'loading'` until it has an entry" |
+| A-3 | `{ws: A}`로 구독 중 | 다시 그리기, 값이 같은 새 키 사전/맵 | 해지·재구독 없음, 쿼리 그대로 | Hook: "The key is compared by its fields (stable-stringified), so `{ workspaceId }` written inline does not resubscribe on every render" |
+| A-4 | `{ws: A}`로 구독 중, `{ws: B}`를 전에 본 적 있음 | 키가 `{ws: B}`로 | 앞 구독 끝, 새 구독, 첫 그리기가 `{ws: B}`의 캐시된 `ready` | Hook: "another `workspaceId` unsubscribes and subscribes"; "a key seen before shows its cached entry as `'ready'`" (K-12) |
+| A-5 | 구독 중 | 뷰가 떠남 (Swift: 계층을 떠나 상태 저장소가 놓임. Kotlin: 컴포지션을 떠남) | 열의 소비가 취소되어 상태 클라이언트에서 해지 (그 키의 마지막이면 K-5) | `useSyncExternalStore`의 해지. 짝: "듣기의 끝은 청취자의 끝이다" (event-stream-design §3-4), §2-12 |
+| A-6 | 구독 중 | 엔진(메인이 아닌 곳)에서 적용된 프레임 | 모델의 `entry`·Compose `State`가 메인 액터·메인 디스패처에서 바뀜 | 짝: SwiftUI·Compose의 상태는 메인에서 바뀐다 (§2-12) |
+| A-7 | `reconnecting(0)` | `@SPFNConnectionStatus` / `rememberConnectionStatus()` 첫 그리기, 그 뒤 스트림 `open` | 첫 그리기가 `reconnecting(0)`, 그다음 `connected` 한 번. 같은 값은 다시 그리지 않음 | Conn: "`subscribe` is `client.subscribeConnection(cb)`, `getSnapshot` is `client.connection()`" |
+| A-8 | 루트 부착에 상태 클라이언트 없음 | `@SPFNServerState` / `rememberServerState` | 프로그래머 오류: Swift `preconditionFailure`, Kotlin `IllegalStateException` | 짝: `onSPFNEvent`·`SpfnEventEffect`의 "루트 부착 없이 쓰면 프로그래머 오류다" |
+| A-9 | 상태 클라이언트가 스트림 X로 설정됨 | 스트림 Y의 부착에 그 클라이언트를 넘김 | 부착하는 순간 프로그래머 오류 | 짝: 쿼리의 주인은 그 스트림의 상태 클라이언트 하나 (§2-2) |
+
 셀 수: O 16, K 13, R 16, C 28, I 12 = **85**. 모두 툴킷 없는 단위 테스트다. 가짜 스트림(원선 신호를 손으로 밀어 넣는다)과 가짜 `execute`로 돈다. 실제 서버가 필요한 것은 §5-3의 U-셀이다.
 
 ## 4. 테스트 이름 표
@@ -572,6 +727,20 @@ val aiAccounts = SpfnStateDescriptor(
 | `ordering_neverRegresses` | 무작위 도착(프레임·읽기·스냅샷·쓰기 답, 무작위 `at`) 뒤 매 순간 도장은 줄지 않고, 항목의 `at`은 도장보다 크지 않다. 같은 `at` 둘 이상, 오래된 도착이 섞였는지 단언 |
 | `revokedLift_goesByConnection` | 무작위 revoke·grant·열림·도착 뒤, 표시가 지워진 순간마다 그것을 지운 도착의 세대가 표시의 세대보다 크거나 grant였다. `revoked`에 닿았고 지워진 적이 있는지 단언 |
 
+관찰 어댑터의 셀 (§3-6)은 이벤트 모듈의 스위트 `SPFNStateAdapterTests.swift` / `SpfnStateAdapterTest.kt`에 있다. 85개의 이름 짝과 따로 센다. "Linux·JVM" 칸이 ○인 셀은 툴킷 없는 드라이버(`SPFNServerStateDriver`/`SpfnServerStateDriver`)와 부착 검사로 돈다. —인 셀은 래퍼·컴포지션이 있어야 하므로 기기에서 본다 (이벤트 모듈 §9-3과 같은 나눔).
+
+| 셀 | 테스트 이름 | Linux·JVM |
+|---|---|---|
+| A-1 | `a1_cachedEntry_firstRenderIsReady` | ○ |
+| A-2 | `a2_unseenKey_isLoadingUntilEntry` | ○ |
+| A-3 | `a3_equalKeyNewInstance_doesNotResubscribe` | ○ |
+| A-4 | `a4_keyChange_resubscribesCachedFirst` | ○ |
+| A-5 | `a5_leaving_endsSubscription` | ○ (드라이버의 `end()`). 래퍼의 `deinit`·`LaunchedEffect` 취소는 기기 |
+| A-6 | `a6_entryChanges_onMain` | ○ (Swift `@MainActor` 격리는 컴파일러가, Kotlin은 테스트 디스패처로) |
+| A-7 | `a7_connectionStatus_currentFirst` | ○ |
+| A-8 | `a8_withoutAttachment_isProgrammerError` | Kotlin만 (`LocalSpfnStateClient` 기본값이 던지는지, 이벤트 모듈 L-8과 같다). Swift는 기기 |
+| A-9 | `a9_stateClientOfOtherStream_isProgrammerError` | ○ |
+
 ## 5. 전제 조건
 
 ### 5-1. 스트림 확장 (이 저장소, event-stream-design 개정 4)
@@ -589,7 +758,7 @@ val aiAccounts = SpfnStateDescriptor(
 
 | id | 전제 | 이 설계가 기대하는 것 |
 |---|---|---|
-| P-a | **앱의 계약 문서가 상태 라우트를 담는다** (superself-apps `w-5hzhy`, 앱 쪽 변경): Superself가 상태 선언에 `.contract({ since })`를 붙이고, `defineStateRouter`에 `contract` 옵션을 주고, `contracts/current.json`을 다시 만든다 | 읽기 연산 `get<Id>State` (응답 `{ at, value, data? }`, 키 필드는 쿼리), 쓰기 연산 `put<Id>State`, 스냅샷 `getStates` (응답 `{ at, states, manifest }`). 값 스키마가 앱 계약 코드젠의 표 안에 있다 — `Type.Unknown` 값(R1), 소수(T3), 객체 유니언(R3)이면 생성이 이름을 대고 멈춘다 |
+| P-a | **앱의 계약 문서가 상태 라우트를 담는다** (superself-apps `w-5hzhy`, 앱 쪽 변경): Superself가 상태 선언에 `.contract({ since })`를 붙이고, `defineStateRouter`에 `contract` 옵션을 주고, `contracts/current.json`을 다시 만든다 | 코드젠이 상태를 알아보는 데 필요한 것 (§2-13-2의 규칙): (1) **라우터의 `contract` 옵션** — 이것이 없으면 `getStates`가 문서에 없고, 닻이 없으니 상태를 하나도 알아보지 않는다. 응답은 파생 스키마 `{ at, states: { [id]?: { value, data? } }, manifest: { [id]: { key, write } } }`이고 `states`의 속성 이름이 id다. (2) **상태마다 `.contract()`** — 읽기 연산 `get<Id>State` (GET, 응답 `{ at, value, data? }`, 키 필드는 필수 문자열 쿼리), 쓰기가 있으면 `put<Id>State` (PUT, 같은 쿼리, 객체 본문, 같은 응답). 이름 규칙은 spfn의 것 그대로: `get`/`put` + id의 첫 글자를 대문자로 + `State`, id는 `^[a-z][a-zA-Z0-9]*$`. `.contract()` 없는 상태가 `getStates`의 스키마에 실리면 (README "Contract": 스냅샷 응답은 "in declaration order — built once when the router is built") 읽기 연산이 없으므로 **생성이 그 id를 대고 멈춘다** — 상태 라우터의 상태는 모두 계약하거나 하나도 하지 않는다. (3) `getStates`의 쿼리가 키 있는 상태들의 키 필드를 (선택) 문자열로 싣는다 — 스냅샷을 키로 읽으려면. (4) 값 스키마가 앱 계약 코드젠의 표 안에 있다 — `Type.Unknown` 값(R1), 소수(T3), 객체 유니언(R3)이면 생성이 상태 id를 대고 멈춘다. 그리고 생성기가 지금 거부하는 두 모양이 상태 라우트에서 나올 수 있다: 문서 최상위의 `events` 절 (생성기는 `compatibilityPolicy`·`documentVersion`·`operations` 밖의 키를 거부한다 — spfn은 계약한 이벤트가 있으면 이 절을 쓰고, 상태의 `.contract()`는 `state.<id>.changed`도 계약한다), 연산의 `deprecatedIn`·`removedIn` (R10이 모르는 연산 키로 거부한다). 둘 다 생성기가 읽고 넘기도록 여는 것이 이 전제의 몫이다 — `events` 절의 내용은 Q-B·#111이 다시 볼 때까지 읽지 않는다 |
 | P-b | **이벤트 페이로드가 계약 문서에 실린다** — spfn #111, 열려 있음 | 기다리지 않는다. 그때까지 프레임은 읽기 호출의 디코더로 읽는다 (§2-4). #111이 오면 이벤트 이름 목록과 디코드를 생성물에서 받을 수 있는지 다시 본다 (§6 Q-B) |
 | P-c | **`clientProofV1` 연산의 쿼리** — app-contract-codegen T15가 거부하고, §7이 "`SPFNOperation`에 '서명하는 경로'와 '보내는 URL'을 나누는 SDK 변경"을 남겼다 | `w-51r9a` (앱 계약 코드젠 경로)가 이것을 연다고 본다: 서명된 연산이 쿼리를 싣고, 서버(경로만 서명 입력으로 쓰는)와 서명이 맞는다. 열리지 않으면 키 있는 읽기와 쿼리 있는 스냅샷을 생성할 수 없다 — 키 없는 상태만 된다. 이 설계에서 가장 무거운 전제다 |
 | P-d | **primitives 라우트의 `.contract()`** — `w-mm380` | 이 설계는 그것에 기대지 않는다. 상태 라우트는 앱 서버의 것이고 앱 계약 문서로 온다. `w-mm380`이 같은 코드젠 경로(앱 계약 문서)를 넓히는 일이라면 P-c와 같은 쿼리 규칙을 공유한다 — 그 단위가 쿼리를 다르게 풀면 이 설계가 따른다 |
@@ -616,25 +785,40 @@ val aiAccounts = SpfnStateDescriptor(
 | Q-C | S-1–S-4를 한 번에 내는가, S-1·S-4 먼저 내고 S-2·S-3 없이 시작하는가 (매 열림 스냅샷, 거부는 스냅샷 누락으로만) | **한 번에.** 둘로 나누면 R-1·R-3·R-10과 C-26이 두 번 구현되고, 그 사이 `revoked`가 원본과 다르게 늦다 |
 | Q-D | 키의 마지막 구독이 떠날 때 곧바로 재연결하는가 (원본 그대로), 유예를 두는가 | **곧바로.** 원본과 같아야 픽스처가 셋에 하나다. 구독은 루트가 오래 쥐므로 떠나는 일이 드물다 |
 | Q-E | 스트림에 재연결 시도 상한(원본의 `maxReconnectAttempts`)을 더하는가 | **더하지 않는다, 지금은.** 원본도 기본은 끝없이다. 네이티브 `failed`는 거절로 닫힘과 `maxRetries`에서 온다. 앱 루트의 `failed` 케이스가 다른 것을 요구하면 그때 |
-| Q-F | `@Observable` 모델·`@Composable` 훅을 이 모듈에 두는가 | **두지 않는다.** 앱 루트 패키지(U4·U5)가 만든다. 다른 쓸 곳이 생기면 `events` 모듈에 |
-| Q-G | 앱 계약 코드젠이 상태 서술(`SPFNStateDescriptor`)을 직접 생성하는가 (상태 라우트를 알아보고) | **지금은 아니다.** 서술은 상태마다 다섯 줄이다. 생성하려면 코드젠이 상태 라우터의 이름 규칙을 알아야 하고, 그것은 #111의 이벤트 서술과 함께 정하는 편이 맞다 |
 | Q-H | 공유 픽스처를 `tests/fixtures/state-client/cases.json` (새 최상위 디렉터리)에 두는가, `Contracts/fixtures/`에 두는가 | **`tests/fixtures/`.** `Contracts/fixtures/`는 고정 번들의 출처를 지키는 자리이고 (`MANIFEST.json`의 번들 digest), 이 표는 번들에서 오지 않는다 |
 | Q-I | 같은 픽스처를 spfn의 TypeScript 클라이언트 테스트도 읽게 상류에 제안하는가 | **제안한다.** 그래야 "세 플랫폼"이 문서가 아니라 테스트로 같다. 원본 README의 문장을 근거로 단 셀이 그 형식이다 |
 | Q-J | `current`가 항목이 없을 때 `.loading`을 돌려주는가 (원본은 `undefined`) | **`.loading`.** 원본의 훅이 그렇게 읽고, 원본에서 둘을 가르는 소비자가 없다 |
+
+답한 것 (개정 1 — 운영자, 2026-10-17, 결정 `01m52pdtgpxkbdp0z3jc0kg5a9`. 두 권고를 뒤집었다):
+
+| id | 질문 | 답 |
+|---|---|---|
+| Q-F | `@Observable` 모델·`@Composable` 훅을 어디에 두는가 (첫 권고: 이 단위에 두지 않고 앱 루트 패키지가 만든다) | **SDK가 제공한다, `events` 모듈에** — `@spfn/core/state/react`의 짝. Swift `@SPFNServerState`·`@SPFNConnectionStatus` (`@Observable` 모델), Kotlin `rememberServerState`·`rememberConnectionStatus`, 루트 부착이 상태 클라이언트를 받는다. `state` 모듈은 툴킷 없는 그대로, 그래프에 `events → state` 간선 (§2-1, §2-12, §3-6, §7) |
+| Q-G | 앱 계약 코드젠이 상태 서술을 직접 생성하는가 (첫 권고: 지금은 아니다, #111과 함께) | **생성한다.** 선택된 `getStates`의 파생 스키마가 상태 id를 대고, id마다 `get<Id>State`·`put<Id>State`를 이름과 모양으로 확인해 `AppStates.<id>`·`all`·`events`·`snapshot`을 낸다. `keyFields`는 읽기 연산의 쿼리, 어긋남은 K-8. 앱은 서술을 쓰지 않는다 (§2-13-2, §2-13-4, §5-2 P-a). #111은 기다리지 않는다: 상태 이벤트의 이름은 spfn이 id에서 고정하고 (`state.<id>.changed`), 페이로드는 읽기 디코더로 읽는다 (Q-B) |
 
 ## 7. 모듈 그래프와 검사
 
 이 단위에서는 바꾸지 않는다. 구현 PR이 더할 것이다.
 
-**그래프 줄** (`tools/module-graph.json`, `events` 줄 다음):
+**그래프 줄** (`tools/module-graph.json`, `client` 줄과 `events` 줄 사이 — 간선이 위로만 가리키게):
 
 ```json
 {"id": "state", "swiftTarget": "SPFNState", "androidModule": "spfn-state", "swiftDependsOn": ["SPFNClient"], "androidDependsOn": ["spfn-client"], "externalDeps": {"swift": [], "android": ["kotlinx-coroutines-core"]}}
 ```
 
+`state` 줄은 Q-F 결정으로 바뀌지 않았다. 바뀌는 것은 `events` 줄이다 — **간선 `events → state`** 하나 (관찰 어댑터, §2-12). 외부 의존은 그대로다:
+
+```json
+{"id": "events", "swiftTarget": "SPFNEvents", "androidModule": "spfn-events", "swiftDependsOn": ["SPFNClient", "SPFNState"], "androidDependsOn": ["spfn-client", "spfn-state"], "externalDeps": {"swift": [], "android": ["kotlinx-coroutines-core", "androidx-compose-runtime", "androidx-compose-ui", "androidx-lifecycle-process"]}}
+```
+
+- `events`의 노트에 한 문장: 상태 클라이언트의 관찰 어댑터(`@spfn/core/state/react`의 짝)가 여기 있고, 그래서 `state`에 의존한다 — `state`가 `events`에 의존하는 반대 방향은 Compose를 `state`로 끌어온다. "this module only carries platform facts into it"는 스트림에 대해 그대로 참이다: 어댑터도 상태 클라이언트의 열을 뷰의 상태로 옮길 뿐이다.
+- 이벤트 모듈을 링크하는 앱은 `spfn-state`도 링크한다. 그 모듈은 툴킷이 없고 외부 의존이 `events`가 이미 가진 coroutines뿐이다. 상태 라우터를 쓰지 않는 앱이 얻는 것은 쓰지 않는 작은 산출물 하나다.
+- `Package.swift`: `.target(name: "SPFNEvents", dependencies: ["SPFNClient", "SPFNState"])`, `.testTarget(name: "SPFNEventsTests", dependencies: ["SPFNEvents", "SPFNClient", "SPFNState"])`. Gradle `android/spfn-events/build.gradle.kts`: `spfnModuleDependsOn = listOf("spfn-client", "spfn-state")`, `api(project(":spfn-state"))` (공개 시그니처가 `SpfnStateDescriptor`·`SpfnStateClient`를 싣는다). CocoaPods 픽스처의 `SPFNEvents` subspec에 `sp.dependency` 하나. 모두 프로젝트 간선이라 `verification-metadata.xml`은 바뀌지 않을 것이다 — 구현 PR이 확인해 적는다 (P44).
+
 - `linux` 키 없음: Linux에서 빌드되고 테스트된다. Apple 전용 import가 없다.
 - 노트 하나: 상태 클라이언트가 왜 따로 있는가 (상태 라우터는 서버의 선택이고 이벤트 스트림만 쓰는 앱이 있다; `events`의 Compose 의존을 지나지 않는다), 무엇에 의존하는가 (`client`: 스트림, `execute`, 키 라이프사이클), 그리고 연결의 주인은 여전히 `SPFNEventStream`이고 이 모듈은 쿼리만 쓴다는 것.
-- `Package.swift`: `.library(name: "SPFNState", targets: ["SPFNState"])`, `.target(name: "SPFNState", dependencies: ["SPFNClient"])`, `.testTarget(name: "SPFNStateTests", dependencies: ["SPFNState", "SPFNClient"])`.
+- `state`의 `Package.swift`: `.library(name: "SPFNState", targets: ["SPFNState"])`, `.target(name: "SPFNState", dependencies: ["SPFNClient"])`, `.testTarget(name: "SPFNStateTests", dependencies: ["SPFNState", "SPFNClient"])`.
 - Gradle: `include(":spfn-state")`, `android/spfn-state/build.gradle.kts`에 `spfnModuleDependsOn = listOf("spfn-client")`, `spfnSwiftCounterpart = "SPFNState"`, `api(project(":spfn-client"))`, `api(libs.kotlinx.coroutines.core)`. 간선 하나를 더하는 일이므로 검증 메타데이터의 변화를 PR 본문에 적는다 (P44). 매니페스트 권한 없음.
 
 **validate.sh가 새로 읽는 곳:**
@@ -642,8 +826,8 @@ val aiAccounts = SpfnStateDescriptor(
 | 절 | 확인하는 것 | 구현 PR이 바꾸는 것 |
 |---|---|---|
 | 7 (외부 의존성 허용 목록) | `android/spfn-state/build.gradle.kts`의 외부 의존이 그래프의 한 별칭과 양방향으로 같다. `SPFNState` 타깃이 외부 제품을 선언하지 않는다 | 그래프 줄 |
-| 8 (모듈 그래프 정합) | `Sources/SPFNState`의 Swift 소스, `.library`, 타깃 의존 `["SPFNClient"]`, Gradle include와 `projectDir`, 빌드 스크립트와 Kotlin 소스, CocoaPods 픽스처의 `s.subspec 'SPFNState'`. 모듈 수 8 → 9. Linux 버킷: 키 없음 → Linux-capable. 가드 밖 Apple 전용 import 없음 | `tools/cocoapods-compat/generate-podspec.sh --write`로 픽스처 재생성 |
-| 13 (두 플랫폼의 한 어휘) | 테스트 이름 짝: `SPFNStateClientTests` ↔ `SpfnStateClientTest`의 이름 85개가 같다 (이벤트 스트림 테스트처럼). 추출은 한 단계 들여쓴 멤버만 (P47), 읽은 이름 수의 바닥 85 (P7) | 대조 뿌리 한 쌍 |
+| 8 (모듈 그래프 정합) | `SPFNEvents`의 타깃 의존 `["SPFNClient", "SPFNState"]`과 `spfn-events`의 `spfnModuleDependsOn`. `Sources/SPFNState`의 Swift 소스, `.library`, 타깃 의존 `["SPFNClient"]`, Gradle include와 `projectDir`, 빌드 스크립트와 Kotlin 소스, CocoaPods 픽스처의 `s.subspec 'SPFNState'`. 모듈 수 8 → 9. Linux 버킷: 키 없음 → Linux-capable. 가드 밖 Apple 전용 import 없음 | `tools/cocoapods-compat/generate-podspec.sh --write`로 픽스처 재생성 |
+| 13 (두 플랫폼의 한 어휘) | 테스트 이름 짝: `SPFNStateClientTests` ↔ `SpfnStateClientTest`의 이름 85개가 같다 (이벤트 스트림 테스트처럼). 추출은 한 단계 들여쓴 멤버만 (P47), 읽은 이름 수의 바닥 85 (P7). 이벤트 모듈: `SPFNStateAdapterTests` ↔ `SpfnStateAdapterTest`의 A-셀 이름 9개 (바닥 9), 이벤트 모듈의 공개 이름 쌍에 `SPFNServerState`↔`rememberServerState`, `SPFNConnectionStatus`↔`rememberConnectionStatus`, `spfnStateClient`↔`LocalSpfnStateClient` | 대조 뿌리 두 쌍 |
 | 파일 목록 | `tests/fixtures/state-client/cases.json`이 있고, 두 스위트가 읽는다 | 필수 파일 목록에 한 줄 |
 
 `tools/rc-verify/rc-verify.sh`와 게시 목록은 그래프를 읽으므로 한 줄씩 는다. `RELEASE.md`·`CHANGELOG.md`에 새 좌표 `xyz.superfunction.spfn:spfn-state`와 새 Swift 제품. architecture README의 모듈 표에 한 줄, "The state client" 절 하나.
@@ -663,11 +847,11 @@ val aiAccounts = SpfnStateDescriptor(
 | [P40](../IMPLEMENTATION-PITFALLS.md#p40) | 재시도 백오프 | 첫 스냅샷의 `retryDelay` 타이머는 수면을 포함하는 시계를 쓴다 |
 | [P42](../IMPLEMENTATION-PITFALLS.md#p42) | 서버 상태를 바꾸는 호출의 오류 처리 | `write`의 2xx를 읽지 못하면 거부하되 아무것도 적용하지 않는다. 쓰기는 일어났을 수 있고, 프레임이 값을 가져온다 (O-15) |
 | [P44](../IMPLEMENTATION-PITFALLS.md#p44) | 모듈 간선 추가, 새 Android 모듈의 의존성 | `spfn-state` → `spfn-client` 간선과 `api(coroutines)`. `verification-metadata.xml`의 변화를 PR에 적는다 |
-| [P45](../IMPLEMENTATION-PITFALLS.md#p45) | Compose 효과를 Allman으로 | 이 모듈에는 Compose가 없다 (§2-12). 앱 루트 패키지의 어댑터가 만난다 — 그 브리프에 넘긴다 |
+| [P45](../IMPLEMENTATION-PITFALLS.md#p45) | Compose 효과를 Allman으로 | `state` 모듈에는 Compose가 없다. 이벤트 모듈의 `rememberServerState`·`rememberConnectionStatus`가 만난다 (§2-12): `LaunchedEffect` 블록과 람다를 Allman으로 |
 | [P46](../IMPLEMENTATION-PITFALLS.md#p46) | 상태 기계의 성질 테스트 | §4의 성질 테스트 둘이 닿음을 단언한다 |
 | [P47](../IMPLEMENTATION-PITFALLS.md#p47) · [P7](../IMPLEMENTATION-PITFALLS.md#p7) · [P5](../IMPLEMENTATION-PITFALLS.md#p5) | validate에 두 플랫폼 이름 대조 추가 | 13절의 새 뿌리: 한 단계 들여쓴 멤버만, 바닥 85 |
-| [P20](../IMPLEMENTATION-PITFALLS.md#p20) · [P7](../IMPLEMENTATION-PITFALLS.md#p7) | `#if canImport` 가드 추가 | 이 모듈은 가드할 파일이 없다 — Linux에서 전부 빌드된다. 어댑터를 나중에 더하면 그 파일만 `#if canImport(SwiftUI)`로 통째로 (`canImport(UIKit)`이 아니다, P20) |
-| [P8](../IMPLEMENTATION-PITFALLS.md#p8) | 계약 타입 문법 변화 | 상태 값 스키마가 코드젠 표 밖이면 생성이 이름을 대고 멈춘다 (P-a). 상태 클라이언트는 문서를 읽지 않으므로 이 함정을 새로 만들지 않는다 |
+| [P20](../IMPLEMENTATION-PITFALLS.md#p20) · [P7](../IMPLEMENTATION-PITFALLS.md#p7) | `#if canImport` 가드 추가 | `state` 모듈은 가드할 파일이 없다 — Linux에서 전부 빌드된다. 이벤트 모듈의 어댑터 파일(래퍼·모델)은 `#if canImport(SwiftUI)`로 통째로 (`canImport(UIKit)`이 아니다, P20). 드라이버와 부착 검사는 가드 밖 |
+| [P8](../IMPLEMENTATION-PITFALLS.md#p8) | 계약 타입 문법 변화 | 상태 값 스키마가 코드젠 표 밖이면 생성이 상태 id를 대고 멈춘다 (§2-13-2 거부 행, P-a). 상태를 알아보는 규칙이 추측하지 않는다: 닻(`getStates`의 파생 스키마)과 모양이 모두 맞아야 하고, 어긋나면 이름을 대고 멈춘다. 상태 클라이언트는 문서를 읽지 않는다 |
 
 브리프의 결함 예상과 처리:
 
