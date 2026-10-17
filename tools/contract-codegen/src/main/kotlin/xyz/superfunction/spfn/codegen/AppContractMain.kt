@@ -28,9 +28,29 @@ object AppHeader
         "Regenerate with the consumer's spfnAppContractGenerate run. Its spfnAppContractVerify",
         "fails the build when the document changed or this file was edited."
     )
+
+    /**
+     * The calls file says why a selection that looks like a state router produced no state
+     * descriptors: `getStates` is the anchor, and without it nothing is a state (§2-13-2).
+     */
+    fun unanchoredStates(contract: AppContract): List<String>?
+    {
+        if (contract.unanchoredStates.isEmpty())
+        {
+            return null;
+        }
+        return listOf(
+            "No state descriptors are generated: the selection names ${contract.unanchoredStates.joinToString(", ")}",
+            "but not ${AppStateRecognizer.ANCHOR}, the snapshot states are recognised from. They are ordinary calls."
+        );
+    }
 }
 
-/** What the consumer passes. Every value is required; none has a default. */
+/**
+ * What the consumer passes. Every value is required and none has a default, except the states
+ * namespace: required exactly when the selection names `getStates`, refused otherwise — which
+ * the generation checks once the selection is read (state-client-design §2-13-2).
+ */
 data class AppContractOptions(
     val mode: String,
     val document: File,
@@ -39,7 +59,8 @@ data class AppContractOptions(
     val swiftNamespace: String,
     val kotlinOut: File,
     val kotlinPackage: String,
-    val sdkRoot: File
+    val sdkRoot: File,
+    val statesNamespace: String? = null
 )
 {
     companion object
@@ -47,6 +68,8 @@ data class AppContractOptions(
         private val KEYS = listOf(
             "mode", "document", "operations", "swift-out", "swift-namespace", "kotlin-out", "kotlin-package", "sdk-root"
         );
+
+        private const val STATES_NAMESPACE = "states-namespace";
 
         fun parse(args: Array<String>): AppContractOptions
         {
@@ -61,10 +84,11 @@ data class AppContractOptions(
                 document = absolute(values.getValue("document"), "document"),
                 operations = absolute(values.getValue("operations"), "operations"),
                 swiftOut = absolute(values.getValue("swift-out"), "swift-out"),
-                swiftNamespace = namespace(values.getValue("swift-namespace")),
+                swiftNamespace = namespace(values.getValue("swift-namespace"), "swift-namespace"),
                 kotlinOut = absolute(values.getValue("kotlin-out"), "kotlin-out"),
                 kotlinPackage = packageName(values.getValue("kotlin-package")),
-                sdkRoot = absolute(values.getValue("sdk-root"), "sdk-root")
+                sdkRoot = absolute(values.getValue("sdk-root"), "sdk-root"),
+                statesNamespace = values[STATES_NAMESPACE]?.let { namespace(it, STATES_NAMESPACE) }
             );
         }
 
@@ -76,9 +100,9 @@ data class AppContractOptions(
             }
             return args.toList().chunked(2).associate { (name, value) ->
                 val key = name.removePrefix("--");
-                if (!name.startsWith("--") || key !in KEYS)
+                if (!name.startsWith("--") || (key !in KEYS && key != STATES_NAMESPACE))
                 {
-                    throw JsonException("unknown argument '$name'; expected ${KEYS.joinToString(", ") { "--$it" }}");
+                    throw JsonException("unknown argument '$name'; expected ${(KEYS + STATES_NAMESPACE).joinToString(", ") { "--$it" }}");
                 }
                 key to value
             };
@@ -95,11 +119,11 @@ data class AppContractOptions(
             return file;
         }
 
-        private fun namespace(name: String): String
+        private fun namespace(name: String, argument: String): String
         {
             if (!Regex("[A-Z][A-Za-z0-9]*").matches(name))
             {
-                throw JsonException("--swift-namespace '$name' is not an ASCII type name ([A-Z][A-Za-z0-9]*)");
+                throw JsonException("--$argument '$name' is not an ASCII type name ([A-Z][A-Za-z0-9]*)");
             }
             return name;
         }
@@ -151,10 +175,42 @@ object AppContractGeneration
     fun outputs(contract: AppContract, options: AppContractOptions): List<OutputDirectory>
     {
         checkNamespace(contract, options.swiftNamespace);
+        checkStatesNamespace(contract, options.swiftNamespace, options.statesNamespace);
         return listOf(
-            OutputDirectory(options.swiftOut, AppSwiftEmitter(contract, options.swiftNamespace).emit()),
-            OutputDirectory(options.kotlinOut, AppKotlinEmitter(contract, options.swiftNamespace, options.kotlinPackage).emit())
+            OutputDirectory(options.swiftOut, AppSwiftEmitter(contract, options.swiftNamespace, options.statesNamespace).emit()),
+            OutputDirectory(
+                options.kotlinOut,
+                AppKotlinEmitter(contract, options.swiftNamespace, options.kotlinPackage, options.statesNamespace).emit()
+            )
         );
+    }
+
+    /**
+     * Required exactly when `getStates` is selected, so neither a forgotten property nor a
+     * stray one reads as green (P8(3)); and a name no other generated file or type takes (R9).
+     */
+    fun checkStatesNamespace(contract: AppContract, namespace: String, statesNamespace: String?)
+    {
+        if (contract.states != null && statesNamespace == null)
+        {
+            throw JsonException(
+                "the selection names ${AppStateRecognizer.ANCHOR}, so state descriptors are generated: " +
+                    "name them with -Pspfn.appContract.statesNamespace (--states-namespace)"
+            );
+        }
+        if (contract.states == null && statesNamespace != null)
+        {
+            throw JsonException(
+                "-Pspfn.appContract.statesNamespace (--states-namespace) '$statesNamespace' is given, but the selection " +
+                    "does not name ${AppStateRecognizer.ANCHOR}; there are no state descriptors to name"
+            );
+        }
+        val taken = contract.types.map { AppSwiftTypes.typeName(it) } +
+            listOf(namespace, "${namespace}Support", "${namespace}Types", "${namespace}Calls");
+        if (statesNamespace != null && statesNamespace in taken)
+        {
+            throw JsonException("the states namespace '$statesNamespace' collides with a generated file or type of the same name (R9)");
+        }
     }
 
     /** The namespace and its helper object are names too, and a generated type must not take either (R9). */

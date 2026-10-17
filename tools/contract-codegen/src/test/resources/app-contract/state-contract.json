@@ -1,0 +1,422 @@
+{
+    "compatibilityPolicy": "perOperation",
+    "documentVersion": 1,
+    "events": {
+        "auth": "tokenExchange",
+        "items": [
+            {
+                "name": "state.aiAccounts.changed",
+                "payload": {
+                    "properties": {
+                        "at": {
+                            "type": "string"
+                        },
+                        "key": {
+                            "properties": {
+                                "workspaceId": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "workspaceId"
+                            ],
+                            "type": "object"
+                        },
+                        "subject": {
+                            "type": "string"
+                        },
+                        "value": {
+                            "properties": {
+                                "connected": {
+                                    "type": "boolean"
+                                },
+                                "providers": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": [
+                                "connected",
+                                "providers"
+                            ],
+                            "type": "object"
+                        }
+                    },
+                    "required": [
+                        "at",
+                        "key",
+                        "subject",
+                        "value"
+                    ],
+                    "type": "object"
+                },
+                "since": "1.0.0"
+            },
+            {
+                "name": "state.consent.changed",
+                "payload": {
+                    "properties": {
+                        "at": {
+                            "type": "string"
+                        },
+                        "data": {
+                            "properties": {
+                                "marketing": {
+                                    "type": "boolean"
+                                },
+                                "version": {
+                                    "type": "integer"
+                                }
+                            },
+                            "required": [
+                                "marketing",
+                                "version"
+                            ],
+                            "type": "object"
+                        },
+                        "subject": {
+                            "type": "string"
+                        },
+                        "value": {
+                            "anyOf": [
+                                {
+                                    "const": "pending",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "agreed",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "required": [
+                        "at",
+                        "data",
+                        "subject",
+                        "value"
+                    ],
+                    "type": "object"
+                },
+                "since": "1.0.0"
+            }
+        ]
+    },
+    "operations": [
+        {
+            "auth": "clientProofV1",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getStates",
+            "path": "/state",
+            "request": {
+                "query": {
+                    "properties": {
+                        "workspaceId": {
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "at": {
+                        "type": "string"
+                    },
+                    "manifest": {
+                        "properties": {
+                            "aiAccounts": {
+                                "properties": {
+                                    "key": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "write": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "required": [
+                                    "key",
+                                    "write"
+                                ],
+                                "type": "object"
+                            },
+                            "consent": {
+                                "properties": {
+                                    "key": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "write": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "required": [
+                                    "key",
+                                    "write"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "aiAccounts",
+                            "consent"
+                        ],
+                        "type": "object"
+                    },
+                    "states": {
+                        "properties": {
+                            "aiAccounts": {
+                                "properties": {
+                                    "value": {
+                                        "properties": {
+                                            "connected": {
+                                                "type": "boolean"
+                                            },
+                                            "providers": {
+                                                "items": {
+                                                    "type": "string"
+                                                },
+                                                "type": "array"
+                                            }
+                                        },
+                                        "required": [
+                                            "connected",
+                                            "providers"
+                                        ],
+                                        "type": "object"
+                                    }
+                                },
+                                "required": [
+                                    "value"
+                                ],
+                                "type": "object"
+                            },
+                            "consent": {
+                                "properties": {
+                                    "data": {
+                                        "properties": {
+                                            "marketing": {
+                                                "type": "boolean"
+                                            },
+                                            "version": {
+                                                "type": "integer"
+                                            }
+                                        },
+                                        "required": [
+                                            "marketing",
+                                            "version"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "const": "pending",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "agreed",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "value",
+                                    "data"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [],
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "at",
+                    "states",
+                    "manifest"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "clientProofV1",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getConsentState",
+            "path": "/state/consent",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "at": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "properties": {
+                            "marketing": {
+                                "type": "boolean"
+                            },
+                            "version": {
+                                "type": "integer"
+                            }
+                        },
+                        "required": [
+                            "marketing",
+                            "version"
+                        ],
+                        "type": "object"
+                    },
+                    "value": {
+                        "anyOf": [
+                            {
+                                "const": "pending",
+                                "type": "string"
+                            },
+                            {
+                                "const": "agreed",
+                                "type": "string"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "at",
+                    "value",
+                    "data"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "clientProofV1",
+            "interceptor": {},
+            "method": "PUT",
+            "name": "putConsentState",
+            "path": "/state/consent",
+            "request": {
+                "body": {
+                    "properties": {
+                        "agreed": {
+                            "type": "boolean"
+                        },
+                        "marketing": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": [
+                        "agreed",
+                        "marketing"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "at": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "properties": {
+                            "marketing": {
+                                "type": "boolean"
+                            },
+                            "version": {
+                                "type": "integer"
+                            }
+                        },
+                        "required": [
+                            "marketing",
+                            "version"
+                        ],
+                        "type": "object"
+                    },
+                    "value": {
+                        "anyOf": [
+                            {
+                                "const": "pending",
+                                "type": "string"
+                            },
+                            {
+                                "const": "agreed",
+                                "type": "string"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "at",
+                    "value",
+                    "data"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "clientProofV1",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getAiAccountsState",
+            "path": "/state/aiAccounts",
+            "request": {
+                "query": {
+                    "properties": {
+                        "workspaceId": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "workspaceId"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "at": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "properties": {
+                            "connected": {
+                                "type": "boolean"
+                            },
+                            "providers": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            }
+                        },
+                        "required": [
+                            "connected",
+                            "providers"
+                        ],
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "at",
+                    "value"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        }
+    ]
+}

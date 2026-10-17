@@ -37,11 +37,12 @@ Package.swift            SwiftPM manifest (repo root, required by SwiftPM)
 settings.gradle.kts      Android multi-project root
 Contracts/               pinned contract bundle, lock, schemas, conformance fixtures
 Sources/                 Swift targets: SPFNCore, SPFNGenerated, SPFNAuth,
-                         SPFNClient, SPFNUI, SPFNEvents, SPFNSocialApple,
-                         SPFNSocialGoogle
+                         SPFNClient, SPFNUI, SPFNState, SPFNEvents,
+                         SPFNSocialApple, SPFNSocialGoogle
 Tests/                   Swift unit, repository and conformance tests
 android/                 Kotlin modules: spfn-core, spfn-generated, spfn-auth,
-                         spfn-client, spfn-ui, spfn-events, spfn-social-google
+                         spfn-client, spfn-ui, spfn-state, spfn-events,
+                         spfn-social-google
 tools/                   module graph, offline validator, contract codegen,
                          CocoaPods fixture
 examples/                reference apps (placeholders)

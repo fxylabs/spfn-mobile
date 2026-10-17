@@ -1246,6 +1246,21 @@ def build_revoke():
     }
 
 
+def build_state_cases():
+    """The state client's case table. Written by hand from the README, not derived: see
+    state_cases.py, whose module docstring says how both suites read it."""
+    sys.path.insert(0, HERE)
+    sys.dont_write_bytecode = True
+    import state_cases
+
+    return {
+        "comment": "Hand-written from the @spfn/core 0.3.0-beta.28 state README; rendered by derive-expected-values.py from state_cases.py. docs/architecture/state-client-design.md §3, §4.",
+        "manifest": state_cases.MANIFEST,
+        "described": ["aiAccounts", "consent", "runtime"],
+        "cases": state_cases.CASES,
+    }
+
+
 FILES = {
     "canonical/serialization.json": build_canonical,
     "canonical/rejects.json": build_canonical_rejects,
@@ -1257,6 +1272,7 @@ FILES = {
     "error/envelopes.json": build_errors,
     "replay/replay.json": build_replay,
     "revoke/revoke.json": build_revoke,
+    "state/cases.json": build_state_cases,
 }
 
 

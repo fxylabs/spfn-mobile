@@ -72,7 +72,7 @@ the type mapping table and the naming rules are
     -Pspfn.appContract.kotlinOut=/abs/app/android/src/main/kotlin/com/example/generated/api \
     -Pspfn.appContract.kotlinPackage=com.example.generated.api
 
-./gradlew :contract-codegen:spfnAppContractVerify   # same six properties
+./gradlew :contract-codegen:spfnAppContractVerify   # same properties
 ```
 
 | Property | Meaning |
@@ -81,10 +81,11 @@ the type mapping table and the naming rules are
 | `operations` | `{ "operations": ["getItem", …] }` — the operations the app calls; a name the document does not declare is refused |
 | `swiftOut`, `swiftNamespace` | the Swift directory, and the `public enum` every call and type is nested in |
 | `kotlinOut`, `kotlinPackage` | the Kotlin directory and package; the calls are `object <swiftNamespace>` |
+| `statesNamespace` | the state descriptors' `public enum` / `object` (e.g. `AppStates`) — required exactly when the selection names `getStates`, refused otherwise |
 
-Every property is required and every path absolute. A missing one fails by name — the
-tasks never fall back to a default, because a misspelt property that silently checked
-something else would read as green.
+Every property is required and every path absolute, except `statesNamespace`, which follows
+the selection. A missing one fails by name — the tasks never fall back to a default, because
+a misspelt property that silently checked something else would read as green.
 
 **Output.** Three files per platform: `<Namespace>.swift` / `<Namespace>Support.kt` (the
 namespace and the percent-encoding and decoding helpers), `<Namespace>Types` (one type per
@@ -102,6 +103,19 @@ val answer = client.execute(AppAPI.getItem(itemId = id), Unit)
 Errors are the SDK's own `SPFNClientError` / `SpfnClientError`; a response that does not
 match the document is `notTheDeclaredResponse` / `NOT_THE_DECLARED_RESPONSE`.
 
+**State descriptors.** When the selection names `getStates`, the generator recognises the
+state router it anchors (state-client-design §2-13-2): the property names of its response's
+`states` are the state ids, and each id's `get<Id>State` (and `put<Id>State`, if declared)
+is checked by name and shape and pulled into the selection. A fourth file per platform,
+`<statesNamespace>.swift` / `<statesNamespace>.kt`, holds one `SPFNStateDescriptor` /
+`SpfnStateDescriptor` per state, `all`, `events` (`state.<id>.changed`) and `snapshot`. A
+state with a write is `.writable(write:)` / `.writable(write =)`, with no frame of its own:
+`put<Id>State` answers its own generated type, and the read's decoder reads that answer —
+the generator having proved the two response schemas equal. The app links `SPFNState` / `spfn-state` to compile
+it; the generator still depends on no SDK module. A mismatch names the state and stops.
+Without `getStates` nothing is a state: `get<Id>State` stays an ordinary call, and the calls
+file says why.
+
 **Provenance.** Every generated file's header records the document's SHA-256 and the
 selected operations. `spfnAppContractVerify` fails when the document's digest differs from
 the one a header records, when a file differs from a fresh generation, and when an output
@@ -117,4 +131,9 @@ selection's order. No SDK module is involved in generation, and none gains a dep
 **Fixture.** `spfnAppContractFixtureGenerate` / `spfnAppContractFixtureVerify` run the same
 generator over the invented document in `src/test/resources/app-contract/`, into
 `android/spfn-core/src/test/kotlin/xyz/superfunction/spfn/core/appcontract/` and
-`Tests/SPFNCoreTests/AppContractFixture/`. The fixture verify is wired into `check`.
+`Tests/SPFNCoreTests/AppContractFixture/`. `spfnAppContractStateFixtureGenerate` /
+`spfnAppContractStateFixtureVerify` do the same for the state router in `state-contract.json`
+(selection `state-operations.json`: `getStates` alone), into
+`android/spfn-state/src/test/kotlin/xyz/superfunction/spfn/state/appstates/` and
+`Tests/SPFNStateTests/AppStatesFixture/`, where the state client's tests use the generated
+descriptors. Both fixture verifies are wired into `check`.

@@ -76,7 +76,11 @@ data class AppContract(
     /** In name order, whatever order the selection listed them in. */
     val operations: List<AppOperation>,
     /** Every emitted record and enumeration, in name order. */
-    val types: List<Shape>
+    val types: List<Shape>,
+    /** The state router a selected `getStates` anchors; null without one (state-client-design §2-13-2). */
+    val states: AppStateRouter? = null,
+    /** Selected `get<Id>State`/`put<Id>State` names left ordinary calls because `getStates` is not selected. */
+    val unanchoredStates: List<String> = emptyList()
 )
 {
     val operationNames: List<String> get() = operations.map { it.name }
@@ -116,10 +120,17 @@ object AppContractReader
             throw JsonException("documentVersion $shown is not supported; this generator reads documentVersion 1");
         }
         val byName = operationsByName(root.required("operations").arr());
-        val names = AppSelection.read(selectionText, byName.keys);
+        val selected = AppSelection.read(selectionText, byName.keys);
+        // A selected getStates pulls in the read and write of every state it names.
+        val plans = AppStateRecognizer.plans(byName, selected);
+        val names = selected + plans.orEmpty().flatMap { listOfNotNull(it.read, it.write) };
         val types = TypeRegistry();
-        val operations = names.sorted().map { readOperation(byName.getValue(it), authClasses, types) };
-        return AppContract(sha256, 1, operations, types.all());
+        val operations = names.toSortedSet().map { readOperation(byName.getValue(it), authClasses, types) };
+        return AppContract(
+            sha256, 1, operations, types.all(),
+            states = plans?.let { AppStateRecognizer.router(it, operations) },
+            unanchoredStates = AppStateRecognizer.unanchored(selected)
+        );
     }
 
     private fun operationsByName(operations: List<JsonValue>): Map<String, Map<String, JsonValue>>

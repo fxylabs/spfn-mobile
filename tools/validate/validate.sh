@@ -231,6 +231,7 @@ for path in \
     LICENSE CODEOWNERS README.md .gitignore \
     Contracts/upstream.lock.json Contracts/spfn-mobile-contract.json \
     Contracts/auth-profiles/clientProofV1.schema.json Contracts/fixtures/MANIFEST.json \
+    Contracts/fixtures/state/cases.json Contracts/fixtures/state_cases.py \
     tools/module-graph.json tools/conformance/semver-range-vectors.json \
     tools/contract-codegen/README.md \
     tools/contract-codegen/build.gradle.kts \
@@ -2457,7 +2458,20 @@ compare_events_pair()
 if [ -d "$EVENTS_SWIFT_DIR" ] && [ -d "$EVENTS_KOTLIN_DIR" ]
 then
     compare_events_pair 'the root attachment (spfnEventStream, SpfnEventStreamHost)' \
-        '^[[:space:]]+public func spfnEventStream\(' '^fun SpfnEventStreamHost\('
+        '^[[:space:]]+public func spfnEventStream\(_ stream: SPFNEventStream, keyLifecycle: SPFNKeyLifecycle\)' '^fun SpfnEventStreamHost\('
+    # The state client rides the same attachment (state-client-design.md §2-12): an overload
+    # in SwiftUI, a defaulted parameter of the one host in Compose — so each side is read for
+    # the form that takes a state client.
+    compare_events_pair 'the root attachment with a state client (spfnEventStream, SpfnEventStreamHost)' \
+        '^[[:space:]]+public func spfnEventStream\(.*stateClient: SPFNStateClient\)' '^fun SpfnEventStreamHost\(.*stateClient: SpfnStateClient\?'
+    compare_events_pair 'one server state (SPFNServerState, rememberServerState)' \
+        '^public struct SPFNServerState<' '^fun <V, D> rememberServerState\('
+    compare_events_pair 'the connection status (SPFNConnectionStatus, rememberConnectionStatus)' \
+        '^public struct SPFNConnectionStatus:' '^fun rememberConnectionStatus\('
+    compare_events_pair 'the state client environment key (spfnStateClient, LocalSpfnStateClient)' \
+        '^[[:space:]]+public var spfnStateClient: SPFNStateClient\?' '^val LocalSpfnStateClient '
+    compare_events_pair 'the toolkit-free driver (SPFNServerStateDriver, SpfnServerStateDriver)' \
+        '^public final class SPFNServerStateDriver<' '^class SpfnServerStateDriver<'
     compare_events_pair 'screen-level listening (onSPFNEvent, SpfnEventEffect)' \
         '^[[:space:]]+public func onSPFNEvent<' '^fun <E> SpfnEventEffect\('
     compare_events_pair 'the environment key (spfnEventStream, LocalSpfnEventStream)' \
@@ -2512,6 +2526,55 @@ then
 else
     fail "the event stream suites differ — only in Swift: ${EVENT_TESTS_ONLY_SWIFT:-none}| only in Kotlin: ${EVENT_TESTS_ONLY_KOTLIN:-none}"
 fi
+
+# The state client is one table written twice as well (state-client-design.md §3, §4): every
+# O-, K-, R-, C- and I-cell is a test named for the cell in both suites, the cells whose
+# decisions are data running the same row of Contracts/fixtures/state/cases.json; the
+# observation adapters' A-cells are the event module's. Compared by name, Swift's
+# `func test_<name>(` against Kotlin's `fun <name>(`, one indent in (P47), with a floor of
+# 85 cells and the two properties (P7), and 9 adapter cells.
+compare_state_suites()
+{
+    : > "$TMP/state-tests-swift.txt"
+    : > "$TMP/state-tests-kotlin.txt"
+    for pair in $2
+    do
+        sed -n 's/^    func test_\([A-Za-z0-9_]*\)(.*/\1/p' "${pair%%:*}" >> "$TMP/state-tests-swift.txt" 2>/dev/null || true
+        sed -n 's/^    fun \([a-z][A-Za-z0-9_]*\)().*/\1/p' "${pair#*:}" >> "$TMP/state-tests-kotlin.txt" 2>/dev/null || true
+    done
+    sort -u -o "$TMP/state-tests-swift.txt" "$TMP/state-tests-swift.txt"
+    sort -u -o "$TMP/state-tests-kotlin.txt" "$TMP/state-tests-kotlin.txt"
+    STATE_TESTS_READ=$(wc -l < "$TMP/state-tests-swift.txt" | tr -d ' ')
+    STATE_ONLY_SWIFT=$(comm -23 "$TMP/state-tests-swift.txt" "$TMP/state-tests-kotlin.txt" | tr '\n' ' ')
+    STATE_ONLY_KOTLIN=$(comm -13 "$TMP/state-tests-swift.txt" "$TMP/state-tests-kotlin.txt" | tr '\n' ' ')
+    if [ "$STATE_TESTS_READ" -lt "$3" ]
+    then
+        fail "$1: the test-name comparison read only $STATE_TESTS_READ names of at least $3; it did not run"
+    elif [ -z "$(printf '%s%s' "$STATE_ONLY_SWIFT" "$STATE_ONLY_KOTLIN" | tr -d ' ')" ]
+    then
+        pass "$1: both suites name the same $STATE_TESTS_READ cells and properties"
+    else
+        fail "$1: the suites differ — only in Swift: ${STATE_ONLY_SWIFT:-none}| only in Kotlin: ${STATE_ONLY_KOTLIN:-none}"
+    fi
+}
+
+STATE_KOTLIN_TESTS=android/spfn-state/src/test/kotlin/xyz/superfunction/spfn/state
+compare_state_suites 'the state client' \
+    "Tests/SPFNStateTests/SPFNStateClientTests.swift:$STATE_KOTLIN_TESTS/SpfnStateClientTest.kt Tests/SPFNStateTests/SPFNStatePropertyTests.swift:$STATE_KOTLIN_TESTS/SpfnStatePropertyTest.kt" 87
+compare_state_suites 'the state adapters' \
+    'Tests/SPFNEventsTests/SPFNStateAdapterTests.swift:android/spfn-events/src/test/kotlin/xyz/superfunction/spfn/events/SpfnStateAdapterTest.kt' 9
+
+# Both state suites read the one case table; a suite that stopped reading it would still
+# pass its bodies-only cells.
+for reader in Tests/SPFNStateTests/StateCases.swift android/spfn-state/src/test/kotlin/xyz/superfunction/spfn/state/StateCases.kt
+do
+    if grep -q 'Contracts/fixtures/state/cases.json' "$reader" 2>/dev/null
+    then
+        pass "$reader reads Contracts/fixtures/state/cases.json"
+    else
+        fail "$reader does not read Contracts/fixtures/state/cases.json"
+    fi
+done
 
 # ---------------------------------------------------------------------------
 section '14. the apps that consume the scaffold hold the generated boundary'
