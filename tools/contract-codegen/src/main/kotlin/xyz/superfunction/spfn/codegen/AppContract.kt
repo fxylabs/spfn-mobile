@@ -59,6 +59,8 @@ data class AppOperation(
     val auth: String,
     val requiresSession: Boolean,
     val since: String?,
+    /** The version the operation was deprecated in; the call is emitted deprecated. */
+    val deprecatedIn: String?,
     /** In path order. Every one is required, and each is `Text` or `Integer`. */
     val pathParameters: List<Property>,
     /** In name order. Scalars and enumerations only; never nullable. */
@@ -82,10 +84,15 @@ data class AppContract(
 
 object AppContractReader
 {
-    private val TOP_LEVEL_KEYS = setOf("compatibilityPolicy", "documentVersion", "operations");
+    // `events` is accepted and NOT read: spfn writes it when the server contracts events (a
+    // state's `.contract()` contracts `state.<id>.changed`), and what the generator makes of
+    // it — names, payload decoders — waits for Q-B and spfn #111
+    // (docs/architecture/state-client-design.md §5-2 P-a). Every other unknown key is refused.
+    private val TOP_LEVEL_KEYS = setOf("compatibilityPolicy", "documentVersion", "events", "operations");
 
+    // `removedIn` is accepted and emits nothing: a generated call is marked deprecated, never removed.
     private val OPERATION_KEYS = setOf(
-        "auth", "interceptor", "method", "name", "path", "request", "requiresSession", "response", "since"
+        "auth", "deprecatedIn", "interceptor", "method", "name", "path", "removedIn", "request", "requiresSession", "response", "since"
     );
 
     private val REQUEST_KEYS = setOf("params", "query", "body");
@@ -158,6 +165,7 @@ object AppContractReader
             auth = auth,
             requiresSession = requiresSession,
             since = members["since"]?.text(),
+            deprecatedIn = members["deprecatedIn"]?.text()?.also { checkVersion(it, "operation '$name' deprecatedIn") },
             pathParameters = pathParameters,
             query = query,
             body = body,
@@ -190,6 +198,17 @@ object AppContractReader
     }
 
     private val IDENTIFIER = Regex("[A-Za-z_][A-Za-z0-9_]*");
+
+    private val VERSION = Regex("[0-9A-Za-z.+-]+");
+
+    /** A version is emitted inside a string literal on both platforms, so it is a plain spelling. */
+    private fun checkVersion(version: String, what: String)
+    {
+        if (!VERSION.matches(version))
+        {
+            throw JsonException("$what '$version' is not a version spelling ([0-9A-Za-z.+-]+)");
+        }
+    }
 
     /** ASCII only, on purpose: the two languages classify non-ASCII letters differently (P9). */
     fun checkIdentifier(name: String, what: String)

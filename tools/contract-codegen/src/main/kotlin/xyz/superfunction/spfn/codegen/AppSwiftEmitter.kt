@@ -80,6 +80,7 @@ class AppSwiftEmitter(private val contract: AppContract, private val namespace: 
         val request = operation.body?.typeName ?: "Void";
         val response = operation.response?.typeName ?: "SPFNNoResponse";
         appendLine("    /// `${operation.method} ${operation.path}`${operation.since?.let { " — since $it" } ?: ""}.");
+        operation.deprecatedIn?.let { appendLine("    @available(*, deprecated, message: \"deprecated in $it\")") };
         appendLine("    public static func ${operation.name}(${arguments(operation)}) -> SPFNCall<$request, $response>");
         appendLine("    {");
         if (operation.response == null)

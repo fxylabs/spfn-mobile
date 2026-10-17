@@ -32,7 +32,7 @@
 }
 ```
 
-- `documentVersion`이 `1`이 아니면 그 값을 대고 거부한다. 최상위에 모르는 키가 있어도 거부한다.
+- `documentVersion`이 `1`이 아니면 그 값을 대고 거부한다. 최상위에 모르는 키가 있어도 거부한다. 예외는 `events` 하나다: spfn은 서버가 이벤트를 계약하면 (상태의 `.contract()`는 `state.<id>.changed`를 계약한다) 이 절을 쓰고, 생성기는 받아들이되 **읽지 않는다** — 내용을 무엇에 쓸지는 Q-B·spfn #111이 정한다 ([state-client-design §5-2](state-client-design.md#5-2-다른-곳의-전제) P-a).
 - 연산 이름이 문서 안에서 겹치면 거부한다.
 - **선택된 연산만 깊이 읽는다.** 앱이 부르지 않는 연산의 스키마에 이 생성기가 못 여는 구성이 있어도 생성은 통과한다. 선택되지 않은 연산이 바뀌었다고 앱 빌드가 깨지지는 않는다 — 다만 문서 digest가 바뀌므로 재생성은 필요하다(§5).
 - JSON 리더는 코어 번들 리더와 같은 손으로 쓴 리더다. 앱 문서를 읽을 때만 소수(`"minimum": 0.5`)를 받아들인다. 받아들인 소수는 어떤 타입으로도 방출하지 않는다.
@@ -103,7 +103,7 @@
 | R7 | 그 밖의 모르는 키워드 | 주석·검증 키워드(`description`, `title`, `default`, `examples`, `format`, `pattern`, `minLength`, `maxLength`, `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `minItems`, `maxItems`, `uniqueItems`)만 무시한다. 클라이언트는 검증하지 않는다 — 서버가 한다 |
 | R8 | 식별자가 아닌 속성 이름·enum 값 (ASCII `[A-Za-z_][A-Za-z0-9_]*`, enum 값은 `-`·`.`·공백도 구분자로 허용) | P9 — 두 언어의 문자 분류는 non-ASCII에서 갈린다. ASCII로 못 박는다 |
 | R9 | 이름 충돌 (§3) | 컴파일 오류가 아니라 생성기 오류로 |
-| R10 | 연산 모양: 모르는 연산 키, 모르는 `request` 키(`headers`, `cookies` 등), `auth`가 SDK 고정 계약이 선언하지 않은 클래스, `auth: none`인데 `requiresSession: true`, 경로가 `/`로 시작하지 않거나 `//`·`?`·`#`·끝 `/`를 가짐 | 실행 경로가 받지 못하는 설명자 |
+| R10 | 연산 모양: 모르는 연산 키 (`deprecatedIn`·`removedIn`은 안다: `deprecatedIn`이 있으면 호출에 `@available(*, deprecated, message:)` / `@Deprecated`를 단다. `removedIn`은 아무것도 내지 않는다 — 호출을 지우지 않는다. 버전은 `[0-9A-Za-z.+-]+`가 아니면 거부), 모르는 `request` 키(`headers`, `cookies` 등), `auth`가 SDK 고정 계약이 선언하지 않은 클래스, `auth: none`인데 `requiresSession: true`, 경로가 `/`로 시작하지 않거나 `//`·`?`·`#`·끝 `/`를 가짐 | 실행 경로가 받지 못하는 설명자 |
 
 ## 3. 이름
 

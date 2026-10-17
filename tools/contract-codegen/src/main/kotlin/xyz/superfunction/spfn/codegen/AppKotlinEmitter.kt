@@ -74,6 +74,7 @@ class AppKotlinEmitter(
         val request = operation.body?.typeName ?: "Unit";
         val response = operation.response?.typeName ?: "SpfnNoResponse";
         appendLine("    /** `${operation.method} ${operation.path}`${operation.since?.let { " — since $it" } ?: ""}. */");
+        operation.deprecatedIn?.let { appendLine("    @Deprecated(\"deprecated in $it\")") };
         if (operation.response == null)
         {
             appendLine("    fun ${operation.name}(${arguments(operation)}): SpfnCall<$request, $response> = SpfnCall.noResponse(");
