@@ -30,13 +30,6 @@ internal object FixtureAPISupport
         return percentEncoded(value);
     }
 
-    /** `?name=value&…` in the order given, with null values left out; empty when all are null. */
-    fun queryString(pairs: List<Pair<String, String?>>): String
-    {
-        val fields = pairs.mapNotNull { (name, value) -> value?.let { name + "=" + percentEncoded(it) } };
-        return if (fields.isEmpty()) "" else "?" + fields.joinToString("&");
-    }
-
     fun percentEncoded(value: String): String
     {
         val out = StringBuilder();

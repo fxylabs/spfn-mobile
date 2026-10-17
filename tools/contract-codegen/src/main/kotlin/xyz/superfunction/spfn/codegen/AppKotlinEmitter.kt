@@ -79,6 +79,7 @@ class AppKotlinEmitter(
         {
             appendLine("    fun ${operation.name}(${arguments(operation)}): SpfnCall<$request, $response> = SpfnCall.noResponse(");
             appendLine("        operation = ${descriptor(operation)},");
+            query(operation)?.let { appendLine("        query = $it,") };
             appendLine("        encode = ${encoder(operation)}");
             appendLine("    )");
         }
@@ -86,6 +87,7 @@ class AppKotlinEmitter(
         {
             appendLine("    fun ${operation.name}(${arguments(operation)}): SpfnCall<$request, $response> = SpfnCall(");
             appendLine("        operation = ${descriptor(operation)},");
+            query(operation)?.let { appendLine("        query = $it,") };
             appendLine("        encode = ${encoder(operation)},");
             appendLine("        decode = { value -> $response.decode(value) }");
             appendLine("    )");
@@ -123,10 +125,12 @@ class AppKotlinEmitter(
                 is PathPiece.Parameter -> "$support.pathSegment(${stringOf(parameters.getValue(piece.name))})"
             }
         };
-        val query = if (operation.query.isEmpty()) emptyList()
-        else listOf("$support.queryString(listOf(${operation.query.joinToString(", ") { queryPair(it) }}))");
-        return (pieces + query).joinToString(" + ");
+        return pieces.joinToString(" + ");
     }
+
+    /** The call's query pairs, or null when the operation declares none. */
+    private fun query(operation: AppOperation): String? =
+        if (operation.query.isEmpty()) null else "listOf(${operation.query.joinToString(", ") { queryPair(it) }})"
 
     private fun queryPair(property: Property): String
     {

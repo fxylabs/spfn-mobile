@@ -88,7 +88,7 @@ class SpfnClient(
         // timestamp came from is the thing that was wrong, and it has just been replaced.
         val first = try
         {
-            attempt(call.operation, canonicalBody)
+            attempt(call, canonicalBody)
         }
         catch (refusal: SpfnClientError.Auth)
         {
@@ -135,7 +135,7 @@ class SpfnClient(
             transport.execute(
                 SpfnTransportRequest(
                     method = call.operation.method,
-                    url = session.baseUrl + call.operation.path,
+                    url = session.baseUrl + call.pathAndQuery,
                     // The identity headers ride here too. The contract applies them to
                     // every operation "proven or not — enrolment and login are where a
                     // stale client is met first, and they carry no proof", and this is
@@ -167,16 +167,22 @@ class SpfnClient(
 
     // ---- the two attempts --------------------------------------------------
 
-    /** One request: fresh headers, one transport call, no interpretation of the answer. */
-    private suspend fun attempt(operation: SpfnOperation, canonicalBody: ByteArray?): Attempt
+    /**
+     * One request: fresh headers, one transport call, no interpretation of the answer.
+     *
+     * The proof is over `operation.path` and the request goes to `pathAndQuery`. The
+     * server verifies the path it routed, which carries no query, so the query is sent
+     * and never signed.
+     */
+    private suspend fun <Req, Resp> attempt(call: SpfnCall<Req, Resp>, canonicalBody: ByteArray?): Attempt
     {
         try
         {
-            val headers = session.proofHeaders(operation, canonicalBody);
+            val headers = session.proofHeaders(call.operation, canonicalBody);
             val response = transport.execute(
                 SpfnTransportRequest(
-                    method = operation.method,
-                    url = session.baseUrl + operation.path,
+                    method = call.operation.method,
+                    url = session.baseUrl + call.pathAndQuery,
                     // Appended rather than assembled inside `proofHeaders`, because these
                     // are not proof fields: none of them enters the proof input, and the
                     // wire fixture pins what that function returns.
@@ -231,7 +237,7 @@ class SpfnClient(
         }
 
         session.invalidate(staleSessionId = presentedSessionId);
-        val second = attempt(call.operation, canonicalBody);
+        val second = attempt(call, canonicalBody);
         return read(second.response, call);
     }
 
@@ -251,7 +257,7 @@ class SpfnClient(
         coroutineContext.ensureActive();
 
         session.resynchronizeClock();
-        val second = attempt(call.operation, canonicalBody);
+        val second = attempt(call, canonicalBody);
         return read(second.response, call);
     }
 

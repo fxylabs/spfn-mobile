@@ -262,15 +262,41 @@ class AppContractTableTest
     }
 
     @Test
-    fun `T15 query scalars become arguments on an unproven operation and are refused on a proven one`()
+    fun `T15 query scalars become arguments the call carries beside its path, proven or not`()
     {
         val query = """{"query":{"type":"object","properties":{"limit":{"type":"integer"},"q":{"type":"string"}},"required":["q"]}}""";
-        assertBoth(
-            AppDocuments.document(AppDocuments.operation(request = query)),
-            listOf("getThing(limit: Int64? = nil, q: String)", "TestAPI.queryString([(\"limit\", limit.map { String(\$0) }), (\"q\", q)])"),
-            listOf("getThing(limit: Long? = null, q: String)", "TestAPISupport.queryString(listOf(\"limit\" to limit?.toString(), \"q\" to q))")
+        val swift = listOf(
+            "getThing(limit: Int64? = nil, q: String)",
+            "path: \"/v1/things\",",
+            "query: [(\"limit\", limit.map { String(\$0) }), (\"q\", q)],"
         );
-        assertRefused(AppDocuments.document(AppDocuments.operation(request = query, auth = "clientProofV1")), "T15");
+        val kotlin = listOf(
+            "getThing(limit: Long? = null, q: String)",
+            "path = \"/v1/things\",",
+            "query = listOf(\"limit\" to limit?.toString(), \"q\" to q),"
+        );
+        assertBoth(AppDocuments.document(AppDocuments.operation(request = query)), swift, kotlin);
+        // The same call plus the proof: the SDK signs the path and sends path + query.
+        assertBoth(
+            AppDocuments.document(AppDocuments.operation(request = query, auth = "clientProofV1")),
+            swift + "authProfile: \"clientProofV1\",",
+            kotlin + "authProfile = \"clientProofV1\","
+        );
+    }
+
+    @Test
+    fun `T15 a query that is not a non-null scalar is refused, proven or not`()
+    {
+        listOf("none", "clientProofV1").forEach { auth ->
+            listOf(
+                """{"type":"object","properties":{"a":{"type":"string"}}}""",
+                """{"type":"array","items":{"type":"string"}}""",
+                """{"anyOf":[{"type":"string"},{"type":"null"}]}"""
+            ).forEach { schema ->
+                val query = """{"query":{"type":"object","properties":{"f":$schema},"required":["f"]}}""";
+                assertRefused(AppDocuments.document(AppDocuments.operation(request = query, auth = auth)), "T15");
+            };
+        };
     }
 
     @Test

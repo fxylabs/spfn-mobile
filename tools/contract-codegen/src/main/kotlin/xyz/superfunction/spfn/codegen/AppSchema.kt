@@ -246,17 +246,16 @@ class OperationSchemas(private val operation: String, private val types: TypeReg
         return inPath.map { name -> scalar(byName.getValue(name), "params", pathShapes = true) };
     }
 
-    /** T15: optional scalars allowed, nullable not; only on an unproven operation. */
+    /**
+     * T15: optional scalars allowed, nullable not — on any auth class. The call carries the
+     * query beside the path, so the SDK signs the path and sends path + query, which is what
+     * the server verifies. `auth` is no longer read; it stays until AppContract's call site
+     * drops it.
+     */
+    @Suppress("UNUSED_PARAMETER")
     fun query(query: JsonValue?, auth: String): List<Property>
     {
         val members = query?.let { container(it, "query") } ?: return emptyList();
-        if (members.isNotEmpty() && auth != "none")
-        {
-            throw JsonException(
-                "operation '$operation' is $auth and has a query; the SDK signs the path it sends and the server " +
-                    "verifies the path without its query, so a query is not generated on a proven operation (T15)"
-            );
-        }
         return members.map { scalar(it, "query", pathShapes = false) };
     }
 

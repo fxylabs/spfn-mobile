@@ -49,8 +49,8 @@
     },
     {
       "path": "Contracts/fixtures/request/wire.json",
-      "sha256": "ac752b5a1b56d6ca6f53954516cbb195a8e1d8cda92408849af32ebdc3672448",
-      "bytes": 7030
+      "sha256": "e4161b55875f0c1150947f09a9459ceee3b68241380320319ea2456abf16a3ea",
+      "bytes": 10231
     },
     {
       "path": "Contracts/fixtures/revoke/revoke.json",

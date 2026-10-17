@@ -5,6 +5,23 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### A signed operation carries a query: the SDK signs the path and sends path + query; codegen generates queries on `clientProofV1` operations
+
+- `SPFNCall` / `SpfnCall` carry `query` — `(name, value)` pairs, a nil/null value left out —
+  beside the operation, and `pathAndQuery` is what the execute path sends: the path, then
+  `?name=value&…` with each value percent-encoded (RFC 3986 unreserved bytes as they are).
+  The proof input is still `operation.path` alone, which is what the server verifies
+  (`c.req.path` carries no query), so no existing proof changes. The `PROOF_EXPIRED` retry
+  re-sends the same URL under a fresh proof over the same path.
+- `Contracts/fixtures/request/wire.json` gains `queryVectors`: a proven GET with a query
+  (`/state/aiAccounts?workspaceId=W`) whose proof input is the bare path's, and one with
+  `a b&c` encoded and a null value omitted. Both SDK suites read them.
+- App-contract codegen (T15) no longer refuses a query on a `clientProofV1` operation. Both
+  emitters now hand the query to the call (`query: [...]` / `query = listOf(...)`) instead
+  of appending it to the descriptor's path, so the generated namespace no longer carries a
+  `queryString` helper, and `operation.path` of a call with a query is the bare path —
+  read `pathAndQuery` for the URL.
+
 ### Android header marks follow Material: the back is the arrow, the close Material's X, 24dp (Android only; public API unchanged)
 
 - The Android back mark was a stroked chevron — the iOS mark — at 20dp. It is now Material's

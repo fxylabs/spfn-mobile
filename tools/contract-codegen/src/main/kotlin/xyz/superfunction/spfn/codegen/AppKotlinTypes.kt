@@ -158,8 +158,7 @@ object AppKotlinSupport
         append(
             listOfNotNull(
                 if (usage.pathSegments) PATH_SEGMENT else null,
-                if (usage.query) QUERY_STRING else null,
-                if (usage.percentEncoding) PERCENT_ENCODED else null,
+                if (usage.pathSegments) PERCENT_ENCODED else null,
                 if (usage.present) PRESENT else null,
                 if (usage.nonNull) NON_NULL else null
             ).joinToString("\n") { it.trimEnd() + "\n" }
@@ -180,15 +179,6 @@ object AppKotlinSupport
         |            return "%2E".repeat(value.length);
         |        }
         |        return percentEncoded(value);
-        |    }
-        |""".trimMargin()
-
-    private val QUERY_STRING = """
-        |    /** `?name=value&…` in the order given, with null values left out; empty when all are null. */
-        |    fun queryString(pairs: List<Pair<String, String?>>): String
-        |    {
-        |        val fields = pairs.mapNotNull { (name, value) -> value?.let { name + "=" + percentEncoded(it) } };
-        |        return if (fields.isEmpty()) "" else "?" + fields.joinToString("&");
         |    }
         |""".trimMargin()
 

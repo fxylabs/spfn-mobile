@@ -176,5 +176,101 @@
         ]
       ]
     }
+  ],
+  "queryVectors": [
+    {
+      "name": "proven-get-with-query",
+      "why": "a proven GET with a query signs the bare path and sends path + query; its proof input is the one a request to the bare path would sign",
+      "operationId": "getAiAccountsState",
+      "method": "GET",
+      "path": "/state/aiAccounts",
+      "query": [
+        [
+          "workspaceId",
+          "W"
+        ]
+      ],
+      "pathAndQuery": "/state/aiAccounts?workspaceId=W",
+      "requiresSession": false,
+      "sessionId": null,
+      "bodySha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "canonicalString": "clientProofV1\nGET\n/state/aiAccounts\nclient-test-0001\nkey-test-0001\nnonce-000000000004\n1750000000000\n0000000000000000000000000000000000000000000000000000000000000000",
+      "proof": "1450520f9497f60d84cad2a488d137e7a54f39a53ec884024eafe0c1d0582944a5ae4a796a6efa93e28864a9551d7718febb6f9e4c252a195c6a04ad0519f221",
+      "headers": [
+        [
+          "x-spfn-auth-profile",
+          "clientProofV1"
+        ],
+        [
+          "x-spfn-client-id",
+          "client-test-0001"
+        ],
+        [
+          "x-spfn-key-id",
+          "key-test-0001"
+        ],
+        [
+          "x-spfn-nonce",
+          "nonce-000000000004"
+        ],
+        [
+          "x-spfn-issued-at",
+          "1750000000000"
+        ],
+        [
+          "x-spfn-proof",
+          "1450520f9497f60d84cad2a488d137e7a54f39a53ec884024eafe0c1d0582944a5ae4a796a6efa93e28864a9551d7718febb6f9e4c252a195c6a04ad0519f221"
+        ]
+      ]
+    },
+    {
+      "name": "proven-get-with-encoded-query",
+      "why": "a query value with a space and an '&' is percent-encoded on the URL and never signed; a null value is left out rather than sent as 'name=' or 'name=null'",
+      "operationId": "getAiAccountsState",
+      "method": "GET",
+      "path": "/state/aiAccounts",
+      "query": [
+        [
+          "cursor",
+          null
+        ],
+        [
+          "workspaceId",
+          "a b&c"
+        ]
+      ],
+      "pathAndQuery": "/state/aiAccounts?workspaceId=a%20b%26c",
+      "requiresSession": false,
+      "sessionId": null,
+      "bodySha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "canonicalString": "clientProofV1\nGET\n/state/aiAccounts\nclient-test-0001\nkey-test-0001\nnonce-000000000005\n1750000000000\n0000000000000000000000000000000000000000000000000000000000000000",
+      "proof": "b1fec3973bf7f08f5ce545c5468208128c1f9bc407107b40b76c7e915e1440d40b84f946965ab343b914d81fbae03999bdef7ce613f735baa842ff4234c88eb0",
+      "headers": [
+        [
+          "x-spfn-auth-profile",
+          "clientProofV1"
+        ],
+        [
+          "x-spfn-client-id",
+          "client-test-0001"
+        ],
+        [
+          "x-spfn-key-id",
+          "key-test-0001"
+        ],
+        [
+          "x-spfn-nonce",
+          "nonce-000000000005"
+        ],
+        [
+          "x-spfn-issued-at",
+          "1750000000000"
+        ],
+        [
+          "x-spfn-proof",
+          "b1fec3973bf7f08f5ce545c5468208128c1f9bc407107b40b76c7e915e1440d40b84f946965ab343b914d81fbae03999bdef7ce613f735baa842ff4234c88eb0"
+        ]
+      ]
+    }
   ]
 }

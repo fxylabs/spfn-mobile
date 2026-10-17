@@ -36,11 +36,12 @@ extension FixtureAPI
             operation: SPFNOperation(
                 id: "listItems",
                 method: "GET",
-                path: "/v1/items" + FixtureAPI.queryString([("archived", archived.map { String($0) }), ("cursor", cursor), ("limit", String(limit)), ("sort", sort?.wireValue)]),
+                path: "/v1/items",
                 authProfile: "none",
                 requiresSession: false,
                 declaresResponse: true
             ),
+            query: [("archived", archived.map { String($0) }), ("cursor", cursor), ("limit", String(limit)), ("sort", sort?.wireValue)],
             encode: { _ in nil },
             decode: { try ListItemsResponse(canonical: $0) }
         )
