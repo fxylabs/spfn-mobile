@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.map
 import xyz.superfunction.spfn.client.SpfnEventStream
 import xyz.superfunction.spfn.client.SpfnEventStreamState
 import xyz.superfunction.spfn.client.SpfnKeyLifecycle
+import xyz.superfunction.spfn.state.SpfnStateClient
 
 /**
  * The stream the nearest [SpfnEventStreamHost] provides. Reading it outside one is a
@@ -44,17 +45,27 @@ internal fun missingEventStream(): Nothing =
 
 /**
  * Attach [stream] at the app's root, once. Idempotent per stream; a second host with a
- * different stream shadows the first for everything below it.
+ * different stream shadows the first for everything below it. [stateClient], when given, is
+ * the state client made for [stream] — it owns that stream's query — and goes where
+ * `rememberServerState` finds it; one made for another stream is refused at once (A-9).
  */
 @Composable
-fun SpfnEventStreamHost(stream: SpfnEventStream, keyLifecycle: SpfnKeyLifecycle, content: @Composable () -> Unit)
+fun SpfnEventStreamHost(stream: SpfnEventStream, keyLifecycle: SpfnKeyLifecycle, stateClient: SpfnStateClient? = null, content: @Composable () -> Unit)
 {
+    stateClient?.let { spfnRequireStateClientOf(stream, it) };
     val context = LocalContext.current.applicationContext;
     ObserveForeground(stream);
     ObserveSignedIn(stream, keyLifecycle);
     ObserveNetwork(stream, context);
     WarnAboutUnavailableEvents(stream, context);
-    CompositionLocalProvider(LocalSpfnEventStream provides stream, content = content);
+    if (stateClient == null)
+    {
+        CompositionLocalProvider(LocalSpfnEventStream provides stream, content = content);
+    }
+    else
+    {
+        CompositionLocalProvider(LocalSpfnEventStream provides stream, LocalSpfnStateClient provides stateClient, content = content);
+    }
 }
 
 @Composable

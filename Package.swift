@@ -105,8 +105,9 @@ let package = Package(
         // three observers and the screen listening API. SwiftUI and Network are the OS's,
         // so no external product; the SwiftUI and Network files are guarded whole and the
         // module reduces to its toolkit-free types on Linux. No edge to SPFNUI: nothing
-        // here uses a ui type (docs/architecture/event-stream-design.md §10 Q-K).
-        .target(name: "SPFNEvents", dependencies: ["SPFNClient"]),
+        // here uses a ui type (docs/architecture/event-stream-design.md §10 Q-K). The edge
+        // to SPFNState is the state client's observation adapters (state-client-design §2-12).
+        .target(name: "SPFNEvents", dependencies: ["SPFNClient", "SPFNState"]),
 
         // The two provider adapters are Apple-only, which tools/module-graph.json
         // states as `"linux": false` on their rows. SwiftPM cannot condition a target
@@ -128,7 +129,7 @@ let package = Package(
         ),
         .testTarget(name: "SPFNUITests", dependencies: ["SPFNUI", "SPFNCore"]),
         .testTarget(name: "SPFNStateTests", dependencies: ["SPFNState", "SPFNClient"]),
-        .testTarget(name: "SPFNEventsTests", dependencies: ["SPFNEvents", "SPFNClient"]),
+        .testTarget(name: "SPFNEventsTests", dependencies: ["SPFNEvents", "SPFNClient", "SPFNState"]),
         .testTarget(name: "SPFNSocialAppleTests", dependencies: ["SPFNSocialApple", "SPFNClient"]),
         .testTarget(name: "SPFNSocialGoogleTests", dependencies: ["SPFNSocialGoogle", "SPFNClient"]),
         .testTarget(

@@ -9,9 +9,11 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 // this module only carries platform facts into it (docs/architecture/event-stream-design.md
 // §3-3, §3-7).
 //
-// It depends on spfn-client and nothing else in this repository. The design proposed an
-// edge to spfn-ui as well; nothing here uses a ui type, so the edge was dropped (§10 Q-K)
-// and an app that renders state without listening to events links neither module.
+// It depends on spfn-client, and on spfn-state for the state client's observation adapters
+// (rememberServerState, rememberConnectionStatus — docs/architecture/state-client-design.md
+// §2-12). The design proposed an edge to spfn-ui as well; nothing here uses a ui type, so the
+// edge was dropped (§10 Q-K) and an app that renders state without listening to events links
+// neither module.
 
 plugins {
     // AGP 9 compiles Kotlin itself; applying org.jetbrains.kotlin.android is an error.
@@ -20,9 +22,9 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-description = "SPFN Android event stream lifecycle: SpfnEventStreamHost, SpfnEventEffect and the three observers."
+description = "SPFN Android event stream lifecycle: SpfnEventStreamHost, SpfnEventEffect, the three observers and the state client adapters."
 
-extra["spfnModuleDependsOn"] = listOf("spfn-client")
+extra["spfnModuleDependsOn"] = listOf("spfn-client", "spfn-state")
 extra["spfnSwiftCounterpart"] = "SPFNEvents"
 
 android {
@@ -55,6 +57,9 @@ kotlin {
 dependencies {
     // The host and the effect take and find a SpfnEventStream: a public signature's type.
     api(project(":spfn-client"))
+    // rememberServerState takes a SpfnStateDescriptor and LocalSpfnStateClient holds a
+    // SpfnStateClient: public signatures' types.
+    api(project(":spfn-state"))
     // `listen` answers a Flow, collected here and by a screen.
     api(libs.kotlinx.coroutines.core)
     // @Composable is on every public signature.
@@ -65,4 +70,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.process)
 
     testImplementation(libs.junit)
+    // The adapters' driver collects on a test dispatcher standing for Main (A-6).
+    testImplementation(libs.kotlinx.coroutines.test)
 }
