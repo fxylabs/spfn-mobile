@@ -87,6 +87,7 @@ class AppSwiftEmitter(private val contract: AppContract, private val namespace: 
         {
             appendLine("        SPFNCall<$request, SPFNNoResponse>.noResponse(");
             appendLine("            operation: ${descriptor(operation)},");
+            query(operation)?.let { appendLine("            query: $it,") };
             appendLine("            encode: ${encoder(operation)}");
             appendLine("        )");
         }
@@ -94,6 +95,7 @@ class AppSwiftEmitter(private val contract: AppContract, private val namespace: 
         {
             appendLine("        SPFNCall(");
             appendLine("            operation: ${descriptor(operation)},");
+            query(operation)?.let { appendLine("            query: $it,") };
             appendLine("            encode: ${encoder(operation)},");
             appendLine("            decode: { try $response(canonical: \$0) }");
             appendLine("        )");
@@ -133,10 +135,12 @@ class AppSwiftEmitter(private val contract: AppContract, private val namespace: 
                 is PathPiece.Parameter -> "$namespace.pathSegment(${stringOf(parameters.getValue(piece.name))})"
             }
         };
-        val query = if (operation.query.isEmpty()) emptyList()
-        else listOf("$namespace.queryString([${operation.query.joinToString(", ") { queryPair(it) }}])");
-        return (pieces + query).joinToString(" + ");
+        return pieces.joinToString(" + ");
     }
+
+    /** The call's query pairs, or null when the operation declares none. */
+    private fun query(operation: AppOperation): String? =
+        if (operation.query.isEmpty()) null else "[${operation.query.joinToString(", ") { queryPair(it) }}]"
 
     private fun queryPair(property: Property): String = "(\"${property.name}\", ${optionalStringOf(property)})"
 
@@ -171,10 +175,6 @@ class AppSwiftEmitter(private val contract: AppContract, private val namespace: 
 class AppUsage(contract: AppContract)
 {
     val pathSegments: Boolean = contract.operations.any { it.pathParameters.isNotEmpty() }
-
-    val query: Boolean = contract.operations.any { it.query.isNotEmpty() }
-
-    val percentEncoding: Boolean = pathSegments || query
 
     private val responses = contract.types.filterIsInstance<Shape.Record>().filter { it.role == Role.RESPONSE };
 

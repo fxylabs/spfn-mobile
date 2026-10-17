@@ -28,13 +28,6 @@ public enum FixtureAPI
         return percentEncoded(value)
     }
 
-    /// `?name=value&…` in the order given, with nil values left out; empty when all are nil.
-    static func queryString(_ pairs: [(String, String?)]) -> String
-    {
-        let fields = pairs.compactMap { pair in pair.1.map { pair.0 + "=" + percentEncoded($0) } }
-        return fields.isEmpty ? "" : "?" + fields.joined(separator: "&")
-    }
-
     static func percentEncoded(_ value: String) -> String
     {
         let hex = Array("0123456789ABCDEF".utf8)

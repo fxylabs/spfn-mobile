@@ -184,11 +184,13 @@ class AppContractFixtureTest
     @Test
     fun `T15 query arguments are appended in name order and null ones left out`()
     {
-        assertEquals("/v1/items?limit=10", FixtureAPI.listItems(limit = 10).operation.path);
+        assertEquals("/v1/items?limit=10", FixtureAPI.listItems(limit = 10).pathAndQuery);
         assertEquals(
             "/v1/items?archived=true&cursor=a%26b%3Dc&limit=10&sort=newest",
-            FixtureAPI.listItems(archived = true, cursor = "a&b=c", limit = 10, sort = ListItemsQuerySort.Newest).operation.path
+            FixtureAPI.listItems(archived = true, cursor = "a&b=c", limit = 10, sort = ListItemsQuerySort.Newest).pathAndQuery
         );
+        // The query rides beside the path, never inside it: the path is what a proof signs.
+        assertEquals("/v1/items", FixtureAPI.listItems(cursor = "c", limit = 10).operation.path);
     }
 
     @Test
@@ -197,7 +199,7 @@ class AppContractFixtureTest
         val getItem = FixtureAPI.getItem("i1").operation;
         assertEquals(SpfnOperation("getItem", "GET", "/v1/items/i1", "clientProofV1", false, true), getItem);
         val listItems = FixtureAPI.listItems(limit = 1).operation;
-        assertEquals(SpfnOperation("listItems", "GET", "/v1/items?limit=1", "none", false, true), listItems);
+        assertEquals(SpfnOperation("listItems", "GET", "/v1/items", "none", false, true), listItems);
         val putItemNote = FixtureAPI.putItemNote("i1", 2).operation;
         assertEquals(SpfnOperation("putItemNote", "PUT", "/v1/items/i1/notes/2", "clientProofV1", true, false), putItemNote);
     }

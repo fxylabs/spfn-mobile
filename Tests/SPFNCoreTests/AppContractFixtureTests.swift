@@ -154,11 +154,13 @@ final class AppContractFixtureTests: XCTestCase
 
     func testT15QueryArgumentsAreAppendedInNameOrderAndNilOnesLeftOut()
     {
-        XCTAssertEqual(FixtureAPI.listItems(limit: 10).operation.path, "/v1/items?limit=10")
+        XCTAssertEqual(FixtureAPI.listItems(limit: 10).pathAndQuery, "/v1/items?limit=10")
         XCTAssertEqual(
-            FixtureAPI.listItems(archived: true, cursor: "a&b=c", limit: 10, sort: .newest).operation.path,
+            FixtureAPI.listItems(archived: true, cursor: "a&b=c", limit: 10, sort: .newest).pathAndQuery,
             "/v1/items?archived=true&cursor=a%26b%3Dc&limit=10&sort=newest"
         )
+        // The query rides beside the path, never inside it: the path is what a proof signs.
+        XCTAssertEqual(FixtureAPI.listItems(cursor: "c", limit: 10).operation.path, "/v1/items")
     }
 
     func testG5TheDescriptorCarriesAuthAndSessionExactlyAsTheDocumentStates()
@@ -169,7 +171,7 @@ final class AppContractFixtureTests: XCTestCase
         )
         XCTAssertEqual(
             FixtureAPI.listItems(limit: 1).operation,
-            SPFNOperation(id: "listItems", method: "GET", path: "/v1/items?limit=1", authProfile: "none", requiresSession: false, declaresResponse: true)
+            SPFNOperation(id: "listItems", method: "GET", path: "/v1/items", authProfile: "none", requiresSession: false, declaresResponse: true)
         )
         XCTAssertEqual(
             FixtureAPI.putItemNote(itemId: "i1", noteNumber: 2).operation,

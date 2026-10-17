@@ -40,11 +40,12 @@ object FixtureAPI
         operation = SpfnOperation(
             id = "listItems",
             method = "GET",
-            path = "/v1/items" + FixtureAPISupport.queryString(listOf("archived" to archived?.toString(), "cursor" to cursor, "limit" to limit.toString(), "sort" to sort?.wireValue)),
+            path = "/v1/items",
             authProfile = "none",
             requiresSession = false,
             declaresResponse = true
         ),
+        query = listOf("archived" to archived?.toString(), "cursor" to cursor, "limit" to limit.toString(), "sort" to sort?.wireValue),
         encode = { _ -> null },
         decode = { value -> ListItemsResponse.decode(value) }
     )

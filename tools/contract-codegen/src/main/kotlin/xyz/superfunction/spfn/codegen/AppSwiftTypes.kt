@@ -171,8 +171,7 @@ object AppSwiftSupport
 {
     fun helpers(usage: AppUsage): String = listOfNotNull(
         if (usage.pathSegments) PATH_SEGMENT else null,
-        if (usage.query) QUERY_STRING else null,
-        if (usage.percentEncoding) PERCENT_ENCODED else null,
+        if (usage.pathSegments) PERCENT_ENCODED else null,
         if (usage.present) PRESENT else null,
         if (usage.nonNull) NON_NULL else null
     ).joinToString("\n") { it.trimEnd() + "\n" }
@@ -188,15 +187,6 @@ object AppSwiftSupport
         |            return String(repeating: "%2E", count: value.count)
         |        }
         |        return percentEncoded(value)
-        |    }
-        |""".trimMargin()
-
-    private val QUERY_STRING = """
-        |    /// `?name=value&…` in the order given, with nil values left out; empty when all are nil.
-        |    static func queryString(_ pairs: [(String, String?)]) -> String
-        |    {
-        |        let fields = pairs.compactMap { pair in pair.1.map { pair.0 + "=" + percentEncoded(${'$'}0) } }
-        |        return fields.isEmpty ? "" : "?" + fields.joined(separator: "&")
         |    }
         |""".trimMargin()
 
