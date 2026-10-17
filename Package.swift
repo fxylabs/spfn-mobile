@@ -69,6 +69,7 @@ let package = Package(
         .library(name: "SPFNAuth", targets: ["SPFNAuth"]),
         .library(name: "SPFNClient", targets: ["SPFNClient"]),
         .library(name: "SPFNUI", targets: ["SPFNUI"]),
+        .library(name: "SPFNState", targets: ["SPFNState"]),
         .library(name: "SPFNEvents", targets: ["SPFNEvents"]),
         .library(name: "SPFNSocialApple", targets: ["SPFNSocialApple"]),
         .library(name: "SPFNSocialGoogle", targets: ["SPFNSocialGoogle"]),
@@ -94,6 +95,11 @@ let package = Package(
         // file is guarded whole so the module reduces to its non-UI types off Apple's
         // platforms.
         .target(name: "SPFNUI", dependencies: ["SPFNCore"]),
+
+        // The state client: the server's state router kept current over the app's one event
+        // stream. Toolkit-free and Linux-capable; the connection stays the event stream's,
+        // this module only writes its query (docs/architecture/state-client-design.md §2-1).
+        .target(name: "SPFNState", dependencies: ["SPFNClient"]),
 
         // Lifecycle wiring for the client module's event stream: the root attachment, the
         // three observers and the screen listening API. SwiftUI and Network are the OS's,
@@ -121,6 +127,7 @@ let package = Package(
             dependencies: ["SPFNClient", "SPFNCore", "SPFNAuth", "SPFNGenerated", .product(name: "Crypto", package: "swift-crypto", condition: .when(platforms: [.linux]))]
         ),
         .testTarget(name: "SPFNUITests", dependencies: ["SPFNUI", "SPFNCore"]),
+        .testTarget(name: "SPFNStateTests", dependencies: ["SPFNState", "SPFNClient"]),
         .testTarget(name: "SPFNEventsTests", dependencies: ["SPFNEvents", "SPFNClient"]),
         .testTarget(name: "SPFNSocialAppleTests", dependencies: ["SPFNSocialApple", "SPFNClient"]),
         .testTarget(name: "SPFNSocialGoogleTests", dependencies: ["SPFNSocialGoogle", "SPFNClient"]),

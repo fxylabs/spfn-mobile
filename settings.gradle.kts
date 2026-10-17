@@ -40,6 +40,7 @@ include(
     ":spfn-generated",
     ":spfn-auth",
     ":spfn-client",
+    ":spfn-state",
     ":spfn-ui",
     ":spfn-events",
     ":spfn-social-google",
@@ -54,6 +55,7 @@ project(":spfn-core").projectDir = file("android/spfn-core")
 project(":spfn-generated").projectDir = file("android/spfn-generated")
 project(":spfn-auth").projectDir = file("android/spfn-auth")
 project(":spfn-client").projectDir = file("android/spfn-client")
+project(":spfn-state").projectDir = file("android/spfn-state")
 project(":spfn-ui").projectDir = file("android/spfn-ui")
 project(":spfn-events").projectDir = file("android/spfn-events")
 project(":spfn-social-google").projectDir = file("android/spfn-social-google")
