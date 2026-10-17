@@ -56,6 +56,13 @@ val appContractProperties = listOf(
     "document", "operations", "swiftOut", "swiftNamespace", "kotlinOut", "kotlinPackage"
 )
 
+// Not in the list above: `statesNamespace` is required exactly when the selection names
+// `getStates`, which only the generator knows once it has read the selection. Passed through
+// when given; the generator refuses it by name when it is missing or stray
+// (docs/architecture/state-client-design.md §2-13-2).
+fun appContractStatesNamespace(): List<String> =
+    providers.gradleProperty("spfn.appContract.statesNamespace").orNull?.let { listOf("--states-namespace", it) } ?: emptyList()
+
 fun appContractArguments(mode: String): CommandLineArgumentProvider = CommandLineArgumentProvider {
     val missing = appContractProperties.filter { providers.gradleProperty("spfn.appContract.$it").orNull.isNullOrBlank() }
     if (missing.isNotEmpty())
@@ -72,7 +79,7 @@ fun appContractArguments(mode: String): CommandLineArgumentProvider = CommandLin
         "--kotlin-out", value("kotlinOut"),
         "--kotlin-package", value("kotlinPackage"),
         "--sdk-root", rootDir.absolutePath
-    )
+    ) + appContractStatesNamespace()
 }
 
 tasks.register<JavaExec>("spfnAppContractGenerate") {
@@ -124,4 +131,39 @@ tasks.register<JavaExec>("spfnAppContractFixtureVerify") {
 
 tasks.named("check") {
     dependsOn("spfnAppContractFixtureVerify")
+}
+
+// The state-router fixture, generated into the state module's two test source sets, where the
+// state client's tests use the generated descriptors (state-client-design §2-13-2): the proof
+// that the generated output and the client compile together.
+fun appContractStateFixtureArguments(mode: String): List<String> = listOf(
+    "--mode", mode,
+    "--document", appContractFixture.file("state-contract.json").asFile.absolutePath,
+    "--operations", appContractFixture.file("state-operations.json").asFile.absolutePath,
+    "--swift-out", rootDir.resolve("Tests/SPFNStateTests/AppStatesFixture").absolutePath,
+    "--swift-namespace", "StateFixtureAPI",
+    "--kotlin-out", rootDir.resolve("android/spfn-state/src/test/kotlin/xyz/superfunction/spfn/state/appstates").absolutePath,
+    "--kotlin-package", "xyz.superfunction.spfn.state.appstates",
+    "--sdk-root", rootDir.absolutePath,
+    "--states-namespace", "StateFixtureStates"
+)
+
+tasks.register<JavaExec>("spfnAppContractStateFixtureGenerate") {
+    group = "build"
+    description = "Regenerates the state-router fixture calls and descriptors used by the state module's tests."
+    mainClass.set("xyz.superfunction.spfn.codegen.AppContractMainKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    args(appContractStateFixtureArguments("write"))
+}
+
+tasks.register<JavaExec>("spfnAppContractStateFixtureVerify") {
+    group = "verification"
+    description = "Fails if the state-router fixture calls and descriptors differ from a fresh generation."
+    mainClass.set("xyz.superfunction.spfn.codegen.AppContractMainKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    args(appContractStateFixtureArguments("verify"))
+}
+
+tasks.named("check") {
+    dependsOn("spfnAppContractStateFixtureVerify")
 }

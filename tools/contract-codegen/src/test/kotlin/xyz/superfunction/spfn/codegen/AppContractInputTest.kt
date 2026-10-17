@@ -57,7 +57,9 @@ class AppContractInputTest
      * Superself's own `contracts/current.json` (37 operations, an `events` section, copied
      * verbatim): the document is read past its `events` section and the state routes
      * generate. Only those are selected — other operations of the document reach constructs
-     * outside the table (R1 at `deleteHarnessSetting`), which is that app's to change.
+     * outside the table (R1 at `deleteHarnessSetting`), which is that app's to change. The
+     * selected `getStates` pulls in the reads of the two states not listed
+     * (state-client-design §2-13-2; AppStatesTableTest).
      */
     @Test
     fun `the Superself contract document generates its state operations`()
@@ -66,7 +68,10 @@ class AppContractInputTest
         assertEquals(37, Json.parse(document, allowFractions = true).obj().required("operations").arr().size);
         val selection = AppDocuments.selection("getStates", "getConsentState", "putConsentState", "getAiAccountsState");
         val contract = AppDocuments.read(document, selection);
-        assertEquals(listOf("getAiAccountsState", "getConsentState", "getStates", "putConsentState"), contract.operationNames);
+        assertEquals(
+            listOf("getAiAccountsState", "getConsentState", "getMemberState", "getStates", "getWorkspacesState", "putConsentState"),
+            contract.operationNames
+        );
         val swift = AppDocuments.swift(document, selection);
         val kotlin = AppDocuments.kotlin(document, selection);
         assertTrue(swift.contains("public static func getAiAccountsState(workspaceId: String) -> SPFNCall<Void, GetAiAccountsStateResponse>"));

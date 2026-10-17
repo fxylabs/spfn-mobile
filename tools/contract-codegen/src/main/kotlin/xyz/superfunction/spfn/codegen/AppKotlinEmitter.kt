@@ -10,7 +10,9 @@ package xyz.superfunction.spfn.codegen
 class AppKotlinEmitter(
     private val contract: AppContract,
     private val namespace: String,
-    private val packageName: String
+    private val packageName: String,
+    /** The states file's object; null emits no states file (state-client-design §2-13-2). */
+    private val statesNamespace: String? = null
 )
 {
     private val support = "${namespace}Support";
@@ -19,21 +21,31 @@ class AppKotlinEmitter(
         "$support.kt" to file(AppKotlinSupport.helpers(support, AppUsage(contract))),
         "${namespace}Types.kt" to file(types()),
         "${namespace}Calls.kt" to file(calls())
-    )
+    ) + states()
 
     private fun header(): String = AppHeader.lines(contract).joinToString("\n") { "// $it".trimEnd() }
 
-    private fun file(body: String): String = buildString {
+    private fun file(body: String, stateTypes: List<String> = emptyList()): String = buildString {
         appendLine(header());
         appendLine();
         appendLine("package $packageName");
-        val imports = CORE_TYPES.filter { Regex("\\b$it\\b").containsMatchIn(body) };
-        if (imports.isNotEmpty())
+        val imports = CORE_TYPES.map { "xyz.superfunction.spfn.core.$it" } + stateTypes.map { "xyz.superfunction.spfn.state.$it" };
+        val used = imports.filter { Regex("\\b${it.substringAfterLast('.')}\\b").containsMatchIn(body) };
+        if (used.isNotEmpty())
         {
             appendLine();
-            imports.forEach { appendLine("import xyz.superfunction.spfn.core.$it") };
+            used.forEach { appendLine("import $it") };
         }
         append(body);
+    }
+
+    // ---- states -----------------------------------------------------------
+
+    private fun states(): Map<String, String>
+    {
+        val router = contract.states ?: return emptyMap();
+        val name = statesNamespace ?: return emptyMap();
+        return mapOf("$name.kt" to file(AppKotlinStates(router, namespace, name).body(), AppKotlinStates.STATE_TYPES));
     }
 
     // ---- types ------------------------------------------------------------
@@ -52,6 +64,10 @@ class AppKotlinEmitter(
 
     private fun calls(): String = buildString {
         appendLine();
+        AppHeader.unanchoredStates(contract)?.let { comment ->
+            comment.forEach { appendLine("// $it") };
+            appendLine();
+        };
         appendLine("/**");
         appendLine(" * The calls generated from this app's contract document. Hand one to");
         appendLine(" * `SpfnClient.execute`: the SDK signs, sends, retries and classifies failures exactly");

@@ -7,17 +7,32 @@
 
 package xyz.superfunction.spfn.codegen
 
-class AppSwiftEmitter(private val contract: AppContract, private val namespace: String)
+class AppSwiftEmitter(
+    private val contract: AppContract,
+    private val namespace: String,
+    /** The states file's namespace; null emits no states file (state-client-design §2-13-2). */
+    private val statesNamespace: String? = null
+)
 {
     fun emit(): Map<String, String> = mapOf(
         "$namespace.swift" to support(),
         "${namespace}Types.swift" to types(),
         "${namespace}Calls.swift" to calls()
-    )
+    ) + states()
 
     private fun header(): String = AppHeader.lines(contract).joinToString("\n") { "// $it".trimEnd() }
 
-    private fun file(body: String): String = header() + "\n\nimport SPFNCore\n" + body
+    private fun file(body: String, imports: List<String> = listOf("SPFNCore")): String =
+        header() + "\n\n" + imports.joinToString("") { "import $it\n" } + body
+
+    // ---- states -----------------------------------------------------------
+
+    private fun states(): Map<String, String>
+    {
+        val router = contract.states ?: return emptyMap();
+        val name = statesNamespace ?: return emptyMap();
+        return mapOf("$name.swift" to file(AppSwiftStates(router, namespace, name).body(), listOf("SPFNCore", "SPFNState")));
+    }
 
     // ---- the namespace and its helpers ------------------------------------
 
@@ -63,6 +78,10 @@ class AppSwiftEmitter(private val contract: AppContract, private val namespace: 
 
     private fun calls(): String = file(buildString {
         appendLine();
+        AppHeader.unanchoredStates(contract)?.let { comment ->
+            comment.forEach { appendLine("// $it") };
+            appendLine();
+        };
         appendLine("extension $namespace");
         appendLine("{");
         contract.operations.forEachIndexed { index, operation ->
