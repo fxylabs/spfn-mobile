@@ -107,6 +107,30 @@ class SpfnEventStream(
         inbox.trySend(SpfnEventInput.SetNetworkAvailable(isAvailable));
     }
 
+    // ---- revision 4: the connection query and "now" ------------------------
+
+    /**
+     * Query fields the stream request carries beside `token` and `events` (S-1). A changed
+     * value replaces a connection in progress or open at once — new token, no backoff, a new
+     * epoch; otherwise it waits for the next connection. The same value does nothing.
+     *
+     * @throws IllegalArgumentException for the field `events` or `token`.
+     */
+    fun setQuery(fields: Map<String, String>)
+    {
+        SpfnEventStreamConfiguration.requireQuery(fields);
+        inbox.trySend(SpfnEventInput.SetQuery(fields.toMap()));
+    }
+
+    /**
+     * Cuts a retry wait short, or tries a refused stream again (S-4). Offline it does
+     * nothing: the path monitor says when there is a network. Open or connecting, nothing.
+     */
+    fun reconnectNow()
+    {
+        inbox.trySend(SpfnEventInput.ReconnectNow);
+    }
+
     // ---- listening -------------------------------------------------------
 
     /** [listen] by a payload description: its `eventName` and its `decode`. */
@@ -143,6 +167,36 @@ class SpfnEventStream(
         };
     }
 
+    /**
+     * Several configured names in ONE queue, undecoded, with the connection's own signals in
+     * order among the frames (S-2): `Attached` first, `Opened` for every connection — and
+     * once more right after `Attached` when one is already open — `Subscription` grants and
+     * revokes (S-3), `Overflow`, `Unavailable`. The state client's way in; a screen uses [listen].
+     *
+     * The names are checked here, when called; the listener attaches when collection starts.
+     *
+     * @throws IllegalArgumentException no name, or a name not in the configured events (L-22).
+     */
+    fun listenWire(names: List<String>): Flow<SpfnWireSignal>
+    {
+        require(names.isNotEmpty() && names.all { configuration.contains(it) }) { "listenWire needs configured event names; got $names" };
+        val fixed = names.toSet();
+        return flow {
+            val listener = hub.attachWire(fixed);
+            try
+            {
+                while (true)
+                {
+                    hub.takeWire(listener).forEach { emit(it) };
+                }
+            }
+            finally
+            {
+                hub.detachWire(listener);
+            }
+        };
+    }
+
     // ---- the runner --------------------------------------------------------
 
     private fun process(input: SpfnEventInput)
@@ -159,13 +213,19 @@ class SpfnEventStream(
             is SpfnEventEffect.MintToken -> tokenJob = scope.launch { inbox.trySend(mint(effect.generation)) }
             SpfnEventEffect.CancelToken -> tokenJob?.cancel()
             is SpfnEventEffect.OpenStream -> streamJob = scope.launch { stream(effect) }
-            SpfnEventEffect.CloseStream -> streamJob?.cancel()
+            SpfnEventEffect.CloseStream ->
+            {
+                streamJob?.cancel();
+                hub.disconnected();
+            }
             is SpfnEventEffect.StartSilenceTimer -> silenceJob = restart(silenceJob, effect.millis, SpfnEventInput.SilenceElapsed(effect.generation))
             is SpfnEventEffect.StartRetryTimer -> retryJob = restart(retryJob, effect.millis, SpfnEventInput.RetryElapsed(effect.generation))
             is SpfnEventEffect.StartStableTimer -> stableJob = restart(stableJob, effect.millis, SpfnEventInput.StableElapsed(effect.generation))
             SpfnEventEffect.CancelTimers -> listOf(silenceJob, retryJob, stableJob).forEach { it?.cancel() }
             is SpfnEventEffect.Deliver -> hub.deliver(effect.name, effect.data)
             is SpfnEventEffect.Reread -> hub.reread(effect.epoch)
+            is SpfnEventEffect.Connected -> hub.connected(effect.connected)
+            is SpfnEventEffect.Subscription -> hub.subscription(effect.name, effect.status)
             is SpfnEventEffect.MarkUnavailable -> hub.markUnavailable(effect.names)
             is SpfnEventEffect.CountUnexpected -> hub.countUnexpected()
             is SpfnEventEffect.Publish -> published.value = effect.state
@@ -220,7 +280,7 @@ class SpfnEventStream(
     {
         val response = try
         {
-            transport.open(streamRequest(effect.names, effect.token))
+            transport.open(streamRequest(effect.names, effect.token, effect.query))
         }
         catch (_: Exception)
         {
@@ -280,11 +340,13 @@ class SpfnEventStream(
         return body.toByteArray();
     }
 
-    private fun streamRequest(names: List<String>, token: SpfnEventStreamToken): SpfnTransportRequest =
+    /** `?token=…&events=a,b`, then the app's query fields in name order (S-1). */
+    private fun streamRequest(names: List<String>, token: SpfnEventStreamToken, query: Map<String, String>): SpfnTransportRequest =
         SpfnTransportRequest(
             method = "GET",
             url = keyLifecycle.baseUrl + configuration.streamPath +
-                "?token=" + encode(token.value) + "&events=" + names.joinToString(",") { encode(it) },
+                "?token=" + encode(token.value) + "&events=" + names.joinToString(",") { encode(it) } +
+                query.keys.sorted().joinToString("") { "&" + encode(it) + "=" + encode(query.getValue(it)) },
             // Not signed: the server reads only the token on this path, and a proof here
             // would be spent for nothing (§2-2). The identity headers ride as on every request.
             headers = SpfnClientIdentity.headers + listOf("accept" to "text/event-stream", "cache-control" to "no-cache"),

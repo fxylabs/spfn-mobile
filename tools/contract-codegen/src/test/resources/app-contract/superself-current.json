@@ -1,0 +1,3184 @@
+{
+    "compatibilityPolicy": "perOperation",
+    "documentVersion": 1,
+    "events": {
+        "auth": "tokenExchange",
+        "items": [
+            {
+                "name": "state.aiAccounts.changed",
+                "payload": {
+                    "properties": {
+                        "at": {
+                            "type": "string"
+                        },
+                        "key": {
+                            "properties": {
+                                "workspaceId": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "workspaceId"
+                            ],
+                            "type": "object"
+                        },
+                        "subject": {
+                            "type": "string"
+                        },
+                        "value": {
+                            "anyOf": [
+                                {
+                                    "const": "none",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "connected",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "required": [
+                        "at",
+                        "value",
+                        "key",
+                        "subject"
+                    ],
+                    "type": "object"
+                },
+                "since": "1.0.0"
+            },
+            {
+                "name": "state.consent.changed",
+                "payload": {
+                    "properties": {
+                        "at": {
+                            "type": "string"
+                        },
+                        "data": {
+                            "properties": {
+                                "marketing": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "marketing"
+                            ],
+                            "type": "object"
+                        },
+                        "subject": {
+                            "type": "string"
+                        },
+                        "value": {
+                            "anyOf": [
+                                {
+                                    "const": "pending",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "agreed",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "required": [
+                        "at",
+                        "value",
+                        "data",
+                        "subject"
+                    ],
+                    "type": "object"
+                },
+                "since": "1.0.0"
+            },
+            {
+                "name": "state.member.changed",
+                "payload": {
+                    "properties": {
+                        "at": {
+                            "type": "string"
+                        },
+                        "key": {
+                            "properties": {
+                                "workspaceId": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "workspaceId"
+                            ],
+                            "type": "object"
+                        },
+                        "subject": {
+                            "type": "string"
+                        },
+                        "value": {
+                            "anyOf": [
+                                {
+                                    "const": "owner",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "member",
+                                    "type": "string"
+                                }
+                            ]
+                        }
+                    },
+                    "required": [
+                        "at",
+                        "value",
+                        "key",
+                        "subject"
+                    ],
+                    "type": "object"
+                },
+                "since": "1.0.0"
+            },
+            {
+                "name": "state.workspaces.changed",
+                "payload": {
+                    "properties": {
+                        "at": {
+                            "type": "string"
+                        },
+                        "subject": {
+                            "type": "string"
+                        },
+                        "value": {
+                            "items": {
+                                "properties": {
+                                    "displayName": {
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "type": "string"
+                                    },
+                                    "role": {
+                                        "anyOf": [
+                                            {
+                                                "const": "owner",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "member",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "id",
+                                    "displayName",
+                                    "role"
+                                ],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "at",
+                        "value",
+                        "subject"
+                    ],
+                    "type": "object"
+                },
+                "since": "1.0.0"
+            }
+        ],
+        "streamPath": "/events/stream",
+        "tokenPath": "/events/token"
+    },
+    "operations": [
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "DELETE",
+            "name": "deleteHarnessSetting",
+            "path": "/api/harness/settings/:key",
+            "request": {
+                "params": {
+                    "properties": {
+                        "key": {
+                            "maxLength": 64,
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "key"
+                    ],
+                    "type": "object"
+                },
+                "query": {
+                    "properties": {
+                        "scope": {
+                            "maxLength": 16,
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "cleared": {
+                        "type": "boolean"
+                    },
+                    "scope": {
+                        "anyOf": [
+                            {
+                                "const": "workspace",
+                                "type": "string"
+                            },
+                            {
+                                "const": "member",
+                                "type": "string"
+                            },
+                            {
+                                "const": "user",
+                                "type": "string"
+                            }
+                        ]
+                    },
+                    "setting": {
+                        "properties": {
+                            "actors": {
+                                "items": {
+                                    "anyOf": [
+                                        {
+                                            "const": "person",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "agent",
+                                            "type": "string"
+                                        }
+                                    ]
+                                },
+                                "type": "array"
+                            },
+                            "cite": {
+                                "type": "string"
+                            },
+                            "default": {},
+                            "key": {
+                                "type": "string"
+                            },
+                            "scopes": {
+                                "items": {
+                                    "anyOf": [
+                                        {
+                                            "const": "workspace",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "member",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "user",
+                                            "type": "string"
+                                        }
+                                    ]
+                                },
+                                "type": "array"
+                            },
+                            "source": {
+                                "anyOf": [
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "const": "workspace",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "member",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "user",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "const": "default",
+                                        "type": "string"
+                                    }
+                                ]
+                            },
+                            "value": {}
+                        },
+                        "required": [
+                            "key",
+                            "value",
+                            "source",
+                            "scopes",
+                            "default",
+                            "actors",
+                            "cite"
+                        ],
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "scope",
+                    "cleared",
+                    "setting"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getAiAccountsState",
+            "path": "/state/aiAccounts",
+            "request": {
+                "query": {
+                    "properties": {
+                        "workspaceId": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "workspaceId"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "at": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "anyOf": [
+                            {
+                                "const": "none",
+                                "type": "string"
+                            },
+                            {
+                                "const": "connected",
+                                "type": "string"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "at",
+                    "value"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getArtifactTarget",
+            "path": "/api/harness/artifact-target",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "sessionId": {
+                        "type": "string"
+                    },
+                    "workspaceId": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "workspaceId",
+                    "sessionId"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getConsentState",
+            "path": "/state/consent",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "at": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "properties": {
+                            "marketing": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "marketing"
+                        ],
+                        "type": "object"
+                    },
+                    "value": {
+                        "anyOf": [
+                            {
+                                "const": "pending",
+                                "type": "string"
+                            },
+                            {
+                                "const": "agreed",
+                                "type": "string"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "at",
+                    "value",
+                    "data"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getHarnessAppGuide",
+            "path": "/api/harness/apps/:key/guide",
+            "request": {
+                "params": {
+                    "properties": {
+                        "key": {
+                            "maxLength": 64,
+                            "minLength": 1,
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "key"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "key": {
+                        "type": "string"
+                    },
+                    "text": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "key",
+                    "text"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getHarnessAppHelp",
+            "path": "/api/harness/apps/:key/help",
+            "request": {
+                "params": {
+                    "properties": {
+                        "key": {
+                            "maxLength": 64,
+                            "minLength": 1,
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "key"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "key": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "text": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "key",
+                    "name",
+                    "text"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getHarnessApprovalWait",
+            "path": "/api/harness/approvals/:id/wait",
+            "request": {
+                "params": {
+                    "properties": {
+                        "id": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "id"
+                    ],
+                    "type": "object"
+                },
+                "query": {
+                    "properties": {
+                        "wait": {
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "outcome": {
+                        "anyOf": [
+                            {
+                                "const": "approved",
+                                "type": "string"
+                            },
+                            {
+                                "const": "declined",
+                                "type": "string"
+                            }
+                        ]
+                    },
+                    "reason": {
+                        "type": "string"
+                    },
+                    "result": {
+                        "properties": {
+                            "sessionId": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "sessionId"
+                        ],
+                        "type": "object"
+                    },
+                    "status": {
+                        "anyOf": [
+                            {
+                                "const": "proposed",
+                                "type": "string"
+                            },
+                            {
+                                "const": "settled",
+                                "type": "string"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "status"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getHarnessApps",
+            "path": "/api/harness/apps",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "installed": {
+                        "items": {
+                            "properties": {
+                                "description": {
+                                    "type": "string"
+                                },
+                                "fullWidth": {
+                                    "type": "boolean"
+                                },
+                                "iconUrl": {
+                                    "type": "string"
+                                },
+                                "installId": {
+                                    "type": "string"
+                                },
+                                "key": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                },
+                                "uiUrl": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "key",
+                                "name",
+                                "description",
+                                "iconUrl",
+                                "uiUrl",
+                                "fullWidth",
+                                "installId"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "installed"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getHarnessArtifacts",
+            "path": "/api/harness/artifacts",
+            "request": {
+                "query": {
+                    "properties": {
+                        "name": {
+                            "maxLength": 255,
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "items": {
+                    "properties": {
+                        "createdAt": {
+                            "type": "string"
+                        },
+                        "id": {
+                            "type": "string"
+                        },
+                        "latestVersion": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "name": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "id",
+                        "name",
+                        "latestVersion",
+                        "createdAt"
+                    ],
+                    "type": "object"
+                },
+                "type": "array"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getHarnessContext",
+            "path": "/api/harness/context",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "text": {
+                        "type": "string"
+                    },
+                    "versions": {
+                        "properties": {
+                            "core": {
+                                "type": "string"
+                            },
+                            "user": {
+                                "type": "number"
+                            },
+                            "workspace": {
+                                "type": "number"
+                            }
+                        },
+                        "required": [
+                            "core"
+                        ],
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "text",
+                    "versions"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getHarnessHelp",
+            "path": "/api/harness/help/:topic",
+            "request": {
+                "params": {
+                    "properties": {
+                        "topic": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "topic"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "text": {
+                        "type": "string"
+                    },
+                    "topic": {
+                        "anyOf": [
+                            {
+                                "const": "session",
+                                "type": "string"
+                            },
+                            {
+                                "const": "artifact",
+                                "type": "string"
+                            },
+                            {
+                                "const": "rules",
+                                "type": "string"
+                            },
+                            {
+                                "const": "context",
+                                "type": "string"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "topic",
+                    "text"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getHarnessInstruction",
+            "path": "/api/harness/instructions/:id",
+            "request": {
+                "params": {
+                    "properties": {
+                        "id": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "id"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "exposure": {
+                        "anyOf": [
+                            {
+                                "const": "full",
+                                "type": "string"
+                            },
+                            {
+                                "const": "index",
+                                "type": "string"
+                            },
+                            {
+                                "const": "search",
+                                "type": "string"
+                            }
+                        ]
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "layer": {
+                        "anyOf": [
+                            {
+                                "const": "workspace",
+                                "type": "string"
+                            },
+                            {
+                                "const": "user",
+                                "type": "string"
+                            }
+                        ]
+                    },
+                    "priority": {
+                        "type": "number"
+                    },
+                    "text": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "number"
+                    },
+                    "when": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "id",
+                    "layer",
+                    "title",
+                    "exposure",
+                    "priority",
+                    "version",
+                    "text",
+                    "when"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getHarnessInstructions",
+            "path": "/api/harness/instructions",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "items": {
+                        "items": {
+                            "properties": {
+                                "exposure": {
+                                    "anyOf": [
+                                        {
+                                            "const": "full",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "index",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "search",
+                                            "type": "string"
+                                        }
+                                    ]
+                                },
+                                "id": {
+                                    "type": "string"
+                                },
+                                "layer": {
+                                    "anyOf": [
+                                        {
+                                            "const": "workspace",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "user",
+                                            "type": "string"
+                                        }
+                                    ]
+                                },
+                                "priority": {
+                                    "type": "number"
+                                },
+                                "title": {
+                                    "type": "string"
+                                },
+                                "version": {
+                                    "type": "number"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "layer",
+                                "title",
+                                "exposure",
+                                "priority",
+                                "version"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "items"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getHarnessSessions",
+            "path": "/api/harness/sessions",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "sessions": {
+                        "items": {
+                            "properties": {
+                                "createdAt": {
+                                    "type": "string"
+                                },
+                                "id": {
+                                    "type": "string"
+                                },
+                                "lastActivityAt": {
+                                    "type": "string"
+                                },
+                                "title": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "title",
+                                "createdAt",
+                                "lastActivityAt"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "sessions"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getHarnessSetting",
+            "path": "/api/harness/settings/:key",
+            "request": {
+                "params": {
+                    "properties": {
+                        "key": {
+                            "maxLength": 64,
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "key"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "actors": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "const": "person",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "agent",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "type": "array"
+                    },
+                    "cite": {
+                        "type": "string"
+                    },
+                    "default": {},
+                    "key": {
+                        "type": "string"
+                    },
+                    "scopes": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "const": "workspace",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "member",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "user",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "type": "array"
+                    },
+                    "source": {
+                        "anyOf": [
+                            {
+                                "anyOf": [
+                                    {
+                                        "const": "workspace",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "const": "member",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "const": "user",
+                                        "type": "string"
+                                    }
+                                ]
+                            },
+                            {
+                                "const": "default",
+                                "type": "string"
+                            }
+                        ]
+                    },
+                    "value": {}
+                },
+                "required": [
+                    "key",
+                    "value",
+                    "source",
+                    "scopes",
+                    "default",
+                    "actors",
+                    "cite"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getHarnessSettings",
+            "path": "/api/harness/settings",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "settings": {
+                        "items": {
+                            "properties": {
+                                "actors": {
+                                    "items": {
+                                        "anyOf": [
+                                            {
+                                                "const": "person",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "agent",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    },
+                                    "type": "array"
+                                },
+                                "cite": {
+                                    "type": "string"
+                                },
+                                "default": {},
+                                "key": {
+                                    "type": "string"
+                                },
+                                "scopes": {
+                                    "items": {
+                                        "anyOf": [
+                                            {
+                                                "const": "workspace",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "member",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "user",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    },
+                                    "type": "array"
+                                },
+                                "source": {
+                                    "anyOf": [
+                                        {
+                                            "anyOf": [
+                                                {
+                                                    "const": "workspace",
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "const": "member",
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "const": "user",
+                                                    "type": "string"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "const": "default",
+                                            "type": "string"
+                                        }
+                                    ]
+                                },
+                                "value": {}
+                            },
+                            "required": [
+                                "key",
+                                "value",
+                                "source",
+                                "scopes",
+                                "default",
+                                "actors",
+                                "cite"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "settings"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getMemberState",
+            "path": "/state/member",
+            "request": {
+                "query": {
+                    "properties": {
+                        "workspaceId": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "workspaceId"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "at": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "anyOf": [
+                            {
+                                "const": "owner",
+                                "type": "string"
+                            },
+                            {
+                                "const": "member",
+                                "type": "string"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "at",
+                    "value"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "clientProofV1",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getMySessions",
+            "path": "/api/workspaces/:wsId/me/sessions",
+            "request": {
+                "params": {
+                    "properties": {
+                        "wsId": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "wsId"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "sessions": {
+                        "items": {
+                            "properties": {
+                                "accountId": {
+                                    "type": "string"
+                                },
+                                "agent": {
+                                    "type": "string"
+                                },
+                                "ended": {
+                                    "type": "boolean"
+                                },
+                                "id": {
+                                    "type": "string"
+                                },
+                                "lastActivityAt": {
+                                    "type": "string"
+                                },
+                                "lastTurnEndAt": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "parentId": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "sid": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "startedAt": {
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "anyOf": [
+                                        {
+                                            "const": "proposed",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "open",
+                                            "type": "string"
+                                        }
+                                    ]
+                                },
+                                "title": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "unseen": {
+                                    "type": "boolean"
+                                },
+                                "working": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "sid",
+                                "status",
+                                "title",
+                                "accountId",
+                                "agent",
+                                "parentId",
+                                "startedAt",
+                                "lastActivityAt",
+                                "lastTurnEndAt",
+                                "ended",
+                                "unseen",
+                                "working"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "sessions"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getRuntimeMcp",
+            "path": "/runtime/mcp",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "servers": {
+                        "items": {
+                            "properties": {
+                                "accessToken": {
+                                    "type": "string"
+                                },
+                                "expiresAt": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "key": {
+                                    "type": "string"
+                                },
+                                "url": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "key",
+                                "url",
+                                "accessToken",
+                                "expiresAt"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "servers"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getSelfCliManifest",
+            "path": "/api/self-cli/manifest",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "bytes": {
+                        "type": "number"
+                    },
+                    "path": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "version",
+                    "path",
+                    "bytes"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getStates",
+            "path": "/state",
+            "request": {
+                "query": {
+                    "properties": {
+                        "workspaceId": {
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "at": {
+                        "type": "string"
+                    },
+                    "manifest": {
+                        "properties": {
+                            "aiAccounts": {
+                                "properties": {
+                                    "key": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "write": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "required": [
+                                    "key",
+                                    "write"
+                                ],
+                                "type": "object"
+                            },
+                            "consent": {
+                                "properties": {
+                                    "key": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "write": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "required": [
+                                    "key",
+                                    "write"
+                                ],
+                                "type": "object"
+                            },
+                            "member": {
+                                "properties": {
+                                    "key": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "write": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "required": [
+                                    "key",
+                                    "write"
+                                ],
+                                "type": "object"
+                            },
+                            "workspaces": {
+                                "properties": {
+                                    "key": {
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "write": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "required": [
+                                    "key",
+                                    "write"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "workspaces",
+                            "consent",
+                            "member",
+                            "aiAccounts"
+                        ],
+                        "type": "object"
+                    },
+                    "states": {
+                        "properties": {
+                            "aiAccounts": {
+                                "properties": {
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "const": "none",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "connected",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "value"
+                                ],
+                                "type": "object"
+                            },
+                            "consent": {
+                                "properties": {
+                                    "data": {
+                                        "properties": {
+                                            "marketing": {
+                                                "type": "boolean"
+                                            }
+                                        },
+                                        "required": [
+                                            "marketing"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "const": "pending",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "agreed",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "value",
+                                    "data"
+                                ],
+                                "type": "object"
+                            },
+                            "member": {
+                                "properties": {
+                                    "value": {
+                                        "anyOf": [
+                                            {
+                                                "const": "owner",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "member",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "value"
+                                ],
+                                "type": "object"
+                            },
+                            "workspaces": {
+                                "properties": {
+                                    "value": {
+                                        "items": {
+                                            "properties": {
+                                                "displayName": {
+                                                    "type": "string"
+                                                },
+                                                "id": {
+                                                    "type": "string"
+                                                },
+                                                "role": {
+                                                    "anyOf": [
+                                                        {
+                                                            "const": "owner",
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "const": "member",
+                                                            "type": "string"
+                                                        }
+                                                    ]
+                                                }
+                                            },
+                                            "required": [
+                                                "id",
+                                                "displayName",
+                                                "role"
+                                            ],
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    }
+                                },
+                                "required": [
+                                    "value"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "at",
+                    "states",
+                    "manifest"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "clientProofV1",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getWorkspaces",
+            "path": "/api/workspaces",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "workspaces": {
+                        "items": {
+                            "properties": {
+                                "displayName": {
+                                    "type": "string"
+                                },
+                                "id": {
+                                    "type": "string"
+                                },
+                                "role": {
+                                    "anyOf": [
+                                        {
+                                            "const": "owner",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "member",
+                                            "type": "string"
+                                        }
+                                    ]
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "displayName",
+                                "role"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "workspaces"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "GET",
+            "name": "getWorkspacesState",
+            "path": "/state/workspaces",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "at": {
+                        "type": "string"
+                    },
+                    "value": {
+                        "items": {
+                            "properties": {
+                                "displayName": {
+                                    "type": "string"
+                                },
+                                "id": {
+                                    "type": "string"
+                                },
+                                "role": {
+                                    "anyOf": [
+                                        {
+                                            "const": "owner",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "member",
+                                            "type": "string"
+                                        }
+                                    ]
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "displayName",
+                                "role"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    }
+                },
+                "required": [
+                    "at",
+                    "value"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "POST",
+            "name": "postArtifact",
+            "path": "/api/workspaces/:wsId/artifacts",
+            "request": {
+                "body": {
+                    "properties": {
+                        "artifactId": {
+                            "maxLength": 64,
+                            "type": "string"
+                        },
+                        "manifest": {
+                            "properties": {
+                                "entry": {
+                                    "maxLength": 1024,
+                                    "type": "string"
+                                },
+                                "files": {
+                                    "items": {
+                                        "properties": {
+                                            "path": {
+                                                "maxLength": 1024,
+                                                "type": "string"
+                                            },
+                                            "sha256": {
+                                                "maxLength": 64,
+                                                "type": "string"
+                                            },
+                                            "size": {
+                                                "type": "number"
+                                            },
+                                            "type": {
+                                                "maxLength": 255,
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": [
+                                            "path",
+                                            "sha256",
+                                            "size",
+                                            "type"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    "maxItems": 1000,
+                                    "type": "array"
+                                },
+                                "version": {
+                                    "const": 1,
+                                    "type": "number"
+                                }
+                            },
+                            "required": [
+                                "version",
+                                "entry",
+                                "files"
+                            ],
+                            "type": "object"
+                        },
+                        "sourcePath": {
+                            "anyOf": [
+                                {
+                                    "maxLength": 4096,
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "required": [
+                        "manifest"
+                    ],
+                    "type": "object"
+                },
+                "params": {
+                    "properties": {
+                        "wsId": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "wsId"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "artifactId": {
+                        "type": "string"
+                    },
+                    "number": {
+                        "type": "number"
+                    },
+                    "uploads": {
+                        "properties": {
+                            "files": {
+                                "items": {
+                                    "properties": {
+                                        "expiresAt": {
+                                            "type": "string"
+                                        },
+                                        "headers": {
+                                            "patternProperties": {
+                                                "^(.*)$": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "method": {
+                                            "const": "PUT",
+                                            "type": "string"
+                                        },
+                                        "path": {
+                                            "type": "string"
+                                        },
+                                        "url": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "url",
+                                        "method",
+                                        "headers",
+                                        "expiresAt",
+                                        "path"
+                                    ],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "manifest": {
+                                "properties": {
+                                    "expiresAt": {
+                                        "type": "string"
+                                    },
+                                    "headers": {
+                                        "patternProperties": {
+                                            "^(.*)$": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "method": {
+                                        "const": "PUT",
+                                        "type": "string"
+                                    },
+                                    "url": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "url",
+                                    "method",
+                                    "headers",
+                                    "expiresAt"
+                                ],
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "manifest",
+                            "files"
+                        ],
+                        "type": "object"
+                    },
+                    "versionId": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "artifactId",
+                    "versionId",
+                    "number",
+                    "uploads"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "POST",
+            "name": "postArtifactVersionComplete",
+            "path": "/api/workspaces/:wsId/artifact-versions/:versionId/complete",
+            "request": {
+                "params": {
+                    "properties": {
+                        "versionId": {
+                            "type": "string"
+                        },
+                        "wsId": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "wsId",
+                        "versionId"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "artifactId": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "properties": {
+                            "contentType": {
+                                "type": "string"
+                            },
+                            "entryPath": {
+                                "type": "string"
+                            },
+                            "fileCount": {
+                                "type": "number"
+                            },
+                            "id": {
+                                "type": "string"
+                            },
+                            "number": {
+                                "type": "number"
+                            },
+                            "sha256": {
+                                "type": "string"
+                            },
+                            "sourcePath": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "totalSize": {
+                                "type": "number"
+                            },
+                            "uploadedAt": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": [
+                            "id",
+                            "number",
+                            "sha256",
+                            "entryPath",
+                            "contentType",
+                            "fileCount",
+                            "totalSize",
+                            "sourcePath",
+                            "uploadedAt"
+                        ],
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "artifactId",
+                    "version"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "POST",
+            "name": "postHarnessAppToken",
+            "path": "/api/harness/apps/:key/token",
+            "request": {
+                "body": {
+                    "properties": {
+                        "command": {
+                            "maxLength": 128,
+                            "minLength": 1,
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "command"
+                    ],
+                    "type": "object"
+                },
+                "params": {
+                    "properties": {
+                        "key": {
+                            "maxLength": 64,
+                            "minLength": 1,
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "key"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "command": {
+                        "properties": {
+                            "effect": {
+                                "anyOf": [
+                                    {
+                                        "const": "read",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "const": "write",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "const": "destructive",
+                                        "type": "string"
+                                    }
+                                ]
+                            },
+                            "method": {
+                                "type": "string"
+                            },
+                            "name": {
+                                "type": "string"
+                            },
+                            "path": {
+                                "type": "string"
+                            },
+                            "summary": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "name"
+                        ],
+                        "type": "object"
+                    },
+                    "expiresAt": {
+                        "type": "string"
+                    },
+                    "origin": {
+                        "type": "string"
+                    },
+                    "surface": {
+                        "properties": {
+                            "manifestUrl": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "manifestUrl"
+                        ],
+                        "type": "object"
+                    },
+                    "token": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "token",
+                    "expiresAt",
+                    "origin",
+                    "surface",
+                    "command"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "POST",
+            "name": "postHarnessApproval",
+            "path": "/api/harness/approvals",
+            "request": {
+                "body": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "kind": {
+                            "maxLength": 64,
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "payload": {
+                            "patternProperties": {
+                                "^(.*)$": {}
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": [
+                        "kind",
+                        "payload"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "approvalId": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "approvalId"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "POST",
+            "name": "postHarnessProposal",
+            "path": "/api/harness/instructions/proposals",
+            "request": {
+                "body": {
+                    "properties": {
+                        "itemId": {
+                            "maxLength": 64,
+                            "type": "string"
+                        },
+                        "layer": {
+                            "anyOf": [
+                                {
+                                    "const": "workspace",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "user",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "text": {
+                            "maxLength": 20000,
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "title": {
+                            "maxLength": 200,
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "when": {
+                            "maxLength": 200,
+                            "pattern": "^[^\\r\\n]*$",
+                            "type": "string"
+                        },
+                        "why": {
+                            "maxLength": 2000,
+                            "minLength": 1,
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "layer",
+                        "title",
+                        "text",
+                        "why"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "const": "pending",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "status"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "POST",
+            "name": "postNodeBackupKey",
+            "path": "/_ops/workspace/node/backup-key",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "password": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "password"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "POST",
+            "name": "postNodeRegister",
+            "path": "/_ops/workspace/node/register",
+            "request": {
+                "body": {
+                    "properties": {
+                        "bridgeZone": {
+                            "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$",
+                            "type": "string"
+                        },
+                        "internalHost": {
+                            "pattern": "^[a-z0-9.-]+$",
+                            "type": "string"
+                        },
+                        "name": {
+                            "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+                            "type": "string"
+                        },
+                        "previewZone": {
+                            "pattern": "^[a-z0-9-]+(\\.[a-z0-9-]+)+$",
+                            "type": "string"
+                        },
+                        "slots": {
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "sshHostKey": {
+                            "pattern": "^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) [A-Za-z0-9+/]+=*$",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "name",
+                        "slots"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "keySet": {
+                        "properties": {
+                            "bridge": {
+                                "type": "string"
+                            },
+                            "hash": {
+                                "pattern": "^[0-9a-f]{16}$",
+                                "type": "string"
+                            },
+                            "node.call": {
+                                "type": "string"
+                            },
+                            "preview": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "hash",
+                            "bridge",
+                            "preview",
+                            "node.call"
+                        ],
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "id",
+                    "keySet"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "POST",
+            "name": "postNodeReport",
+            "path": "/_ops/workspace/node/report",
+            "request": {
+                "body": {
+                    "properties": {
+                        "accepting": {
+                            "type": "boolean"
+                        },
+                        "anonMb": {
+                            "type": "number"
+                        },
+                        "homes": {
+                            "items": {
+                                "properties": {
+                                    "id": {
+                                        "type": "string"
+                                    },
+                                    "snapshot": {
+                                        "type": "string"
+                                    },
+                                    "status": {
+                                        "anyOf": [
+                                            {
+                                                "const": "attached",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "detached",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "stowed",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "stow_failed",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "id",
+                                    "status"
+                                ],
+                                "type": "object"
+                            },
+                            "maxItems": 2000,
+                            "type": "array"
+                        },
+                        "images": {
+                            "items": {
+                                "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$",
+                                "type": "string"
+                            },
+                            "maxItems": 8,
+                            "type": "array"
+                        },
+                        "jobs": {
+                            "items": {
+                                "properties": {
+                                    "ageSeconds": {
+                                        "maximum": 2147483647,
+                                        "minimum": 0,
+                                        "type": "integer"
+                                    },
+                                    "exitStatus": {
+                                        "maximum": 255,
+                                        "minimum": 0,
+                                        "type": "integer"
+                                    },
+                                    "expected": {
+                                        "type": "boolean"
+                                    },
+                                    "failures": {
+                                        "maximum": 2147483647,
+                                        "minimum": 0,
+                                        "type": "integer"
+                                    },
+                                    "lastRunAt": {
+                                        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+                                        "type": "string"
+                                    },
+                                    "lastSuccessAt": {
+                                        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "pattern": "^[a-z][a-z-]{0,31}$",
+                                        "type": "string"
+                                    },
+                                    "result": {
+                                        "pattern": "^[a-z][a-z-]{0,31}$",
+                                        "type": "string"
+                                    },
+                                    "running": {
+                                        "type": "boolean"
+                                    },
+                                    "successAgeSeconds": {
+                                        "maximum": 2147483647,
+                                        "minimum": 0,
+                                        "type": "integer"
+                                    },
+                                    "timer": {
+                                        "pattern": "^[a-z][a-z-]{0,31}$",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "name",
+                                    "expected",
+                                    "timer"
+                                ],
+                                "type": "object"
+                            },
+                            "maxItems": 16,
+                            "type": "array"
+                        },
+                        "keySetHash": {
+                            "pattern": "^([0-9a-f]{16}|unknown)$",
+                            "type": "string"
+                        },
+                        "keySetRefused": {
+                            "pattern": "^[a-z][a-z_]{0,31}$",
+                            "type": "string"
+                        },
+                        "load1": {
+                            "type": "number"
+                        },
+                        "release": {
+                            "properties": {
+                                "commit": {
+                                    "pattern": "^[A-Za-z0-9._-]{1,128}$",
+                                    "type": "string"
+                                },
+                                "id": {
+                                    "pattern": "^[A-Za-z0-9._-]{1,128}$",
+                                    "type": "string"
+                                },
+                                "imageId": {
+                                    "pattern": "^[0-9a-f]{64}$",
+                                    "type": "string"
+                                },
+                                "installedAt": {
+                                    "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "commit",
+                                "installedAt"
+                            ],
+                            "type": "object"
+                        },
+                        "runtimes": {
+                            "items": {
+                                "properties": {
+                                    "egressDrops": {
+                                        "type": "number"
+                                    },
+                                    "id": {
+                                        "type": "string"
+                                    },
+                                    "imageId": {
+                                        "type": "string"
+                                    },
+                                    "slot": {
+                                        "pattern": "^slot-[0-9]{2,}$",
+                                        "type": "string"
+                                    },
+                                    "status": {
+                                        "anyOf": [
+                                            {
+                                                "const": "starting",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "active",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "terminating",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "terminated",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "exited",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "failed",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "id",
+                                    "status"
+                                ],
+                                "type": "object"
+                            },
+                            "maxItems": 2000,
+                            "type": "array"
+                        },
+                        "slotsFree": {
+                            "type": "number"
+                        },
+                        "slotsTotal": {
+                            "type": "number"
+                        }
+                    },
+                    "required": [
+                        "slotsTotal",
+                        "slotsFree",
+                        "anonMb",
+                        "load1",
+                        "homes",
+                        "runtimes"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "keySet": {
+                        "properties": {
+                            "bridge": {
+                                "type": "string"
+                            },
+                            "hash": {
+                                "pattern": "^[0-9a-f]{16}$",
+                                "type": "string"
+                            },
+                            "node.call": {
+                                "type": "string"
+                            },
+                            "preview": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "hash",
+                            "bridge",
+                            "preview",
+                            "node.call"
+                        ],
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "keySet"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "POST",
+            "name": "postRuntimeRenew",
+            "path": "/runtime/renew",
+            "request": {},
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "expiresAt": {
+                        "type": "string"
+                    },
+                    "token": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "token",
+                    "expiresAt"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "POST",
+            "name": "postSessionMessages",
+            "path": "/api/workspaces/:wsId/sessions/:sessionId/messages",
+            "request": {
+                "params": {
+                    "properties": {
+                        "sessionId": {
+                            "type": "string"
+                        },
+                        "wsId": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "wsId",
+                        "sessionId"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "accepted": {
+                        "items": {
+                            "properties": {
+                                "id": {
+                                    "type": "string"
+                                },
+                                "seq": {
+                                    "type": "number"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "seq"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "duplicates": {
+                        "items": {
+                            "properties": {
+                                "id": {
+                                    "type": "string"
+                                },
+                                "seq": {
+                                    "type": "number"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "seq"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "head_seq": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "accepted",
+                    "duplicates",
+                    "head_seq"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "POST",
+            "name": "postWorkspaceRuntimeHeartbeat",
+            "path": "/api/workspaces/:wsId/runtimes/:rt/heartbeat",
+            "request": {
+                "body": {
+                    "properties": {
+                        "lastFrameAt": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "leaving": {
+                            "const": true,
+                            "type": "boolean"
+                        },
+                        "sockets": {
+                            "minimum": 0,
+                            "type": "number"
+                        }
+                    },
+                    "required": [
+                        "sockets",
+                        "lastFrameAt"
+                    ],
+                    "type": "object"
+                },
+                "params": {
+                    "properties": {
+                        "rt": {
+                            "type": "string"
+                        },
+                        "wsId": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "wsId",
+                        "rt"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "type": "null"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "PUT",
+            "name": "putConsentState",
+            "path": "/state/consent",
+            "request": {
+                "body": {
+                    "properties": {
+                        "choices": {
+                            "properties": {
+                                "age": {
+                                    "type": "boolean"
+                                },
+                                "news": {
+                                    "type": "boolean"
+                                },
+                                "privacy": {
+                                    "type": "boolean"
+                                },
+                                "terms": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "age",
+                                "terms",
+                                "privacy",
+                                "news"
+                            ],
+                            "type": "object"
+                        },
+                        "effectiveDate": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "locale": {
+                            "type": "string"
+                        },
+                        "privacy": {
+                            "pattern": "^[a-f0-9]{64}$",
+                            "type": "string"
+                        },
+                        "terms": {
+                            "pattern": "^[a-f0-9]{64}$",
+                            "type": "string"
+                        },
+                        "timeZone": {
+                            "type": "string"
+                        },
+                        "version": {
+                            "type": "integer"
+                        }
+                    },
+                    "required": [
+                        "version",
+                        "effectiveDate",
+                        "terms",
+                        "privacy",
+                        "choices"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "at": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "properties": {
+                            "marketing": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "marketing"
+                        ],
+                        "type": "object"
+                    },
+                    "value": {
+                        "anyOf": [
+                            {
+                                "const": "pending",
+                                "type": "string"
+                            },
+                            {
+                                "const": "agreed",
+                                "type": "string"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "at",
+                    "value",
+                    "data"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "PUT",
+            "name": "putHarnessSetting",
+            "path": "/api/harness/settings/:key",
+            "request": {
+                "body": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "scope": {
+                            "maxLength": 16,
+                            "type": "string"
+                        },
+                        "value": {}
+                    },
+                    "required": [
+                        "value"
+                    ],
+                    "type": "object"
+                },
+                "params": {
+                    "properties": {
+                        "key": {
+                            "maxLength": 64,
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "key"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "scope": {
+                        "anyOf": [
+                            {
+                                "const": "workspace",
+                                "type": "string"
+                            },
+                            {
+                                "const": "member",
+                                "type": "string"
+                            },
+                            {
+                                "const": "user",
+                                "type": "string"
+                            }
+                        ]
+                    },
+                    "setting": {
+                        "properties": {
+                            "actors": {
+                                "items": {
+                                    "anyOf": [
+                                        {
+                                            "const": "person",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "agent",
+                                            "type": "string"
+                                        }
+                                    ]
+                                },
+                                "type": "array"
+                            },
+                            "cite": {
+                                "type": "string"
+                            },
+                            "default": {},
+                            "key": {
+                                "type": "string"
+                            },
+                            "scopes": {
+                                "items": {
+                                    "anyOf": [
+                                        {
+                                            "const": "workspace",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "member",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "user",
+                                            "type": "string"
+                                        }
+                                    ]
+                                },
+                                "type": "array"
+                            },
+                            "source": {
+                                "anyOf": [
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "const": "workspace",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "member",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "user",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "const": "default",
+                                        "type": "string"
+                                    }
+                                ]
+                            },
+                            "value": {}
+                        },
+                        "required": [
+                            "key",
+                            "value",
+                            "source",
+                            "scopes",
+                            "default",
+                            "actors",
+                            "cite"
+                        ],
+                        "type": "object"
+                    }
+                },
+                "required": [
+                    "scope",
+                    "setting"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        },
+        {
+            "auth": "none",
+            "interceptor": {},
+            "method": "PUT",
+            "name": "putWorkspaceRuntimeAccounts",
+            "path": "/api/workspaces/:wsId/runtimes/:rt/accounts",
+            "request": {
+                "body": {
+                    "properties": {
+                        "accounts": {
+                            "items": {
+                                "properties": {
+                                    "account": {
+                                        "pattern": "^[a-z][a-z0-9-]{0,23}$",
+                                        "type": "string"
+                                    },
+                                    "agent": {
+                                        "anyOf": [
+                                            {
+                                                "const": "claude",
+                                                "type": "string"
+                                            },
+                                            {
+                                                "const": "codex",
+                                                "type": "string"
+                                            }
+                                        ]
+                                    },
+                                    "providerEmail": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "agent",
+                                    "account"
+                                ],
+                                "type": "object"
+                            },
+                            "maxItems": 50,
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "accounts"
+                    ],
+                    "type": "object"
+                },
+                "params": {
+                    "properties": {
+                        "rt": {
+                            "type": "string"
+                        },
+                        "wsId": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "wsId",
+                        "rt"
+                    ],
+                    "type": "object"
+                }
+            },
+            "requiresSession": false,
+            "response": {
+                "properties": {
+                    "disconnected": {
+                        "type": "number"
+                    },
+                    "inserted": {
+                        "type": "number"
+                    },
+                    "kept": {
+                        "type": "number"
+                    }
+                },
+                "required": [
+                    "inserted",
+                    "kept",
+                    "disconnected"
+                ],
+                "type": "object"
+            },
+            "since": "1.0.0"
+        }
+    ]
+}

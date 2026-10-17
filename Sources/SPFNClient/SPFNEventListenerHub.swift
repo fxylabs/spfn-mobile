@@ -16,6 +16,12 @@
 // so `attached` is queued before the caller's first `await` (§3-4, §8 H-9). The lock is
 // held for queue bookkeeping only; decoders and conditions run outside it.
 //
+// A wire listener (revision 4, S-2) is the state client's kind: several names in one queue,
+// no decoder and no condition, and the connection's own signals — `opened` with what the
+// `connected` frame said, `subscription` grants and revokes — in order with the frames.
+// The hub keeps the open connection's `connected` so a wire listener attached while it is
+// open hears it once more right after `attached`; the connection ending forgets it.
+//
 // android/spfn-client/.../SpfnEventListenerHub.kt is the same hub in Kotlin.
 
 import Foundation
@@ -203,10 +209,155 @@ final class SPFNEventListenerHub: @unchecked Sendable
         }
     }
 
+    /// One wire listener: its names, fixed when it attaches, and its one queue (S-2).
+    final class WireListener: @unchecked Sendable
+    {
+        let names: Set<String>
+        private let deliveryBuffer: Int
+        private let lock = NSLock()
+        private var queue: [SPFNWireSignal] = []
+        private var pendingFrames = 0
+        private var reportedUnavailable: Set<String> = []
+        private var finished = false
+        private var waiter: CheckedContinuation<SPFNWireSignal?, Never>?
+
+        init(names: Set<String>, deliveryBuffer: Int)
+        {
+            self.names = names
+            self.deliveryBuffer = deliveryBuffer
+        }
+
+        /// What is queued, oldest first, without consuming it. For the hub suite.
+        var pending: [SPFNWireSignal]
+        {
+            lock.withLock { queue }
+        }
+
+        /// The next signal, suspending until there is one; nil once the listener is finished.
+        func next() async -> SPFNWireSignal?
+        {
+            await withCheckedContinuation
+            {
+                (continuation: CheckedContinuation<SPFNWireSignal?, Never>) in
+                let ready: SPFNWireSignal?? = lock.withLock
+                {
+                    if !queue.isEmpty
+                    {
+                        let first = queue.removeFirst()
+                        if case .frame = first
+                        {
+                            pendingFrames -= 1
+                        }
+                        return .some(first)
+                    }
+                    if finished
+                    {
+                        return .some(nil)
+                    }
+                    waiter = continuation
+                    return nil
+                }
+                if let ready
+                {
+                    continuation.resume(returning: ready)
+                }
+            }
+        }
+
+        /// L-23: a frame that finds the queue full drops the queued frames for one `overflow`.
+        func frame(name: String, value: SPFNCanonicalValue)
+        {
+            let overflowing = lock.withLock { pendingFrames >= deliveryBuffer }
+            if overflowing
+            {
+                push(.overflow, dropping: { $0.isFrameOrOverflow })
+            }
+            else
+            {
+                push(.frame(name: name, value: value), dropping: nil)
+            }
+        }
+
+        /// L-26: a new connection's `opened` replaces whatever the old one left queued.
+        func opened(_ connected: SPFNStreamConnected)
+        {
+            push(.opened(connected), dropping: { $0.belongsToConnection })
+        }
+
+        func subscription(name: String, status: SPFNSubscriptionStatus)
+        {
+            push(.subscription(name: name, status: status), dropping: nil)
+        }
+
+        func attached()
+        {
+            push(.attached, dropping: nil)
+        }
+
+        /// L-24: each of its names is reported unavailable once, however often it is marked.
+        func unavailable(_ marked: Set<String>)
+        {
+            let fresh: [String] = lock.withLock
+            {
+                let fresh = names.intersection(marked).subtracting(reportedUnavailable)
+                reportedUnavailable.formUnion(fresh)
+                return fresh.sorted()
+            }
+            if !fresh.isEmpty
+            {
+                push(.unavailable(fresh), dropping: nil)
+            }
+        }
+
+        func finish()
+        {
+            let pendingWaiter: CheckedContinuation<SPFNWireSignal?, Never>? = lock.withLock
+            {
+                finished = true
+                queue.removeAll()
+                defer { waiter = nil }
+                return waiter
+            }
+            pendingWaiter?.resume(returning: nil)
+        }
+
+        /// Hands `signal` to a waiting consumer, or queues it after dropping what `dropping` names.
+        private func push(_ signal: SPFNWireSignal, dropping: ((SPFNWireSignal) -> Bool)?)
+        {
+            let delivered: CheckedContinuation<SPFNWireSignal?, Never>? = lock.withLock
+            {
+                guard !finished
+                else
+                {
+                    return nil
+                }
+                if let dropping
+                {
+                    queue.removeAll(where: dropping)
+                    pendingFrames = 0
+                }
+                if let waiter, queue.isEmpty
+                {
+                    self.waiter = nil
+                    return waiter
+                }
+                queue.append(signal)
+                if case .frame = signal
+                {
+                    pendingFrames += 1
+                }
+                return nil
+            }
+            delivered?.resume(returning: signal)
+        }
+    }
+
     private let deliveryBuffer: Int
     private let lock = NSLock()
     private var listeners: [ObjectIdentifier: any SPFNAnyListener] = [:]
+    private var wireListeners: [ObjectIdentifier: WireListener] = [:]
     private var unavailableNames: Set<String> = []
+    private var connection: SPFNStreamConnected?
     private var counts = SPFNEventDiagnostics()
 
     init(deliveryBuffer: Int)
@@ -240,18 +391,44 @@ final class SPFNEventListenerHub: @unchecked Sendable
         return listener
     }
 
+    /// L-19, L-20: `attached`, any of its names already unavailable, and — while a connection
+    /// is open — that connection's `opened` once more. Queued under the hub's lock, so a
+    /// connection opening at the same moment cannot put its `opened` first.
+    func attachWire(_ names: Set<String>) -> WireListener
+    {
+        let listener = WireListener(names: names, deliveryBuffer: deliveryBuffer)
+        lock.withLock
+        {
+            wireListeners[ObjectIdentifier(listener)] = listener
+            listener.attached()
+            listener.unavailable(unavailableNames)
+            if let connection
+            {
+                listener.opened(connection)
+            }
+        }
+        return listener
+    }
+
     /// L-2: removed with its queue, and its consumer's stream ends. The connection is not told.
     func detach(_ listener: AnyObject)
     {
-        let removed = lock.withLock { listeners.removeValue(forKey: ObjectIdentifier(listener)) }
+        let key = ObjectIdentifier(listener)
+        let removed: (any SPFNAnyListener)?
+        let removedWire: WireListener?
+        (removed, removedWire) = lock.withLock { (listeners.removeValue(forKey: key), wireListeners.removeValue(forKey: key)) }
         removed?.finish()
+        removedWire?.finish()
     }
 
     /// E-22: one frame of a configured name, to every listener of that name.
     func deliver(name: String, data: String)
     {
-        let targets = lock.withLock { listeners.values.filter { $0.name == name } }
-        guard !targets.isEmpty
+        let (targets, wireTargets) = lock.withLock
+        {
+            (listeners.values.filter { $0.name == name }, wireListeners.values.filter { $0.names.contains(name) })
+        }
+        guard !targets.isEmpty || !wireTargets.isEmpty
         else
         {
             return
@@ -259,8 +436,12 @@ final class SPFNEventListenerHub: @unchecked Sendable
         guard let payload = Self.envelopePayload(data)
         else
         {
-            count { $0.droppedFrames += Int64(targets.count) }
+            count { $0.droppedFrames += Int64(targets.count + wireTargets.count) }
             return
+        }
+        for wireTarget in wireTargets
+        {
+            wireTarget.frame(name: name, value: payload)
         }
         for target in targets
         {
@@ -285,17 +466,46 @@ final class SPFNEventListenerHub: @unchecked Sendable
         }
     }
 
+    /// S-2: the connection that just opened, to every wire listener, and kept for those that
+    /// attach while it stays open.
+    func connected(_ connected: SPFNStreamConnected)
+    {
+        for listener in lock.withLock({ connection = connected; return Array(wireListeners.values) })
+        {
+            listener.opened(connected)
+        }
+    }
+
+    /// The connection ended: a wire listener attaching now hears `attached` only (L-19).
+    func disconnected()
+    {
+        lock.withLock { connection = nil }
+    }
+
+    /// S-3 (L-25): a grant or revoke, to the wire listeners of that name. `listen` never hears it.
+    func subscription(name: String, status: SPFNSubscriptionStatus)
+    {
+        for listener in lock.withLock({ wireListeners.values.filter { $0.names.contains(name) } })
+        {
+            listener.subscription(name: name, status: status)
+        }
+    }
+
     /// Q-F: the names the server does not serve. Each listener of one hears it once.
     func markUnavailable(_ names: [String])
     {
-        let targets = lock.withLock
+        let (targets, wireTargets) = lock.withLock
         {
             unavailableNames = Set(names)
-            return listeners.values.filter { names.contains($0.name) }
+            return (listeners.values.filter { names.contains($0.name) }, Array(wireListeners.values))
         }
         for target in targets
         {
             target.unavailable()
+        }
+        for wireTarget in wireTargets
+        {
+            wireTarget.unavailable(Set(names))
         }
     }
 
@@ -332,5 +542,31 @@ private extension SPFNEventSignal
             return false
         }
         return true
+    }
+}
+
+private extension SPFNWireSignal
+{
+    var isFrameOrOverflow: Bool
+    {
+        switch self
+        {
+        case .frame, .overflow:
+            return true
+        case .attached, .opened, .subscription, .unavailable:
+            return false
+        }
+    }
+
+    /// What a new connection's `opened` supersedes: everything the old connection queued.
+    var belongsToConnection: Bool
+    {
+        switch self
+        {
+        case .frame, .overflow, .opened, .subscription:
+            return true
+        case .attached, .unavailable:
+            return false
+        }
     }
 }

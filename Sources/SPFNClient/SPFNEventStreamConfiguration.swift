@@ -11,6 +11,8 @@
 public enum SPFNEventStreamError: Error, Equatable, Sendable
 {
     case invalidConfiguration(field: String)
+    /// `setQuery` was handed a field the stream request already carries (S-1).
+    case reservedQueryField(String)
 }
 
 /// The reconnect schedule: `initialMillis`, multiplied per consecutive failure up to
@@ -122,6 +124,18 @@ public struct SPFNEventStreamConfiguration: Sendable
     public func contains(_ name: String) -> Bool
     {
         events.contains(name)
+    }
+
+    /// The query fields the stream request sets itself; `setQuery` refuses them (S-1).
+    public static let reservedQueryFields: Set<String> = ["events", "token"]
+
+    /// The check behind `setQuery`, pulled out like `contains`: the first reserved field, if any.
+    public static func requireQuery(_ fields: [String: String]) throws
+    {
+        if let reserved = fields.keys.sorted().first(where: reservedQueryFields.contains)
+        {
+            throw SPFNEventStreamError.reservedQueryField(reserved)
+        }
     }
 
     /// The server's rule: the last path segment of the stream path becomes `token`.

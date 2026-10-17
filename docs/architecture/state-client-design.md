@@ -745,12 +745,12 @@ Hook = "`useServerState(client, id, key?)`", Conn = "`useConnectionStatus(client
 
 ### 5-1. 스트림 확장 (이 저장소, event-stream-design 개정 4)
 
-| id | 무엇 | 상태 기계·허브에 닿는 곳 | 없으면 |
-|---|---|---|---|
-| S-1 | **연결 쿼리 입력** `setQuery(_ fields: [String: String])` / `setQuery(fields: Map<String, String>)`. 스트림 GET이 `token`·`events` 옆에 싣는다. 열린 연결(T·S·O)에서 값이 바뀌면 닫고 새 토큰으로 곧바로 다시 연다 (백오프 없음, 새 epoch). R·N·I·X에서는 기억만 하고 다음 연결에 쓴다. 같은 값은 무시. `events`·`token`이라는 필드는 거부 | 새 입력 하나와 E-셀 몇 개. 조건 W는 그대로 | 키 있는 상태는 연결 시점에 거부된다 (`deniedEvents`). Q2·Q3이 막힌다 |
-| S-2 | **원선 청취** `listenWire(_ names: [String]) -> AsyncStream<SPFNWireSignal>` / `Flow<SpfnWireSignal>`. 여러 이름을 **큐 하나**로: `attached`, `opened(SPFNStreamConnected)` (`epoch`, 그 연결의 쿼리, `subscribedEvents`, `deniedEvents`, `initial?`), `frame(name, SPFNCanonicalValue)`, `subscription(name, granted \| revoked)` (S-3), `overflow`, `unavailable([String])`. 열린 동안 붙으면 `attached` 다음 현재 연결의 `opened`를 한 번 다시 준다 | 허브에 청취자 종류 하나. 이름 검사(L-3)와 넘침(L-4)은 같다 | `reread(.opened(e))`로 대신한다: 매 열림 스냅샷, 연결 시점 거부는 스냅샷 누락으로만 안다 (§2-6, §6 Q-C) |
-| S-3 | **`subscription.granted`/`revoked` 전달.** 스트림 소유 프레임이다. `data.event`가 설정된 이름이면 그 이름의 원선 청취자에게 `subscription`으로. 보통의 `listen` 청취자에게는 가지 않는다. `unexpectedFrames`로 세지 않는다 | E-23의 갈래 하나 | 서버의 `grant`/`revoke`를 다음 스냅샷까지 모른다. R-1·R-2·R-10이 막힌다 |
-| S-4 | **지금 다시** `reconnectNow()`. R → T(1) (타이머 끔, 수 초기화), X → T(1), O·T·S·I → 아무것도 하지 않음, N → 그대로 (네트워크가 없다 — 경로 감시기가 권위다) | 새 입력 하나 | `retry()`가 매니페스트를 안 뒤에는 할 일이 없다. C-13·C-16이 막힌다 |
+| id | 무엇 | 상태 기계·허브에 닿는 곳 | 없으면 | 구현 |
+|---|---|---|---|---|
+| S-1 | **연결 쿼리 입력** `setQuery(_ fields: [String: String])` / `setQuery(fields: Map<String, String>)`. 스트림 GET이 `token`·`events` 옆에 싣는다. 열린 연결(T·S·O)에서 값이 바뀌면 닫고 새 토큰으로 곧바로 다시 연다 (백오프 없음, 새 epoch). R·N·I·X에서는 기억만 하고 다음 연결에 쓴다. 같은 값은 무시. `events`·`token`이라는 필드는 거부 | 새 입력 하나와 E-셀 몇 개. 조건 W는 그대로 | 키 있는 상태는 연결 시점에 거부된다 (`deniedEvents`). Q2·Q3이 막힌다 | done in `377e463` |
+| S-2 | **원선 청취** `listenWire(_ names: [String]) -> AsyncStream<SPFNWireSignal>` / `Flow<SpfnWireSignal>`. 여러 이름을 **큐 하나**로: `attached`, `opened(SPFNStreamConnected)` (`epoch`, 그 연결의 쿼리, `subscribedEvents`, `deniedEvents`, `initial?`), `frame(name, SPFNCanonicalValue)`, `subscription(name, granted \| revoked)` (S-3), `overflow`, `unavailable([String])`. 열린 동안 붙으면 `attached` 다음 현재 연결의 `opened`를 한 번 다시 준다 | 허브에 청취자 종류 하나. 이름 검사(L-3)와 넘침(L-4)은 같다 | `reread(.opened(e))`로 대신한다: 매 열림 스냅샷, 연결 시점 거부는 스냅샷 누락으로만 안다 (§2-6, §6 Q-C) | done in `377e463` |
+| S-3 | **`subscription.granted`/`revoked` 전달.** 스트림 소유 프레임이다. `data.event`가 설정된 이름이면 그 이름의 원선 청취자에게 `subscription`으로. 보통의 `listen` 청취자에게는 가지 않는다. `unexpectedFrames`로 세지 않는다 | E-23의 갈래 하나 | 서버의 `grant`/`revoke`를 다음 스냅샷까지 모른다. R-1·R-2·R-10이 막힌다 | done in `377e463` |
+| S-4 | **지금 다시** `reconnectNow()`. R → T(1) (타이머 끔, 수 초기화), X → T(1), O·T·S·I → 아무것도 하지 않음, N → 그대로 (네트워크가 없다 — 경로 감시기가 권위다) | 새 입력 하나 | `retry()`가 매니페스트를 안 뒤에는 할 일이 없다. C-13·C-16이 막힌다 | done in `377e463` |
 
 넷 모두 서버를 바꾸지 않는다. 서버는 이미 쿼리를 읽고 (`SubscribeRequest.query`), `connected`에 `deniedEvents`·`initial`을 싣고, 제어 프레임을 보낸다.
 

@@ -313,4 +313,160 @@ final class SPFNEventListenerHubTests: XCTestCase
         XCTAssertEqual(byPayload.all, byName.all)
         tasks.forEach { $0.cancel() }
     }
+    // MARK: - Revision 4: wire listeners (state-client-design §5-1, S-2 and S-3)
+
+    private static let both: Set<String> = ["sessionActivity", "sessionUnread"]
+
+    private static func connected(_ epoch: Int, query: [String: String] = [:]) -> SPFNStreamConnected
+    {
+        SPFNStreamConnected(epoch: epoch, query: query, subscribedEvents: ["sessionActivity"], deniedEvents: ["sessionUnread"], initial: [])
+    }
+
+    private func unread(_ count: Int) -> String
+    {
+        "{\"event\":\"sessionUnread\",\"data\":{\"count\":\(count)}}"
+    }
+
+    private func value(_ sessionID: String, _ wsID: String) -> SPFNCanonicalValue
+    {
+        .object(["sessionId": .string(sessionID), "wsId": .string(wsID)])
+    }
+
+    func test_l19_wireAttachWhileNotOpen_getsAttachedThenOpenedOnOpen() async throws
+    {
+        let fixture = try EventStreamFixture()
+        let first = fixture.streams.enqueue()
+        let isOpen = await fixture.open(first)
+        XCTAssertTrue(isOpen)
+        first.fail()
+        let retrying = await eventually { fixture.events.state == .retrying(attempt: 2, delayMillis: 1_000, reason: .network) }
+        XCTAssertTrue(retrying)
+
+        let log = WireLog()
+        let task = log.consume(fixture.events.listenWire(["sessionActivity"]))
+        let attached = await eventually { log.all.count == 1 }
+        XCTAssertTrue(attached)
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(log.all, [.attached], "no stale opened from the connection that ended")
+
+        let second = fixture.streams.enqueue()
+        fixture.sleeper.fire(1_000)
+        let reconnected = await eventually { fixture.streams.requests.count == 2 }
+        XCTAssertTrue(reconnected)
+        second.send(ServerFrames.connectedDenying)
+        let opened = await eventually { log.all.count == 2 }
+        XCTAssertTrue(opened)
+        XCTAssertEqual(
+            log.all,
+            [.attached, .opened(SPFNStreamConnected(epoch: 2, query: [:], subscribedEvents: ["sessionActivity"], deniedEvents: ["sessionUnread"], initial: ["sessionActivity"]))]
+        )
+        task.cancel()
+    }
+
+    func test_l20_wireAttachWhileOpen_getsAttachedThenCurrentOpened() async throws
+    {
+        let hub = SPFNEventListenerHub(deliveryBuffer: 4)
+        hub.connected(Self.connected(3, query: ["workspaceId": "w-1"]))
+        let listener = hub.attachWire(Self.both)
+        XCTAssertEqual(listener.pending, [.attached, .opened(Self.connected(3, query: ["workspaceId": "w-1"]))])
+
+        hub.disconnected()
+        XCTAssertEqual(hub.attachWire(Self.both).pending, [.attached])
+
+        let fixture = try EventStreamFixture()
+        let connection = fixture.streams.enqueue()
+        let isOpen = await fixture.open(connection)
+        XCTAssertTrue(isOpen)
+        let log = WireLog()
+        let task = log.consume(fixture.events.listenWire(["sessionActivity"]))
+        let both = await eventually { log.all.count == 2 }
+        XCTAssertTrue(both)
+        XCTAssertEqual(
+            log.all,
+            [.attached, .opened(SPFNStreamConnected(epoch: 1, query: [:], subscribedEvents: ["sessionActivity", "sessionUnread"], deniedEvents: [], initial: nil))]
+        )
+        XCTAssertEqual(fixture.tokens.tokenRequests.count, 1, "attaching never reaches the connection")
+        task.cancel()
+    }
+
+    func test_l21_wireListener_severalNamesOneQueueInOrder()
+    {
+        let hub = SPFNEventListenerHub(deliveryBuffer: 8)
+        let listener = hub.attachWire(Self.both)
+        let onlyActivity = hub.attachWire(["sessionActivity"])
+        hub.deliver(name: "sessionActivity", data: envelope("s-1", "w-1"))
+        hub.deliver(name: "sessionUnread", data: unread(2))
+        hub.deliver(name: "sessionActivity", data: envelope("s-2", "w-1"))
+        XCTAssertEqual(listener.pending, [
+            .attached,
+            .frame(name: "sessionActivity", value: value("s-1", "w-1")),
+            .frame(name: "sessionUnread", value: .object(["count": .integer(2)])),
+            .frame(name: "sessionActivity", value: value("s-2", "w-1")),
+        ])
+        XCTAssertEqual(onlyActivity.pending.count, 3)
+    }
+
+    func test_l22_wireUnknownName_isRefused() throws
+    {
+        let configuration = try SPFNEventStreamConfiguration(events: ["sessionActivity", "sessionUnread"])
+        XCTAssertTrue(["sessionActivity", "sessionUnread"].allSatisfy(configuration.contains))
+        XCTAssertFalse(["sessionActivity", "state.billing.changed"].allSatisfy(configuration.contains))
+    }
+
+    func test_l23_wireOverflow_dropsFramesKeepsConnectionSignals()
+    {
+        let hub = SPFNEventListenerHub(deliveryBuffer: 2)
+        let slow = hub.attachWire(["sessionActivity"])
+        hub.connected(Self.connected(1))
+        hub.subscription(name: "sessionActivity", status: .revoked)
+        for index in 0 ..< 3
+        {
+            hub.deliver(name: "sessionActivity", data: envelope("s-\(index)", "w-1"))
+        }
+        XCTAssertEqual(slow.pending, [.attached, .opened(Self.connected(1)), .subscription(name: "sessionActivity", status: .revoked), .overflow])
+        hub.deliver(name: "sessionActivity", data: envelope("s-next", "w-1"))
+        XCTAssertEqual(slow.pending.last, .frame(name: "sessionActivity", value: value("s-next", "w-1")))
+    }
+
+    func test_l24_wireUnavailable_namesItsMissingNamesOnce()
+    {
+        let hub = SPFNEventListenerHub(deliveryBuffer: 4)
+        let listener = hub.attachWire(Self.both)
+        let other = hub.attachWire(["sessionActivity"])
+        hub.markUnavailable(["sessionUnread"])
+        hub.markUnavailable(["sessionUnread"])
+        XCTAssertEqual(listener.pending, [.attached, .unavailable(["sessionUnread"])])
+        XCTAssertEqual(other.pending, [.attached])
+        XCTAssertEqual(hub.attachWire(Self.both).pending, [.attached, .unavailable(["sessionUnread"])])
+    }
+
+    func test_l25_subscription_reachesWireListenersOfThatNameOnly()
+    {
+        let hub = SPFNEventListenerHub(deliveryBuffer: 4)
+        let screen = activity(hub)
+        let wire = hub.attachWire(["sessionActivity"])
+        let unreadWire = hub.attachWire(["sessionUnread"])
+        hub.subscription(name: "sessionActivity", status: .revoked)
+        hub.subscription(name: "sessionActivity", status: .granted)
+        XCTAssertEqual(wire.pending, [
+            .attached,
+            .subscription(name: "sessionActivity", status: .revoked),
+            .subscription(name: "sessionActivity", status: .granted),
+        ])
+        XCTAssertEqual(unreadWire.pending, [.attached])
+        XCTAssertEqual(screen.pending, [attached])
+        XCTAssertEqual(hub.diagnostics, SPFNEventDiagnostics())
+    }
+
+    func test_l26_wireOpened_dropsOldConnectionsSignals()
+    {
+        let hub = SPFNEventListenerHub(deliveryBuffer: 4)
+        let listener = hub.attachWire(Self.both)
+        hub.connected(Self.connected(1))
+        hub.deliver(name: "sessionActivity", data: envelope("s-1", "w-1"))
+        hub.subscription(name: "sessionUnread", status: .granted)
+        hub.markUnavailable(["sessionUnread"])
+        hub.connected(Self.connected(2))
+        XCTAssertEqual(listener.pending, [.attached, .unavailable(["sessionUnread"]), .opened(Self.connected(2))])
+    }
 }

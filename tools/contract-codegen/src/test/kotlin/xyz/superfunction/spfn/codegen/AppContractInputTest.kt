@@ -37,6 +37,44 @@ class AppContractInputTest
         refusedSaying("extensions", AppDocuments.document(AppDocuments.operation()).replace("{\"compat", "{\"extensions\":{},\"compat"));
     }
 
+    /**
+     * spfn writes `events` when the server contracts events (state-client-design §5-2 P-a).
+     * It is accepted and not read — not even checked — until Q-B and spfn #111 settle its use;
+     * the generated output is the output of the same document without it.
+     */
+    @Test
+    fun `an events section is accepted, not read, and opens no other top-level key`()
+    {
+        val plain = AppDocuments.document(AppDocuments.operation());
+        val withEvents = plain.replace("{\"compat", "{\"events\":{\"auth\":\"tokenExchange\",\"items\":[{\"name\":\"state.consent.changed\",\"payload\":{\"type\":\"number\"}}]},\"compat");
+        assertEquals(AppDocuments.swift(plain), AppDocuments.swift(withEvents));
+        assertEquals(AppDocuments.kotlin(plain), AppDocuments.kotlin(withEvents));
+        refusedSaying("key(s) this generator does not read: eventz", plain.replace("{\"compat", "{\"eventz\":{},\"compat"));
+        refusedSaying("key(s) this generator does not read: extensions", withEvents.replace("{\"events", "{\"extensions\":{},\"events"));
+    }
+
+    /**
+     * Superself's own `contracts/current.json` (37 operations, an `events` section, copied
+     * verbatim): the document is read past its `events` section and the state routes
+     * generate. Only those are selected — other operations of the document reach constructs
+     * outside the table (R1 at `deleteHarnessSetting`), which is that app's to change.
+     */
+    @Test
+    fun `the Superself contract document generates its state operations`()
+    {
+        val document = File(fixtureDirectory, "superself-current.json").readText();
+        assertEquals(37, Json.parse(document, allowFractions = true).obj().required("operations").arr().size);
+        val selection = AppDocuments.selection("getStates", "getConsentState", "putConsentState", "getAiAccountsState");
+        val contract = AppDocuments.read(document, selection);
+        assertEquals(listOf("getAiAccountsState", "getConsentState", "getStates", "putConsentState"), contract.operationNames);
+        val swift = AppDocuments.swift(document, selection);
+        val kotlin = AppDocuments.kotlin(document, selection);
+        assertTrue(swift.contains("public static func getAiAccountsState(workspaceId: String) -> SPFNCall<Void, GetAiAccountsStateResponse>"));
+        assertTrue(swift.contains("public static func getStates(workspaceId: String? = nil) -> SPFNCall<Void, GetStatesResponse>"));
+        assertTrue(kotlin.contains("fun putConsentState(): SpfnCall<PutConsentStateBody, PutConsentStateResponse>"));
+        assertTrue(kotlin.contains("fun getConsentState(): SpfnCall<Unit, GetConsentStateResponse>"));
+    }
+
     @Test
     fun `a selected name the document does not declare is refused`()
     {

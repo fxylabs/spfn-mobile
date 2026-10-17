@@ -14,6 +14,8 @@
 
 package xyz.superfunction.spfn.client
 
+import xyz.superfunction.spfn.core.SpfnCanonicalValue
+
 /** A minted one-use token. Never printed: its only reader is the stream request. */
 class SpfnEventStreamToken internal constructor(internal val value: String)
 {
@@ -50,6 +52,7 @@ internal sealed interface SpfnEventPhase
  * @property stable the open connection lasted the stable interval, so a drop starts over at 1.
  * @property requested the names the next stream request asks for: the configured list,
  *   narrowed by a 400 `invalidEvents` until the connection condition drops.
+ * @property query the app's connection query (S-1): sent with every stream request from the next one on.
  */
 internal data class SpfnEventMachineState(
     val phase: SpfnEventPhase,
@@ -62,7 +65,8 @@ internal data class SpfnEventMachineState(
     val clientId: String? = null,
     val networkAvailable: Boolean = true,
     val retriedTokenRejection: Boolean = false,
-    val stable: Boolean = false
+    val stable: Boolean = false,
+    val query: Map<String, String> = emptyMap()
 )
 {
     val publicState: SpfnEventStreamState
@@ -120,6 +124,10 @@ internal sealed interface SpfnEventInput
 
     data class SetNetworkAvailable(val isAvailable: Boolean) : SpfnEventInput
 
+    data class SetQuery(val fields: Map<String, String>) : SpfnEventInput
+
+    data object ReconnectNow : SpfnEventInput
+
     /** An asynchronous result, stamped with the generation its effect was issued under. */
     sealed interface Issued : SpfnEventInput
     {
@@ -153,7 +161,12 @@ internal sealed interface SpfnEventEffect
 
     data object CancelToken : SpfnEventEffect
 
-    data class OpenStream(val generation: Long, val names: List<String>, val token: SpfnEventStreamToken) : SpfnEventEffect
+    data class OpenStream(
+        val generation: Long,
+        val names: List<String>,
+        val token: SpfnEventStreamToken,
+        val query: Map<String, String> = emptyMap()
+    ) : SpfnEventEffect
 
     data object CloseStream : SpfnEventEffect
 
@@ -168,6 +181,10 @@ internal sealed interface SpfnEventEffect
     data class Deliver(val name: String, val data: String) : SpfnEventEffect
 
     data class Reread(val epoch: Int) : SpfnEventEffect
+
+    data class Connected(val connected: SpfnStreamConnected) : SpfnEventEffect
+
+    data class Subscription(val name: String, val status: SpfnSubscriptionStatus) : SpfnEventEffect
 
     data class MarkUnavailable(val names: List<String>) : SpfnEventEffect
 
@@ -198,6 +215,8 @@ internal class SpfnEventStreamMachine(
             is SpfnEventInput.SetForeground -> setForeground(state, input.isForeground)
             is SpfnEventInput.SetSignedIn -> setSignedIn(state, input.clientId)
             is SpfnEventInput.SetNetworkAvailable -> setNetworkAvailable(state, input.isAvailable)
+            is SpfnEventInput.SetQuery -> setQuery(state, input.fields)
+            SpfnEventInput.ReconnectNow -> reconnectNow(state)
             is SpfnEventInput.Issued -> if (input.generation == state.generation) issued(state, input) else SpfnEventStep(state, emptyList())
         };
         return published(state, step);
@@ -245,6 +264,41 @@ internal class SpfnEventStreamMachine(
         };
     }
 
+    // ---- revision 4: the query and "now" -----------------------------------
+
+    /**
+     * S-1 (E-57–E-60): a connection in progress or open is replaced at once — a new token, no
+     * backoff, and the next `connected` is a new epoch. Otherwise the value waits for the next one.
+     */
+    private fun setQuery(state: SpfnEventMachineState, fields: Map<String, String>): SpfnEventStep
+    {
+        if (state.query == fields)
+        {
+            return unchanged(state);
+        }
+        val next = state.copy(query = fields);
+        return when (state.phase)
+        {
+            SpfnEventPhase.Token, is SpfnEventPhase.Stream, SpfnEventPhase.Open -> begin(next, attempt = 1)
+            is SpfnEventPhase.Idle, is SpfnEventPhase.Retrying, SpfnEventPhase.Offline, is SpfnEventPhase.Closed -> unchanged(next)
+        };
+    }
+
+    /**
+     * S-4 (E-65–E-68): the wait is cut short where there is one to cut. Offline stays: the
+     * path monitor, not the app, says when there is a network.
+     */
+    private fun reconnectNow(state: SpfnEventMachineState): SpfnEventStep = when (state.phase)
+    {
+        is SpfnEventPhase.Retrying -> begin(state, attempt = 1)
+        is SpfnEventPhase.Closed ->
+        {
+            val begun = begin(fresh(state), attempt = 1);
+            SpfnEventStep(begun.state, begun.effects + unavailableChange(state, begun.state))
+        }
+        is SpfnEventPhase.Idle, SpfnEventPhase.Token, is SpfnEventPhase.Stream, SpfnEventPhase.Open, SpfnEventPhase.Offline -> unchanged(state)
+    };
+
     /** After F or A changed: idle when W is false, a first attempt when it just became true. */
     private fun reconcile(state: SpfnEventMachineState): SpfnEventStep = when
     {
@@ -288,7 +342,7 @@ internal class SpfnEventStreamMachine(
         }
         return SpfnEventStep(
             state.copy(phase = SpfnEventPhase.Stream(headersReceived = false)),
-            listOf(SpfnEventEffect.OpenStream(state.generation, state.requested, token))
+            listOf(SpfnEventEffect.OpenStream(state.generation, state.requested, token, state.query))
         );
     }
 
@@ -357,19 +411,34 @@ internal class SpfnEventStreamMachine(
         }
         if (state.phase != SpfnEventPhase.Open)
         {
-            return if (event.name == CONNECTED) opened(state) else SpfnEventStep(state, listOf(silenceTimer(state)));
+            return if (event.name == CONNECTED) opened(state, event.data) else SpfnEventStep(state, listOf(silenceTimer(state)));
         }
         val effect = when
         {
             event.name == CONNECTED || event.name == PING -> null
+            event.name in SUBSCRIPTION_FRAMES -> subscription(event.data, SUBSCRIPTION_FRAMES.getValue(event.name))
             configuration.contains(event.name) -> SpfnEventEffect.Deliver(event.name, event.data)
             else -> SpfnEventEffect.CountUnexpected(event.name)
         };
         return SpfnEventStep(state, listOfNotNull(effect, silenceTimer(state)));
     }
 
-    /** E-13: a new epoch, and every attached listener reads again. */
-    private fun opened(state: SpfnEventMachineState): SpfnEventStep
+    /**
+     * E-63, E-64: a stream-owned frame `{"event": name}`. Only a configured name goes on, to
+     * the wire listeners; anything else is dropped, and neither is an unexpected frame.
+     */
+    private fun subscription(data: String, status: SpfnSubscriptionStatus): SpfnEventEffect?
+    {
+        val members = (SpfnEventListenerHub.parse(data.toByteArray(Charsets.UTF_8)) as? SpfnCanonicalValue.Obj)?.members;
+        val name = (members?.get("event") as? SpfnCanonicalValue.Text)?.value;
+        return if (name != null && configuration.contains(name)) SpfnEventEffect.Subscription(name, status) else null;
+    }
+
+    /**
+     * E-13: a new epoch, and every attached listener reads again; wire listeners also get
+     * what the `connected` frame says about this connection (S-2).
+     */
+    private fun opened(state: SpfnEventMachineState, data: String): SpfnEventStep
     {
         val next = state.copy(phase = SpfnEventPhase.Open, epoch = state.epoch + 1, retriedTokenRejection = false, stable = false);
         return SpfnEventStep(
@@ -377,10 +446,30 @@ internal class SpfnEventStreamMachine(
             listOf(
                 silenceTimer(next),
                 SpfnEventEffect.StartStableTimer(next.generation, STABLE_MILLIS),
-                SpfnEventEffect.Reread(next.epoch)
+                SpfnEventEffect.Reread(next.epoch),
+                SpfnEventEffect.Connected(connection(next, data))
             )
         );
     }
+
+    /**
+     * The `connected` frame read. A member it lacks reads as what the request implied:
+     * everything requested subscribed, nothing denied, no initial frames named.
+     */
+    private fun connection(state: SpfnEventMachineState, data: String): SpfnStreamConnected
+    {
+        val members = (SpfnEventListenerHub.parse(data.toByteArray(Charsets.UTF_8)) as? SpfnCanonicalValue.Obj)?.members.orEmpty();
+        return SpfnStreamConnected(
+            epoch = state.epoch,
+            query = state.query,
+            subscribedEvents = texts(members["subscribedEvents"]) ?: state.requested,
+            deniedEvents = texts(members["deniedEvents"]) ?: emptyList(),
+            initial = texts(members["initial"])
+        );
+    }
+
+    private fun texts(value: SpfnCanonicalValue?): List<String>? =
+        (value as? SpfnCanonicalValue.Arr)?.elements?.mapNotNull { (it as? SpfnCanonicalValue.Text)?.value };
 
     /** A stream that stopped: from the attempt it was on, or from 1 after a stable open. */
     private fun dropped(state: SpfnEventMachineState, reason: SpfnRetryReason): SpfnEventStep = when
@@ -457,6 +546,9 @@ internal class SpfnEventStreamMachine(
     {
         const val CONNECTED = "connected";
         const val PING = "ping";
+
+        val SUBSCRIPTION_FRAMES: Map<String, SpfnSubscriptionStatus> =
+            mapOf("subscription.granted" to SpfnSubscriptionStatus.GRANTED, "subscription.revoked" to SpfnSubscriptionStatus.REVOKED);
 
         /** An open this long resets `attempt` to 1 (E-47). */
         const val STABLE_MILLIS: Long = 30_000;

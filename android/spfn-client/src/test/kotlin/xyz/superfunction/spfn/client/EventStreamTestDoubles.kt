@@ -146,6 +146,12 @@ object ServerFrames
 
     const val PING = "event: ping\ndata: {\"timestamp\":1750000010000}\n\n";
 
+    /** `connected` as `@spfn/core` 0.3.0-beta.28 writes it: denials and initial frames named. */
+    const val CONNECTED_DENYING = "event: connected\ndata: {\"subscribedEvents\":[\"sessionActivity\"],\"deniedEvents\":[\"sessionUnread\"],\"initial\":[\"sessionActivity\"],\"timestamp\":1750000000000}\n\n";
+
+    fun subscription(status: String, name: String): String =
+        "event: subscription.$status\ndata: {\"event\":\"$name\"}\n\n";
+
     fun activity(id: Int, sessionId: String, wsId: String): String =
         "id: $id\nevent: sessionActivity\ndata: {\"event\":\"sessionActivity\",\"data\":{\"sessionId\":\"$sessionId\",\"wsId\":\"$wsId\"}}\n\n";
 }

@@ -418,6 +418,29 @@ class AppContractTableTest
         refusedSaying(AppDocuments.document(AppDocuments.operation(path = "/v1//x")), "has path '/v1//x'");
         refusedSaying(AppDocuments.document(AppDocuments.operation(path = "/v1/x/")), "has path '/v1/x/'");
         refusedSaying(AppDocuments.document(AppDocuments.operation(request = """{"headers":{}}""")), "headers");
-        refusedSaying(AppDocuments.document(AppDocuments.operation().replace("\"since\"", "\"deprecatedIn\":\"2.0.0\",\"since\"")), "deprecatedIn");
+        refusedSaying(AppDocuments.document(AppDocuments.operation().replace("\"since\"", "\"sunsetIn\":\"2.0.0\",\"since\"")), "does not read: sunsetIn");
+        refusedSaying(AppDocuments.document(AppDocuments.operation().replace("\"since\"", "\"deprecatedIn\":\"2.0\\\"x\",\"since\"")), "is not a version spelling");
+    }
+
+    /**
+     * R10 widened to two keys (state-client-design §5-2 P-a): `deprecatedIn` marks the call
+     * deprecated on both platforms; `removedIn` is accepted and emits nothing — a generated
+     * call is marked, never removed. The bundle section reads both past (BundleSectionTest).
+     */
+    @Test
+    fun `R10 deprecatedIn marks the call deprecated and removedIn emits nothing`()
+    {
+        fun withKeys(keys: String) = AppDocuments.document(AppDocuments.operation().replace("\"since\"", "$keys,\"since\""));
+        val plain = AppDocuments.document(AppDocuments.operation());
+        assertBoth(
+            withKeys("\"deprecatedIn\":\"2.0.0\""),
+            listOf("    @available(*, deprecated, message: \"deprecated in 2.0.0\")\n    public static func getThing() -> SPFNCall<Void, GetThingResponse>"),
+            listOf("    @Deprecated(\"deprecated in 2.0.0\")\n    fun getThing(): SpfnCall<Unit, GetThingResponse>")
+        );
+        assertBoth(withKeys("\"deprecatedIn\":\"2.0.0\",\"removedIn\":\"3.0.0\""), listOf("@available(*, deprecated"), listOf("@Deprecated("));
+        val removedOnly = withKeys("\"removedIn\":\"3.0.0\"");
+        assertEquals(AppDocuments.swift(plain), AppDocuments.swift(removedOnly));
+        assertEquals(AppDocuments.kotlin(plain), AppDocuments.kotlin(removedOnly));
+        assertFalse(AppDocuments.swift(plain).contains("deprecated"));
     }
 }

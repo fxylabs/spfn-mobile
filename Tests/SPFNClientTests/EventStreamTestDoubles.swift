@@ -273,6 +273,30 @@ final class SignalLog<Event: Sendable>: @unchecked Sendable
     }
 }
 
+/// Everything one wire listener received, readable while its task is still consuming.
+final class WireLog: @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var signals: [SPFNWireSignal] = []
+
+    var all: [SPFNWireSignal]
+    {
+        lock.withLock { signals }
+    }
+
+    /// Consumes `stream` into this log until the task is cancelled.
+    func consume(_ stream: AsyncStream<SPFNWireSignal>) -> Task<Void, Never>
+    {
+        Task
+        {
+            for await signal in stream
+            {
+                lock.withLock { signals.append(signal) }
+            }
+        }
+    }
+}
+
 /// A weak reference a `@Sendable` closure may read: whether an object was released.
 final class WeakReference<Object: AnyObject>: @unchecked Sendable
 {
@@ -305,6 +329,14 @@ enum ServerFrames
     static let connected = "event: connected\ndata: {\"subscribedEvents\":[\"sessionActivity\",\"sessionUnread\"],\"timestamp\":1750000000000}\n\n"
 
     static let ping = "event: ping\ndata: {\"timestamp\":1750000010000}\n\n"
+
+    /// `connected` as `@spfn/core` 0.3.0-beta.28 writes it: denials and initial frames named.
+    static let connectedDenying = "event: connected\ndata: {\"subscribedEvents\":[\"sessionActivity\"],\"deniedEvents\":[\"sessionUnread\"],\"initial\":[\"sessionActivity\"],\"timestamp\":1750000000000}\n\n"
+
+    static func subscription(_ status: String, _ name: String) -> String
+    {
+        "event: subscription.\(status)\ndata: {\"event\":\"\(name)\"}\n\n"
+    }
 
     static func activity(_ id: Int, sessionID: String, wsID: String) -> String
     {
