@@ -107,6 +107,26 @@ public final class SPFNEventStream: Sendable
         inbox.yield(.setNetworkAvailable(isAvailable))
     }
 
+    // MARK: - Revision 4: the connection query and "now"
+
+    /// Query fields the stream request carries beside `token` and `events` (S-1). A changed
+    /// value replaces a connection in progress or open at once — new token, no backoff, a new
+    /// epoch; otherwise it waits for the next connection. The same value does nothing.
+    ///
+    /// - Throws: `SPFNEventStreamError.reservedQueryField` for `events` or `token`.
+    public func setQuery(_ fields: [String: String]) throws
+    {
+        try SPFNEventStreamConfiguration.requireQuery(fields)
+        inbox.yield(.setQuery(fields))
+    }
+
+    /// Cuts a retry wait short, or tries a refused stream again (S-4). Offline it does
+    /// nothing: the path monitor says when there is a network. Open or connecting, nothing.
+    public func reconnectNow()
+    {
+        inbox.yield(.reconnectNow)
+    }
+
     // MARK: - Diagnostics
 
     /// For diagnostics and decoration. A screen reads again on a reread signal, not on this.
@@ -159,6 +179,24 @@ public final class SPFNEventStream: Sendable
             preconditionFailure("'\(name)' is not in the configured events")
         }
         let listener = hub.attach(name, decode: decode, condition: condition)
+        return AsyncStream(unfolding: { await listener.next() }, onCancel: { [hub] in hub.detach(listener) })
+    }
+
+    /// Several configured names in ONE queue, undecoded, with the connection's own signals in
+    /// order among the frames (S-2): `attached` first, `opened` for every connection — and
+    /// once more right after `attached` when one is already open — `subscription` grants and
+    /// revokes (S-3), `overflow`, `unavailable`. The state client's way in; a screen uses `listen`.
+    ///
+    /// Attaches when CALLED, like `listen`. A name outside the configured events, or no name,
+    /// stops the process (L-22).
+    public func listenWire(_ names: [String]) -> AsyncStream<SPFNWireSignal>
+    {
+        guard !names.isEmpty, names.allSatisfy(configuration.contains)
+        else
+        {
+            preconditionFailure("listenWire needs configured event names; got \(names)")
+        }
+        let listener = hub.attachWire(Set(names))
         return AsyncStream(unfolding: { await listener.next() }, onCancel: { [hub] in hub.detach(listener) })
     }
 }
@@ -221,10 +259,11 @@ struct SPFNEventStreamServices: Sendable
         generation: Int64,
         names: [String],
         token: SPFNEventStreamToken,
+        query: [String: String],
         into inbox: AsyncStream<SPFNEventInput>.Continuation
     ) async
     {
-        guard let response = try? await transport.open(streamRequest(names: names, token: token))
+        guard let response = try? await transport.open(streamRequest(names: names, token: token, query: query))
         else
         {
             inbox.yield(.streamFailed(generation: generation))
@@ -295,12 +334,16 @@ struct SPFNEventStreamServices: Sendable
         return body
     }
 
-    private func streamRequest(names: [String], token: SPFNEventStreamToken) -> SPFNTransportRequest
+    /// `?token=…&events=a,b`, then the app's query fields in name order (S-1).
+    private func streamRequest(names: [String], token: SPFNEventStreamToken, query: [String: String]) -> SPFNTransportRequest
     {
-        let query = "?token=" + Self.encode(token.value) + "&events=" + names.map(Self.encode).joined(separator: ",")
+        let fields = query.keys
+            .sorted { Array($0.utf8).lexicographicallyPrecedes(Array($1.utf8)) }
+            .map { "&" + Self.encode($0) + "=" + Self.encode(query[$0] ?? "") }
+        let queryString = "?token=" + Self.encode(token.value) + "&events=" + names.map(Self.encode).joined(separator: ",") + fields.joined()
         return SPFNTransportRequest(
             method: "GET",
-            url: baseURL + configuration.streamPath + query,
+            url: baseURL + configuration.streamPath + queryString,
             // Not signed: the server reads only the token on this path, and a proof here
             // would be spent for nothing (§2-2). The identity headers ride as on every request.
             headers: SPFNClientIdentity.headers + [("accept", "text/event-stream"), ("cache-control", "no-cache")],
@@ -464,14 +507,15 @@ actor SPFNEventStreamEngine
             tokenTask = Task { [services, inbox] in inbox.yield(await services.mint(generation: generation)) }
         case .cancelToken:
             tokenTask?.cancel()
-        case .openStream(let generation, let names, let token):
+        case .openStream(let generation, let names, let token, let query):
             streamTask = Task
             {
                 [services, inbox] in
-                await services.stream(generation: generation, names: names, token: token, into: inbox)
+                await services.stream(generation: generation, names: names, token: token, query: query, into: inbox)
             }
         case .closeStream:
             streamTask?.cancel()
+            hub.disconnected()
         case .startSilenceTimer(let generation, let millis):
             silenceTask = restart(silenceTask, millis: millis, expiry: .silenceElapsed(generation: generation))
         case .startRetryTimer(let generation, let millis):
@@ -487,6 +531,10 @@ actor SPFNEventStreamEngine
             hub.deliver(name: name, data: data)
         case .reread(let epoch):
             hub.reread(epoch: epoch)
+        case .connected(let connected):
+            hub.connected(connected)
+        case .subscription(let name, let status):
+            hub.subscription(name: name, status: status)
         case .markUnavailable(let names):
             hub.markUnavailable(names)
         case .countUnexpected:

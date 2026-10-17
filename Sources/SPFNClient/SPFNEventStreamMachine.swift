@@ -12,6 +12,8 @@
 //
 // android/spfn-client/.../SpfnEventStreamMachine.kt is the same table in Kotlin.
 
+import SPFNCore
+
 /// A minted one-use token. Never printed: its only reader is the stream request.
 public struct SPFNEventStreamToken: Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible
 {
@@ -59,6 +61,8 @@ struct SPFNEventMachineState: Equatable, Sendable
     var networkAvailable = true
     var retriedTokenRejection = false
     var stable = false
+    /// The app's connection query (S-1): sent with every stream request from the next one on.
+    var query: [String: String] = [:]
 
     var publicState: SPFNEventStreamState
     {
@@ -119,6 +123,8 @@ enum SPFNEventInput: Equatable, Sendable
     case setForeground(Bool)
     case setSignedIn(String?)
     case setNetworkAvailable(Bool)
+    case setQuery([String: String])
+    case reconnectNow
     case tokenMinted(generation: Int64, token: SPFNEventStreamToken)
     case tokenFailed(generation: Int64, failure: SPFNTokenFailure)
     case streamAnswered(generation: Int64, answer: SPFNStreamAnswer)
@@ -135,7 +141,7 @@ enum SPFNEventInput: Equatable, Sendable
     {
         switch self
         {
-        case .setForeground, .setSignedIn, .setNetworkAvailable:
+        case .setForeground, .setSignedIn, .setNetworkAvailable, .setQuery, .reconnectNow:
             return nil
         case .tokenMinted(let generation, _), .tokenFailed(let generation, _), .streamAnswered(let generation, _),
              .frameReceived(let generation, _):
@@ -151,7 +157,7 @@ enum SPFNEventEffect: Equatable, Sendable
 {
     case mintToken(generation: Int64)
     case cancelToken
-    case openStream(generation: Int64, names: [String], token: SPFNEventStreamToken)
+    case openStream(generation: Int64, names: [String], token: SPFNEventStreamToken, query: [String: String] = [:])
     case closeStream
     case startSilenceTimer(generation: Int64, millis: Int64)
     case startRetryTimer(generation: Int64, millis: Int64)
@@ -159,6 +165,8 @@ enum SPFNEventEffect: Equatable, Sendable
     case cancelTimers
     case deliver(name: String, data: String)
     case reread(epoch: Int)
+    case connected(SPFNStreamConnected)
+    case subscription(name: String, status: SPFNSubscriptionStatus)
     case markUnavailable([String])
     case countUnexpected(name: String)
     case publish(SPFNEventStreamState)
@@ -179,6 +187,7 @@ struct SPFNEventStreamMachine: Sendable
 {
     static let connected = "connected"
     static let ping = "ping"
+    static let subscriptionFrames: [String: SPFNSubscriptionStatus] = ["subscription.granted": .granted, "subscription.revoked": .revoked]
 
     /// An open this long resets `attempt` to 1 (E-47).
     static let stableMillis: Int64 = 30_000
@@ -203,6 +212,10 @@ struct SPFNEventStreamMachine: Sendable
             step = setSignedIn(state, clientID)
         case .setNetworkAvailable(let isAvailable):
             step = setNetworkAvailable(state, isAvailable)
+        case .setQuery(let fields):
+            step = setQuery(state, fields)
+        case .reconnectNow:
+            step = reconnectNow(state)
         default:
             step = input.generation == state.generation ? issued(state, input) : unchanged(state)
         }
@@ -270,6 +283,45 @@ struct SPFNEventStreamMachine: Sendable
         }
     }
 
+    // MARK: - Revision 4: the query and "now"
+
+    /// S-1 (E-57–E-60): a connection in progress or open is replaced at once — a new token, no
+    /// backoff, and the next `connected` is a new epoch. Otherwise the value waits for the next one.
+    private func setQuery(_ state: SPFNEventMachineState, _ fields: [String: String]) -> SPFNEventStep
+    {
+        guard state.query != fields
+        else
+        {
+            return unchanged(state)
+        }
+        var next = state
+        next.query = fields
+        switch state.phase
+        {
+        case .token, .stream, .open:
+            return begin(next, attempt: 1)
+        case .idle, .retrying, .offline, .closed:
+            return unchanged(next)
+        }
+    }
+
+    /// S-4 (E-65–E-68): the wait is cut short where there is one to cut. Offline stays: the
+    /// path monitor, not the app, says when there is a network.
+    private func reconnectNow(_ state: SPFNEventMachineState) -> SPFNEventStep
+    {
+        switch state.phase
+        {
+        case .retrying:
+            return begin(state, attempt: 1)
+        case .closed:
+            var begun = begin(fresh(state), attempt: 1)
+            begun.effects += unavailableChange(state, begun.state)
+            return begun
+        case .idle, .token, .stream, .open, .offline:
+            return unchanged(state)
+        }
+    }
+
     /// After F or A changed: idle when W is false, a first attempt when it just became true.
     private func reconcile(_ state: SPFNEventMachineState) -> SPFNEventStep
     {
@@ -325,7 +377,7 @@ struct SPFNEventStreamMachine: Sendable
             return retryElapsed(state)
         case .stableElapsed:
             return stableElapsed(state)
-        case .setForeground, .setSignedIn, .setNetworkAvailable:
+        case .setForeground, .setSignedIn, .setNetworkAvailable, .setQuery, .reconnectNow:
             return unchanged(state)
         }
     }
@@ -364,7 +416,10 @@ struct SPFNEventStreamMachine: Sendable
         }
         var next = state
         next.phase = .stream(headersReceived: false)
-        return SPFNEventStep(state: next, effects: [.openStream(generation: state.generation, names: state.requested, token: token)])
+        return SPFNEventStep(
+            state: next,
+            effects: [.openStream(generation: state.generation, names: state.requested, token: token, query: state.query)]
+        )
     }
 
     private func tokenFailed(_ state: SPFNEventMachineState, _ failure: SPFNTokenFailure) -> SPFNEventStep
@@ -449,12 +504,16 @@ struct SPFNEventStreamMachine: Sendable
         guard state.phase == .open
         else
         {
-            return event.name == Self.connected ? opened(state) : SPFNEventStep(state: state, effects: [silenceTimer(state)])
+            return event.name == Self.connected ? opened(state, event.data) : SPFNEventStep(state: state, effects: [silenceTimer(state)])
         }
         let effects: [SPFNEventEffect]
         if event.name == Self.connected || event.name == Self.ping
         {
             effects = []
+        }
+        else if let status = Self.subscriptionFrames[event.name]
+        {
+            effects = subscription(event.data, status)
         }
         else if configuration.contains(event.name)
         {
@@ -467,8 +526,23 @@ struct SPFNEventStreamMachine: Sendable
         return SPFNEventStep(state: state, effects: effects + [silenceTimer(state)])
     }
 
-    /// E-13: a new epoch, and every attached listener reads again.
-    private func opened(_ state: SPFNEventMachineState) -> SPFNEventStep
+    /// E-63, E-64: a stream-owned frame `{"event": name}`. Only a configured name goes on, to
+    /// the wire listeners; anything else is dropped, and neither is an unexpected frame.
+    private func subscription(_ data: String, _ status: SPFNSubscriptionStatus) -> [SPFNEventEffect]
+    {
+        guard case .object(let members)? = try? SPFNCanonicalJSON.parse(data),
+              case .string(let name)? = members["event"],
+              configuration.contains(name)
+        else
+        {
+            return []
+        }
+        return [.subscription(name: name, status: status)]
+    }
+
+    /// E-13: a new epoch, and every attached listener reads again; wire listeners also get
+    /// what the `connected` frame says about this connection (S-2).
+    private func opened(_ state: SPFNEventMachineState, _ data: String) -> SPFNEventStep
     {
         var next = state
         next.phase = .open
@@ -481,8 +555,49 @@ struct SPFNEventStreamMachine: Sendable
                 silenceTimer(next),
                 .startStableTimer(generation: next.generation, millis: Self.stableMillis),
                 .reread(epoch: next.epoch),
+                .connected(connection(next, data)),
             ]
         )
+    }
+
+    /// The `connected` frame read. A member it lacks reads as what the request implied:
+    /// everything requested subscribed, nothing denied, no initial frames named.
+    private func connection(_ state: SPFNEventMachineState, _ data: String) -> SPFNStreamConnected
+    {
+        let members: [String: SPFNCanonicalValue]
+        if case .object(let parsed)? = try? SPFNCanonicalJSON.parse(data)
+        {
+            members = parsed
+        }
+        else
+        {
+            members = [:]
+        }
+        return SPFNStreamConnected(
+            epoch: state.epoch,
+            query: state.query,
+            subscribedEvents: Self.texts(members["subscribedEvents"]) ?? state.requested,
+            deniedEvents: Self.texts(members["deniedEvents"]) ?? [],
+            initial: Self.texts(members["initial"])
+        )
+    }
+
+    private static func texts(_ value: SPFNCanonicalValue?) -> [String]?
+    {
+        guard case .array(let elements)? = value
+        else
+        {
+            return nil
+        }
+        return elements.compactMap
+        {
+            guard case .string(let text) = $0
+            else
+            {
+                return nil
+            }
+            return text
+        }
     }
 
     /// A stream that stopped: from the attempt it was on, or from 1 after a stable open.

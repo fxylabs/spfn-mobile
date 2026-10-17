@@ -57,3 +57,56 @@ public struct SPFNEventDiagnostics: Equatable, Sendable
         self.unexpectedFrames = unexpectedFrames
     }
 }
+
+/// What a wire listener receives (`listenWire`, revision 4, S-2): several names in ONE
+/// queue, values left as the server sent them, and the connection's own facts beside them.
+/// One queue is the point: a frame of connection e is never handled before `opened` of e.
+public enum SPFNWireSignal: Equatable, Sendable
+{
+    /// The first signal, whatever the connection is doing.
+    case attached
+
+    /// A connection opened — or, for a listener attached while one is open, that connection
+    /// once more right after `attached`. Queued frames of older connections are dropped.
+    case opened(SPFNStreamConnected)
+
+    /// One frame of one of the listener's names: the envelope's `data`, undecoded.
+    case frame(name: String, value: SPFNCanonicalValue)
+
+    /// The server granted or revoked one of the listener's names on the open connection (S-3).
+    case subscription(name: String, status: SPFNSubscriptionStatus)
+
+    /// This listener's queue filled; its queued frames were dropped. Connection signals stay.
+    case overflow
+
+    /// Names of this listener the server does not serve; each name is reported once.
+    case unavailable([String])
+}
+
+/// The server's `connected` frame, with what the client knows about the connection it opened.
+public struct SPFNStreamConnected: Equatable, Sendable
+{
+    /// The stream's open count, the `epoch` of `open(epoch:)`.
+    public let epoch: Int
+    /// The query fields this connection was opened with (`setQuery`).
+    public let query: [String: String]
+    public let subscribedEvents: [String]
+    public let deniedEvents: [String]
+    /// The events whose initial frames follow; nil from a server that predates them.
+    public let initial: [String]?
+
+    public init(epoch: Int, query: [String: String], subscribedEvents: [String], deniedEvents: [String], initial: [String]?)
+    {
+        self.epoch = epoch
+        self.query = query
+        self.subscribedEvents = subscribedEvents
+        self.deniedEvents = deniedEvents
+        self.initial = initial
+    }
+}
+
+public enum SPFNSubscriptionStatus: Equatable, Sendable
+{
+    case granted
+    case revoked
+}

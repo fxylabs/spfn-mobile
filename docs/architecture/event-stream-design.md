@@ -1,6 +1,6 @@
 # 설계 — 서버 이벤트 스트림 `EventStream`
 
-- 상태: 받아들여짐, 개정 3 (2026-09-27). 개정 2까지의 경과: 검토자가 §0–§3을 읽고 SSE(§2-1)와 설정된 경로로 만드는 토큰 호출(§2-2)을 받아들였다. 수명 분담(앱이 `start`/`suspend`/`resume`을 부르고 화면의 `subscribe`가 서버 쪽 이벤트 집합을 바꾸던 옛 §3-4·§3-5)은 거절되었고, 개정 1이 그 자리를 **SDK가 연결을 소유한다**로 바꾸었다. 개정 2는 개정 1의 답 셋을 적용한다: 수명 배선은 **새 작은 모듈** `SPFNEvents`/`spfn-events`가 갖고 `ui` 모듈은 코어에만 의존하는 채로 남는다 (Q-H), 거절로 닫힌 스트림은 앞쪽 복귀 때 다시 시도한다 (Q-I), 로그인 값은 `SPFNKeyLifecycle`의 읽기 전용 값이다 (Q-J). 그리고 요구 하나를 더한다: **청취자마다 데이터 조건**을 달고, SDK가 하나의 연결 위에서 청취자마다 거른다 (§2-5, §3-4, L-9–L-15). 개정 3 (2026-09-27, 구현과 함께): 검토자가 §10의 남은 질문을 모두 정했다. 표에 닿은 것은 셋이다 — 429의 `Retry-After`를 따른다 (Q-D, E-6·E-19, 새 셀 E-53–E-56), 서버가 모르는 이름이 있으면 닫지 않고 서버가 아는 이름만으로 다시 연결한다 (Q-F, E-16을 바꾸고 E-52·L-16–L-18을 더함), 이벤트 모듈은 `ui` 타입을 쓰지 않으므로 `ui` 간선을 뺀다 (Q-K, §3-7). 나머지(Q-C·Q-G·Q-L·Q-M)는 제안대로이고, Q-B는 닫혀 질문에서 뺐다 (§2-2: CSRF는 웹 프록시를 지나는 쿠키 요청만 지킨다). 구현은 `client/event-stream` 브랜치에 있다.
+- 상태: 받아들여짐, 개정 3 (2026-09-27). 개정 2까지의 경과: 검토자가 §0–§3을 읽고 SSE(§2-1)와 설정된 경로로 만드는 토큰 호출(§2-2)을 받아들였다. 수명 분담(앱이 `start`/`suspend`/`resume`을 부르고 화면의 `subscribe`가 서버 쪽 이벤트 집합을 바꾸던 옛 §3-4·§3-5)은 거절되었고, 개정 1이 그 자리를 **SDK가 연결을 소유한다**로 바꾸었다. 개정 2는 개정 1의 답 셋을 적용한다: 수명 배선은 **새 작은 모듈** `SPFNEvents`/`spfn-events`가 갖고 `ui` 모듈은 코어에만 의존하는 채로 남는다 (Q-H), 거절로 닫힌 스트림은 앞쪽 복귀 때 다시 시도한다 (Q-I), 로그인 값은 `SPFNKeyLifecycle`의 읽기 전용 값이다 (Q-J). 그리고 요구 하나를 더한다: **청취자마다 데이터 조건**을 달고, SDK가 하나의 연결 위에서 청취자마다 거른다 (§2-5, §3-4, L-9–L-15). 개정 3 (2026-09-27, 구현과 함께): 검토자가 §10의 남은 질문을 모두 정했다. 표에 닿은 것은 셋이다 — 429의 `Retry-After`를 따른다 (Q-D, E-6·E-19, 새 셀 E-53–E-56), 서버가 모르는 이름이 있으면 닫지 않고 서버가 아는 이름만으로 다시 연결한다 (Q-F, E-16을 바꾸고 E-52·L-16–L-18을 더함), 이벤트 모듈은 `ui` 타입을 쓰지 않으므로 `ui` 간선을 뺀다 (Q-K, §3-7). 나머지(Q-C·Q-G·Q-L·Q-M)는 제안대로이고, Q-B는 닫혀 질문에서 뺐다 (§2-2: CSRF는 웹 프록시를 지나는 쿠키 요청만 지킨다). 구현은 `client/event-stream` 브랜치에 있다. 개정 4 (2026-10-17, 구현과 함께, w-x7b1b): 상태 클라이언트의 전제 넷 — 연결 쿼리 `setQuery` (S-1), 원선 청취 `listenWire` (S-2), `subscription.granted`/`revoked` 전달 (S-3), `reconnectNow()` (S-4) — 을 더한다. 출처는 [state-client-design §5-1](state-client-design.md#5-1-스트림-확장-이-저장소-event-stream-design-개정-4)이고, 셀은 §4-3 (E-57–E-68, L-19–L-26).
 - 대상: 클라이언트 모듈(`SPFNClient`, `spfn-client`)에 새로 들어갈 `SPFNEventStream`/`SpfnEventStream`, 그 상태 기계, 청취자 허브(조건 포함), SSE 줄 해석기, 스트림 전송 어댑터, 페이로드 서술 `SPFNEventPayload`/`SpfnEventPayload`. **새 모듈 `SPFNEvents`/`spfn-events`** (클라이언트 모듈에 의존. `ui` 간선은 Q-K로 뺐다)에 루트 부착, 세 관찰자, 화면 청취 API. `SPFNKeyLifecycle`/`SpfnKeyLifecycle`에 로그인 값을 내보내는 읽기 전용 멤버 하나, 토큰 호출이 서명할 클라이언트를 주는 `signedInClient()`, 공개된 `baseURL`/`baseUrl` (§3-1). `SPFNSession`, 전송 계층, `ui` 모듈과 그 의존은 바뀌지 않는다. `SPFNClient.execute`는 한 곳만 바뀐다: 서버 거절 `SPFNServerFailure`/`SpfnServerFailure`가 응답의 `Retry-After` 헤더를 그대로 싣는다 (`retryAfter`, 기본 `nil`). `execute`는 그 값을 읽지 않는다 — 인증 거절 말고는 재시도하지 않는다는 규칙이 그대로다 (Q-D)
 - 관련: [architecture README](README.md) "Three layers in the client module"·"The `ui` module"·"Three ways in", [custom-route-contract-design.md](custom-route-contract-design.md) §9 ("실시간은 계약이 담지 않는다"), [app-contract-codegen.md](app-contract-codegen.md), [tab-host-design.md](tab-host-design.md) (설계 문서의 모양), [IMPLEMENTATION-PITFALLS.md](../IMPLEMENTATION-PITFALLS.md) P40·P42, `tools/module-graph.json` (새 모듈의 줄, §3-7), SPFN 코어 이슈 fxylabs/spfn#111 ("describe the SSE event router in contracts/current.json", §7·§10), 서버 쪽 정본은 `@spfn/core` 패키지의 `src/event/README.md` ("SSE authentication (Token Exchange)", "Multi-instance broadcast", "Pitfalls & anti-patterns")
 
@@ -631,6 +631,55 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 셀 수: 제안 0은 47 (E-1–E-47). 개정 1은 **E 47개** (옛 43 유지·수정 + 새 4, 없앤 4) + **L 8개** = **55**. 개정 2는 E 47개 (E-22·E-24·E-44의 비고만 바뀜) + **L 15개** (L-1·L-4·L-7 수정, L-9–L-15 새로) = **62**. 개정 3은 **E 52개** (E-6·E-16·E-19 수정, E-52–E-56 새로) + **L 18개** (L-16–L-18 새로) = **70**. 모두 순수 단위 테스트다 (§9-1). 실제 네트워크와 기기 수명이 필요한 것은 §5의 U-셀이다.
 
 **다시 읽기 규칙이 있는 자리.** L-1·L-5·L-15의 `attached`, E-13의 `opened(e)`, L-4의 `overflow`. 셋 모두 조건과 무관하다 (L-13). 화면 모델은 어느 것이든 받으면 한 번 읽는다. 첫 열림(epoch 1)도 포함한다: 화면의 첫 읽기와 스트림의 열림 사이에 커밋된 변화는 어느 쪽에서도 오지 않기 때문이다. 대가는 붙자마자 열리는 경우 읽기가 한 번 더 는 것이고, 모으기(§3-4)가 둘을 겹치면 하나로 줄인다.
+
+### 4-3. 개정 4 — 상태 클라이언트의 전제 (state-client-design §5-1)
+
+[state-client-design.md §5-1](state-client-design.md#5-1-스트림-확장-이-저장소-event-stream-design-개정-4)의 넷 S-1–S-4다. 서버는 바뀌지 않는다: 쿼리는 서버가 이미 읽고 (`SubscribeRequest.query`), `connected`는 이미 `subscribedEvents`·`deniedEvents`·`initial`을 싣고, `subscription.granted`/`revoked`(`data` = `{"event": 이름}`, 봉투가 아니다)는 이미 보낸다. 조건 W와 R/N 규칙은 그대로다. 새 입력은 둘(`setQuery`, `reconnectNow`), 새 효과는 셋(`openStream`의 `query`, `connected(SPFNStreamConnected)`, `subscription(name, status)`), 허브에 새 청취자 종류 하나(원선 청취자)와 현재 연결의 기억 하나 — `connected`가 적고 `closeStream`이 지운다.
+
+| API | Swift | Kotlin |
+|---|---|---|
+| S-1 | `setQuery(_ fields: [String: String]) throws` — `events`·`token`은 `SPFNEventStreamError.reservedQueryField(name)` | `setQuery(fields: Map<String, String>)` — `events`·`token`은 `IllegalArgumentException` |
+| S-2 | `listenWire(_ names: [String]) -> AsyncStream<SPFNWireSignal>` | `listenWire(names: List<String>): Flow<SpfnWireSignal>` |
+| S-2 신호 | `attached`, `opened(SPFNStreamConnected)`, `frame(name:value:)`, `subscription(name:status:)`, `overflow`, `unavailable([String])` | `Attached`, `Opened(SpfnStreamConnected)`, `Frame(name, value)`, `Subscription(name, status)`, `Overflow`, `Unavailable(names)` |
+| S-2 연결 | `SPFNStreamConnected(epoch, query, subscribedEvents, deniedEvents, initial?)` — `connected` 프레임에 없는 칸은 요청한 대로 읽는다 (요청 이름 전부 구독, 거부 없음, `initial` 없음) | `SpfnStreamConnected` 같은 칸 |
+| S-3 | `SPFNSubscriptionStatus.granted`/`.revoked` | `SpfnSubscriptionStatus.GRANTED`/`REVOKED` |
+| S-4 | `reconnectNow()` | `reconnectNow()` |
+
+스트림 GET은 `?token=…&events=a,b` 뒤에 쿼리 필드를 이름 순서(UTF-8 바이트)로 `&이름=값`으로 잇는다. 이름과 값은 `events`의 이름과 같은 규칙으로 퍼센트 인코딩한다.
+
+**E-표, 개정 4:**
+
+| id | 상태 | 입력 | 다음 상태 | 효과와 비고 | 바뀜 |
+|---|---|---|---|---|---|
+| E-57 | O | `setQuery(다른 값)` | T(1) | 스트림 닫음, 타이머 끔, 곧바로 토큰 호출. **재시도 타이머가 없다** (백오프 없음). 다음 `connected`에서 새 epoch, 스트림 GET이 새 쿼리를 싣는다. 열린 연결에서 `connecting`으로 바로 가는 둘째 길이다 (첫째는 E-43) | 개정 4 (S-1) |
+| E-58 | T, S | `setQuery(다른 값)` | T(1) | 진행 중인 토큰 호출이나 스트림 열기를 버리고 새 토큰으로. 옛 결과는 발급 번호로 버려진다 (E-39) | 개정 4 (S-1) |
+| E-59 | R, N, I, X | `setQuery(다른 값)` | 그대로 | 기억만 한다. 다음 연결의 스트림 GET이 싣는다 (R은 타이머 만료 뒤, N은 네트워크가 돌아온 뒤, I는 W가 참이 된 뒤, X는 E-44·E-66 뒤) | 개정 4 (S-1) |
+| E-60 | 아무 상태 | `setQuery(같은 값)` | 그대로 | 아무것도 하지 않는다. epoch도 발급 번호도 그대로. 처음 값은 빈 쿼리다 | 개정 4 (S-1) |
+| E-61 | — | `setQuery`에 `events` 또는 `token` 필드 | (입력이 상태 기계에 닿지 않는다) | 부른 자리에서 거부 (위 표). 검사는 `SPFNEventStreamConfiguration.requireQuery` / `SpfnEventStreamConfiguration.requireQuery` 순수 함수 | 개정 4 (S-1) |
+| E-62 | O | (전체 스트림) `setQuery` 뒤 | T(1) → S → O(e+1) | 스트림 GET의 URL에 쿼리가 실리고, 다시 열기까지 타이머가 하나도 울리지 않는다 (가짜 수면기·가상 시간이 그대로). 옛 연결은 취소된다 | 개정 4 (S-1) |
+| E-63 | O | `subscription.granted`/`subscription.revoked`, `data.event`가 설정된 이름 | O(e) | 효과 `subscription(name, granted\|revoked)` → 허브가 그 이름의 원선 청취자에게만 (L-25). `deliver` 아님, `unexpectedFrames` 아님. 감시 재시작 | 개정 4 (S-3), E-23의 갈래 |
+| E-64 | O | `subscription.*`, `data.event`가 설정에 없거나 `data`를 읽을 수 없음 | O(e) | **조용히 버린다**: 효과 없음, `unexpectedFrames`도 세지 않는다 (스트림 소유 프레임이라 서버의 잘못이 아니다). 감시 재시작 | 개정 4 (S-3) |
+| E-65 | R | `reconnectNow()` | T(1) | 타이머 끔, `attempt` 1로, 곧바로 토큰 호출. 새 발급 번호라 꺼진 타이머의 만료가 늦게 와도 두 번째 시도가 없다 (E-39) | 개정 4 (S-4) |
+| E-66 | X | `reconnectNow()` | T(1), Net 거짓이면 N(1) | E-44 말고 `closed`에서 벗어나는 길. 좁힌 목록을 잊고 설정의 전체 목록으로 다시 시도한다 (서버를 고쳤을 수 있다) | 개정 4 (S-4) |
+| E-67 | O, T, S, I | `reconnectNow()` | 그대로 | 아무것도 하지 않는다. I는 연결할 조건이 아니다 | 개정 4 (S-4) |
+| E-68 | N | `reconnectNow()` (몇 번이든) | N(n) | 아무것도 하지 않는다. 네트워크가 없다 — 경로 감시기가 권위다 (E-35) | 개정 4 (S-4) |
+
+E-44의 "`closed`에서 벗어나는 길"과 `closed_leavesOnlyThroughCondition` 속성은 조건 입력 셋에 대한 것이다. 개정 4로 `reconnectNow()`(E-66)가 앱이 부르는 셋째 길이 된다 — 상태 클라이언트의 `retry()`가 부른다 (state-client-design C-13).
+
+**L-표, 개정 4 (원선 청취자):** 원선 청취자 하나는 (이름 집합, 큐)다. 디코더도 조건도 없다. 큐 길이는 `deliveryBuffer`이고 프레임만 센다.
+
+| id | 연결 상태 | 입력 | 결과 | 비고 |
+|---|---|---|---|---|
+| L-19 | T, S, R, N, I, X | 원선 청취자가 붙는다 | `attached`만. 연결이 열리면 `opened(그 연결)` | 끝난 연결의 `opened`를 다시 주지 않는다: 연결이 닫히면 (`closeStream`) 허브가 기억을 지운다 |
+| L-20 | O | 원선 청취자가 붙는다 | `attached` 다음 **현재 연결의 `opened`를 한 번 더** (epoch, 쿼리, `subscribedEvents`, `deniedEvents`, `initial`) | 순서 고정: 둘을 허브의 잠금 안에서 넣으므로 동시에 열린 연결의 `opened`가 `attached`보다 앞서지 않는다. 토큰 호출 없음 (L-1과 같다) |
+| L-21 | O | 여러 이름의 프레임 | 한 큐에 도착 순서대로 `frame(name, value)`. `value`는 봉투의 `data` 그대로 | 이름마다 큐가 따로가 아니다: 상태 클라이언트의 순서 규칙이 이것에 기댄다 (state-client-design §2-6) |
+| L-22 | 아무 상태 | 설정에 없는 이름, 또는 빈 목록으로 `listenWire` | 부른 자리에서 거부 (L-3과 같다: Swift `preconditionFailure`, Kotlin `IllegalArgumentException`) | Swift는 검사(`contains`)를 시험한다 |
+| L-23 | O | 원선 청취자의 큐가 넘친다 | 큐의 **프레임만** 버리고 `overflow` 하나 | `attached`·`opened`·`subscription`·`unavailable`은 남는다 — 세대와 표시의 증거를 넘침으로 잃지 않게. 다른 청취자, epoch 그대로 (L-4와 같다) |
+| L-24 | 아무 상태 | `markUnavailable(이름들)` (E-16) | 그 청취자의 이름 ∩ 빠진 이름 중 아직 알리지 않은 것을 `unavailable([이름들])` 한 번. 이미 빠진 이름으로 붙으면 `attached` 다음 `unavailable` | L-16·L-17의 원선 판. 이름마다 한 번 |
+| L-25 | O | `subscription(name, status)` (E-63) | 그 이름을 가진 원선 청취자마다 `subscription(name, status)`. 보통의 `listen` 청취자는 받지 않는다 | 진단 수 그대로 |
+| L-26 | 아무 상태 | 새 연결의 `opened` | 큐의 옛 연결 신호(`frame`·`subscription`·`overflow`·옛 `opened`)를 버리고 `opened` | `attached`와 `unavailable`은 남는다 (L-16과 같은 까닭) |
+
+셀 수: 개정 4는 **E 64개** (E-57–E-68 새로) + **L 26개** (L-19–L-26 새로) = **90**. 테스트 이름은 두 플랫폼이 같다 (`e57_setQueryWhenOpen_reopensAtOnceWithNewToken` … `l26_wireOpened_dropsOldConnectionsSignals`, §9-1과 validate 13절).
 
 ## 5. 기기에서 모을 증거 (운영자가 돌린다)
 

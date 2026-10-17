@@ -92,6 +92,16 @@ class SpfnEventStreamConfiguration(
 
     companion object
     {
+        /** The query fields the stream request sets itself; `setQuery` refuses them (S-1). */
+        val RESERVED_QUERY_FIELDS: Set<String> = setOf("events", "token");
+
+        /** The check behind `setQuery`, pulled out like [contains]. */
+        fun requireQuery(fields: Map<String, String>)
+        {
+            val reserved = fields.keys.sorted().firstOrNull { it in RESERVED_QUERY_FIELDS };
+            require(reserved == null) { "query: '$reserved' is set by the stream request itself" };
+        }
+
         /**
          * The server's rule: the last path segment of the stream path becomes `token`.
          * `/events/stream` → `/events/token`, `/sse` → `/token`.

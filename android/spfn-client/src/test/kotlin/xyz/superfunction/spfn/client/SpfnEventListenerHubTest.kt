@@ -12,6 +12,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -360,4 +361,171 @@ class SpfnEventListenerHubTest
 
     private fun frames(listener: SpfnEventListenerHub.Listener<Activity>): List<String> =
         listener.queue.filterIsInstance<SpfnEventSignal.Frame<Activity>>().map { "${it.value.sessionId}/${it.value.wsId}" };
+    // ---- revision 4: wire listeners (state-client-design §5-1, S-2 and S-3) ----
+
+    private val both = setOf("sessionActivity", "sessionUnread");
+
+    private fun connected(epoch: Int, query: Map<String, String> = emptyMap()) =
+        SpfnStreamConnected(epoch, query, listOf("sessionActivity"), listOf("sessionUnread"), emptyList());
+
+    private fun unread(count: Int): String = "{\"event\":\"sessionUnread\",\"data\":{\"count\":$count}}";
+
+    private fun value(sessionId: String, wsId: String): SpfnCanonicalValue =
+        SpfnCanonicalValue.Obj(mapOf("sessionId" to SpfnCanonicalValue.Text(sessionId), "wsId" to SpfnCanonicalValue.Text(wsId)));
+
+    @Test
+    fun l19_wireAttachWhileNotOpen_getsAttachedThenOpenedOnOpen() = runTest {
+        val harness = Harness(this);
+        harness.open(this);
+        harness.connection.fail();
+        runCurrent();
+        assertEquals(SpfnEventStreamState.Retrying(2, 1_000, SpfnRetryReason.Network), harness.events.state.value);
+
+        val signals = mutableListOf<SpfnWireSignal>();
+        backgroundScope.launch { harness.events.listenWire(listOf("sessionActivity")).collect { signals.add(it) } };
+        runCurrent();
+        assertEquals("no stale opened from the connection that ended", listOf(SpfnWireSignal.Attached), signals);
+
+        val second = harness.streams.enqueue();
+        advanceTimeBy(1_000);
+        runCurrent();
+        assertEquals(2, harness.streams.requests.size);
+        second.send(ServerFrames.CONNECTED_DENYING);
+        runCurrent();
+        assertEquals(
+            listOf(
+                SpfnWireSignal.Attached,
+                SpfnWireSignal.Opened(SpfnStreamConnected(2, emptyMap(), listOf("sessionActivity"), listOf("sessionUnread"), listOf("sessionActivity")))
+            ),
+            signals
+        );
+    }
+
+    @Test
+    fun l20_wireAttachWhileOpen_getsAttachedThenCurrentOpened() = runTest {
+        val hub = hub();
+        hub.connected(connected(3, mapOf("workspaceId" to "w-1")));
+        val listener = hub.attachWire(both);
+        assertEquals(listOf(SpfnWireSignal.Attached, SpfnWireSignal.Opened(connected(3, mapOf("workspaceId" to "w-1")))), listener.queue.toList());
+
+        hub.disconnected();
+        assertEquals(listOf<SpfnWireSignal>(SpfnWireSignal.Attached), hub.attachWire(both).queue.toList());
+
+        val harness = Harness(this);
+        harness.open(this);
+        val signals = mutableListOf<SpfnWireSignal>();
+        backgroundScope.launch { harness.events.listenWire(listOf("sessionActivity")).collect { signals.add(it) } };
+        runCurrent();
+        assertEquals(
+            listOf(
+                SpfnWireSignal.Attached,
+                SpfnWireSignal.Opened(SpfnStreamConnected(1, emptyMap(), listOf("sessionActivity", "sessionUnread"), emptyList(), null))
+            ),
+            signals
+        );
+        assertEquals("attaching never reaches the connection", 1, harness.tokens.tokenRequests.size);
+    }
+
+    @Test
+    fun l21_wireListener_severalNamesOneQueueInOrder()
+    {
+        val hub = hub(buffer = 8);
+        val listener = hub.attachWire(both);
+        val onlyActivity = hub.attachWire(setOf("sessionActivity"));
+        hub.deliver("sessionActivity", envelope("s-1", "w-1"));
+        hub.deliver("sessionUnread", unread(2));
+        hub.deliver("sessionActivity", envelope("s-2", "w-1"));
+        assertEquals(
+            listOf(
+                SpfnWireSignal.Attached,
+                SpfnWireSignal.Frame("sessionActivity", value("s-1", "w-1")),
+                SpfnWireSignal.Frame("sessionUnread", SpfnCanonicalValue.Obj(mapOf("count" to SpfnCanonicalValue.Integer(2)))),
+                SpfnWireSignal.Frame("sessionActivity", value("s-2", "w-1"))
+            ),
+            listener.queue.toList()
+        );
+        assertEquals(3, onlyActivity.queue.size);
+    }
+
+    @Test
+    fun l22_wireUnknownName_isRefused() = runTest {
+        val configuration = SpfnEventStreamConfiguration(events = listOf("sessionActivity", "sessionUnread"));
+        assertTrue(listOf("sessionActivity", "sessionUnread").all { configuration.contains(it) });
+        assertTrue(!listOf("sessionActivity", "state.billing.changed").all { configuration.contains(it) });
+        val harness = Harness(this);
+        assertThrows(IllegalArgumentException::class.java) { harness.events.listenWire(listOf("sessionActivity", "state.billing.changed")) };
+        assertThrows(IllegalArgumentException::class.java) { harness.events.listenWire(emptyList()) };
+    }
+
+    @Test
+    fun l23_wireOverflow_dropsFramesKeepsConnectionSignals()
+    {
+        val hub = hub(buffer = 2);
+        val slow = hub.attachWire(setOf("sessionActivity"));
+        hub.connected(connected(1));
+        hub.subscription("sessionActivity", SpfnSubscriptionStatus.REVOKED);
+        repeat(3) { hub.deliver("sessionActivity", envelope("s-$it", "w-1")) };
+        assertEquals(
+            listOf(
+                SpfnWireSignal.Attached,
+                SpfnWireSignal.Opened(connected(1)),
+                SpfnWireSignal.Subscription("sessionActivity", SpfnSubscriptionStatus.REVOKED),
+                SpfnWireSignal.Overflow
+            ),
+            slow.queue.toList()
+        );
+        hub.deliver("sessionActivity", envelope("s-next", "w-1"));
+        assertEquals(SpfnWireSignal.Frame("sessionActivity", value("s-next", "w-1")), slow.queue.last());
+    }
+
+    @Test
+    fun l24_wireUnavailable_namesItsMissingNamesOnce()
+    {
+        val hub = hub();
+        val listener = hub.attachWire(both);
+        val other = hub.attachWire(setOf("sessionActivity"));
+        hub.markUnavailable(listOf("sessionUnread"));
+        hub.markUnavailable(listOf("sessionUnread"));
+        assertEquals(listOf(SpfnWireSignal.Attached, SpfnWireSignal.Unavailable(listOf("sessionUnread"))), listener.queue.toList());
+        assertEquals(listOf<SpfnWireSignal>(SpfnWireSignal.Attached), other.queue.toList());
+        assertEquals(listOf(SpfnWireSignal.Attached, SpfnWireSignal.Unavailable(listOf("sessionUnread"))), hub.attachWire(both).queue.toList());
+    }
+
+    @Test
+    fun l25_subscription_reachesWireListenersOfThatNameOnly()
+    {
+        val hub = hub();
+        val screen = hub.activity();
+        val wire = hub.attachWire(setOf("sessionActivity"));
+        val unreadWire = hub.attachWire(setOf("sessionUnread"));
+        hub.subscription("sessionActivity", SpfnSubscriptionStatus.REVOKED);
+        hub.subscription("sessionActivity", SpfnSubscriptionStatus.GRANTED);
+        assertEquals(
+            listOf(
+                SpfnWireSignal.Attached,
+                SpfnWireSignal.Subscription("sessionActivity", SpfnSubscriptionStatus.REVOKED),
+                SpfnWireSignal.Subscription("sessionActivity", SpfnSubscriptionStatus.GRANTED)
+            ),
+            wire.queue.toList()
+        );
+        assertEquals(listOf<SpfnWireSignal>(SpfnWireSignal.Attached), unreadWire.queue.toList());
+        assertEquals(listOf(attached), screen.queue.toList());
+        assertEquals(SpfnEventDiagnostics(), hub.diagnostics.value);
+    }
+
+    @Test
+    fun l26_wireOpened_dropsOldConnectionsSignals()
+    {
+        val hub = hub();
+        val listener = hub.attachWire(both);
+        hub.connected(connected(1));
+        hub.deliver("sessionActivity", envelope("s-1", "w-1"));
+        hub.subscription("sessionUnread", SpfnSubscriptionStatus.GRANTED);
+        hub.markUnavailable(listOf("sessionUnread"));
+        hub.connected(connected(2));
+        assertEquals(
+            listOf(SpfnWireSignal.Attached, SpfnWireSignal.Unavailable(listOf("sessionUnread")), SpfnWireSignal.Opened(connected(2))),
+            listener.queue.toList()
+        );
+    }
 }

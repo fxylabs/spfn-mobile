@@ -58,3 +58,53 @@ data class SpfnEventDiagnostics(
     val filteredFrames: Long = 0,
     val unexpectedFrames: Long = 0
 )
+
+/**
+ * What a wire listener receives (`listenWire`, revision 4, S-2): several names in ONE
+ * queue, values left as the server sent them, and the connection's own facts beside them.
+ * One queue is the point: a frame of connection e is never handled before `Opened` of e.
+ */
+sealed interface SpfnWireSignal
+{
+    /** The first signal, whatever the connection is doing. */
+    data object Attached : SpfnWireSignal
+
+    /**
+     * A connection opened — or, for a listener attached while one is open, that connection
+     * once more right after `Attached`. Queued frames of older connections are dropped.
+     */
+    data class Opened(val connected: SpfnStreamConnected) : SpfnWireSignal
+
+    /** One frame of one of the listener's names: the envelope's `data`, undecoded. */
+    data class Frame(val name: String, val value: SpfnCanonicalValue) : SpfnWireSignal
+
+    /** The server granted or revoked one of the listener's names on the open connection (S-3). */
+    data class Subscription(val name: String, val status: SpfnSubscriptionStatus) : SpfnWireSignal
+
+    /** This listener's queue filled; its queued frames were dropped. Connection signals stay. */
+    data object Overflow : SpfnWireSignal
+
+    /** Names of this listener the server does not serve; each name is reported once. */
+    data class Unavailable(val names: List<String>) : SpfnWireSignal
+}
+
+/**
+ * The server's `connected` frame, with what the client knows about the connection it opened.
+ *
+ * @property epoch the stream's open count, the `epoch` of `Open`.
+ * @property query the query fields this connection was opened with (`setQuery`).
+ * @property initial the events whose initial frames follow; null from a server that predates them.
+ */
+data class SpfnStreamConnected(
+    val epoch: Int,
+    val query: Map<String, String>,
+    val subscribedEvents: List<String>,
+    val deniedEvents: List<String>,
+    val initial: List<String>?
+)
+
+enum class SpfnSubscriptionStatus
+{
+    GRANTED,
+    REVOKED
+}

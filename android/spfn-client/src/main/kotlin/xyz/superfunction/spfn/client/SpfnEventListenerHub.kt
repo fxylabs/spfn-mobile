@@ -11,6 +11,12 @@
 // `reread` and `markUnavailable` effects and the listeners' attach and detach, and
 // produces nothing the machine reads (§4-2, `listeners_neverReachMachine`).
 //
+// A wire listener (revision 4, S-2) is the state client's kind: several names in one queue,
+// no decoder and no condition, and the connection's own signals — `Opened` with what the
+// `connected` frame said, `Subscription` grants and revokes — in order with the frames.
+// The hub keeps the open connection's `connected` so a wire listener attached while it is
+// open hears it once more right after `Attached`; the connection ending forgets it.
+//
 // Sources/SPFNClient/SPFNEventListenerHub.swift is the same hub in Swift.
 
 package xyz.superfunction.spfn.client
@@ -60,6 +66,15 @@ internal class SpfnEventListenerHub(private val deliveryBuffer: Int)
         }
     }
 
+    /** One wire listener: its names, fixed when it attaches, and its one queue (S-2). */
+    internal class WireListener(val names: Set<String>)
+    {
+        val queue = ArrayDeque<SpfnWireSignal>();
+        var pendingFrames = 0;
+        val reportedUnavailable = mutableSetOf<String>();
+        val wake = Channel<Unit>(Channel.CONFLATED);
+    }
+
     internal sealed interface Evaluation<out E>
     {
         data class Enqueue<E>(val value: E) : Evaluation<E>
@@ -73,7 +88,9 @@ internal class SpfnEventListenerHub(private val deliveryBuffer: Int)
 
     private val lock = Any();
     private val listeners = mutableListOf<Listener<*>>();
+    private val wireListeners = mutableListOf<WireListener>();
     private var unavailable: Set<String> = emptySet();
+    private var connection: SpfnStreamConnected? = null;
     private val counts = MutableStateFlow(SpfnEventDiagnostics());
 
     val diagnostics: StateFlow<SpfnEventDiagnostics> = counts.asStateFlow();
@@ -93,10 +110,50 @@ internal class SpfnEventListenerHub(private val deliveryBuffer: Int)
         return listener;
     }
 
+    /**
+     * L-19, L-20: `Attached`, any of its names already unavailable, and — while a connection
+     * is open — that connection's `Opened` once more, all under the hub's lock.
+     */
+    fun attachWire(names: Set<String>): WireListener
+    {
+        val listener = WireListener(names);
+        synchronized(lock) {
+            wireListeners.add(listener);
+            pushWire(listener, SpfnWireSignal.Attached);
+            sendUnavailable(listener, unavailable);
+            connection?.let { pushWire(listener, SpfnWireSignal.Opened(it), dropping = ::belongsToConnection) };
+        };
+        return listener;
+    }
+
     /** L-2: removed with its queue. The connection is not told. */
     fun detach(listener: Listener<*>)
     {
         synchronized(lock) { listeners.remove(listener) };
+    }
+
+    fun detachWire(listener: WireListener)
+    {
+        synchronized(lock) { wireListeners.remove(listener) };
+    }
+
+    /** Everything queued for a wire listener, suspending until there is something. */
+    suspend fun takeWire(listener: WireListener): List<SpfnWireSignal>
+    {
+        while (true)
+        {
+            val drained = synchronized(lock) {
+                val drained = listener.queue.toList();
+                listener.queue.clear();
+                listener.pendingFrames = 0;
+                drained
+            };
+            if (drained.isNotEmpty())
+            {
+                return drained;
+            }
+            listener.wake.receive();
+        }
     }
 
     /**
@@ -121,16 +178,18 @@ internal class SpfnEventListenerHub(private val deliveryBuffer: Int)
     fun deliver(name: String, data: String)
     {
         val targets = synchronized(lock) { listeners.filter { it.name == name } };
-        if (targets.isEmpty())
+        val wireTargets = synchronized(lock) { wireListeners.filter { name in it.names } };
+        if (targets.isEmpty() && wireTargets.isEmpty())
         {
             return;
         }
         val payload = envelopePayload(data);
         if (payload == null)
         {
-            count { it.copy(droppedFrames = it.droppedFrames + targets.size) };
+            count { it.copy(droppedFrames = it.droppedFrames + targets.size + wireTargets.size) };
             return;
         }
+        synchronized(lock) { wireTargets.forEach { enqueueWireFrame(it, SpfnWireSignal.Frame(name, payload)) } };
         for (target in targets)
         {
             offer(target, payload);
@@ -149,12 +208,36 @@ internal class SpfnEventListenerHub(private val deliveryBuffer: Int)
         };
     }
 
+    /** S-2: the connection that just opened, to every wire listener, and kept for later ones. */
+    fun connected(connected: SpfnStreamConnected)
+    {
+        synchronized(lock) {
+            connection = connected;
+            wireListeners.forEach { pushWire(it, SpfnWireSignal.Opened(connected), dropping = ::belongsToConnection) };
+        };
+    }
+
+    /** The connection ended: a wire listener attaching now hears `Attached` only (L-19). */
+    fun disconnected()
+    {
+        synchronized(lock) { connection = null };
+    }
+
+    /** S-3 (L-25): a grant or revoke, to the wire listeners of that name. `listen` never hears it. */
+    fun subscription(name: String, status: SpfnSubscriptionStatus)
+    {
+        synchronized(lock) {
+            wireListeners.filter { name in it.names }.forEach { pushWire(it, SpfnWireSignal.Subscription(name, status)) };
+        };
+    }
+
     /** Q-F: the names the server does not serve. Each listener of one hears it once. */
     fun markUnavailable(names: List<String>)
     {
         synchronized(lock) {
             unavailable = names.toSet();
             listeners.filter { it.name in unavailable }.forEach { sendUnavailable(it) };
+            wireListeners.forEach { sendUnavailable(it, unavailable) };
         };
     }
 
@@ -200,6 +283,41 @@ internal class SpfnEventListenerHub(private val deliveryBuffer: Int)
         listener.wake.trySend(Unit);
     }
 
+    /** L-23: a frame that finds the queue full drops the queued frames for one `Overflow`. */
+    private fun enqueueWireFrame(listener: WireListener, frame: SpfnWireSignal.Frame)
+    {
+        if (listener.pendingFrames >= deliveryBuffer)
+        {
+            pushWire(listener, SpfnWireSignal.Overflow, dropping = { it is SpfnWireSignal.Frame || it == SpfnWireSignal.Overflow });
+            return;
+        }
+        pushWire(listener, frame);
+        listener.pendingFrames += 1;
+    }
+
+    /** L-24: each of its names is reported unavailable once, however often it is marked. */
+    private fun sendUnavailable(listener: WireListener, marked: Set<String>)
+    {
+        val fresh = (listener.names intersect marked) - listener.reportedUnavailable;
+        if (fresh.isNotEmpty())
+        {
+            listener.reportedUnavailable += fresh;
+            pushWire(listener, SpfnWireSignal.Unavailable(fresh.sorted()));
+        }
+    }
+
+    /** Queues `signal` after dropping what `dropping` names; the caller holds the lock. */
+    private fun pushWire(listener: WireListener, signal: SpfnWireSignal, dropping: ((SpfnWireSignal) -> Boolean)? = null)
+    {
+        if (dropping != null)
+        {
+            listener.queue.removeAll(dropping);
+            listener.pendingFrames = 0;
+        }
+        listener.queue.addLast(signal);
+        listener.wake.trySend(Unit);
+    }
+
     private fun <E> sendUnavailable(listener: Listener<E>)
     {
         if (!listener.unavailableSent)
@@ -242,6 +360,10 @@ internal class SpfnEventListenerHub(private val deliveryBuffer: Int)
 
     internal companion object
     {
+        /** What a new connection's `Opened` supersedes: everything the old connection queued (L-26). */
+        fun belongsToConnection(signal: SpfnWireSignal): Boolean =
+            signal !is SpfnWireSignal.Attached && signal !is SpfnWireSignal.Unavailable;
+
         /**
          * The server's envelope `{"event": name, "data": payload}`, unwrapped. Null when it
          * is not one: nobody can decode what is not there.

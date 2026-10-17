@@ -6,11 +6,17 @@
 
 package xyz.superfunction.spfn.client
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.currentTime
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SpfnEventStreamMachineTest
 {
     private val configuration = SpfnEventStreamConfiguration(events = listOf("sessionUnread", "sessionActivity"))
@@ -618,6 +624,217 @@ class SpfnEventStreamMachineTest
         assertEquals(300_000L, retryDelay(run().signedInForeground().issued { SpfnEventInput.TokenFailed(it, SpfnTokenFailure.ServerError(429, 9_000_000)) }));
     }
 
+    // ---- revision 4 (state-client-design §5-1) -------------------------------
+
+    private fun subscriptionFrame(status: String, name: String) = SpfnSseEvent("subscription.$status", """{"event":"$name"}""");
+
+    @Test
+    fun e57_setQueryWhenOpen_reopensAtOnceWithNewToken()
+    {
+        val open = run().open();
+        val before = open.generation;
+        val reopened = open.feed(SpfnEventInput.SetQuery(QUERY));
+        assertEquals(SpfnEventStreamState.Connecting(1), reopened.public);
+        assertTrue(reopened.generation > before);
+        assertAbandons(reopened);
+        assertMints(reopened);
+        assertFalse("no backoff before the reopen", reopened.effects.any { it is SpfnEventEffect.StartRetryTimer });
+
+        val streaming = reopened.issued { SpfnEventInput.TokenMinted(it, token) };
+        assertEquals(listOf(SpfnEventEffect.OpenStream(streaming.generation, listOf("sessionActivity", "sessionUnread"), token, QUERY)), streaming.effects);
+        val again = streaming.issued { SpfnEventInput.StreamAnswered(it, SpfnStreamAnswer.EventStream) }
+            .issued { SpfnEventInput.FrameReceived(it, CONNECTED) };
+        assertEquals(SpfnEventStreamState.Open(2), again.public);
+        assertTrue(again.effects.contains(SpfnEventEffect.Reread(2)));
+    }
+
+    @Test
+    fun e58_setQueryWhileConnecting_restartsWithNewToken()
+    {
+        for (connecting in listOf(run().signedInForeground(), run().streaming(), run().headers()))
+        {
+            val before = connecting.generation;
+            val restarted = connecting.feed(SpfnEventInput.SetQuery(QUERY));
+            assertEquals(SpfnEventStreamState.Connecting(1), restarted.public);
+            assertTrue(restarted.generation > before);
+            assertAbandons(restarted);
+            assertMints(restarted);
+            assertFalse(restarted.effects.any { it is SpfnEventEffect.StartRetryTimer });
+        }
+    }
+
+    @Test
+    fun e59_setQueryWhenNotConnecting_isRememberedForNextConnection()
+    {
+        val waiting = listOf(run(), run().feed(SpfnEventInput.SetSignedIn(CLIENT_A)), run().retrying(), run().offline(), run().closed());
+        for (run in waiting)
+        {
+            val before = run.state;
+            run.feed(SpfnEventInput.SetQuery(QUERY));
+            assertEquals(emptyList<SpfnEventEffect>(), run.effects);
+            assertEquals(before.publicState, run.public);
+            assertEquals(before.generation, run.generation);
+        }
+
+        val retried = run().retrying().feed(SpfnEventInput.SetQuery(QUERY))
+            .issued { SpfnEventInput.RetryElapsed(it) }
+            .issued { SpfnEventInput.TokenMinted(it, token) };
+        assertEquals(listOf(SpfnEventEffect.OpenStream(retried.generation, listOf("sessionActivity", "sessionUnread"), token, QUERY)), retried.effects);
+    }
+
+    @Test
+    fun e60_setQuerySameValue_isIgnored()
+    {
+        val open = run().open().feed(SpfnEventInput.SetQuery(emptyMap()));
+        assertEquals(emptyList<SpfnEventEffect>(), open.effects);
+        assertEquals(SpfnEventStreamState.Open(1), open.public);
+
+        val reopened = open.feed(SpfnEventInput.SetQuery(QUERY))
+            .issued { SpfnEventInput.TokenMinted(it, token) }
+            .issued { SpfnEventInput.StreamAnswered(it, SpfnStreamAnswer.EventStream) }
+            .issued { SpfnEventInput.FrameReceived(it, CONNECTED) };
+        val generation = reopened.generation;
+        reopened.feed(SpfnEventInput.SetQuery(QUERY.toMap()));
+        assertEquals(emptyList<SpfnEventEffect>(), reopened.effects);
+        assertEquals(SpfnEventStreamState.Open(2), reopened.public);
+        assertEquals(generation, reopened.generation);
+    }
+
+    @Test
+    fun e61_setQueryReservedField_isRefused() = runTest {
+        assertThrows(IllegalArgumentException::class.java) { SpfnEventStreamConfiguration.requireQuery(mapOf("token" to "x")) };
+        val events = assertThrows(IllegalArgumentException::class.java) {
+            SpfnEventStreamConfiguration.requireQuery(mapOf("workspaceId" to "w-1", "events" to "a"))
+        };
+        assertTrue(events.message.orEmpty().contains("'events'"));
+        SpfnEventStreamConfiguration.requireQuery(QUERY);
+        val stream = SpfnEventStream(signedInLifecycle(TokenServer()), configuration, SpfnFakeStreamTransport(), backgroundScope, jitter = { 1.0 });
+        assertThrows(IllegalArgumentException::class.java) { stream.setQuery(mapOf("token" to "x")) };
+    }
+
+    @Test
+    fun e62_streamRequest_carriesQuery_andReopensWithoutBackoff() = runTest {
+        val tokens = TokenServer();
+        val streams = SpfnFakeStreamTransport();
+        val events = SpfnEventStream(signedInLifecycle(tokens), configuration, streams, backgroundScope, jitter = { 1.0 });
+        val first = streams.enqueue();
+        events.setQuery(mapOf("workspaceId" to "w-1", "scope" to "a&b"));
+        events.setSignedIn("client-test-0001");
+        events.setForeground(true);
+        runCurrent();
+        first.send(ServerFrames.CONNECTED);
+        runCurrent();
+        assertEquals(SpfnEventStreamState.Open(1), events.state.value);
+        assertEquals(
+            "https://example.invalid/events/stream?token=token-1&events=sessionActivity,sessionUnread&scope=a%26b&workspaceId=w-1",
+            streams.requests.first().url
+        );
+
+        val second = streams.enqueue();
+        val before = currentTime;
+        events.setQuery(mapOf("workspaceId" to "w-2"));
+        runCurrent();
+        assertEquals("the reopen needs no timer", before, currentTime);
+        assertEquals(2, streams.requests.size);
+        assertTrue(first.cancelled);
+        assertEquals(2, tokens.tokenRequests.size);
+        assertEquals("https://example.invalid/events/stream?token=token-2&events=sessionActivity,sessionUnread&workspaceId=w-2", streams.requests.last().url);
+        second.send(ServerFrames.CONNECTED);
+        runCurrent();
+        assertEquals(SpfnEventStreamState.Open(2), events.state.value);
+    }
+
+    @Test
+    fun e63_subscriptionFrame_configuredEvent_goesToWireListeners()
+    {
+        val revoked = run().open().issued { SpfnEventInput.FrameReceived(it, subscriptionFrame("revoked", "sessionActivity")) };
+        assertEquals(
+            listOf(SpfnEventEffect.Subscription("sessionActivity", SpfnSubscriptionStatus.REVOKED), SpfnEventEffect.StartSilenceTimer(revoked.generation, 25_000)),
+            revoked.effects
+        );
+        val granted = revoked.issued { SpfnEventInput.FrameReceived(it, subscriptionFrame("granted", "sessionUnread")) };
+        assertEquals(
+            listOf(SpfnEventEffect.Subscription("sessionUnread", SpfnSubscriptionStatus.GRANTED), SpfnEventEffect.StartSilenceTimer(granted.generation, 25_000)),
+            granted.effects
+        );
+    }
+
+    @Test
+    fun e64_subscriptionFrame_unconfiguredEvent_isDroppedUncounted()
+    {
+        val frames = listOf(
+            subscriptionFrame("revoked", "somethingElse"),
+            SpfnSseEvent("subscription.granted", "not json"),
+            SpfnSseEvent("subscription.granted", """{"data":{}}""")
+        );
+        for (frame in frames)
+        {
+            val run = run().open().issued { SpfnEventInput.FrameReceived(it, frame) };
+            assertEquals(listOf(SpfnEventEffect.StartSilenceTimer(run.generation, 25_000)), run.effects);
+        }
+    }
+
+    @Test
+    fun e65_reconnectNowWhileRetrying_mintsAtOnce_cancelsTimer()
+    {
+        val retrying = run().retrying()
+            .issued { SpfnEventInput.RetryElapsed(it) }
+            .issued { SpfnEventInput.TokenFailed(it, SpfnTokenFailure.Network) };
+        assertEquals(SpfnEventStreamState.Retrying(3, 2_000, SpfnRetryReason.Network), retrying.public);
+        val waited = retrying.generation;
+        val now = retrying.feed(SpfnEventInput.ReconnectNow);
+        assertEquals(SpfnEventStreamState.Connecting(1), now.public);
+        assertTrue(now.effects.contains(SpfnEventEffect.CancelTimers));
+        assertMints(now);
+
+        val current = now.state;
+        now.feed(SpfnEventInput.RetryElapsed(waited));
+        assertEquals("the cancelled timer cannot start a second attempt", emptyList<SpfnEventEffect>(), now.effects);
+        assertEquals(current, now.state);
+    }
+
+    @Test
+    fun e66_reconnectNowWhenClosed_mintsAtOne()
+    {
+        val now = run().closed().feed(SpfnEventInput.ReconnectNow);
+        assertEquals(SpfnEventStreamState.Connecting(1), now.public);
+        assertMints(now);
+
+        // Closed after a narrowing: the full configured list is tried again.
+        val narrowed = run().streaming()
+            .issued { SpfnEventInput.StreamAnswered(it, SpfnStreamAnswer.InvalidEvents(listOf("sessionActivity"), listOf("sessionUnread"))) }
+            .issued { SpfnEventInput.TokenMinted(it, token) }
+            .issued { SpfnEventInput.StreamAnswered(it, SpfnStreamAnswer.InvalidEvents(listOf("sessionUnread"), emptyList())) };
+        assertEquals(SpfnEventStreamState.Closed(SpfnCloseReason.UnknownEvents(listOf("sessionUnread"))), narrowed.public);
+        val again = narrowed.feed(SpfnEventInput.ReconnectNow).issued { SpfnEventInput.TokenMinted(it, token) };
+        assertEquals(listOf(SpfnEventEffect.OpenStream(again.generation, listOf("sessionActivity", "sessionUnread"), token)), again.effects);
+    }
+
+    @Test
+    fun e67_reconnectNowWhenOpenConnectingOrIdle_doesNothing()
+    {
+        for (run in listOf(run(), run().signedInForeground(), run().streaming(), run().headers(), run().open()))
+        {
+            val before = run.state;
+            run.feed(SpfnEventInput.ReconnectNow);
+            assertEquals(emptyList<SpfnEventEffect>(), run.effects);
+            assertEquals(before, run.state);
+        }
+    }
+
+    @Test
+    fun e68_reconnectNowWhenOffline_doesNothing()
+    {
+        val offline = run().offline();
+        val before = offline.state;
+        repeat(3) {
+            offline.feed(SpfnEventInput.ReconnectNow);
+            assertEquals(emptyList<SpfnEventEffect>(), offline.effects);
+            assertEquals(before, offline.state);
+        };
+        assertEquals(SpfnEventStreamState.Offline(2), offline.public);
+    }
+
     private fun lateInputs(generation: Long): List<SpfnEventInput> = listOf(
         SpfnEventInput.TokenMinted(generation, token),
         SpfnEventInput.TokenFailed(generation, SpfnTokenFailure.Network),
@@ -638,5 +855,6 @@ class SpfnEventStreamMachineTest
         const val ENVELOPE = """{"event":"sessionActivity","data":{"sessionId":"s-1","wsId":"w-1"}}""";
         const val NOW = 784_111_777_000L;
         val CONNECTED = SpfnSseEvent("connected", """{"subscribedEvents":["sessionActivity"],"timestamp":1}""");
+        val QUERY = mapOf("workspaceId" to "w-1");
     }
 }

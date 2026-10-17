@@ -607,6 +607,229 @@ final class SPFNEventStreamMachineTests: XCTestCase
         XCTAssertEqual(try run().signedInForeground().issued { .tokenFailed(generation: $0, failure: .serverError(status: 429, retryAfterMillis: 9_000_000)) }.retryDelay, 300_000)
     }
 
+    // MARK: - Revision 4 (state-client-design §5-1)
+
+    static let query = ["workspaceId": "w-1"]
+
+    private func isRetryTimer(_ effect: SPFNEventEffect) -> Bool
+    {
+        guard case .startRetryTimer = effect
+        else
+        {
+            return false
+        }
+        return true
+    }
+
+    private static func subscriptionFrame(_ status: String, _ name: String) -> SPFNSSEEvent
+    {
+        SPFNSSEEvent(name: "subscription.\(status)", data: "{\"event\":\"\(name)\"}")
+    }
+
+    func test_e57_setQueryWhenOpen_reopensAtOnceWithNewToken() throws
+    {
+        let open = try run().open()
+        let before = open.generation
+        let reopened = open.feed(.setQuery(Self.query))
+        XCTAssertEqual(reopened.publicState, .connecting(attempt: 1))
+        XCTAssertGreaterThan(reopened.generation, before)
+        assertAbandons(reopened)
+        assertMints(reopened)
+        XCTAssertFalse(reopened.effects.contains(where: isRetryTimer), "no backoff before the reopen")
+
+        let streaming = reopened.issued { .tokenMinted(generation: $0, token: Self.token) }
+        XCTAssertEqual(
+            streaming.effects,
+            [.openStream(generation: streaming.generation, names: ["sessionActivity", "sessionUnread"], token: Self.token, query: Self.query)]
+        )
+        let again = streaming.issued { .streamAnswered(generation: $0, answer: .eventStream) }
+            .issued { .frameReceived(generation: $0, event: Self.connected) }
+        XCTAssertEqual(again.publicState, .open(epoch: 2))
+        XCTAssertTrue(again.effects.contains(.reread(epoch: 2)))
+    }
+
+    func test_e58_setQueryWhileConnecting_restartsWithNewToken() throws
+    {
+        for connecting in [try run().signedInForeground(), try run().streaming(), try run().headers()]
+        {
+            let before = connecting.generation
+            let restarted = connecting.feed(.setQuery(Self.query))
+            XCTAssertEqual(restarted.publicState, .connecting(attempt: 1))
+            XCTAssertGreaterThan(restarted.generation, before)
+            assertAbandons(restarted)
+            assertMints(restarted)
+            XCTAssertFalse(restarted.effects.contains(where: isRetryTimer))
+        }
+    }
+
+    func test_e59_setQueryWhenNotConnecting_isRememberedForNextConnection() throws
+    {
+        let waiting = [try run(), try run().feed(.setSignedIn(Self.clientA)), try run().retrying(), try run().offline(), try run().closed()]
+        for run in waiting
+        {
+            let before = run.state
+            run.feed(.setQuery(Self.query))
+            XCTAssertEqual(run.effects, [])
+            XCTAssertEqual(run.publicState, before.publicState)
+            XCTAssertEqual(run.generation, before.generation)
+        }
+
+        let retried = try run().retrying().feed(.setQuery(Self.query))
+            .issued { .retryElapsed(generation: $0) }
+            .issued { .tokenMinted(generation: $0, token: Self.token) }
+        XCTAssertEqual(
+            retried.effects,
+            [.openStream(generation: retried.generation, names: ["sessionActivity", "sessionUnread"], token: Self.token, query: Self.query)]
+        )
+    }
+
+    func test_e60_setQuerySameValue_isIgnored() throws
+    {
+        let open = try run().open().feed(.setQuery([:]))
+        XCTAssertEqual(open.effects, [])
+        XCTAssertEqual(open.publicState, .open(epoch: 1))
+
+        let reopened = open.feed(.setQuery(Self.query))
+            .issued { .tokenMinted(generation: $0, token: Self.token) }
+            .issued { .streamAnswered(generation: $0, answer: .eventStream) }
+            .issued { .frameReceived(generation: $0, event: Self.connected) }
+        let generation = reopened.generation
+        reopened.feed(.setQuery(Self.query))
+        XCTAssertEqual(reopened.effects, [])
+        XCTAssertEqual(reopened.publicState, .open(epoch: 2))
+        XCTAssertEqual(reopened.generation, generation)
+    }
+
+    func test_e61_setQueryReservedField_isRefused() throws
+    {
+        XCTAssertThrowsError(try SPFNEventStreamConfiguration.requireQuery(["token": "x"]))
+        {
+            XCTAssertEqual($0 as? SPFNEventStreamError, .reservedQueryField("token"))
+        }
+        XCTAssertThrowsError(try SPFNEventStreamConfiguration.requireQuery(["workspaceId": "w-1", "events": "a"]))
+        {
+            XCTAssertEqual($0 as? SPFNEventStreamError, .reservedQueryField("events"))
+        }
+        XCTAssertNoThrow(try SPFNEventStreamConfiguration.requireQuery(Self.query))
+        let fixture = try EventStreamFixture()
+        XCTAssertThrowsError(try fixture.events.setQuery(["token": "x"]))
+    }
+
+    func test_e62_streamRequest_carriesQuery_andReopensWithoutBackoff() async throws
+    {
+        let fixture = try EventStreamFixture()
+        let first = fixture.streams.enqueue()
+        try fixture.events.setQuery(["workspaceId": "w-1", "scope": "a&b"])
+        let isOpen = await fixture.open(first)
+        XCTAssertTrue(isOpen)
+        XCTAssertEqual(
+            fixture.streams.requests.first?.url,
+            "https://example.invalid/events/stream?token=token-1&events=sessionActivity,sessionUnread&scope=a%26b&workspaceId=w-1"
+        )
+
+        let second = fixture.streams.enqueue()
+        try fixture.events.setQuery(["workspaceId": "w-2"])
+        let reopened = await eventually { fixture.streams.requests.count == 2 }
+        XCTAssertTrue(reopened, "the reopen needs no timer")
+        XCTAssertFalse(fixture.sleeper.pending.contains(1_000), "no backoff timer was started")
+        XCTAssertTrue(first.cancelled)
+        XCTAssertEqual(fixture.tokens.tokenRequests.count, 2)
+        XCTAssertEqual(
+            fixture.streams.requests.last?.url,
+            "https://example.invalid/events/stream?token=token-2&events=sessionActivity,sessionUnread&workspaceId=w-2"
+        )
+        second.send(ServerFrames.connected)
+        let epochTwo = await eventually { fixture.events.state == .open(epoch: 2) }
+        XCTAssertTrue(epochTwo)
+    }
+
+    func test_e63_subscriptionFrame_configuredEvent_goesToWireListeners() throws
+    {
+        let revoked = try run().open().issued { .frameReceived(generation: $0, event: Self.subscriptionFrame("revoked", "sessionActivity")) }
+        XCTAssertEqual(
+            revoked.effects,
+            [.subscription(name: "sessionActivity", status: .revoked), .startSilenceTimer(generation: revoked.generation, millis: 25_000)]
+        )
+        let granted = revoked.issued { .frameReceived(generation: $0, event: Self.subscriptionFrame("granted", "sessionUnread")) }
+        XCTAssertEqual(
+            granted.effects,
+            [.subscription(name: "sessionUnread", status: .granted), .startSilenceTimer(generation: granted.generation, millis: 25_000)]
+        )
+    }
+
+    func test_e64_subscriptionFrame_unconfiguredEvent_isDroppedUncounted() throws
+    {
+        let frames = [
+            Self.subscriptionFrame("revoked", "somethingElse"),
+            SPFNSSEEvent(name: "subscription.granted", data: "not json"),
+            SPFNSSEEvent(name: "subscription.granted", data: "{\"data\":{}}"),
+        ]
+        for frame in frames
+        {
+            let run = try run().open().issued { .frameReceived(generation: $0, event: frame) }
+            XCTAssertEqual(run.effects, [.startSilenceTimer(generation: run.generation, millis: 25_000)])
+        }
+    }
+
+    func test_e65_reconnectNowWhileRetrying_mintsAtOnce_cancelsTimer() throws
+    {
+        let retrying = try run().retrying()
+            .issued { .retryElapsed(generation: $0) }
+            .issued { .tokenFailed(generation: $0, failure: .network) }
+        XCTAssertEqual(retrying.publicState, .retrying(attempt: 3, delayMillis: 2_000, reason: .network))
+        let waited = retrying.generation
+        let now = retrying.feed(.reconnectNow)
+        XCTAssertEqual(now.publicState, .connecting(attempt: 1))
+        XCTAssertTrue(now.effects.contains(.cancelTimers))
+        assertMints(now)
+
+        let current = now.state
+        now.feed(.retryElapsed(generation: waited))
+        XCTAssertEqual(now.effects, [], "the cancelled timer cannot start a second attempt")
+        XCTAssertEqual(now.state, current)
+    }
+
+    func test_e66_reconnectNowWhenClosed_mintsAtOne() throws
+    {
+        let closed = try run().closed()
+        let now = closed.feed(.reconnectNow)
+        XCTAssertEqual(now.publicState, .connecting(attempt: 1))
+        assertMints(now)
+
+        // Closed after a narrowing: the full configured list is tried again.
+        let narrowed = try run().streaming()
+            .issued { .streamAnswered(generation: $0, answer: .invalidEvents(invalid: ["sessionActivity"], valid: ["sessionUnread"])) }
+            .issued { .tokenMinted(generation: $0, token: Self.token) }
+            .issued { .streamAnswered(generation: $0, answer: .invalidEvents(invalid: ["sessionUnread"], valid: [])) }
+        XCTAssertEqual(narrowed.publicState, .closed(.unknownEvents(["sessionUnread"])))
+        let again = narrowed.feed(.reconnectNow).issued { .tokenMinted(generation: $0, token: Self.token) }
+        XCTAssertEqual(again.effects, [.openStream(generation: again.generation, names: ["sessionActivity", "sessionUnread"], token: Self.token)])
+    }
+
+    func test_e67_reconnectNowWhenOpenConnectingOrIdle_doesNothing() throws
+    {
+        for run in [try run(), try run().signedInForeground(), try run().streaming(), try run().headers(), try run().open()]
+        {
+            let before = run.state
+            run.feed(.reconnectNow)
+            XCTAssertEqual(run.effects, [])
+            XCTAssertEqual(run.state, before)
+        }
+    }
+
+    func test_e68_reconnectNowWhenOffline_doesNothing() throws
+    {
+        let offline = try run().offline()
+        let before = offline.state
+        for _ in 0 ..< 3
+        {
+            offline.feed(.reconnectNow)
+            XCTAssertEqual(offline.effects, [])
+            XCTAssertEqual(offline.state, before)
+        }
+        XCTAssertEqual(offline.publicState, .offline(attempt: 2))
+    }
+
     private static func lateInputs(_ generation: Int64) -> [SPFNEventInput]
     {
         [
