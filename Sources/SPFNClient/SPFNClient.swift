@@ -96,7 +96,7 @@ public struct SPFNClient: Sendable
         let first: Attempt
         do
         {
-            first = try await attempt(call.operation, canonicalBody: canonicalBody)
+            first = try await attempt(call, canonicalBody: canonicalBody)
         }
         catch SPFNClientError.auth(let failure) where failure.code == .proofExpired
         {
@@ -146,7 +146,7 @@ public struct SPFNClient: Sendable
             response = try await transport.execute(
                 SPFNTransportRequest(
                     method: call.operation.method,
-                    url: session.baseURL + call.operation.path,
+                    url: session.baseURL + call.pathAndQuery,
                     // The identity headers ride here too. The contract applies them to
                     // every operation "proven or not — enrolment and login are where a
                     // stale client is met first, and they carry no proof", and this is
@@ -174,15 +174,22 @@ public struct SPFNClient: Sendable
     // MARK: - The two attempts
 
     /// One request: fresh headers, one transport call, no interpretation of the answer.
-    private func attempt(_ operation: SPFNOperation, canonicalBody: [UInt8]?) async throws -> Attempt
+    ///
+    /// The proof is over `operation.path` and the request goes to `pathAndQuery`. The
+    /// server verifies the path it routed, which carries no query, so the query is sent
+    /// and never signed.
+    private func attempt<Request, Response>(
+        _ call: SPFNCall<Request, Response>,
+        canonicalBody: [UInt8]?
+    ) async throws -> Attempt
     {
         do
         {
-            let headers = try await session.proofHeaders(operation: operation, canonicalBody: canonicalBody)
+            let headers = try await session.proofHeaders(operation: call.operation, canonicalBody: canonicalBody)
             let response = try await transport.execute(
                 SPFNTransportRequest(
-                    method: operation.method,
-                    url: session.baseURL + operation.path,
+                    method: call.operation.method,
+                    url: session.baseURL + call.pathAndQuery,
                     // Appended rather than assembled inside `proofHeaders`, because these
                     // are not proof fields: none of them enters the proof input, and the
                     // wire fixture pins what that function returns.
@@ -236,7 +243,7 @@ public struct SPFNClient: Sendable
         }
 
         await session.invalidate(staleSessionID: sessionID)
-        let second = try await attempt(call.operation, canonicalBody: canonicalBody)
+        let second = try await attempt(call, canonicalBody: canonicalBody)
         return try Self.read(second.response, for: call)
     }
 
@@ -258,7 +265,7 @@ public struct SPFNClient: Sendable
         }
 
         await session.resynchronizeClock()
-        let second = try await attempt(call.operation, canonicalBody: canonicalBody)
+        let second = try await attempt(call, canonicalBody: canonicalBody)
         return try Self.read(second.response, for: call)
     }
 

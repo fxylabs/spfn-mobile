@@ -45,6 +45,7 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -940,6 +941,88 @@ def build_requests():
     }
 
 
+# A proven operation with a query. The server verifies the path it routed — Hono's
+# `c.req.path`, which carries no query — so the proof input is the bare path, and the
+# query rides only on the URL. These are app-contract operations rather than bundle ones,
+# so each vector names its own method and path. `query` is the call's pairs in order; a
+# null value is left out of the URL. Every other value is percent-encoded here with
+# urllib, RFC 3986 unreserved bytes kept, independently of either SDK's encoder.
+QUERY_VECTORS = [
+    {
+        "name": "proven-get-with-query",
+        "why": "a proven GET with a query signs the bare path and sends path + query; its "
+               "proof input is the one a request to the bare path would sign",
+        "operationId": "getAiAccountsState",
+        "method": "GET",
+        "path": "/state/aiAccounts",
+        "query": [["workspaceId", "W"]],
+        "clientId": "client-test-0001",
+        "keyId": "key-test-0001",
+        "nonce": "nonce-000000000004",
+        "issuedAtMillis": 1750000000000,
+    },
+    {
+        "name": "proven-get-with-encoded-query",
+        "why": "a query value with a space and an '&' is percent-encoded on the URL and never "
+               "signed; a null value is left out rather than sent as 'name=' or 'name=null'",
+        "operationId": "getAiAccountsState",
+        "method": "GET",
+        "path": "/state/aiAccounts",
+        "query": [["cursor", None], ["workspaceId", "a b&c"]],
+        "clientId": "client-test-0001",
+        "keyId": "key-test-0001",
+        "nonce": "nonce-000000000005",
+        "issuedAtMillis": 1750000000000,
+    },
+]
+
+
+def path_and_query(path: str, query: list) -> str:
+    fields = [name + "=" + urllib.parse.quote(value, safe="") for name, value in query if value is not None]
+    return path + ("?" + "&".join(fields) if fields else "")
+
+
+def build_query_vectors(mapping: dict) -> list:
+    names = mapping["headers"]
+    vectors = []
+    for vector in QUERY_VECTORS:
+        fields = {
+            "method": vector["method"],
+            "path": vector["path"],
+            "clientId": vector["clientId"],
+            "keyId": vector["keyId"],
+            "nonce": vector["nonce"],
+            "issuedAtMillis": vector["issuedAtMillis"],
+            "bodySha256": ABSENT_BODY_DIGEST,
+        }
+        proof = proof_signature(fields)
+        values = {
+            "profile": PROFILE,
+            "clientId": vector["clientId"],
+            "keyId": vector["keyId"],
+            "nonce": vector["nonce"],
+            "issuedAtMillis": str(vector["issuedAtMillis"]),
+            "proof": proof,
+            "session": None,
+        }
+        vectors.append({
+            "name": vector["name"],
+            "why": vector["why"],
+            "operationId": vector["operationId"],
+            "method": vector["method"],
+            "path": vector["path"],
+            "query": vector["query"],
+            "pathAndQuery": path_and_query(vector["path"], vector["query"]),
+            "requiresSession": False,
+            "sessionId": None,
+            "bodySha256": ABSENT_BODY_DIGEST,
+            "canonicalString": proof_input_string(fields),
+            "proof": proof,
+            "headers": [[names[field], values[field]] for field in mapping["headerOrder"] if values[field] is not None],
+        })
+    return vectors
+
+
 def build_wire():
     bundle = load_bundle()
     mapping = bundle["wireMapping"]
@@ -1003,6 +1086,7 @@ def build_wire():
         "headerOrder": mapping["headerOrder"],
         "sessionRule": mapping["sessionRule"],
         "vectors": vectors,
+        "queryVectors": build_query_vectors(mapping),
     }
 
 
