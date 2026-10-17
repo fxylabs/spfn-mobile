@@ -83,6 +83,36 @@ class SpfnOkHttpStreamTransportTest
         assertEquals(1, server.requestCount);
     }
 
+    /**
+     * `cancel()` is called from the scope that drives the stream — on a phone, the main
+     * thread — and closing a chunked body still open reads the socket to discard the rest.
+     * So the close goes to OkHttp's executor, and the calling thread touches no socket:
+     * the executor records exactly one task and the calling thread's work is the cancel.
+     */
+    @Test
+    fun adapter_cancel_closesTheBodyOffTheCallingThread() = runBlocking {
+        server.enqueue(MockResponse.Builder().code(200).addHeader("content-type", "text/event-stream").chunkedBody(ServerFrames.CONNECTED, 7).build());
+        val handedOff = java.util.concurrent.atomic.AtomicInteger();
+        var counting = false;
+        val recording = object : java.util.concurrent.ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, java.util.concurrent.LinkedBlockingQueue())
+        {
+            override fun execute(command: Runnable)
+            {
+                if (counting) handedOff.incrementAndGet();
+                super.execute(command);
+            }
+        };
+        val transport = SpfnOkHttpStreamTransport(okhttp3.OkHttpClient.Builder().dispatcher(okhttp3.Dispatcher(recording)).build());
+
+        val response = transport.open(request());
+        counting = true;
+        response.cancel();
+
+        recording.shutdown();
+        assertTrue(recording.awaitTermination(5, TimeUnit.SECONDS));
+        assertEquals(1, handedOff.get());
+    }
+
     @Test
     fun adapter_sendsNoCookies() = runBlocking {
         server.enqueue(MockResponse.Builder().code(200).addHeader("Set-Cookie", "session=abc; Path=/").build());

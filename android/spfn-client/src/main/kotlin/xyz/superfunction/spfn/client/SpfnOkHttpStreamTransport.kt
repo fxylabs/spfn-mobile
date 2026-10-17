@@ -47,9 +47,14 @@ class SpfnOkHttpStreamTransport(client: OkHttpClient = OkHttpClient()) : SpfnStr
             statusCode = response.code,
             headers = response.headers.toList(),
             chunks = chunks(response),
+            // The caller's thread is whatever scope drives the event stream — on Android often
+            // the main one. `Response.close()` on a chunked body still open DISCARDS the rest
+            // by reading the socket, which is network on that thread (the platform throws
+            // NetworkOnMainThreadException before the first byte). So the cancel only cancels
+            // the call here, and the close runs on OkHttp's own executor.
             onCancel = {
                 call.cancel();
-                response.close();
+                streamClient.dispatcher.executorService.execute { response.close() };
             }
         );
     }
