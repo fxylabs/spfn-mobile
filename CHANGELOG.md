@@ -5,6 +5,37 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The state client: `SPFNState` / `spfn-state`, generated `AppStates`, and `@SPFNServerState` / `rememberServerState`
+
+- New module `state` — Swift target and product `SPFNState`, Android module `spfn-state`
+  (coordinate `xyz.superfunction.spfn:spfn-state`) — depending on `client` alone, toolkit-free,
+  built and tested on Linux and the JVM. `SPFNStateClient` / `SpfnStateClient` keeps the
+  server's state router (`@spfn/core/state`) current over the app's one event stream:
+  `subscribe` (current entry first, then each change of status, value or data), `current`,
+  `get`, `write`, `snapshot`, `connection`, `subscribeConnection`, `retry`, `close`. Entries
+  are `loading · ready(frame) · revoked(frame?)`; the connection is
+  `connected · reconnecting(attempt) · failed`. The rules are the web client's: ordering per
+  (id, key) by `at` compared as a string, the connection query as the union of the subscribed
+  keys (the latest key carried, shadowed keys read once per open), revoked marks lifted only by
+  a newer connection or a grant, the snapshot re-read on an open only when `initial` does not
+  cover every state (docs/architecture/state-client-design.md).
+- App-contract codegen generates the descriptors (Q-G): with `getStates` selected and the new
+  `spfn.appContract.statesNamespace` property, one more file per platform carries
+  `AppStates.<id>` (writable when `put<Id>State` exists), `AppStates.all`, `AppStates.events`
+  and `AppStates.snapshot`. Selecting `getStates` pulls in each state's read and write. A state
+  the generator cannot type stops generation by name (docs/architecture/app-contract-codegen.md §8).
+- `events` gains the observation adapters (Q-F) and an edge to `state`: the root attachment
+  takes the state client (`.spfnEventStream(_:keyLifecycle:stateClient:)`,
+  `SpfnEventStreamHost(…, stateClient = …)`), `@SPFNServerState` / `rememberServerState` and
+  `@SPFNConnectionStatus` / `rememberConnectionStatus` draw one state or the connection status
+  with the current value first, and `SPFNServerStateDriver` / `SpfnServerStateDriver` is the
+  toolkit-free body both sit on. An app that links `events` now links `state` as well.
+- One case table for both suites: `Contracts/fixtures/state/cases.json` (rendered from the
+  hand-written `state_cases.py` by `derive-expected-values.py`, recorded in `MANIFEST.json`)
+  holds the 72 cells whose decisions are data; the 13 cells about time, turns and closing are
+  written per platform under the same names. `validate.sh` section 13 compares the 87 state
+  test names and the 9 adapter names across the two platforms.
+
 ### A signed operation carries a query: the SDK signs the path and sends path + query; codegen generates queries on `clientProofV1` operations
 
 - `SPFNCall` / `SpfnCall` carry `query` — `(name, value)` pairs, a nil/null value left out —

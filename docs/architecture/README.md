@@ -39,7 +39,8 @@ and Maven coordinate lists from the graph.
 | `SPFNAuth` | `spfn-auth` | yes | core | swift-crypto (Linux) |
 | `SPFNClient` | `spfn-client` | yes | core, auth, generated | swift-crypto (Linux), OkHttp, coroutines (Android) |
 | `SPFNUI` | `spfn-ui` | yes | core | Compose ×3, Navigation 3 ×2, coroutines (Android) |
-| `SPFNEvents` | `spfn-events` | yes (toolkit-free types) | client | Compose runtime, Compose UI, lifecycle-process, coroutines (Android) |
+| `SPFNState` | `spfn-state` | yes | client | coroutines (Android) |
+| `SPFNEvents` | `spfn-events` | yes (toolkit-free types) | client, state | Compose runtime, Compose UI, lifecycle-process, coroutines (Android) |
 | `SPFNSocialApple` | — (declared absent) | — (declared absent) | client | — |
 | `SPFNSocialGoogle` | `spfn-social-google` | — (declared absent) | client | GoogleSignIn (trait), Credential Manager ×3 |
 
@@ -883,4 +884,26 @@ promise that an app which only renders state links neither the client module nor
 The module's Android manifest carries `ACCESS_NETWORK_STATE`, so only an app that links it
 gains the permission. Its SwiftUI and Network files are guarded whole, so on Linux it
 builds as its toolkit-free types (the scene tally and the signal rules).
+
+
+## The state client
+
+The server's state router (`@spfn/core/state`) reaches a native app through one object over
+the app's one event stream: `SPFNStateClient` / `SpfnStateClient` in the `state` module
+(docs/architecture/state-client-design.md). It is `@spfn/core/state/client` on the native
+SDK — the same ordering, key, revoked and connection rules, decided by one pure core
+(`SPFNStateCore` / `SpfnStateCore`, input → effects) that both suites drive through the
+shared case table `Contracts/fixtures/state/cases.json`.
+
+| Piece | Where | What it reuses |
+| --- | --- | --- |
+| the descriptors | `AppStates.<id>`, `.all`, `.events`, `.snapshot` — generated from the app's contract document by `:contract-codegen` when `getStates` is selected | the generated `get<Id>State` / `put<Id>State` / `getStates` calls; nobody writes a descriptor or a frame decoder by hand |
+| reads and writes | `execute`, signed by `SPFNKeyLifecycle.signedInClient()` at each call | the one execute path; no route name or path is known to the client |
+| frames | `SPFNEventStream.listenWire` — one queue with `opened`, frames, grants and revokes in order | the event stream's connection; the client writes its query with `setQuery` and restarts it with `reconnectNow` |
+| the view | `@SPFNServerState`, `@SPFNConnectionStatus` / `rememberServerState`, `rememberConnectionStatus` in `events` | the root attachment, which takes the state client beside the stream |
+
+The connection stays the event stream's: the SDK opens it in the foreground while somebody is
+signed in, and the state client only says which keys it carries. Because the stream has one
+query, a stream has one state client, and attaching a client made for another stream is a
+programmer error.
 
