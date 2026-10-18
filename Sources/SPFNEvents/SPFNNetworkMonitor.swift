@@ -1,18 +1,25 @@
 // SPFN Mobile — the network observer: NWPathMonitor as a stream of the network input.
 //
+// Public since the app root packages read it (superself-apps packages/spfn-app): the event
+// stream's attachment and an app's root share one reading of the platform's network, so
+// the two never disagree about whether there is one. The stream's rule is the attachment's
+// — `setNetworkAvailable` on every element — and this type only observes.
+//
 // Guarded whole on Network, which only Apple ships; on Linux the module has no network
 // observer and an app without one simply never calls `setNetworkAvailable`, which the
 // stream recovers from by backoff (§3-6). `tools/validate/validate.sh` §8 holds the guard.
+//
+// android/spfn-events/.../SpfnNetworkMonitor.kt is the same observer in Kotlin.
 
 #if canImport(Network)
 import Foundation
 import Network
 
-enum SPFNNetworkMonitor
+public enum SPFNNetworkMonitor
 {
     /// Whether a satisfied path exists, now and on every change, until the consumer stops.
     /// The monitor is cancelled when the stream terminates.
-    static func availability() -> AsyncStream<Bool>
+    public static func availability() -> AsyncStream<Bool>
     {
         AsyncStream
         {

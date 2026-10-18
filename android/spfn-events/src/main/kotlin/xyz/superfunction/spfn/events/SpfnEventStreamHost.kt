@@ -14,8 +14,6 @@ package xyz.superfunction.spfn.events
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
-import android.net.ConnectivityManager
-import android.net.Network
 import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -98,12 +96,9 @@ private fun ObserveSignedIn(stream: SpfnEventStream, keyLifecycle: SpfnKeyLifecy
 @Composable
 private fun ObserveNetwork(stream: SpfnEventStream, context: Context)
 {
-    DisposableEffect(stream, context)
+    LaunchedEffect(stream, context)
     {
-        val connectivity = context.getSystemService(ConnectivityManager::class.java);
-        val callback = SpfnDefaultNetworkCallback { stream.setNetworkAvailable(spfnNetworkAvailableOf(it)) };
-        connectivity.registerDefaultNetworkCallback(callback);
-        onDispose { connectivity.unregisterNetworkCallback(callback) };
+        SpfnNetworkMonitor.availability(context).collect { stream.setNetworkAvailable(it) };
     };
 }
 
@@ -126,24 +121,6 @@ private fun WarnAboutUnavailableEvents(stream: SpfnEventStream, context: Context
             .filter { it.isNotEmpty() }
             .collect { Log.w(LOG_TAG, "the server does not serve these configured events: ${it.joinToString()}") };
     };
-}
-
-private class SpfnDefaultNetworkCallback(private val report: (SpfnNetworkSignal) -> Unit) : ConnectivityManager.NetworkCallback()
-{
-    override fun onAvailable(network: Network)
-    {
-        report(SpfnNetworkSignal.AVAILABLE);
-    }
-
-    override fun onLost(network: Network)
-    {
-        report(SpfnNetworkSignal.LOST);
-    }
-
-    override fun onUnavailable()
-    {
-        report(SpfnNetworkSignal.UNAVAILABLE);
-    }
 }
 
 private const val LOG_TAG = "SpfnEvents";
