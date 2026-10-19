@@ -18,6 +18,19 @@
 import SPFNCore
 import SPFNGenerated
 
+/// How one `execute` ended, handed to the observer an app gives a client.
+///
+/// `success` for an answer the call accepted, `failure` with the same `SPFNClientError`
+/// the call throws for anything else. The observer learns the kind of outcome only: no
+/// request, no response body and no identity reach it.
+///
+/// It is called synchronously, once per `execute`, on whatever task runs that call, and
+/// after the SDK's own handling — the one re-handshake, the one re-anchored retry — so a
+/// retried call is reported once, by how it finally ended. It is never called inside the
+/// session's isolation. The type does not let it throw, and nothing in the SDK guards
+/// against what it does: it should hand the outcome on and return.
+public typealias SPFNClientOutcome = @Sendable (Result<Void, SPFNClientError>) -> Void
+
 /// Sends contract operations over a transport, against one session.
 ///
 /// A struct, not an actor: it holds nothing that changes. Every piece of shared mutable
@@ -29,29 +42,86 @@ public struct SPFNClient: Sendable
     private let transport: any SPFNTransport
     private let session: SPFNSession
     private let timeoutMillis: Int64
+    private let onOutcome: SPFNClientOutcome?
 
-    /// - Parameter timeoutMillis: the deadline for one attempt, not for the call. A
-    ///   re-handshake and the re-sent request each get a fresh budget, because the
-    ///   transport's deadline is per call and splitting one budget across three calls
-    ///   would make the last one fail for reasons the caller never asked for. It applies
-    ///   to the operation requests only: a handshake is a call the session makes, under
-    ///   the deadline the session was given.
+    /// - Parameters:
+    ///   - timeoutMillis: the deadline for one attempt, not for the call. A re-handshake
+    ///     and the re-sent request each get a fresh budget, because the transport's
+    ///     deadline is per call and splitting one budget across three calls would make
+    ///     the last one fail for reasons the caller never asked for. It applies to the
+    ///     operation requests only: a handshake is a call the session makes, under the
+    ///     deadline the session was given.
+    ///   - onOutcome: told how every `execute` ended; see `SPFNClientOutcome`. `nil`, the
+    ///     default, reports nothing and changes nothing.
     public init(
         transport: any SPFNTransport,
         session: SPFNSession,
-        timeoutMillis: Int64 = 15_000
+        timeoutMillis: Int64 = 15_000,
+        onOutcome: SPFNClientOutcome? = nil
     )
     {
         self.transport = transport
         self.session = session
         self.timeoutMillis = timeoutMillis
+        self.onOutcome = onOutcome
     }
 
     /// Sends one operation and returns its response.
     ///
     /// Throws `SPFNClientError` for everything this path classifies. An error it did not
     /// produce passes through as itself; see that type.
+    ///
+    /// This is the one exit every outcome leaves through, which is why the observer is
+    /// told here and nowhere below: a retry happens inside `send`, so it cannot be
+    /// reported twice.
     public func execute<Request, Response>(
+        _ call: SPFNCall<Request, Response>,
+        request: Request
+    ) async throws -> Response
+    {
+        let outcome: Result<Response, any Error>
+        do
+        {
+            outcome = .success(try await send(call, request: request))
+        }
+        catch
+        {
+            outcome = .failure(error)
+        }
+        report(outcome)
+        return try outcome.get()
+    }
+
+    /// Hands the observer how the call ended, in the observer's terms.
+    ///
+    /// A bare `CancellationError` is reported as `.transport(.cancelled)`, the shape this
+    /// SDK gives cancellation everywhere it classifies it, so a cancelled call is reported
+    /// whichever layer noticed. Any other error this path did not produce is not reported:
+    /// it is a client-side fault rather than an answer from the server, and the outcome
+    /// type carries only what the SDK classifies — the same rule `SPFNClientError` states.
+    private func report<Response>(_ outcome: Result<Response, any Error>)
+    {
+        guard let onOutcome
+        else
+        {
+            return
+        }
+        switch outcome
+        {
+        case .success:
+            onOutcome(.success(()))
+        case .failure(let failure as SPFNClientError):
+            onOutcome(.failure(failure))
+        case .failure(is CancellationError):
+            onOutcome(.failure(.transport(.cancelled)))
+        case .failure:
+            break
+        }
+    }
+
+    /// Everything `execute` does except reporting: the classification, the attempt and
+    /// the one retry.
+    private func send<Request, Response>(
         _ call: SPFNCall<Request, Response>,
         request: Request
     ) async throws -> Response

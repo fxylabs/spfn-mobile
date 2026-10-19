@@ -30,6 +30,22 @@ import xyz.superfunction.spfn.generated.SpfnGeneratedOperations
 import kotlin.coroutines.coroutineContext
 
 /**
+ * How one `execute` ended, handed to the observer an app gives a client.
+ *
+ * `success` for an answer the call accepted, `failure` with the same [SpfnClientError] the
+ * call throws for anything else — or the `CancellationException` it rethrows when the
+ * calling coroutine was cancelled. The observer learns the kind of outcome only: no
+ * request, no response body and no identity reach it.
+ *
+ * It is called synchronously, once per `execute`, in the frame that is about to return or
+ * throw, and after the SDK's own handling — the one re-handshake, the one re-anchored
+ * retry — so a retried call is reported once, by how it finally ended. It is never called
+ * while the session's lock is held. It must not throw: the SDK does not catch what it
+ * throws, which then leaves `execute` in place of the call's own result.
+ */
+typealias SpfnClientOutcome = (Result<Unit>) -> Unit
+
+/**
  * Sends contract operations over a transport, against one session.
  *
  * Holds nothing that changes. Every piece of shared mutable state a request touches — the
@@ -40,11 +56,14 @@ import kotlin.coroutines.coroutineContext
  *   call and splitting one budget across three calls would make the last one fail for
  *   reasons the caller never asked for. It applies to the operation requests only: a
  *   handshake is a call the session makes, under the deadline the session was given.
+ * @param onOutcome told how every `execute` ended; see [SpfnClientOutcome]. `null`, the
+ *   default, reports nothing and changes nothing.
  */
 class SpfnClient(
     private val transport: SpfnTransport,
     private val session: SpfnSession,
-    private val timeoutMillis: Long = 15_000
+    private val timeoutMillis: Long = 15_000,
+    private val onOutcome: SpfnClientOutcome? = null
 )
 {
     /**
@@ -53,8 +72,41 @@ class SpfnClient(
      * Throws [SpfnClientError] for everything this path classifies, and rethrows
      * `CancellationException` unwrapped. An error it did not produce passes through as
      * itself; see that type.
+     *
+     * This is the one exit every outcome leaves through, which is why the observer is told
+     * here and nowhere below: a retry happens inside [send], so it cannot be reported
+     * twice. A cancelled coroutine is told in this frame, before the cancellation is
+     * rethrown, so the report never outlives the scope that made the call.
      */
     suspend fun <Req, Resp> execute(call: SpfnCall<Req, Resp>, request: Req): Resp
+    {
+        val outcome = runCatching { send(call, request) };
+        report(outcome);
+        return outcome.getOrThrow();
+    }
+
+    /**
+     * Hands the observer how the call ended, in the observer's terms.
+     *
+     * An error this path did not produce is not reported: it is a client-side fault rather
+     * than an answer from the server, and the observer is given only what the SDK
+     * classifies — the same rule [SpfnClientError] states. Cancellation is the exception,
+     * because on this platform it is how a cancelled call ends.
+     */
+    private fun <Resp> report(outcome: Result<Resp>)
+    {
+        val observer = onOutcome ?: return;
+        val failure = outcome.exceptionOrNull();
+        when (failure)
+        {
+            null -> observer(Result.success(Unit))
+            is SpfnClientError, is CancellationException -> observer(Result.failure(failure))
+            else -> Unit
+        }
+    }
+
+    /** Everything [execute] does except reporting: the classification, the attempt and the one retry. */
+    private suspend fun <Req, Resp> send(call: SpfnCall<Req, Resp>, request: Req): Resp
     {
         // The auth class is resolved before anything is sent, and an unknown one is
         // refused rather than guessed at. The contract's own rule: nothing is ever

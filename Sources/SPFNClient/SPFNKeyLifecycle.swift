@@ -223,6 +223,7 @@ public actor SPFNKeyLifecycle
     private let timeoutMillis: Int64
     private let newKeyID: @Sendable () -> String
     private let makeKey: @Sendable (String) -> SPFNCustodyKey
+    private let onOutcome: SPFNClientOutcome?
 
     /// True from the moment `enroll` claims the flow to the moment it leaves, however it
     /// leaves. An actor does not serialise across an `await`, and `enroll` now awaits the
@@ -241,6 +242,12 @@ public actor SPFNKeyLifecycle
     ///   - newKeyID: mints key identifiers; UUIDs by default. Injected so a suite can
     ///     pin the wire bytes a flow produces against the fixtures.
     ///   - makeKey: generates custody keys; the platform decision by default.
+    ///   - onOutcome: given to every client this lifecycle builds — the enrollment and
+    ///     rotation clients as well as `signedInClient()` — because the app never builds
+    ///     one itself, so this is the one place it can say how outcomes reach it. Each
+    ///     of those clients' calls is reported outside this actor's isolation: `execute`
+    ///     is a nonisolated async function, so it runs on the generic executor even when
+    ///     a method of this actor awaits it. `nil` by default.
     public init(
         transport: any SPFNTransport,
         store: any SPFNKeyStore,
@@ -251,7 +258,8 @@ public actor SPFNKeyLifecycle
         sleeper: any SPFNSleeper = SPFNTaskSleeper(),
         timeoutMillis: Int64 = 15_000,
         newKeyID: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() },
-        makeKey: @escaping @Sendable (String) -> SPFNCustodyKey = { SPFNCustodyKey.generate(keyID: $0) }
+        makeKey: @escaping @Sendable (String) -> SPFNCustodyKey = { SPFNCustodyKey.generate(keyID: $0) },
+        onOutcome: SPFNClientOutcome? = nil
     )
     {
         self.transport = transport
@@ -264,6 +272,7 @@ public actor SPFNKeyLifecycle
         self.timeoutMillis = timeoutMillis
         self.newKeyID = newKeyID
         self.makeKey = makeKey
+        self.onOutcome = onOutcome
     }
 
     // MARK: - Observation
@@ -1111,7 +1120,8 @@ public actor SPFNKeyLifecycle
                 nonceGenerator: nonceGenerator,
                 timeoutMillis: self.timeoutMillis
             ),
-            timeoutMillis: timeoutMillis ?? self.timeoutMillis
+            timeoutMillis: timeoutMillis ?? self.timeoutMillis,
+            onOutcome: onOutcome
         )
     }
 

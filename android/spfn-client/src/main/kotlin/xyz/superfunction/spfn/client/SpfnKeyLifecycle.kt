@@ -256,6 +256,11 @@ sealed class SpfnKeyLifecycleException(message: String) : IllegalStateException(
  *
  * @param newKeyId mints key identifiers; UUIDs by default. Injected so a suite can
  *   pin the wire bytes a flow produces against the fixtures.
+ * @param onOutcome given to every client this lifecycle builds — the enrollment and
+ *   rotation clients as well as [signedInClient] — because the app never builds one
+ *   itself, so this is the one place it can say how outcomes reach it. No call is
+ *   reported while the mutex is held: the rotation, which sends under it, reports once
+ *   the mutex is released. `null` by default.
  */
 class SpfnKeyLifecycle(
     private val transport: SpfnTransport,
@@ -268,7 +273,8 @@ class SpfnKeyLifecycle(
     private val sleeper: SpfnSleeper = SpfnDelaySleeper(),
     private val timeoutMillis: Long = 15_000,
     private val preferStrongBox: Boolean = true,
-    private val newKeyId: () -> String = { UUID.randomUUID().toString().lowercase() }
+    private val newKeyId: () -> String = { UUID.randomUUID().toString().lowercase() },
+    private val onOutcome: SpfnClientOutcome? = null
 )
 {
     /**
@@ -977,7 +983,9 @@ class SpfnKeyLifecycle(
      * way the bookkeeping after it can fail — a key id that is not the one sent, a store
      * that will not write — leaves the candidate exactly where it is.
      */
-    suspend fun rotate(): SpfnEnrollmentResult = mutex.withLock {
+    suspend fun rotate(): SpfnEnrollmentResult = reportingAfterTheLock { held -> rotateLocked(held) }
+
+    private suspend fun rotateLocked(held: HeldOutcome?): SpfnEnrollmentResult = mutex.withLock {
         when (state())
         {
             SpfnKeyLifecycleState.UNENROLLED -> throw SpfnKeyLifecycleException.NotEnrolled()
@@ -992,7 +1000,7 @@ class SpfnKeyLifecycle(
             // Inside the guard with the send: the Keystore entry already exists, so a save
             // that throws would otherwise leave the alias behind with nothing naming it.
             store.save(CANDIDATE_SLOT, candidate.metadata(clientId = old.clientId, createdAtMillis = clock.nowMillis()));
-            send(candidate, old)
+            send(candidate, old, held)
         }
         catch (failure: Throwable)
         {
@@ -1009,7 +1017,9 @@ class SpfnKeyLifecycle(
      * the same table [rotate] reads — with the one documented asymmetry on PROOF_INVALID,
      * which completes the rotation here rather than discarding it.
      */
-    suspend fun resumeRotation(): SpfnEnrollmentResult = mutex.withLock {
+    suspend fun resumeRotation(): SpfnEnrollmentResult = reportingAfterTheLock { held -> resumeRotationLocked(held) }
+
+    private suspend fun resumeRotationLocked(held: HeldOutcome?): SpfnEnrollmentResult = mutex.withLock {
         val record = store.load(CANDIDATE_SLOT) ?: throw SpfnKeyLifecycleException.NotEnrolled();
         val clientId = record.clientId ?: throw SpfnKeyLifecycleException.KeyUnloadable();
         val candidate = SpfnKeystoreCustodyKey.reload(record, engine)
@@ -1028,7 +1038,7 @@ class SpfnKeyLifecycle(
 
         val response = try
         {
-            send(candidate, old)
+            send(candidate, old, held)
         }
         catch (failure: Throwable)
         {
@@ -1041,6 +1051,39 @@ class SpfnKeyLifecycle(
             throw failure;
         };
         return@withLock promote(candidate, clientId, response.keyId);
+    }
+
+    /**
+     * The rotation's outcome, held while the mutex is and handed to the app's observer
+     * once it is released. The rotation sends under the mutex, so a client given the
+     * observer itself would report inside the lock — and an observer that reached back
+     * into this lifecycle would wait on a lock its own caller holds.
+     */
+    private class HeldOutcome(private val observer: SpfnClientOutcome)
+    {
+        private var outcome: Result<Unit>? = null
+
+        fun hold(outcome: Result<Unit>)
+        {
+            this.outcome = outcome;
+        }
+
+        fun deliver()
+        {
+            outcome?.let(observer);
+        }
+    }
+
+    /**
+     * Runs [locked] and reports the call it held only after it has left the mutex, in the
+     * same frame and before its result is returned or rethrown — cancellation included.
+     */
+    private suspend fun <T> reportingAfterTheLock(locked: suspend (HeldOutcome?) -> T): T
+    {
+        val held = onOutcome?.let(::HeldOutcome);
+        val result = runCatching { locked(held) };
+        held?.deliver();
+        return result.getOrThrow();
     }
 
     // ---- M6: revocation ----------------------------------------------------
@@ -1108,8 +1151,12 @@ class SpfnKeyLifecycle(
         store.delete(CANDIDATE_SLOT);
     }
 
-    private suspend fun send(candidate: SpfnKeystoreCustodyKey, old: SpfnKeystoreKeyProvider): SpfnRotateKeyResponse =
-        client(signer = old).execute(
+    private suspend fun send(
+        candidate: SpfnKeystoreCustodyKey,
+        old: SpfnKeystoreKeyProvider,
+        held: HeldOutcome?
+    ): SpfnRotateKeyResponse =
+        client(signer = old, onOutcome = held?.let { it::hold }).execute(
             SpfnGeneratedCalls.authKeysRotate,
             SpfnRotateKeyRequest(
                 publicKey = Base64.encode(candidate.publicKeySpkiDer),
@@ -1151,7 +1198,11 @@ class SpfnKeyLifecycle(
      * enrollment client carries a placeholder that throws if anything ever asks it
      * to sign, which nothing on that path can.
      */
-    private fun client(signer: SpfnKeystoreKeyProvider?, timeoutMillis: Long = this.timeoutMillis): SpfnClient
+    private fun client(
+        signer: SpfnKeystoreKeyProvider?,
+        timeoutMillis: Long = this.timeoutMillis,
+        onOutcome: SpfnClientOutcome? = this.onOutcome
+    ): SpfnClient
     {
         val provider: SpfnKeyProvider = signer ?: UnenrolledKeyProvider;
         return SpfnClient(
@@ -1164,7 +1215,8 @@ class SpfnKeyLifecycle(
                 nonceGenerator = nonceGenerator,
                 timeoutMillis = this.timeoutMillis
             ),
-            timeoutMillis = timeoutMillis
+            timeoutMillis = timeoutMillis,
+            onOutcome = onOutcome
         );
     }
 

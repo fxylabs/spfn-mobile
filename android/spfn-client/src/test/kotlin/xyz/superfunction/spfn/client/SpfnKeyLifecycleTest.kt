@@ -13,6 +13,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -554,6 +555,78 @@ class SpfnKeyLifecycleTest
                 );
             }
         }
+    }
+
+    // ---- L9: every client this lifecycle builds carries its observer (spfn-mobile#97)
+
+    /**
+     * L9. The unproven enrollment call is a call to the server like any other, and the app
+     * never sees the client that makes it.
+     */
+    @Test
+    fun onOutcome_L9_theUnenrolledClientCarriesTheLifecycleObserver() = runBlocking {
+        val recorder = OutcomeRecorder();
+        val transport = ScriptedTransport(
+            listOf(answer("{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
+        );
+        val lifecycle = makeLifecycle(
+            transport,
+            InMemoryKeyMetadataStore(),
+            scriptedEngine(testKeyPair()),
+            keyIds = listOf("key-test-0001"),
+            onOutcome = recorder.observer
+        );
+
+        lifecycle.enroll(provider = "google") { "id-token-test" };
+
+        assertEquals(1, recorder.reported.size);
+        assertTrue(recorder.reported.single().isSuccess);
+    }
+
+    /** L9. The signed client the app is handed reports through the lifecycle's observer. */
+    @Test
+    fun onOutcome_L9_theSignedInClientCarriesTheLifecycleObserver() = runBlocking {
+        val recorder = OutcomeRecorder();
+        val transport = ScriptedTransport(
+            listOf(answer(SessionFixtureValues.HANDSHAKE_RESPONSE_BODY), answer(ExecuteFixtures.ECHO_RESPONSE_BODY))
+        );
+        val store = InMemoryKeyMetadataStore();
+        val engine = scriptedEngine(testKeyPair());
+        enrol(store, engine, keyId = "key-test-0001", clientId = SessionFixtureValues.CLIENT_ID);
+        val lifecycle = makeLifecycle(transport, store, engine, keyIds = emptyList(), onOutcome = recorder.observer);
+
+        val client = lifecycle.signedInClient();
+        assertNotNull(client);
+        client!!.execute(ExecuteCalls.ECHO, ExecuteFixtures.ECHO_REQUEST);
+
+        assertEquals(1, recorder.reported.size);
+        assertTrue(recorder.reported.single().isSuccess);
+    }
+
+    /**
+     * L9. The rotation's own call is reported too, once, and only after the mutex it was
+     * sent under is released: the observer here takes that mutex itself, which it could not
+     * do while the rotation still held it.
+     */
+    @Test
+    fun onOutcome_L9_theRotationClientReportsOnceOutsideTheLifecycleLock() = runBlocking {
+        val recorder = OutcomeRecorder();
+        var lockFree: Boolean? = null;
+        lateinit var install: Install;
+        install = rotatingInstall(
+            ScriptedTransport(listOf(ScriptedTransport.Outcome.Failure(SpfnTransportError.TimedOut()))),
+            onOutcome = { outcome ->
+                recorder.observer(outcome);
+                lockFree = runBlocking { withTimeoutOrNull(1_000) { install.lifecycle.signedInClient(); true } } ?: false;
+            }
+        );
+
+        val thrown = runCatching { install.lifecycle.rotate() }.exceptionOrNull();
+
+        assertEquals(1, recorder.reported.size);
+        assertSame(thrown, recorder.reported.single().exceptionOrNull());
+        assertTrue("got $thrown", thrown is SpfnClientError.Transport);
+        assertEquals("the observer ran while the lifecycle's mutex was held", true, lockFree);
     }
 
     // ---- M4: rotation swaps on success, with the fixture's exact wire shape
@@ -1144,7 +1217,8 @@ class SpfnKeyLifecycleTest
         keyIds: List<String>,
         clock: FakeClock = FakeClock(1_750_000_000_000),
         proofClock: SpfnProofClock? = null,
-        nonces: List<String> = emptyList()
+        nonces: List<String> = emptyList(),
+        onOutcome: SpfnClientOutcome? = null
     ): SpfnKeyLifecycle
     {
         val remaining = keyIds.toMutableList();
@@ -1156,7 +1230,8 @@ class SpfnKeyLifecycleTest
             clock = clock,
             proofClock = proofClock ?: clock,
             nonceGenerator = ScriptedNonceGenerator(nonces),
-            newKeyId = { if (remaining.isEmpty()) "key-unexpected" else remaining.removeAt(0) }
+            newKeyId = { if (remaining.isEmpty()) "key-unexpected" else remaining.removeAt(0) },
+            onOutcome = onOutcome
         );
     }
 
@@ -1170,7 +1245,8 @@ class SpfnKeyLifecycleTest
         transport: SpfnTransport,
         store: SpfnKeyMetadataStore = InMemoryKeyMetadataStore(),
         clientId: String = "client-test-0001",
-        proofClock: SpfnProofClock? = null
+        proofClock: SpfnProofClock? = null,
+        onOutcome: SpfnClientOutcome? = null
     ): Install
     {
         val engine = scriptedEngine(testKeyPair(), wrongKeyPair());
@@ -1178,7 +1254,14 @@ class SpfnKeyLifecycleTest
         return Install(
             store,
             engine,
-            makeLifecycle(transport, store, engine, keyIds = listOf("key-test-0002"), proofClock = proofClock)
+            makeLifecycle(
+                transport,
+                store,
+                engine,
+                keyIds = listOf("key-test-0002"),
+                proofClock = proofClock,
+                onOutcome = onOutcome
+            )
         );
     }
 
