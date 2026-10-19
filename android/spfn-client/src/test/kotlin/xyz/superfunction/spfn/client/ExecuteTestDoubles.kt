@@ -306,3 +306,20 @@ class Barrier(val width: Int)
         released.await();
     }
 }
+
+// ---- watching what a client reports ----------------------------------------
+
+/**
+ * Records what an `onOutcome` observer is handed, from whichever thread hands it. A case
+ * reads the whole history rather than its last entry, which is what catches an outcome
+ * reported twice.
+ */
+class OutcomeRecorder
+{
+    private val lock = Any()
+    private val recorded = mutableListOf<Result<Unit>>()
+
+    val observer: SpfnClientOutcome = { outcome -> synchronized(lock) { recorded.add(outcome) } }
+
+    val reported: List<Result<Unit>> get() = synchronized(lock) { recorded.toList() }
+}

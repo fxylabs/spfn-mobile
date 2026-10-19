@@ -225,6 +225,64 @@ final class SPFNKeyLifecycleTests: XCTestCase
         XCTAssertEqual(calls, 0)
     }
 
+    // MARK: - L9: every client this lifecycle builds carries its observer (spfn-mobile#97)
+
+    /// L9. The unproven enrollment call is a call to the server like any other, and the
+    /// app never sees the client that makes it.
+    func test_onOutcome_L9_theUnenrolledClientCarriesTheLifecycleObserver() async throws
+    {
+        let recorder = OutcomeRecorder()
+        let oauthNative = try enrollmentFixture()["oauthNative"].orFail("oauthNative").object()
+        let transport = ScriptedTransport([
+            .success(.json(200, "{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}")),
+        ])
+        let lifecycle = try makeLifecycle(
+            transport,
+            store: InMemoryKeyStore(),
+            keys: [try testKey()],
+            keyIDs: ["key-test-0001"],
+            onOutcome: recorder.observer
+        )
+
+        _ = try await lifecycle.enroll(provider: try oauthNative.text("provider")) { _ in "token-test-0001" }
+
+        XCTAssertEqual(recorder.reported, [nil])
+    }
+
+    /// L9. The signed client the app is handed reports through the lifecycle's observer.
+    func test_onOutcome_L9_theSignedInClientCarriesTheLifecycleObserver() async throws
+    {
+        let recorder = OutcomeRecorder()
+        let transport = ScriptedTransport([
+            .success(.json(200, SessionFixtureValues.handshakeResponseBody)),
+            .success(.json(200, ExecuteFixtures.echoResponseBody)),
+        ])
+        let store = InMemoryKeyStore()
+        try enrol(store, key: try testKey(), clientID: SessionFixtureValues.clientID)
+        let lifecycle = try makeLifecycle(transport, store: store, keys: [], keyIDs: [], onOutcome: recorder.observer)
+
+        let signedIn = try await lifecycle.signedInClient()
+        let client = try XCTUnwrap(signedIn)
+        _ = try await client.execute(ExecuteCalls.echo, request: ExecuteFixtures.echoRequest)
+
+        XCTAssertEqual(recorder.reported, [nil])
+    }
+
+    /// L9. The rotation's own call is reported too, once. Here `execute` runs outside the
+    /// actor's isolation by construction; the Android twin also proves its mutex is free.
+    func test_onOutcome_L9_theRotationClientReportsOnceOutsideTheLifecycleLock() async throws
+    {
+        let recorder = OutcomeRecorder()
+        let install = try rotatingInstall(
+            ScriptedTransport([.failure(SPFNTransportError.timedOut)]),
+            onOutcome: recorder.observer
+        )
+
+        _ = await failure { _ = try await install.lifecycle.rotate() }
+
+        XCTAssertEqual(recorder.reported, [.transport(.timedOut)])
+    }
+
     // MARK: - M4: rotation swaps on success, with the fixture's exact wire shape
 
     func testRotateSendsTheWireVectorAndSwapsToTheCandidate() async throws
@@ -358,7 +416,7 @@ final class SPFNKeyLifecycleTests: XCTestCase
             .filter { $0.contains("SPFNCustodyKey.generate") }
         XCTAssertEqual(
             generators,
-            ["makeKey: @escaping @Sendable (String) -> SPFNCustodyKey = { SPFNCustodyKey.generate(keyID: $0) }"],
+            ["makeKey: @escaping @Sendable (String) -> SPFNCustodyKey = { SPFNCustodyKey.generate(keyID: $0) },"],
             "every custody key this file makes must come through the injected seam, "
                 + "or a suite counting that seam is counting half the keys"
         )
@@ -847,7 +905,8 @@ final class SPFNKeyLifecycleTests: XCTestCase
         _ transport: any SPFNTransport,
         store: any SPFNKeyStore = InMemoryKeyStore(),
         clientID: String = "client-test-0001",
-        proofClock: (any SPFNProofClock)? = nil
+        proofClock: (any SPFNProofClock)? = nil,
+        onOutcome: SPFNClientOutcome? = nil
     ) throws -> (store: any SPFNKeyStore, lifecycle: SPFNKeyLifecycle)
     {
         try enrol(store, key: try testKey(), clientID: clientID)
@@ -856,7 +915,8 @@ final class SPFNKeyLifecycleTests: XCTestCase
             store: store,
             keys: [try wrongKey()],
             keyIDs: ["key-test-0002"],
-            proofClock: proofClock
+            proofClock: proofClock,
+            onOutcome: onOutcome
         )
         return (store, lifecycle)
     }
@@ -945,7 +1005,8 @@ final class SPFNKeyLifecycleTests: XCTestCase
         keyIDs: [String],
         clock: FakeClock = FakeClock(1_750_000_000_000),
         proofClock: (any SPFNProofClock)? = nil,
-        nonces: [String] = []
+        nonces: [String] = [],
+        onOutcome: SPFNClientOutcome? = nil
     ) throws -> SPFNKeyLifecycle
     {
         let keyQueue = ScriptedQueue(keys)
@@ -958,7 +1019,8 @@ final class SPFNKeyLifecycleTests: XCTestCase
             proofClock: proofClock ?? clock,
             nonceGenerator: ScriptedNonceGenerator(nonces),
             newKeyID: { idQueue.next() ?? "key-unexpected" },
-            makeKey: { keyID in keyQueue.next() ?? SPFNCustodyKey.generate(keyID: keyID, preferSecureEnclave: false) }
+            makeKey: { keyID in keyQueue.next() ?? SPFNCustodyKey.generate(keyID: keyID, preferSecureEnclave: false) },
+            onOutcome: onOutcome
         )
     }
 

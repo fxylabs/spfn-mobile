@@ -5,6 +5,28 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### One observer for how every call ended: `onOutcome` on `SPFNClient` / `SpfnClient`, passed by the key lifecycle (additive, both platforms)
+
+- `SPFNClient.init` and `SpfnClient` take `onOutcome: SPFNClientOutcome? = nil` /
+  `SpfnClientOutcome? = null` — `@Sendable (Result<Void, SPFNClientError>) -> Void` and
+  `(Result<Unit>) -> Unit`. Every `execute` reports once how it ended: `success` for an
+  accepted answer, `failure` with the same error the call throws otherwise. It is called
+  after the SDK's own handling, so a call the proof retry rescued is one success and a call
+  whose retry was refused again is one failure, never one report per attempt.
+- `SPFNKeyLifecycle` and `SpfnKeyLifecycle` take the same parameter and give it to every
+  client they build: the enrollment clients, the rotation client and `signedInClient()`. The
+  app never builds those clients itself, so this is where it says how outcomes reach it. On
+  Android the rotation sends under the lifecycle's mutex, so its outcome is held and reported
+  once the mutex is released; on iOS `execute` already runs outside the actor's isolation.
+- Cancellation is reported like any other ending and then rethrown: `.transport(.cancelled)`
+  on iOS (a bare `CancellationError` is reported in that shape too), and the
+  `CancellationException` itself on Android, in the frame that rethrows it. An error the
+  path did not produce — one `SPFNClientError` / `SpfnClientError` says passes through as
+  itself — is not reported.
+- The observer is synchronous and must not throw; the SDK does not catch what it throws. The
+  stream, snapshot and event-stream clients report nothing new. With no observer set nothing
+  is called and no behaviour changes.
+
 ### The state client: `SPFNState` / `spfn-state`, generated `AppStates`, and `@SPFNServerState` / `rememberServerState`
 
 - New module `state` — Swift target and product `SPFNState`, Android module `spfn-state`

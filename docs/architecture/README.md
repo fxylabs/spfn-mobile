@@ -832,6 +832,13 @@ anchor surfaces on: the response to a request, and the handshake that the reques
 provoked. The retry stays one either way, because the second attempt has no path back
 into the function that made it.
 
+An app that wants to know how its calls end — a session refused while it was valid, a
+server that stopped answering — is told at the same layer and for the same reason:
+`execute` is the only place that sees every call. The optional `onOutcome` observer is
+called once, at its single exit, after the one retry, so it reports how a call ended rather
+than how each attempt did. The key lifecycle builds every signed client, so it is where the
+observer is given, and it never reports while it holds its own lock.
+
 The session owns the clock, so the discard is asked of the session rather than of the
 clock directly. The base URL is checked there for the same reason: a session is the one
 object every request passes through, proven or not, so refusing cleartext at its creation

@@ -361,3 +361,41 @@ actor TaskHolder
         held.cancel()
     }
 }
+
+// MARK: - Watching what a client reports
+
+/// Records what an `onOutcome` observer is handed, from whichever task hands it.
+///
+/// A success is recorded as `nil`: `Result<Void, _>` is not `Equatable`, and a list of
+/// optional errors is, so a case can compare the whole history in one assertion — which
+/// is what catches an outcome reported twice.
+final class OutcomeRecorder: @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var recorded: [SPFNClientError?] = []
+
+    var observer: SPFNClientOutcome
+    {
+        { outcome in self.record(outcome) }
+    }
+
+    var reported: [SPFNClientError?]
+    {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    private func record(_ outcome: Result<Void, SPFNClientError>)
+    {
+        lock.lock()
+        defer { lock.unlock() }
+        switch outcome
+        {
+        case .success:
+            recorded.append(nil)
+        case .failure(let failure):
+            recorded.append(failure)
+        }
+    }
+}
