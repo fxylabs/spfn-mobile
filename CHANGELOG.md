@@ -5,6 +5,20 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The app chooses the Google bottom sheet or the Sign in with Google button flow (additive, Android only)
+
+- `spfn-social-google` adds `SpfnSocialGoogleRequestStyle` — `BOTTOM_SHEET` (`GetGoogleIdOption`,
+  the request it built before) and `BUTTON_FLOW` (`GetSignInWithGoogleOption`, Google's
+  sign-in screen, which can add an account to a device that has none).
+- `SpfnSocialGoogle.signInWithGoogleOption(serverClientId, …)` is the one builder of the
+  button request; its nonce is `nonce.requestValue`, as for the bottom sheet.
+- `SpfnSocialGoogle.signInRequest(…)` and `SpfnSocialGoogleCredentialDriver(…)` take an
+  optional `style`. Without one they build exactly the bottom sheet request they built
+  before, so existing calls compile and behave unchanged. The SDK never falls back from one
+  style to the other; the app picks. Both styles answer with the same credential type, read
+  by the same `idToken(credential)`, and refusals are classified as before.
+- iOS is unchanged: GoogleSignIn-iOS has no bottom sheet.
+
 ### One observer for how every call ended: `onOutcome` on `SPFNClient` / `SpfnClient`, passed by the key lifecycle (additive, both platforms)
 
 - `SPFNClient.init` and `SpfnClient` take `onOutcome: SPFNClientOutcome? = nil` /

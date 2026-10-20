@@ -26,11 +26,13 @@ package xyz.superfunction.spfn.social.google
 import android.app.Activity
 import androidx.credentials.Credential
 import androidx.credentials.CredentialManager
+import androidx.credentials.CredentialOption
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import xyz.superfunction.spfn.client.SpfnSocialNonce
 import kotlin.coroutines.cancellation.CancellationException
@@ -62,6 +64,32 @@ sealed class SpfnSocialGoogleException(message: String) : Exception(message)
      */
     class NonceProviderMismatch(val provider: String) :
         SpfnSocialGoogleException("this nonce was minted for '$provider', not for Google")
+}
+
+/**
+ * Which of Credential Manager's two Google requests a sign-in is asked with. The app
+ * chooses; this module never moves from one to the other on its own, because only the app
+ * knows whether the user asked to sign in or is being offered it.
+ *
+ * Google's guidance is to offer both: the bottom sheet as the offer, a "Sign in with
+ * Google" button as the persistent way in. Google names the cases the bottom sheet does not
+ * cover, and those are when an app asks with [BUTTON_FLOW]:
+ * - there is no Google account on the device — the bottom sheet does not appear and the
+ *   request ends in `NoCredentialException`, while the button flow lets the user add one;
+ * - the accounts on the device need re-authentication — the bottom sheet leaves them out;
+ * - the user dismissed the bottom sheet, or turned off "Sign-in prompts" in their Google
+ *   Account settings, which suppresses the bottom sheet for every account on the device.
+ *
+ * Both answer with the same credential type and carry the nonce the same way, so nothing
+ * after the request depends on the style.
+ */
+enum class SpfnSocialGoogleRequestStyle
+{
+    /** `GetGoogleIdOption`: the account list sliding up from the bottom. The default. */
+    BOTTOM_SHEET,
+
+    /** `GetSignInWithGoogleOption`: Google's own sign-in screen, behind the app's button. */
+    BUTTON_FLOW
 }
 
 /**
@@ -114,15 +142,15 @@ class SpfnSocialGoogle(private val driver: SpfnSocialGoogleDriver)
         const val PROVIDER = "google"
 
         /**
-         * The Google request option Credential Manager is asked with. The nonce field
-         * carries the fingerprint, and the server client id is the app's — this module
-         * never holds one.
+         * The bottom sheet's request option, which Credential Manager is asked with when
+         * the app names no style. The nonce field carries the fingerprint, and the server
+         * client id is the app's — this module never holds one.
          *
          * Authorized accounts are not filtered: an enrollment is the first time this
          * install meets the user, so filtering to accounts already used with this app
          * would offer an empty list on the one flow that needs a full one.
          *
-         * This is the only place in the module a Google request is built. An app that
+         * This is the only place in the module a bottom-sheet request is built. An app that
          * drives Credential Manager itself calls it, and so does
          * [SpfnSocialGoogleCredentialDriver] — the two used to build the same request
          * twice, which is two requests as soon as somebody edits one.
@@ -142,20 +170,66 @@ class SpfnSocialGoogle(private val driver: SpfnSocialGoogleDriver)
         fun googleIdOption(serverClientId: String, nonce: SpfnSocialNonce): GetGoogleIdOption =
             googleIdOption(serverClientId, nonce.requestValue)
 
-        /** That option as the request Credential Manager takes. */
-        fun signInRequest(serverClientId: String, requestNonce: String): GetCredentialRequest =
+        /**
+         * The button flow's request option. The nonce field carries the fingerprint and the
+         * server client id is the app's, as in [googleIdOption]. There is no account
+         * filter to turn off: Google's builder for this flow has none.
+         *
+         * This is the only place in the module a button-flow request is built, for the
+         * reason [googleIdOption] gives.
+         */
+        fun signInWithGoogleOption(serverClientId: String, requestNonce: String): GetSignInWithGoogleOption =
+            GetSignInWithGoogleOption.Builder(serverClientId)
+                .setNonce(requestNonce)
+                .build()
+
+        /** The same option from the nonce itself. */
+        fun signInWithGoogleOption(serverClientId: String, nonce: SpfnSocialNonce): GetSignInWithGoogleOption =
+            signInWithGoogleOption(serverClientId, nonce.requestValue)
+
+        /**
+         * The option for [style] as the request Credential Manager takes. Without a style it
+         * is the bottom sheet, the request this function built before there was a choice.
+         */
+        @JvmOverloads
+        fun signInRequest(
+            serverClientId: String,
+            requestNonce: String,
+            style: SpfnSocialGoogleRequestStyle = SpfnSocialGoogleRequestStyle.BOTTOM_SHEET
+        ): GetCredentialRequest =
             GetCredentialRequest.Builder()
-                .addCredentialOption(googleIdOption(serverClientId, requestNonce))
+                .addCredentialOption(credentialOption(serverClientId, requestNonce, style))
                 .build()
 
         /** The same request from the nonce itself. */
-        fun signInRequest(serverClientId: String, nonce: SpfnSocialNonce): GetCredentialRequest =
-            signInRequest(serverClientId, nonce.requestValue)
+        @JvmOverloads
+        fun signInRequest(
+            serverClientId: String,
+            nonce: SpfnSocialNonce,
+            style: SpfnSocialGoogleRequestStyle = SpfnSocialGoogleRequestStyle.BOTTOM_SHEET
+        ): GetCredentialRequest =
+            signInRequest(serverClientId, nonce.requestValue, style)
+
+        /** Which of the two builders a style is asked with; neither is built anywhere else. */
+        private fun credentialOption(
+            serverClientId: String,
+            requestNonce: String,
+            style: SpfnSocialGoogleRequestStyle
+        ): CredentialOption = when (style)
+        {
+            SpfnSocialGoogleRequestStyle.BOTTOM_SHEET -> googleIdOption(serverClientId, requestNonce)
+            SpfnSocialGoogleRequestStyle.BUTTON_FLOW -> signInWithGoogleOption(serverClientId, requestNonce)
+        }
 
         /**
          * The token out of the credential Credential Manager returned, or a named
          * refusal. A credential of another type is not a token, and a credential
          * without one is not an empty string to send onward.
+         *
+         * Both request styles answer with the same type: `GetSignInWithGoogleOption` asks
+         * Credential Manager for `TYPE_GOOGLE_ID_TOKEN_CREDENTIAL`, as `GetGoogleIdOption`
+         * does. Its `TYPE_GOOGLE_ID_TOKEN_SIWG_CREDENTIAL` is a subtype the request carries
+         * to the provider, not the type of the credential that comes back.
          */
         fun idToken(credential: Credential): String
         {
@@ -205,16 +279,25 @@ class SpfnSocialGoogle(private val driver: SpfnSocialGoogleDriver)
  * it from. A `Context` parameter compiles against an application or service context and
  * then fails at the one moment the user is watching, which is the same shape of mistake
  * `SpfnSocialNonce` exists to prevent — so it is refused by the type here too.
+ *
+ * [style] is the app's choice between the bottom sheet and the button flow, and the
+ * bottom sheet when the app names none. A driver asks with the one style it was built
+ * with; an app that wants the button flow after a `NoCredentialException` builds a driver
+ * for it when the user taps its button, rather than this driver retrying on its own.
  */
-class SpfnSocialGoogleCredentialDriver(
+class SpfnSocialGoogleCredentialDriver @JvmOverloads constructor(
     private val activity: Activity,
-    private val serverClientId: String
+    private val serverClientId: String,
+    private val style: SpfnSocialGoogleRequestStyle = SpfnSocialGoogleRequestStyle.BOTTOM_SHEET
 ) : SpfnSocialGoogleDriver
 {
     override suspend fun identityToken(requestNonce: String): String?
     {
-        val request = SpfnSocialGoogle.signInRequest(serverClientId, requestNonce);
-        val response = CredentialManager.create(activity).getCredential(activity, request);
+        val response = CredentialManager.create(activity).getCredential(activity, request(requestNonce));
         return SpfnSocialGoogle.idToken(response.credential);
     }
+
+    /** The request this driver hands Credential Manager, apart from the call so it can be read. */
+    internal fun request(requestNonce: String): GetCredentialRequest =
+        SpfnSocialGoogle.signInRequest(serverClientId, requestNonce, style)
 }
