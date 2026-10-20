@@ -3820,9 +3820,9 @@ section '23. no provider adapter logs a token or reads a profile field'
 #
 # Comments are excluded, the way the Swift suite excludes them: a prohibition has to be
 # describable in the file that obeys it. The scan carries a floor for the P7 reason — a scan
-# that read nothing agrees with a clean one — and the floor is per directory, because two
-# of the three trees hold one file each and a missing one would otherwise vanish quietly.
-SOCIAL_SURFACE_DIRS='Sources/SPFNSocialApple Sources/SPFNSocialGoogle android/spfn-social-google/src/main'
+# that read nothing agrees with a clean one — and the floor is per directory, because three
+# of the four trees hold one file each and a missing one would otherwise vanish quietly.
+SOCIAL_SURFACE_DIRS='Sources/SPFNSocialApple Sources/SPFNSocialGoogle android/spfn-social-google/src/main android/spfn-social-apple/src/main'
 SOCIAL_LOGGERS='print\(|NSLog\(|os_log\(|debugPrint\(|dump\(|FileHandle\.standardOutput|println|Log\.|Timber\.|System\.out|System\.err|printStackTrace\('
 SOCIAL_PROFILE_FIELDS='fullName|givenName|familyName|nickName|middleName|emailAddress|profileData'
 

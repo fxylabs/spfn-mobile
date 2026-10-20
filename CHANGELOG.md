@@ -5,6 +5,25 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Sign in with Apple on Android: `spfn-social-apple`, a Custom Tab and a relay link (additive, Android; #95)
+
+- New module `spfn-social-apple` (`xyz.superfunction.spfn.social.apple`).
+  `SpfnSocialApple.idToken(nonce)` has the Google adapter's shape — a sealed
+  `SpfnSocialAppleException` (`Cancelled`, `IdentityTokenMissing`, `Failed(reason)`,
+  `NonceProviderMismatch`), a `SpfnSocialAppleDriver` seam, and the iOS adapter's rules:
+  the nonce must be apple-minted, nothing but the token is read, and a cancelled coroutine
+  stays a `CancellationException`.
+- `SpfnSocialAppleCustomTabDriver(activity, authorizationUrl)` opens the URL the app's
+  `SpfnSocialAppleAuthorizationUrl` answers with in a Chrome Custom Tab (`androidx.browser`
+  1.10.0), and `SpfnSocialAppleRedirectActivity` receives the link the server redirects to
+  with `id_token` and a per-call 32-byte `state`. The app declares that activity in its own
+  manifest with an https App Link or a custom scheme. A relay without the call's exact state
+  changes nothing; Apple's `error` is kept only when it is shaped as a code.
+- The server half — `@spfn/auth` answering Apple's `form_post` with a 303 to the app's link —
+  does not exist yet, so there is no device round trip, and the receipt gate keeps
+  Android × Apple exempt. `tools/module-graph.json` declares the module, so no row declares
+  `androidModule: null` any more.
+
 ### One observer for how every call ended: `onOutcome` on `SPFNClient` / `SpfnClient`, passed by the key lifecycle (additive, both platforms)
 
 - `SPFNClient.init` and `SpfnClient` take `onOutcome: SPFNClientOutcome? = nil` /

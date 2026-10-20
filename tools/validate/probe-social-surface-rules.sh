@@ -10,6 +10,8 @@
 #   a. the unmodified tree passes both rows;
 #   b. a Swift logging call in an adapter source fails;
 #   c. a Kotlin logging call in the Android adapter fails — the half the XCTest never read;
+#   c2. the same call in the Android Apple adapter's relay fails — the file that holds the
+#      token there, in the tree the scan gained with issue #95;
 #   d. a provider profile field fails;
 #   e. a non-empty `requestedScopes` fails, while the empty literal stays admitted;
 #   f. a logging call written inside a comment does NOT fail, and the same text uncommented
@@ -53,10 +55,12 @@ TMP=$(mktemp -d "${TMPDIR:-/tmp}/spfn-surface-probe.XXXXXX")
 APPLE_SOURCE=Sources/SPFNSocialApple/SPFNSocialApple.swift
 GOOGLE_SOURCE=Sources/SPFNSocialGoogle/SPFNSocialGoogle.swift
 ANDROID_SOURCE=android/spfn-social-google/src/main/kotlin/xyz/superfunction/spfn/social/google/SpfnSocialGoogle.kt
+ANDROID_APPLE_SOURCE=android/spfn-social-apple/src/main/kotlin/xyz/superfunction/spfn/social/apple/SpfnSocialAppleRelay.kt
 
 cp "$APPLE_SOURCE" "$TMP/apple.bak"
 cp "$GOOGLE_SOURCE" "$TMP/google.bak"
 cp "$ANDROID_SOURCE" "$TMP/android.bak"
+cp "$ANDROID_APPLE_SOURCE" "$TMP/android-apple.bak"
 
 restore()
 {
@@ -65,6 +69,7 @@ restore()
         cp "$TMP/apple.bak" "$APPLE_SOURCE"
         cp "$TMP/google.bak" "$GOOGLE_SOURCE"
         cp "$TMP/android.bak" "$ANDROID_SOURCE"
+        cp "$TMP/android-apple.bak" "$ANDROID_APPLE_SOURCE"
         rm -rf "$TMP"
     fi
 }
@@ -85,6 +90,7 @@ restore_files()
     cp "$TMP/apple.bak" "$APPLE_SOURCE"
     cp "$TMP/google.bak" "$GOOGLE_SOURCE"
     cp "$TMP/android.bak" "$ANDROID_SOURCE"
+    cp "$TMP/android-apple.bak" "$ANDROID_APPLE_SOURCE"
 }
 
 # The two rows this section answers with, as the validator prints them when they hold.
@@ -138,6 +144,10 @@ expect_row 'a Swift logging call in an adapter source fails' \
 
 printf 'val leaked = android.util.Log.d("spfn", "token")\n' >> "$ANDROID_SOURCE"
 expect_row 'a Kotlin logging call in the Android adapter fails' \
+    'FAIL  C8: an adapter that can log is an adapter that can log a token'
+
+printf 'val leaked = android.util.Log.d("spfn", "token")\n' >> "$ANDROID_APPLE_SOURCE"
+expect_row 'a Kotlin logging call in the Android Apple adapter fails' \
     'FAIL  C8: an adapter that can log is an adapter that can log a token'
 
 # --- d, e. what an adapter may read ------------------------------------------------

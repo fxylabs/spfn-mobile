@@ -20,7 +20,7 @@ model cannot drift apart between them.
 | Area | State |
 | --- | --- |
 | Swift module graph | 8 targets, building in Swift 6 language mode |
-| Android module graph | 7 modules, compiling as AAR libraries |
+| Android module graph | 8 modules, compiling as AAR libraries |
 | Contract | one bundle pinned by real SHA-256 — **exported by SPFN primitives**, copied here at an exact commit |
 | Codegen | `tools/contract-codegen` produces both clients from that bundle, deterministically |
 | `clientProofV1` | canonical proof input, SHA-256 digest, ECDSA P-256 proof over a registered public key, replay and revocation rules |
@@ -42,7 +42,7 @@ Sources/                 Swift targets: SPFNCore, SPFNGenerated, SPFNAuth,
 Tests/                   Swift unit, repository and conformance tests
 android/                 Kotlin modules: spfn-core, spfn-generated, spfn-auth,
                          spfn-client, spfn-ui, spfn-state, spfn-events,
-                         spfn-social-google
+                         spfn-social-google, spfn-social-apple
 tools/                   module graph, offline validator, contract codegen,
                          CocoaPods fixture
 examples/                reference apps (placeholders)
@@ -199,6 +199,50 @@ each of which an app shows differently:
 The server refusals are `SPFNClientError.server` / `SpfnClientError.Server` carrying the
 generated code. The signed-in device's half — issuing the code, reading the three numbers,
 confirming — is not on the mobile contract, so a phone is always the new device here.
+
+## Signing in with Apple on Android
+
+Apple ships no Android SDK, so `spfn-social-apple` runs Apple's web authorization in a
+Chrome Custom Tab and returns the identity token the SPFN server relays back to the app.
+The server's web flow alone ends in browser cookies an Android app cannot read; the relay
+is what hands the token over. The token then goes to `enroll` exactly as on iOS:
+
+```kotlin
+val apple = SpfnSocialApple(
+    SpfnSocialAppleCustomTabDriver(activity) { requestNonce, state ->
+        appleAuthorizationUrlFromYourServer(requestNonce, state)
+    }
+)
+val signedIn = lifecycle.enroll(provider = SpfnSocialApple.PROVIDER) { nonce -> apple.idToken(nonce) }
+```
+
+The module names no server endpoint: the app answers with the authorization URL its
+server issues, carrying `requestNonce` as Apple's nonce and the module's `state`. The
+server answers Apple's `form_post` with a 303 to the app's relay link, carrying `id_token`
+and that `state` (or Apple's `error`). The app routes the link to the module's receiver
+by declaring it again in its own manifest — an https App Link on its own host:
+
+```xml
+<activity
+    android:name="xyz.superfunction.spfn.social.apple.SpfnSocialAppleRedirectActivity"
+    android:exported="true">
+    <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="https" android:host="app.example.com"
+            android:path="/_auth/oauth/apple/android" />
+    </intent-filter>
+</activity>
+```
+
+or a custom scheme, in the same declaration with
+`<data android:scheme="com.example.app" android:host="apple-relay" />` and no
+`autoVerify`. A relay without the call's exact `state` is ignored, so a link another app
+fires at the receiver changes nothing. A closed tab is `Cancelled`, a relay without a
+token `IdentityTokenMissing`, Apple's error code `Failed(reason)`. One sign-in runs at a
+time, and cancelling the calling coroutine ends it and takes the tab down. **The server
+half of the relay does not exist yet** (issue #95), so this has no device round trip yet.
 
 ## Where the decisions live
 

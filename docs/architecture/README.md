@@ -60,10 +60,15 @@ property worth keeping, reviewed was.
 
 It also stopped assuming a module has both platforms. `androidModule` is either a name
 or the literal `null`, and `null` means declared absent rather than not yet written.
-`SPFNSocialApple` is the first: Apple ships no native sign-in SDK for Android, an
-Android half would have owned a one-line nonce accessor and a seam the app fills in
-anyway, and an Android app signing in with Apple needs only what `spfn-client` already
-gives it — `SpfnSocialNonce`, its `requestValue` and `enroll(provider = "apple", …)`.
+`SPFNSocialApple` was the first, on the reasoning that Apple ships no native sign-in SDK
+for Android and an Android app signing in with Apple needs only what `spfn-client`
+already gives it — `SpfnSocialNonce`, its `requestValue` and
+`enroll(provider = "apple", …)`. That reasoning missed where the token comes from
+(issue #95). With no SDK it can only come out of Apple's web flow, and the server's web
+flow ends in browser cookies an Android app cannot read, so the app needs a component
+that runs the flow in a Custom Tab and receives the token the server relays to an app
+link. `spfn-social-apple` is that component, and no module declares `null` today; the
+rule stays, because the next one-platform module needs it.
 
 `null` is a declaration, and every reader has to tell it apart from a key it could not
 read: the first is a decision, the second is a broken parse, and a reader that treats
@@ -537,10 +542,19 @@ same migration for a worse moment, so `validate.sh` now refuses a deprecation
 suppression anywhere in SDK sources — the point being that a suppression is precisely
 what keeps this out of a build log, so a build log cannot be what catches it.
 
-**The Apple adapter is iOS-only.** App Store guideline 4.8 requires Sign in with Apple
-on iOS and nothing requires it on Android, where Apple's own flow is a web one an app
-runs itself. What that app hands the SDK is the same thing every other provider hands
-it: a provider token and the nonce it was bound to.
+**The Apple adapter has an Android half, and it is a relay rather than an SDK
+wrapper.** App Store guideline 4.8 requires Sign in with Apple on iOS and nothing
+requires it on Android, where Apple's own flow is a web one. That flow ends at the
+server's Return URL in a session held in browser cookies, which an Android app cannot
+read, so the token has to be handed back to the app. `spfn-social-apple` opens the
+authorization URL the app supplies (the module names no server endpoint) in a Custom Tab,
+and an exported redirect-receiver activity takes the link the server redirects Apple's
+`form_post` to, carrying `id_token` and a per-call `state`. The state — 32 random bytes
+the module mints — is what makes an exported receiver safe: a link without it changes
+nothing, and a token for another key is refused by the server's nonce binding anyway.
+What the app then hands the SDK is the same thing every other provider hands it: a
+provider token and the nonce it was bound to. The server half of the relay does not
+exist yet, so the Android × Apple device cells stay exempt until it does.
 
 **The raw value is not base64.** A base64url value's last character carries fewer than
 six bits, and a provider that re-encodes it can hand back a different last character

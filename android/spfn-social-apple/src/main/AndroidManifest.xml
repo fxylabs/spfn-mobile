@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    SPFN Mobile — the two activities of the Custom Tab round trip.
+
+    The management activity is the one this module starts. It is not exported: nothing
+    outside the app has a reason to reach it, and `singleTask` is what lets the redirect
+    receiver bring the running instance forward and clear the tab above it, whichever
+    task the browser opened the link in.
+
+    The redirect receiver is exported and has no intent filter here, on purpose. The link
+    it answers is the app's — an https App Link on the app's own host, or a custom scheme —
+    so the app declares this same activity in its own manifest with that filter, and the
+    manifest merger joins the two. Being exported means any app can fire an intent at it;
+    the per-call state is the guard, not the export flag (SpfnSocialAppleRelay.kt).
+
+    Both are translucent and draw nothing: the only screen in this flow is the tab.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <activity
+            android:name=".SpfnSocialAppleAuthorizationActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <activity
+            android:name=".SpfnSocialAppleRedirectActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+    </application>
+
+</manifest>

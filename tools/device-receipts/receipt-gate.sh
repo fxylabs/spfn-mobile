@@ -14,8 +14,9 @@
 # WHAT IT JUDGES
 #
 # Fifteen cells: {ios × apple, ios × google, android × google} × {first-enroll,
-# re-login, user-cancel, network-failure, server-reject}. Android × Apple is exempt by
-# decision — no Android Apple adapter module exists, so there is nothing to enrol with.
+# re-login, user-cancel, network-failure, server-reject}. Android × Apple is exempt until
+# its round trip can run: the adapter (android/spfn-social-apple, issue #95) waits for a
+# relay link the SPFN server does not send yet, so there is nothing a phone can enrol with.
 # The exemption is printed on every run rather than left as an absence a reader has to
 # notice.
 #
@@ -626,7 +627,7 @@ do
     done
 done
 
-printf '  --    %-34s exempt by decision: no Android Apple adapter module exists\n' 'android x apple x (all cases)'
+printf '  --    %-34s exempt until the server relays the Apple token to an app (#95)\n' 'android x apple x (all cases)'
 
 printf '\n'
 if [ -n "$FAILED" ]
