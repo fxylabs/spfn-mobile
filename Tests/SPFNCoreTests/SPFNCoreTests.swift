@@ -378,3 +378,37 @@ enum RepoPaths
         .deletingLastPathComponent()   // Tests
         .deletingLastPathComponent()   // repo root
 }
+
+/// A string's bytes are decoded scalar for scalar: nothing dropped, nothing repaired.
+///
+/// The shared fixtures are JSON text and cannot carry ill-formed UTF-8, so the refusal
+/// half is pinned here with raw bytes.
+final class SPFNCanonicalStringDecodingTests: XCTestCase
+{
+    private func string(_ body: [UInt8]) -> [UInt8]
+    {
+        [UInt8(ascii: "\"")] + body + [UInt8(ascii: "\"")]
+    }
+
+    func testIllFormedUTF8IsRefusedRatherThanRepaired()
+    {
+        let illFormed: [[UInt8]] = [[0xFF], [0xC3], [0xC0, 0xAF], [0xED, 0xA0, 0x80], [0x61, 0xE2, 0x82]]
+        for body in illFormed
+        {
+            XCTAssertThrowsError(try SPFNCanonicalJSON.parse(string(body)), "\(body) was accepted")
+            { error in
+                XCTAssertEqual(error as? SPFNCanonicalError, .invalidUTF8)
+            }
+        }
+    }
+
+    func testAReplacementCharacterInTheInputIsKept() throws
+    {
+        XCTAssertEqual(try SPFNCanonicalJSON.parse(string([0xEF, 0xBF, 0xBD])), .string("\u{FFFD}"))
+    }
+
+    func testAByteOrderMarkThatOpensAStringIsKept() throws
+    {
+        XCTAssertEqual(try SPFNCanonicalJSON.parse(string([0xEF, 0xBB, 0xBF, 0x61])), .string("\u{FEFF}a"))
+    }
+}
