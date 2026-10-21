@@ -697,6 +697,12 @@ A match number outside the contract's 10–99 is a decoding refusal and is never
 signed-in device would never offer it, so showing it would leave a person looking for a
 number that cannot be picked.
 
+A poll ends on a refusal like any other non-retryable code, so the SDK does not branch on
+which one arrived; it hands the code to the app. Since 0.13.3 a wrong pick arrives as its
+own `DeviceLinkWrongMatchError` (400) instead of inside `DeviceLinkDeniedError` (403), so an
+app can tell "the other device said no" from "the other device picked another number" and
+offer a fresh code for the second.
+
 ## Contract import model
 
 SPFN primitives owns the canonical route DSL, schemas and the `clientProofV1` server

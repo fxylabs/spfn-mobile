@@ -193,7 +193,8 @@ each of which an app shows differently:
 | not a code | `malformedLinkCode` / `MalformedLinkCode`, nothing sent | "that is not a code" |
 | unknown or already-used code | `DeviceLinkNotFoundError` (404) on `redeem` | "code not found" |
 | code expired | `DeviceLinkExpiredError` (400) on `redeem` or a poll, or `linkCodeExpired` / `LinkCodeExpired` | "code expired — show a new one" |
-| refused or wrong number picked | `DeviceLinkDeniedError` (403) on a poll | "not approved" |
+| refused | `DeviceLinkDeniedError` (403) on a poll | "not approved" |
+| wrong number picked | `DeviceLinkWrongMatchError` (400) on a poll (since 0.13.3) | "wrong number — start again from a fresh code" |
 | approval collected elsewhere | `DeviceLinkNotFoundError` (404) on a poll | start again |
 
 The server refusals are `SPFNClientError.server` / `SpfnClientError.Server` carrying the

@@ -597,8 +597,11 @@ class SpfnKeyLifecycle(
      *   - `redeem` or a poll refused with `DeviceLinkExpiredError` (400), or
      *     [SpfnKeyLifecycleException.LinkCodeExpired] from this SDK: the code died —
      *     "code expired".
-     *   - a poll refused with `DeviceLinkDeniedError` (403): the signed-in device refused,
-     *     or picked another number — "not approved".
+     *   - a poll refused with `DeviceLinkDeniedError` (403): the signed-in device refused —
+     *     "not approved".
+     *   - a poll refused with `DeviceLinkWrongMatchError` (400): the signed-in device
+     *     picked a number other than the one shown, which ends the link — "wrong number,
+     *     start again from a fresh code".
      *   - a poll refused with `DeviceLinkNotFoundError`: the approval was collected by
      *     another poll, which ends the wait as `DeviceAuthNotFoundError` ends a
      *     device-code wait.

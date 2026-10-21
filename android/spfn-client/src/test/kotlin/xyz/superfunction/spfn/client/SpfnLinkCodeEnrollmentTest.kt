@@ -258,10 +258,19 @@ class SpfnLinkCodeEnrollmentTest
 
     // ---- L9–L11: the poll refusals that end the wait ------------------------
 
-    /** L9: the signed-in device refused, or picked another number — "not approved". */
+    /** L9: the signed-in device refused — "not approved". */
     @Test
     fun l9_aDeniedPollDestroysTheKeyAndCarriesTheCode() = runBlocking {
         assertPollRefusalEndsTheWait("DeviceLinkDeniedError", 403, SpfnGeneratedErrorCode.DeviceLinkDeniedError);
+    }
+
+    /**
+     * L9b: the signed-in device picked another number. Since 0.13.3 that is its own code,
+     * not a denial, so an app can say which one happened; it ends the wait the same way.
+     */
+    @Test
+    fun l9b_aWrongMatchPollDestroysTheKeyAndCarriesItsOwnCode() = runBlocking {
+        assertPollRefusalEndsTheWait("DeviceLinkWrongMatchError", 400, SpfnGeneratedErrorCode.DeviceLinkWrongMatchError);
     }
 
     @Test
