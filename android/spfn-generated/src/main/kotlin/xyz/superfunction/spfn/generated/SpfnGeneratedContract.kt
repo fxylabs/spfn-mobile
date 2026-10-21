@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    a7cab3c8e98f3d83384693a45b5d1754640529636c193afd54ef116e98e47c1a
-// contractVersion: 0.13.4
+// bundleSha256:    7879036f33c46ced4c51035521fd25d3934bbb38c21aa9b68779a1c6d1578846
+// contractVersion: 0.13.5
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -23,8 +23,8 @@ object SpfnGeneratedContract
 
     /** The pinned bundle these sources were derived from. */
     val BINDING: SpfnContractBinding = SpfnContractBinding(
-        importedVersion = "0.13.4",
-        importedManifestSha256 = "a7cab3c8e98f3d83384693a45b5d1754640529636c193afd54ef116e98e47c1a",
+        importedVersion = "0.13.5",
+        importedManifestSha256 = "7879036f33c46ced4c51035521fd25d3934bbb38c21aa9b68779a1c6d1578846",
         supportedRange = ">=0.13.0 <0.14.0",
         supportedMajor = 0,
         supportedMinor = 13,

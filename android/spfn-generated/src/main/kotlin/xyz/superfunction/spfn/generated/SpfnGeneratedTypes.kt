@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    a7cab3c8e98f3d83384693a45b5d1754640529636c193afd54ef116e98e47c1a
-// contractVersion: 0.13.4
+// bundleSha256:    7879036f33c46ced4c51035521fd25d3934bbb38c21aa9b68779a1c6d1578846
+// contractVersion: 0.13.5
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -822,7 +822,8 @@ data class SpfnOauthNativeRequest(
     val publicKey: String,
     val keyId: String,
     val fingerprint: String,
-    val algorithm: SpfnKeyAlgorithm
+    val algorithm: SpfnKeyAlgorithm,
+    val profile: SpfnOauthNativeProfile? = null
 )
 {
     /**
@@ -843,6 +844,10 @@ data class SpfnOauthNativeRequest(
         members["keyId"] = SpfnCanonicalValue.Text(keyId);
         members["fingerprint"] = SpfnCanonicalValue.Text(fingerprint);
         members["algorithm"] = algorithm.canonicalValue();
+        if (profile != null)
+        {
+            members["profile"] = profile.canonicalValue();
+        }
         return SpfnCanonicalValue.Obj(members);
     }
 
@@ -858,7 +863,39 @@ data class SpfnOauthNativeRequest(
                 publicKey = SpfnDecoding.string(members["publicKey"], "$path.publicKey"),
                 keyId = SpfnDecoding.string(members["keyId"], "$path.keyId"),
                 fingerprint = SpfnDecoding.string(members["fingerprint"], "$path.fingerprint"),
-                algorithm = SpfnKeyAlgorithm.decode(members["algorithm"] ?: SpfnCanonicalValue.Null, "$path.algorithm")
+                algorithm = SpfnKeyAlgorithm.decode(members["algorithm"] ?: SpfnCanonicalValue.Null, "$path.algorithm"),
+                profile = members["profile"]?.takeIf { it !is SpfnCanonicalValue.Null }?.let { SpfnOauthNativeProfile.decode(it, "$path.profile") }
+            );
+        }
+    }
+}
+
+data class SpfnOauthNativeProfile(
+    val name: String? = null
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        if (name != null)
+        {
+            members["name"] = SpfnCanonicalValue.Text(name);
+        }
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnOauthNativeProfile
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnOauthNativeProfile(
+                name = SpfnDecoding.optionalString(members["name"], "$path.name")
             );
         }
     }

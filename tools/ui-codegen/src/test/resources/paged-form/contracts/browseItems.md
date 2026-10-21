@@ -26,7 +26,7 @@ fixture is FOR is the block: `SpecRefusalTest` generates it and reads the emitte
 ```json spfn-ui
 {
   "specVersion": 2,
-  "contract": { "manifestSha256": "a7cab3c8e98f3d83384693a45b5d1754640529636c193afd54ef116e98e47c1a" },
+  "contract": { "manifestSha256": "7879036f33c46ced4c51035521fd25d3934bbb38c21aa9b68779a1c6d1578846" },
   "services": {
     "catalogue": {
       "list": { "operation": "itemsList" }

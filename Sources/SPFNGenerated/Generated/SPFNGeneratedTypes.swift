@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    a7cab3c8e98f3d83384693a45b5d1754640529636c193afd54ef116e98e47c1a
-// contractVersion: 0.13.4
+// bundleSha256:    7879036f33c46ced4c51035521fd25d3934bbb38c21aa9b68779a1c6d1578846
+// contractVersion: 0.13.5
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -994,6 +994,7 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
     public var keyId: String
     public var fingerprint: String
     public var algorithm: SPFNKeyAlgorithm
+    public var profile: SPFNOauthNativeProfile?
 
     public init(
         idToken: String,
@@ -1002,7 +1003,8 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
         publicKey: String,
         keyId: String,
         fingerprint: String,
-        algorithm: SPFNKeyAlgorithm
+        algorithm: SPFNKeyAlgorithm,
+        profile: SPFNOauthNativeProfile? = nil
     )
     {
         self.idToken = idToken
@@ -1012,6 +1014,7 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
         self.keyId = keyId
         self.fingerprint = fingerprint
         self.algorithm = algorithm
+        self.profile = profile
     }
 
     /// The canonical form of this value. An absent optional field is omitted,
@@ -1034,6 +1037,10 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
         members["keyId"] = .string(keyId)
         members["fingerprint"] = .string(fingerprint)
         members["algorithm"] = algorithm.canonicalValue
+        if let profile
+        {
+            members["profile"] = try profile.canonicalValue()
+        }
         return .object(members)
     }
 
@@ -1047,6 +1054,42 @@ public struct SPFNOauthNativeRequest: Equatable, Sendable
         self.keyId = try SPFNDecoding.string(members["keyId"], at: "\(path).keyId")
         self.fingerprint = try SPFNDecoding.string(members["fingerprint"], at: "\(path).fingerprint")
         self.algorithm = try SPFNKeyAlgorithm(canonical: members["algorithm"] ?? .null, at: "\(path).algorithm")
+        self.profile = try members["profile"].flatMap { $0 == .null ? nil : $0 }.map { try SPFNOauthNativeProfile(canonical: $0, at: "\(path).profile") }
+    }
+}
+
+public struct SPFNOauthNativeProfile: Equatable, Sendable
+{
+    public var name: String?
+
+    public init(
+        name: String? = nil
+    )
+    {
+        self.name = name
+    }
+
+    /// The canonical form of this value. An absent optional field is omitted,
+    /// never written as null, so the digest of a value never depends on how a
+    /// caller happened to spell "nothing".
+    ///
+    /// Throwing, because encoding is where an impossible value is refused —
+    /// a decimal finer than its declared scale fails here, before the proof
+    /// is signed and before a byte leaves the device.
+    public func canonicalValue() throws -> SPFNCanonicalValue
+    {
+        var members: [String: SPFNCanonicalValue] = [:]
+        if let name
+        {
+            members["name"] = .string(name)
+        }
+        return .object(members)
+    }
+
+    public init(canonical: SPFNCanonicalValue, at path: String = "$") throws
+    {
+        let members = try SPFNDecoding.object(canonical, at: path)
+        self.name = try SPFNDecoding.optionalString(members["name"], at: "\(path).name")
     }
 }
 
