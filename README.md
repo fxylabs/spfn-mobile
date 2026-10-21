@@ -20,7 +20,7 @@ model cannot drift apart between them.
 | Area | State |
 | --- | --- |
 | Swift module graph | 8 targets, building in Swift 6 language mode |
-| Android module graph | 7 modules, compiling as AAR libraries |
+| Android module graph | 8 modules, compiling as AAR libraries |
 | Contract | one bundle pinned by real SHA-256 — **exported by SPFN primitives**, copied here at an exact commit |
 | Codegen | `tools/contract-codegen` produces both clients from that bundle, deterministically |
 | `clientProofV1` | canonical proof input, SHA-256 digest, ECDSA P-256 proof over a registered public key, replay and revocation rules |
@@ -42,7 +42,7 @@ Sources/                 Swift targets: SPFNCore, SPFNGenerated, SPFNAuth,
 Tests/                   Swift unit, repository and conformance tests
 android/                 Kotlin modules: spfn-core, spfn-generated, spfn-auth,
                          spfn-client, spfn-ui, spfn-state, spfn-events,
-                         spfn-social-google
+                         spfn-social-google, spfn-social-apple
 tools/                   module graph, offline validator, contract codegen,
                          CocoaPods fixture
 examples/                reference apps (placeholders)
@@ -199,6 +199,102 @@ each of which an app shows differently:
 The server refusals are `SPFNClientError.server` / `SpfnClientError.Server` carrying the
 generated code. The signed-in device's half — issuing the code, reading the three numbers,
 confirming — is not on the mobile contract, so a phone is always the new device here.
+
+## Signing in with Apple on Android
+
+Apple ships no Android SDK, so `spfn-social-apple` runs Apple's web authorization in a
+Chrome Custom Tab and returns the identity token the SPFN server relays back to the app.
+The server's web flow alone ends in browser cookies an Android app cannot read; the relay
+is what hands the token over. The token then goes to `enroll` exactly as on iOS:
+
+```kotlin
+val apple = SpfnSocialApple(
+    SpfnSocialAppleCustomTabDriver(activity) { requestNonce, state ->
+        appleAuthorizationUrlFromYourServer(requestNonce, state)
+    }
+)
+val signedIn = lifecycle.enroll(provider = SpfnSocialApple.PROVIDER) { nonce -> apple.idToken(nonce) }
+```
+
+The module names no server endpoint: the app's seam answers with the authorization URL
+its server issues. It posts `{ requestNonce, state, relayUrl }` to
+`/_auth/oauth/apple/native/start` and returns the `authUrl` in the answer — `requestNonce`
+is the 64-character lowercase SHA-256 hex Apple puts in the token as its nonce, `state` is
+the module's (64 lowercase hex, inside the server's `[A-Za-z0-9_-]{16,128}`), and
+`relayUrl` is the app's relay link. The generated `auth.enroll.oauthAppleRelayStart`
+arrives with the contract 0.13.4 re-pin, a separate change; until then the app calls the
+route itself. Apple's `form_post` goes to `/_auth/oauth/apple/callback`, which answers
+with a 303 to `relayUrl` carrying `id_token` and that `state` in the query — or Apple's
+`error`, or `error=expired` when the start has lapsed.
+
+The relay link is an https App Link, verified; the server refuses any other kind, so a
+custom scheme is not an option. The app routes it to the module's receiver by declaring
+the receiver again in its own manifest, on the host its server lists:
+
+```xml
+<activity
+    android:name="xyz.superfunction.spfn.social.apple.SpfnSocialAppleRedirectActivity"
+    android:exported="true">
+    <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data android:scheme="https" android:host="app.example.com"
+            android:path="/_auth/oauth/apple/android" />
+    </intent-filter>
+</activity>
+```
+
+The app's backend (`@spfn/auth` 0.3.0-beta.44 or later) needs three variables and one
+rewrite; [the `@spfn/auth` README](https://github.com/fxylabs/spfn/blob/main/packages/auth/README.md#android-native-start-and-the-callback-relay)
+has the rules:
+
+- `SPFN_AUTH_APPLE_RELAY_URLS` — the relay link, listed exactly in canonical form on the
+  manifest's `android:host`; the start compares `relayUrl` with it as a string, and a
+  non-https entry is refused at boot.
+- `SPFN_AUTH_ANDROID_PACKAGE_NAME` and `SPFN_AUTH_ANDROID_CERT_SHA256` — the app's
+  `applicationId` and the **Play app-signing key**'s fingerprint, never a debug key's.
+  With both set the API serves `/.well-known/assetlinks.json`, which is what verifies the
+  App Link.
+- the `/.well-known/assetlinks.json` → API rewrite beside `/_auth/:path*`, which
+  `spfn init` writes and an older app adds to `next.config` by hand.
+
+A relay without the call's exact `state` is ignored, so a link another app fires at the
+receiver changes nothing. A closed tab is `Cancelled`, a relay without a token
+`IdentityTokenMissing`, Apple's error code — or `expired` — `Failed(reason)`. The module
+reads the relay's `user` field for the person's name, and only `name.firstName` and
+`name.lastName` in it (see below). One sign-in runs at a time, and cancelling the calling coroutine ends it and takes the
+tab down. No phone has driven the round trip yet, so the device cells for Android × Apple
+stay exempt (issue #95).
+
+### The person's name
+
+Apple sends the name on the **first** authorization of an app for an account and never
+again, and on Android it arrives in the relay link this module receives — so it is this
+module or nobody. `credential(nonce)` returns it with the token; `idToken(nonce)` returns
+the token alone, so the closure above keeps working unchanged:
+
+```kotlin
+var name: SpfnSocialAppleName? = null
+val signedIn = lifecycle.enroll(provider = SpfnSocialApple.PROVIDER) { nonce ->
+    val credential = apple.credential(nonce)
+    name = credential.name
+    credential.idToken
+}
+```
+
+`name` is null on every sign-in after the first, and on a first one whose `user` is
+missing, larger than the server's 2048-byte relay cap, not JSON, or without a non-blank
+`firstName` or `lastName`; either half of a name may be null. None of that fails the
+sign-in. The module never stores or logs the name, and neither the credential nor the
+name prints it.
+
+Sending it on is the app's job, and **the SDK has no call for it today**. The server's
+`/_auth/oauth/apple/native` accepts `profile: { name }` beside the token, but the mobile
+contract this SDK is pinned to has no `profile` field on that request, so
+`SpfnKeyLifecycle.enroll` cannot carry it, and the contract has no profile operation
+either. Until one exists, the app sends the name to its own backend once `enroll` has
+succeeded — an app route that writes it to the account's profile — and drops it after.
 
 ## Where the decisions live
 

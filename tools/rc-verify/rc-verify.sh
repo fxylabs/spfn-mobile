@@ -478,6 +478,7 @@ import xyz.superfunction.spfn.auth.SpfnAuthPolicy
 import xyz.superfunction.spfn.client.SpfnClient
 import xyz.superfunction.spfn.core.SpfnVersion
 import xyz.superfunction.spfn.generated.SpfnGeneratedContract
+import xyz.superfunction.spfn.social.apple.SpfnSocialApple
 import xyz.superfunction.spfn.social.google.SpfnSocialGoogle
 import xyz.superfunction.spfn.ui.FlowEntry
 
@@ -488,8 +489,7 @@ object RcConsumerSmoke
     val operations: Int = SpfnGeneratedContract.OPERATION_IDS.size
     val clientType: Class<SpfnClient> = SpfnClient::class.java
     val flowEntries: Int = FlowEntry.entries.size
-    // No Apple adapter symbol here: SPFNSocialApple is iOS-only and stages no Android
-    // artifact, so a touch would name a class that is not on this consumer's classpath.
+    val appleAdapterType: Class<SpfnSocialApple> = SpfnSocialApple::class.java
     val googleAdapterType: Class<SpfnSocialGoogle> = SpfnSocialGoogle::class.java
 }
 EOF
@@ -558,7 +558,7 @@ step 'candidate manifest: SHA256SUMS and manifest.json'
     printf '    "cellsProven": %s,\n' "$RECEIPT_PROVEN"
     printf '    "cellsRequired": %s,\n' "$RECEIPT_REQUIRED"
     printf '    "receiptsRead": %s,\n' "$RECEIPT_FILES"
-    printf '    "gate": "tools/device-receipts/receipt-gate.sh — {ios x apple, ios x google, android x google} x {first-enroll, re-login, user-cancel, network-failure, server-reject}; android x apple is exempt because no Android Apple adapter module exists"\n'
+    printf '    "gate": "tools/device-receipts/receipt-gate.sh — {ios x apple, ios x google, android x google} x {first-enroll, re-login, user-cancel, network-failure, server-reject}; android x apple is exempt until the harness drives the Apple relay (#95)"\n'
     printf '  },\n'
     printf '  "swiftpm": {\n'
     printf '    "resolvedTag": "%s",\n' "$RESOLVED_VERSION"

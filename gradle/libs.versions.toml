@@ -32,6 +32,10 @@ kotlinx-coroutines = "1.11.0"
 # is alpha and the googleid line is at 1.2.0.
 androidx-credentials = "1.6.0"
 googleid = "1.2.0"
+# The Android Apple Sign-In adapter's Custom Tab. Apple ships no Android SDK, so its web
+# flow runs in the browser and this is the one artifact between it and the app. Latest
+# stable as checked on 2026-10-20; 1.10.0 is the stable line after 1.10.0-rc01.
+androidx-browser = "1.10.0"
 
 # The UI module's dependencies. Compose is the Android UI toolkit `spfn-ui` is written
 # against and Navigation 3 is its back stack; both are Maven artifacts, so unlike SwiftUI
@@ -71,6 +75,7 @@ kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutine
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "androidx-credentials" }
 androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "androidx-credentials" }
+androidx-browser = { module = "androidx.browser:browser", version.ref = "androidx-browser" }
 googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleid" }
 androidx-compose-runtime = { module = "androidx.compose.runtime:runtime", version.ref = "androidx-compose" }
 androidx-compose-ui = { module = "androidx.compose.ui:ui", version.ref = "androidx-compose" }

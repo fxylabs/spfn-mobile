@@ -44,6 +44,7 @@ include(
     ":spfn-ui",
     ":spfn-events",
     ":spfn-social-google",
+    ":spfn-social-apple",
     ":contract-codegen",
     ":ui-codegen",
     ":reference-server",
@@ -59,6 +60,7 @@ project(":spfn-state").projectDir = file("android/spfn-state")
 project(":spfn-ui").projectDir = file("android/spfn-ui")
 project(":spfn-events").projectDir = file("android/spfn-events")
 project(":spfn-social-google").projectDir = file("android/spfn-social-google")
+project(":spfn-social-apple").projectDir = file("android/spfn-social-apple")
 
 // Not an SDK module and never published. The contract generator is a build tool that
 // lives inside the JDK/Gradle toolchain Android already requires, so the repository
