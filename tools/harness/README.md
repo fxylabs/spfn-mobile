@@ -426,9 +426,10 @@ finding about the SDK.
 
 Apple is not here yet. Apple ships no native sign-in SDK for this platform, so the
 Android adapter (`android/spfn-social-apple`, issue #95) runs Apple's web flow in a Custom
-Tab and waits for the SPFN server to relay the identity token to an app link — and the
-server half of that relay does not exist yet. Until it does there is no round trip a phone
-can drive, so the mode is Google only, and the receipt gate exempts Android × Apple.
+Tab and receives the identity token the SPFN server relays to an https App Link
+(`@spfn/auth` 0.3.0-beta.44). The native start that begins it enters the pinned contract
+only with 0.13.4, and this mode does not drive the round trip yet, so the mode is Google
+only, and the receipt gate exempts Android × Apple.
 
 ### What you configure, and where
 

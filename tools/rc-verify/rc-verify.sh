@@ -558,7 +558,7 @@ step 'candidate manifest: SHA256SUMS and manifest.json'
     printf '    "cellsProven": %s,\n' "$RECEIPT_PROVEN"
     printf '    "cellsRequired": %s,\n' "$RECEIPT_REQUIRED"
     printf '    "receiptsRead": %s,\n' "$RECEIPT_FILES"
-    printf '    "gate": "tools/device-receipts/receipt-gate.sh — {ios x apple, ios x google, android x google} x {first-enroll, re-login, user-cancel, network-failure, server-reject}; android x apple is exempt until the server relays the Apple token to an app (#95)"\n'
+    printf '    "gate": "tools/device-receipts/receipt-gate.sh — {ios x apple, ios x google, android x google} x {first-enroll, re-login, user-cancel, network-failure, server-reject}; android x apple is exempt until the harness drives the Apple relay (#95)"\n'
     printf '  },\n'
     printf '  "swiftpm": {\n'
     printf '    "resolvedTag": "%s",\n' "$RESOLVED_VERSION"

@@ -3,12 +3,13 @@
 // The round trip, end to end:
 //
 //   1. The driver mints a state and asks the app's [SpfnSocialAppleAuthorizationUrl] for
-//      the URL to open. The app owns that URL because the server owns the flow behind
-//      it: this module names no endpoint, and does not know which one the app's server
-//      answers on.
+//      the URL to open. The app owns that URL because its server and its API client own
+//      the call behind it — the native start, `/_auth/oauth/apple/native/start` — and
+//      this module names no endpoint.
 //   2. SpfnSocialAppleAuthorizationActivity opens it in a Custom Tab. Apple posts the
-//      authorization to the server's Return URL, and the server redirects (303) to the
-//      app's link with `id_token` and `state` — or `error` — in its query.
+//      authorization to the server's `/_auth/oauth/apple/callback`, and the server
+//      redirects (303) to the app's link with `id_token` and `state` — or `error`, which
+//      is `expired` when the start has lapsed — in its query.
 //   3. SpfnSocialAppleRedirectActivity receives that link, hands it to the waiting call
 //      and brings the management activity forward, which clears the tab and finishes.
 //
@@ -25,14 +26,17 @@ import kotlinx.coroutines.Deferred
 
 /**
  * Where the authorization starts. The app answers with the Apple authorization URL its
- * SPFN server issues for this sign-in, carrying [requestNonce] as Apple's nonce and
- * [state] where the server will echo it back in the relay link.
+ * SPFN server issues for this sign-in: it posts `{ requestNonce, state, relayUrl }` to
+ * `/_auth/oauth/apple/native/start` and returns the `authUrl` the server answers with.
+ * [requestNonce] is the 64-character lowercase SHA-256 hex Apple puts in the token as its
+ * nonce; [state] is this call's, and the server echoes it back in the relay link.
  *
- * The relay link is the app's too: the server redirects to it, and the app routes it to
- * [SpfnSocialAppleRedirectActivity] by declaring that activity again in its own manifest
- * with an intent filter. Either form works; the manifest merger joins the declarations.
- *
- * An https App Link on the app's own host, verified, so no other app can claim it:
+ * The relay link is the app's too: the server redirects to `relayUrl`, and the app routes
+ * it to [SpfnSocialAppleRedirectActivity] by declaring that activity again in its own
+ * manifest with an intent filter; the manifest merger joins the declarations. The link
+ * is an https App Link, verified, on the host listed in the server's
+ * `SPFN_AUTH_APPLE_RELAY_URLS` — the server refuses any other kind, because an
+ * unverified link is one any app on the device could claim:
  * ```
  * <activity
  *     android:name="xyz.superfunction.spfn.social.apple.SpfnSocialAppleRedirectActivity"
@@ -47,18 +51,8 @@ import kotlinx.coroutines.Deferred
  * </activity>
  * ```
  *
- * Or a custom scheme, which needs no verification and which any app can also register:
- * ```
- *     <intent-filter>
- *         <action android:name="android.intent.action.VIEW" />
- *         <category android:name="android.intent.category.DEFAULT" />
- *         <category android:name="android.intent.category.BROWSABLE" />
- *         <data android:scheme="com.example.app" android:host="apple-relay" />
- *     </intent-filter>
- * ```
- *
- * Either way the state is what makes a relay this call's, so a link another app fires at
- * the receiver changes nothing.
+ * The state is still what makes a relay this call's, so a link another app fires at the
+ * receiver changes nothing.
  */
 fun interface SpfnSocialAppleAuthorizationUrl
 {

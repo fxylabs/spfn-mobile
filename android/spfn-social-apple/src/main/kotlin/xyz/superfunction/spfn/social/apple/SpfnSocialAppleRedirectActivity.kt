@@ -2,11 +2,12 @@
 //
 // Exported, because a browser has to be able to open it, and declared here without an
 // intent filter, because the link is the app's: the app declares this activity again in
-// its own manifest with an https App Link or a custom scheme
-// (SpfnSocialAppleAuthorizationUrl carries both forms).
+// its own manifest with its verified https App Link (SpfnSocialAppleAuthorizationUrl
+// carries the declaration).
 //
-// It reads the three query parameters a relay can carry and nothing else, hands them to
-// the waiting call, and finishes. Being exported means any app can fire anything at it,
+// It reads three of the query parameters a relay carries — `id_token`, `state` and
+// `error`; never `user`, the person's name on a first authorization — hands them to the
+// waiting call, and finishes. Being exported means any app can fire anything at it,
 // so nothing here trusts the link: a link that is not hierarchical, carries no state, or
 // carries another call's state is dropped, and so is one that lands in a process that
 // has no call waiting — a stale link, or a process restarted while the tab was open.
@@ -20,8 +21,8 @@ import android.net.Uri
 import android.os.Bundle
 
 /**
- * Receives the server's relay link. Declare it in the app's manifest with the link's
- * intent filter — see [SpfnSocialAppleAuthorizationUrl] for both forms.
+ * Receives the server's relay link. Declare it in the app's manifest with the App Link's
+ * intent filter — see [SpfnSocialAppleAuthorizationUrl] for the declaration.
  */
 class SpfnSocialAppleRedirectActivity : Activity()
 {

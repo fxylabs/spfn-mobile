@@ -283,7 +283,7 @@ footer { margin-top: 64px; border-top: 1px solid var(--line); padding-top: 14px;
 <ul>
     <li>취소는 실패가 아니다 — 시트 닫힘은 <code>.cancelled</code> 전용 타입으로 분류 (등록부 P16)</li>
     <li>iOS 어댑터 선택은 SwiftPM traits, Android는 별도 아티팩트 — 안 쓰면 의존성 자체가 해석 안 됨</li>
-    <li>Android용 Apple 어댑터(<code>spfn-social-apple</code>, #95)는 Custom Tab에서 Apple 웹 흐름을 돌리고 서버가 앱 링크로 중계한 id_token을 받는다 — 서버의 웹 흐름은 앱이 읽을 수 없는 브라우저 쿠키로 끝나기 때문이다. 서버 쪽 중계는 아직 없어 실기기 검증은 대기 · kakao/naver는 upstream 대기</li>
+    <li>Android용 Apple 어댑터(<code>spfn-social-apple</code>, #95)는 Custom Tab에서 Apple 웹 흐름을 돌리고 서버가 앱 링크로 중계한 id_token을 받는다 — 서버의 웹 흐름은 앱이 읽을 수 없는 브라우저 쿠키로 끝나기 때문이다. 서버 쪽 중계는 <code>@spfn/auth</code> 0.3.0-beta.44에 들어갔고(https App Link만 허용), 실기기 검증은 대기 · kakao/naver는 upstream 대기</li>
 </ul>
 <p><span class="pill warn">실기기 검증 은퇴</span>&nbsp; 2026-09-01, 아이폰 14 Pro + 갤럭시 실기기에서 실서버(계약 0.9.0) 대상 최초가입·재로그인·취소·네트워크실패·서버거절 전 셀을 통과했다. 훼손 토큰은 서버가 401로 거절했고, 실패 케이스에서 키 잔존 0건. 2026-09-02 계약 0.10.0 재핀으로 이 증거는 은퇴했다 — <code>receipt-gate.sh</code>가 영수증의 계약 버전을 핀과 대조하므로 지금은 전부 거절되며, 사람이 15셀을 다시 돌기 전까지 붉은 상태가 정상이다. 영수증 파일은 기록으로 그대로 커밋되어 있다.</p>
 

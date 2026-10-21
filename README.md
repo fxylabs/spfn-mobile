@@ -216,11 +216,20 @@ val apple = SpfnSocialApple(
 val signedIn = lifecycle.enroll(provider = SpfnSocialApple.PROVIDER) { nonce -> apple.idToken(nonce) }
 ```
 
-The module names no server endpoint: the app answers with the authorization URL its
-server issues, carrying `requestNonce` as Apple's nonce and the module's `state`. The
-server answers Apple's `form_post` with a 303 to the app's relay link, carrying `id_token`
-and that `state` (or Apple's `error`). The app routes the link to the module's receiver
-by declaring it again in its own manifest — an https App Link on its own host:
+The module names no server endpoint: the app's seam answers with the authorization URL
+its server issues. It posts `{ requestNonce, state, relayUrl }` to
+`/_auth/oauth/apple/native/start` and returns the `authUrl` in the answer — `requestNonce`
+is the 64-character lowercase SHA-256 hex Apple puts in the token as its nonce, `state` is
+the module's (64 lowercase hex, inside the server's `[A-Za-z0-9_-]{16,128}`), and
+`relayUrl` is the app's relay link. The generated `auth.enroll.oauthAppleRelayStart`
+arrives with the contract 0.13.4 re-pin, a separate change; until then the app calls the
+route itself. Apple's `form_post` goes to `/_auth/oauth/apple/callback`, which answers
+with a 303 to `relayUrl` carrying `id_token` and that `state` in the query — or Apple's
+`error`, or `error=expired` when the start has lapsed.
+
+The relay link is an https App Link, verified; the server refuses any other kind, so a
+custom scheme is not an option. The app routes it to the module's receiver by declaring
+the receiver again in its own manifest, on the host its server lists:
 
 ```xml
 <activity
@@ -236,13 +245,27 @@ by declaring it again in its own manifest — an https App Link on its own host:
 </activity>
 ```
 
-or a custom scheme, in the same declaration with
-`<data android:scheme="com.example.app" android:host="apple-relay" />` and no
-`autoVerify`. A relay without the call's exact `state` is ignored, so a link another app
-fires at the receiver changes nothing. A closed tab is `Cancelled`, a relay without a
-token `IdentityTokenMissing`, Apple's error code `Failed(reason)`. One sign-in runs at a
-time, and cancelling the calling coroutine ends it and takes the tab down. **The server
-half of the relay does not exist yet** (issue #95), so this has no device round trip yet.
+The app's backend (`@spfn/auth` 0.3.0-beta.44 or later) needs three variables and one
+rewrite; [the `@spfn/auth` README](https://github.com/fxylabs/spfn/blob/main/packages/auth/README.md#android-native-start-and-the-callback-relay)
+has the rules:
+
+- `SPFN_AUTH_APPLE_RELAY_URLS` — the relay link, listed exactly in canonical form on the
+  manifest's `android:host`; the start compares `relayUrl` with it as a string, and a
+  non-https entry is refused at boot.
+- `SPFN_AUTH_ANDROID_PACKAGE_NAME` and `SPFN_AUTH_ANDROID_CERT_SHA256` — the app's
+  `applicationId` and the **Play app-signing key**'s fingerprint, never a debug key's.
+  With both set the API serves `/.well-known/assetlinks.json`, which is what verifies the
+  App Link.
+- the `/.well-known/assetlinks.json` → API rewrite beside `/_auth/:path*`, which
+  `spfn init` writes and an older app adds to `next.config` by hand.
+
+A relay without the call's exact `state` is ignored, so a link another app fires at the
+receiver changes nothing. A closed tab is `Cancelled`, a relay without a token
+`IdentityTokenMissing`, Apple's error code — or `expired` — `Failed(reason)`. The relay's
+`user` field, the person's name on a first authorization, is not read by the module.
+One sign-in runs at a time, and cancelling the calling coroutine ends it and takes the
+tab down. No phone has driven the round trip yet, so the device cells for Android × Apple
+stay exempt (issue #95).
 
 ## Where the decisions live
 

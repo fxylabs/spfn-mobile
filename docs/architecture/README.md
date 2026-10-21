@@ -547,14 +547,16 @@ wrapper.** App Store guideline 4.8 requires Sign in with Apple on iOS and nothin
 requires it on Android, where Apple's own flow is a web one. That flow ends at the
 server's Return URL in a session held in browser cookies, which an Android app cannot
 read, so the token has to be handed back to the app. `spfn-social-apple` opens the
-authorization URL the app supplies (the module names no server endpoint) in a Custom Tab,
+authorization URL the app supplies from the server's native start (the module names no server endpoint) in a Custom Tab,
 and an exported redirect-receiver activity takes the link the server redirects Apple's
 `form_post` to, carrying `id_token` and a per-call `state`. The state — 32 random bytes
 the module mints — is what makes an exported receiver safe: a link without it changes
 nothing, and a token for another key is refused by the server's nonce binding anyway.
 What the app then hands the SDK is the same thing every other provider hands it: a
-provider token and the nonce it was bound to. The server half of the relay does not
-exist yet, so the Android × Apple device cells stay exempt until it does.
+provider token and the nonce it was bound to. The server half shipped in `@spfn/auth`
+0.3.0-beta.44, and it allows an https App Link only: a custom scheme is one any app on
+the device could claim, so the relay link is verified through `assetlinks.json`. The
+Android × Apple device cells stay exempt until a phone has driven the round trip.
 
 **The raw value is not base64.** A base64url value's last character carries fewer than
 six bits, and a provider that re-encodes it can hand back a different last character

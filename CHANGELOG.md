@@ -17,10 +17,15 @@ Entries under an unreleased heading describe repository state, not shipped softw
   `SpfnSocialAppleAuthorizationUrl` answers with in a Chrome Custom Tab (`androidx.browser`
   1.10.0), and `SpfnSocialAppleRedirectActivity` receives the link the server redirects to
   with `id_token` and a per-call 32-byte `state`. The app declares that activity in its own
-  manifest with an https App Link or a custom scheme. A relay without the call's exact state
-  changes nothing; Apple's `error` is kept only when it is shaped as a code.
-- The server half — `@spfn/auth` answering Apple's `form_post` with a 303 to the app's link —
-  does not exist yet, so there is no device round trip, and the receipt gate keeps
+  manifest with a verified https App Link; the server refuses a custom scheme. A relay
+  without the call's exact state changes nothing; Apple's `error` is kept only when it is
+  shaped as a code, so an expired start is `Failed("expired")`. The relay's `user` field is
+  not read.
+- The server half shipped in `@spfn/auth` 0.3.0-beta.44: the app's seam posts
+  `{ requestNonce, state, relayUrl }` to `/_auth/oauth/apple/native/start` and returns its
+  `authUrl`, and the callback answers Apple's `form_post` with a 303 to the app's link. The
+  generated `oauthAppleRelayStart` arrives with the contract 0.13.4 re-pin; until then the
+  app calls the route itself. No phone has driven the round trip, so the receipt gate keeps
   Android × Apple exempt. `tools/module-graph.json` declares the module, so no row declares
   `androidModule: null` any more.
 

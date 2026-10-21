@@ -8,8 +8,8 @@
     task the browser opened the link in.
 
     The redirect receiver is exported and has no intent filter here, on purpose. The link
-    it answers is the app's — an https App Link on the app's own host, or a custom scheme —
-    so the app declares this same activity in its own manifest with that filter, and the
+    it answers is the app's — a verified https App Link on the host the server lists in
+    SPFN_AUTH_APPLE_RELAY_URLS, which refuses any other kind — so the app declares this same activity in its own manifest with that filter, and the
     manifest merger joins the two. Being exported means any app can fire an intent at it;
     the per-call state is the guard, not the export flag (SpfnSocialAppleRelay.kt).
 

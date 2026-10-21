@@ -1,4 +1,4 @@
-// SPFN Mobile — the relay link, case table rows R1–R8.
+// SPFN Mobile — the relay link, case table rows R1–R8, R4b and S1.
 //
 // The relay is classified from three plain strings, so these rows run on a host JVM
 // without android.net.Uri, whose host stubs answer null for every query parameter.
@@ -55,6 +55,15 @@ class SpfnSocialAppleRelayTest
 
             assertEquals(code, (refusalOf(answer) as SpfnSocialAppleException.Failed).reason);
         }
+    }
+
+    /** R4b: the server's own `error=expired`, for a start that lapsed, is a code like Apple's. */
+    @Test
+    fun r4b_anExpiredStartIsFailedExpired()
+    {
+        val answer = classifyRelay(SpfnSocialAppleRelay(null, STATE, "expired"), STATE);
+
+        assertEquals("expired", (refusalOf(answer) as SpfnSocialAppleException.Failed).reason);
     }
 
     /** R5: anything else in `error` is not a code, and its text is dropped. */
@@ -139,6 +148,18 @@ class SpfnSocialAppleRelayTest
 
         assertTrue(first, Regex("[0-9a-f]{64}").matches(first));
         assertNotEquals(first, second);
+    }
+
+    /** S1: the minted state is one the server's native start accepts. */
+    @Test
+    fun s1_theMintedStateSatisfiesTheServersStateRule()
+    {
+        repeat(32)
+        {
+            val state = mintState();
+
+            assertTrue(state, Regex("[A-Za-z0-9_-]{16,128}").matches(state));
+        }
     }
 
     private fun refusalOf(answer: SpfnSocialAppleAnswer?): SpfnSocialAppleException =
