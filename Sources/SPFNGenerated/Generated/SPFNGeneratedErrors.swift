@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
-// contractVersion: 0.13.2
+// bundleSha256:    a7cab3c8e98f3d83384693a45b5d1754640529636c193afd54ef116e98e47c1a
+// contractVersion: 0.13.4
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -55,6 +55,7 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
     case deviceAuthAlreadyHandledError = "DeviceAuthAlreadyHandledError"
     case deviceLinkExpiredError = "DeviceLinkExpiredError"
     case deviceLinkDeniedError = "DeviceLinkDeniedError"
+    case deviceLinkWrongMatchError = "DeviceLinkWrongMatchError"
     case deviceLinkNotFoundError = "DeviceLinkNotFoundError"
 
     /// The surface that answers with this code.
@@ -113,6 +114,8 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
         case .deviceLinkExpiredError:
             return .rest
         case .deviceLinkDeniedError:
+            return .rest
+        case .deviceLinkWrongMatchError:
             return .rest
         case .deviceLinkNotFoundError:
             return .rest
@@ -175,6 +178,8 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
             return 400
         case .deviceLinkDeniedError:
             return 403
+        case .deviceLinkWrongMatchError:
+            return 400
         case .deviceLinkNotFoundError:
             return 404
         }
@@ -235,6 +240,8 @@ public enum SPFNGeneratedErrorCode: String, CaseIterable, Sendable
         case .deviceLinkExpiredError:
             return false
         case .deviceLinkDeniedError:
+            return false
+        case .deviceLinkWrongMatchError:
             return false
         case .deviceLinkNotFoundError:
             return false

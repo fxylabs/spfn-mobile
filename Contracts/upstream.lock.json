@@ -12,18 +12,18 @@
   },
   "source": {
     "repository": "git.superfunction.xyz/superfunction/primitives",
-    "commit": "dc90f70dee07b45a2eb1dc8f78b456c613cfdd46",
+    "commit": "f2d9688ecd1eef856aff3fca5e76183e4567524d",
     "upstreamBundlePath": "contracts/mobile/spfn-mobile-contract.json",
-    "exporterVersion": "@spfn/auth/contract-bundle@6.0.0",
+    "exporterVersion": "@spfn/auth/contract-bundle@6.1.0",
     "keyNamingRule": "This is not called bundlePath on purpose. The readers of this file match a key name at any depth, so two keys with the same name in different objects would resolve to whichever appears first, and the validator would digest the upstream path instead of the vendored one."
   },
   "publishedPackages": {
     "registry": "https://git.superfunction.xyz/api/packages/superfunction/npm/",
-    "@spfn/auth": "0.3.0-beta.28",
-    "@spfn/core": "0.3.0-beta.14",
+    "@spfn/auth": "0.3.0-beta.44",
+    "@spfn/core": "0.3.0-beta.30",
     "rule": "The npm versions published from source.commit. A commit is not something npm can install, and nothing in an installed @spfn/auth says which contract it implements — the bundle is not shipped in the package and neither is the code that builds it. So the mapping from a package version to a contract version exists only here, written by hand from the commit history, and tools/verify-server/run.sh compares an app's installed tree against it.",
-    "registryRule": "The @spfn/auth 0.3.0-beta.28 and @spfn/core 0.3.0-beta.14 releases are published on the public npm registry (registry.npmjs.org). A machine whose npmrc scopes @spfn elsewhere can resolve a different line, and --registry does not override a scope: use --@spfn:registry for an explicit comparison. tools/verify-server/spfn-versions.sh asks both configured registries and refuses to answer with a single number.",
-    "peerRangeWarning": "@spfn/auth declares @spfn/core >=0.2.0-beta.54, which a much older core satisfies while lacking the error envelope this contract's codes ride in. The consumer pins @spfn/core exactly rather than letting resolution choose."
+    "registryRule": "The @spfn/auth 0.3.0-beta.44 and @spfn/core 0.3.0-beta.30 releases are published on the public npm registry (registry.npmjs.org). A machine whose npmrc scopes @spfn elsewhere can resolve a different line, and --registry does not override a scope: use --@spfn:registry for an explicit comparison. tools/verify-server/spfn-versions.sh asks both configured registries and refuses to answer with a single number.",
+    "peerRangeWarning": "@spfn/auth declares @spfn/core >=0.3.0-beta.18 <0.4.0, a wider range than the one core release published beside it, so resolution can choose a core this pin was never read against. The consumer pins @spfn/core exactly rather than letting resolution choose."
   },
   "contract": {
     "name": "spfn-mobile-contract",

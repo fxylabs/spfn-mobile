@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
-// contractVersion: 0.13.2
+// bundleSha256:    a7cab3c8e98f3d83384693a45b5d1754640529636c193afd54ef116e98e47c1a
+// contractVersion: 0.13.4
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -66,6 +66,7 @@ enum class SpfnGeneratedErrorCode(
     DeviceAuthAlreadyHandledError("DeviceAuthAlreadyHandledError", 409, false, SpfnGeneratedErrorSurface.REST),
     DeviceLinkExpiredError("DeviceLinkExpiredError", 400, false, SpfnGeneratedErrorSurface.REST),
     DeviceLinkDeniedError("DeviceLinkDeniedError", 403, false, SpfnGeneratedErrorSurface.REST),
+    DeviceLinkWrongMatchError("DeviceLinkWrongMatchError", 400, false, SpfnGeneratedErrorSurface.REST),
     DeviceLinkNotFoundError("DeviceLinkNotFoundError", 404, false, SpfnGeneratedErrorSurface.REST);
 
     companion object

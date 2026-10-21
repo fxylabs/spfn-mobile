@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
-// contractVersion: 0.13.2
+// bundleSha256:    a7cab3c8e98f3d83384693a45b5d1754640529636c193afd54ef116e98e47c1a
+// contractVersion: 0.13.4
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -21,8 +21,8 @@ public enum SPFNGeneratedContract
 
     /// The pinned bundle these sources were derived from.
     public static let binding = SPFNContractBinding(
-        importedVersion: "0.13.2",
-        importedManifestSha256: "8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e",
+        importedVersion: "0.13.4",
+        importedManifestSha256: "a7cab3c8e98f3d83384693a45b5d1754640529636c193afd54ef116e98e47c1a",
         supportedRange: ">=0.13.0 <0.14.0",
         supportedMajor: 0,
         supportedMinor: 13,
@@ -38,6 +38,7 @@ public enum SPFNGeneratedContract
         "auth.enroll.register",
         "auth.enroll.login",
         "auth.enroll.oauthNative",
+        "auth.enroll.oauthAppleRelayStart",
         "auth.mfa.verify",
         "auth.mfa.status",
         "auth.keys.rotate",

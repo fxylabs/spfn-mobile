@@ -23,7 +23,7 @@ screen, which is the case the generated model converts and can still refuse.
 ```json spfn-ui
 {
   "specVersion": 2,
-  "contract": { "manifestSha256": "8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e" },
+  "contract": { "manifestSha256": "a7cab3c8e98f3d83384693a45b5d1754640529636c193afd54ef116e98e47c1a" },
   "services": {
     "echo": {
       "send": { "operation": "echoSend" }

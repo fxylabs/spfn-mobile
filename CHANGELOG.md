@@ -5,6 +5,25 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Re-pin the contract to 0.13.4: Sign in with Apple on Android's native start is generated on both platforms
+
+- `Contracts/spfn-mobile-contract.json` and `Contracts/upstream-provenance.json` are byte
+  copies of the SPFN primitives export at `f2d9688ecd1eef856aff3fca5e76183e4567524d`
+  (bundle SHA-256 `a7cab3c8…`, exporter contract-bundle 6.1.0). The lock names that commit
+  and the npm releases built from it, `@spfn/auth` 0.3.0-beta.44 with `@spfn/core`
+  0.3.0-beta.30, on both registries.
+- 0.13.4 adds `auth.enroll.oauthAppleRelayStart` (`POST /_auth/oauth/apple/native/start`,
+  unproven): `OauthAppleRelayStartRequest { requestNonce, state, relayUrl }` answered by
+  `OauthAppleRelayStartResponse { authUrl }`. Both clients generate the operation, its call
+  descriptor and both types; nothing in the SDK calls it yet.
+- 0.13.3 adds `DeviceLinkWrongMatchError` (400, not retryable): a link poll whose signed-in
+  device picked another number now ends with that code instead of `DeviceLinkDeniedError`,
+  which is a refusal only. It joins the exhaustive auth-failure classification as a REST
+  code on both platforms; `enrollByLinkCode` already ends its wait on any non-retryable
+  refusal and hands the code to the app, so only its documentation and tests moved.
+- The declared range stays `>=0.13.0 <0.14.0`; both clients now admit `>=0.13.4 <0.14.0`
+  and refuse a server announcing 0.13.2 or 0.13.3.
+
 ### One observer for how every call ended: `onOutcome` on `SPFNClient` / `SpfnClient`, passed by the key lifecycle (additive, both platforms)
 
 - `SPFNClient.init` and `SpfnClient` take `onOutcome: SPFNClientOutcome? = nil` /
