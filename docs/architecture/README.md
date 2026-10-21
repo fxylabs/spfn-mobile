@@ -553,7 +553,10 @@ and an exported redirect-receiver activity takes the link the server redirects A
 the module mints — is what makes an exported receiver safe: a link without it changes
 nothing, and a token for another key is refused by the server's nonce binding anyway.
 What the app then hands the SDK is the same thing every other provider hands it: a
-provider token and the nonce it was bound to. The server half shipped in `@spfn/auth`
+provider token and the nonce it was bound to. The relay also carries Apple's `user` — the
+person's name, sent on the first authorization only — and the module hands that back
+with the token rather than dropping it, because on Android nothing else ever sees it: the
+one exception to decision 1, decided 2026-10-21, never stored or logged by the SDK. The server half shipped in `@spfn/auth`
 0.3.0-beta.44, and it allows an https App Link only: a custom scheme is one any app on
 the device could claim, so the relay link is verified through `assetlinks.json`. The
 Android × Apple device cells stay exempt until a phone has driven the round trip.

@@ -2,15 +2,17 @@
 //
 // Same shape as the Google adapter and the iOS counterpart: a nonce goes in, an identity
 // token comes out, and `SpfnKeyLifecycle.enroll(provider = "apple", …)` takes it from
-// there exactly as on iOS. Two rules carry over unchanged from
-// Sources/SPFNSocialApple/SPFNSocialApple.swift:
+// there exactly as on iOS. Two rules carry over from
+// Sources/SPFNSocialApple/SPFNSocialApple.swift, the second amended for Android:
 //
 //   - The request carries the nonce's `requestValue`, which for an apple-minted nonce is
 //     the SHA-256 of the key fingerprint, because Apple signs the hash of whatever it is
 //     given. A nonce minted for another provider is refused rather than sent.
-//   - Nothing here reads, stores or logs anything but the token (decision 1). A refusal
-//     carries a fixed reason code and never provider text — Apple's `error_description`
-//     and the relay link itself are dropped where they are read.
+//   - Nothing here reads, stores or logs anything but the token (decision 1) — and the
+//     person's name, which Apple relays only on the first authorization and which is
+//     handed back with the token and never stored or logged (SpfnSocialAppleName.kt). A
+//     refusal carries a fixed reason code and never provider text — Apple's
+//     `error_description` and the relay link itself are dropped where they are read.
 //
 // What differs is where the token comes from. Apple ships no Android SDK, so the flow is
 // Apple's web authorization in a Custom Tab, ending at the SPFN server's Return URL, and
@@ -52,19 +54,49 @@ sealed class SpfnSocialAppleException(message: String) : Exception(message)
 }
 
 /**
+ * What a completed Apple sign-in hands back: the identity token, and the person's name
+ * when Apple sent one.
+ *
+ * Apple sends the name on the **first** authorization of an app for that account only,
+ * and every later sign-in carries none. So a null [name] is the ordinary case, and a
+ * non-null one is the only chance to learn it — the app sends it on before it lets go of
+ * the result. This module keeps no copy. Not a data class: its rendering would print the
+ * token.
+ */
+class SpfnSocialAppleCredential(
+    /** The token to answer `SpfnKeyLifecycle.enroll` with. Never empty. */
+    val idToken: String,
+    /** The person's name on a first authorization; null on every other. */
+    val name: SpfnSocialAppleName?
+)
+{
+    override fun toString(): String = "SpfnSocialAppleCredential"
+}
+
+/**
  * The authorization flow, behind a seam. [SpfnSocialAppleCustomTabDriver] is the real
- * one; a suite, or an app that runs the flow some other way, fills it in instead.
+ * one; a suite, or an app that runs the flow some other way, fills it in instead. Null,
+ * or a credential with an empty token, is a flow that completed without one.
  */
 fun interface SpfnSocialAppleDriver
 {
-    suspend fun identityToken(requestNonce: String): String?
+    suspend fun credential(requestNonce: String): SpfnSocialAppleCredential?
 }
 
 /** The one thing this module offers an app: a nonce goes in, a provider token comes out. */
 class SpfnSocialApple(private val driver: SpfnSocialAppleDriver)
 {
-    /** The token to answer `SpfnKeyLifecycle.enroll` with, from inside its closure. */
-    suspend fun idToken(nonce: SpfnSocialNonce): String
+    /**
+     * The token to answer `SpfnKeyLifecycle.enroll` with, from inside its closure. Any
+     * name Apple sent is dropped; call [credential] to keep it.
+     */
+    suspend fun idToken(nonce: SpfnSocialNonce): String = credential(nonce).idToken
+
+    /**
+     * The token and, on a first authorization, the person's name. The refusals are
+     * [idToken]'s. The name is the app's to send on — see [SpfnSocialAppleCredential].
+     */
+    suspend fun credential(nonce: SpfnSocialNonce): SpfnSocialAppleCredential
     {
         // A nonce minted for another provider carries the raw fingerprint, and Apple
         // signs the hash of whatever it is given — so the token would come back bound to
@@ -74,22 +106,22 @@ class SpfnSocialApple(private val driver: SpfnSocialAppleDriver)
             throw SpfnSocialAppleException.NonceProviderMismatch(nonce.provider);
         }
 
-        val token: String?;
+        val credential: SpfnSocialAppleCredential?;
         try
         {
             // `requestValue` is already the SHA-256 here: Apple is the one provider whose
             // request carries the hash rather than the fingerprint.
-            token = driver.identityToken(nonce.requestValue);
+            credential = driver.credential(nonce.requestValue);
         }
         catch (failure: Throwable)
         {
             throw classify(failure);
         }
-        if (token.isNullOrEmpty())
+        if (credential == null || credential.idToken.isEmpty())
         {
             throw SpfnSocialAppleException.IdentityTokenMissing();
         }
-        return token;
+        return credential;
     }
 
     companion object

@@ -3811,6 +3811,14 @@ section '23. no provider adapter logs a token or reads a profile field'
 # `requestedScopes` is admitted only where the line also carries the empty literal, which is
 # how the Apple adapter asks for none.
 #
+# One file is exempt from the profile list, and only from it: SOCIAL_NAME_SOURCE, where the
+# Android Apple adapter reads the person's name off the relay's `user` field. Apple sends
+# that name once, on the first authorization, and on Android the relay is the app's only
+# way to see it, so the operator decided on 2026-10-21 that the adapter hands it back with
+# the token and never stores or logs it. The exemption is a path, not a directory: a
+# profile field anywhere else in that module — the relay, the adapter — still fails, and
+# the logging list still covers this file.
+#
 # Every term is matched as a plain substring, the way the Swift suite matches its own. A
 # word boundary would be the obvious refinement and it is the wrong one: both lists are
 # reached through a receiver — `credential.fullName`, `android.util.Log.d` — so a rule that
@@ -3825,6 +3833,7 @@ section '23. no provider adapter logs a token or reads a profile field'
 SOCIAL_SURFACE_DIRS='Sources/SPFNSocialApple Sources/SPFNSocialGoogle android/spfn-social-google/src/main android/spfn-social-apple/src/main'
 SOCIAL_LOGGERS='print\(|NSLog\(|os_log\(|debugPrint\(|dump\(|FileHandle\.standardOutput|println|Log\.|Timber\.|System\.out|System\.err|printStackTrace\('
 SOCIAL_PROFILE_FIELDS='fullName|givenName|familyName|nickName|middleName|emailAddress|profileData'
+SOCIAL_NAME_SOURCE=android/spfn-social-apple/src/main/kotlin/xyz/superfunction/spfn/social/apple/SpfnSocialAppleName.kt
 
 : > "$TMP/social-active.txt"
 SOCIAL_SCANNED=0
@@ -3861,13 +3870,13 @@ else
     printf '%s\n' "$SOCIAL_LOG_HITS" | sed 's/^/          /'
 fi
 
-SOCIAL_FIELD_HITS=$(grep -E "$SOCIAL_PROFILE_FIELDS" "$TMP/social-active.txt" || true)
+SOCIAL_FIELD_HITS=$(grep -vF "$SOCIAL_NAME_SOURCE:" "$TMP/social-active.txt" | grep -E "$SOCIAL_PROFILE_FIELDS" || true)
 SOCIAL_SCOPE_HITS=$(grep -E 'requestedScopes' "$TMP/social-active.txt" | grep -vF '[]' || true)
 if [ -z "$SOCIAL_FIELD_HITS" ] && [ -z "$SOCIAL_SCOPE_HITS" ]
 then
-    pass 'C9: no adapter source reads a provider profile field or asks for a scope'
+    pass 'C9: no adapter source reads a provider profile field or asks for a scope, apart from the Android Apple relay name'
 else
-    fail 'C9: the identity token is the whole of what an adapter reads (decision 1):'
+    fail 'C9: the identity token is the whole of what an adapter reads (decision 1), apart from the Android Apple relay name:'
     printf '%s\n' "$SOCIAL_FIELD_HITS$SOCIAL_SCOPE_HITS" | sed 's/^/          /'
 fi
 

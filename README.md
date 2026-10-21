@@ -261,11 +261,40 @@ has the rules:
 
 A relay without the call's exact `state` is ignored, so a link another app fires at the
 receiver changes nothing. A closed tab is `Cancelled`, a relay without a token
-`IdentityTokenMissing`, Apple's error code — or `expired` — `Failed(reason)`. The relay's
-`user` field, the person's name on a first authorization, is not read by the module.
-One sign-in runs at a time, and cancelling the calling coroutine ends it and takes the
+`IdentityTokenMissing`, Apple's error code — or `expired` — `Failed(reason)`. The module
+reads the relay's `user` field for the person's name, and only `name.firstName` and
+`name.lastName` in it (see below). One sign-in runs at a time, and cancelling the calling coroutine ends it and takes the
 tab down. No phone has driven the round trip yet, so the device cells for Android × Apple
 stay exempt (issue #95).
+
+### The person's name
+
+Apple sends the name on the **first** authorization of an app for an account and never
+again, and on Android it arrives in the relay link this module receives — so it is this
+module or nobody. `credential(nonce)` returns it with the token; `idToken(nonce)` returns
+the token alone, so the closure above keeps working unchanged:
+
+```kotlin
+var name: SpfnSocialAppleName? = null
+val signedIn = lifecycle.enroll(provider = SpfnSocialApple.PROVIDER) { nonce ->
+    val credential = apple.credential(nonce)
+    name = credential.name
+    credential.idToken
+}
+```
+
+`name` is null on every sign-in after the first, and on a first one whose `user` is
+missing, larger than the server's 2048-byte relay cap, not JSON, or without a non-blank
+`firstName` or `lastName`; either half of a name may be null. None of that fails the
+sign-in. The module never stores or logs the name, and neither the credential nor the
+name prints it.
+
+Sending it on is the app's job, and **the SDK has no call for it today**. The server's
+`/_auth/oauth/apple/native` accepts `profile: { name }` beside the token, but the mobile
+contract this SDK is pinned to has no `profile` field on that request, so
+`SpfnKeyLifecycle.enroll` cannot carry it, and the contract has no profile operation
+either. Until one exists, the app sends the name to its own backend once `enroll` has
+succeeded — an app route that writes it to the account's profile — and drops it after.
 
 ## Where the decisions live
 

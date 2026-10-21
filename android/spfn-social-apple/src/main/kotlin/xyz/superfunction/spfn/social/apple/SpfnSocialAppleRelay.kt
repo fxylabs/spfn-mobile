@@ -1,7 +1,7 @@
 // SPFN Mobile — the relay link and the one sign-in waiting for it.
 //
 // Everything that decides an outcome lives here, apart from the activities, so it runs on
-// a host JVM: the relay is read off the link into three plain strings by the receiver,
+// a host JVM: the relay is read off the link into four plain strings by the receiver,
 // because android.net.Uri's host stubs answer defaults and a classifier written against
 // them would be tested against nothing.
 //
@@ -20,24 +20,26 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 
 /**
- * What a relay link carried. Not a data class: its rendering would print the token, and
- * a relay is exactly the value somebody logs while debugging a sign-in.
+ * What a relay link carried. Not a data class: its rendering would print the token and
+ * the name, and a relay is exactly the value somebody logs while debugging a sign-in.
+ * [user] is Apple's raw `user` JSON, unread until the state has matched.
  */
 internal class SpfnSocialAppleRelay(
     val idToken: String?,
     val state: String?,
-    val error: String?
+    val error: String?,
+    val user: String? = null
 )
 {
     override fun toString(): String = "SpfnSocialAppleRelay"
 }
 
-/** How a call that was answered ended: a token, or a refusal to throw. */
+/** How a call that was answered ended: a credential, or a refusal to throw. */
 internal sealed interface SpfnSocialAppleAnswer
 {
-    class Token(val value: String) : SpfnSocialAppleAnswer
+    class Signed(val credential: SpfnSocialAppleCredential) : SpfnSocialAppleAnswer
     {
-        override fun toString(): String = "Token"
+        override fun toString(): String = "Signed"
     }
 
     class Refused(val failure: SpfnSocialAppleException) : SpfnSocialAppleAnswer
@@ -46,7 +48,8 @@ internal sealed interface SpfnSocialAppleAnswer
 /**
  * The relay as an answer to the call that expects [expectedState], or null when it is
  * not that call's relay at all (R6). The token wins over an error: a relay carrying one
- * is a completed authorization whatever else rides with it.
+ * is a completed authorization whatever else rides with it. `user` is read only there —
+ * after the state, and never for a refusal (U10).
  */
 internal fun classifyRelay(relay: SpfnSocialAppleRelay, expectedState: String): SpfnSocialAppleAnswer?
 {
@@ -57,7 +60,7 @@ internal fun classifyRelay(relay: SpfnSocialAppleRelay, expectedState: String): 
     val token = relay.idToken;
     if (!token.isNullOrEmpty())
     {
-        return SpfnSocialAppleAnswer.Token(token);
+        return SpfnSocialAppleAnswer.Signed(SpfnSocialAppleCredential(token, appleName(relay.user)));
     }
     val error = relay.error;
     if (error == null)
@@ -103,6 +106,7 @@ private const val STATE_BYTES = 32
 /**
  * The one sign-in waiting for its relay, process-wide. One, because the tab is one
  * screen and two calls racing for one relay would hand one of them the other's token.
+ * The name rides the answer and nothing else: once the caller has it, this holds none.
  *
  * Every answer goes through a [CompletableDeferred], whose `complete` succeeds once, and
  * the call is forgotten in the same step — so a late relay after a closed tab, or a closed

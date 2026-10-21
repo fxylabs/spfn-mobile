@@ -8,8 +8,9 @@
 //      this module names no endpoint.
 //   2. SpfnSocialAppleAuthorizationActivity opens it in a Custom Tab. Apple posts the
 //      authorization to the server's `/_auth/oauth/apple/callback`, and the server
-//      redirects (303) to the app's link with `id_token` and `state` — or `error`, which
-//      is `expired` when the start has lapsed — in its query.
+//      redirects (303) to the app's link with `id_token` and `state` — and `user` on a
+//      first authorization, or `error`, which is `expired` when the start has lapsed — in
+//      its query.
 //   3. SpfnSocialAppleRedirectActivity receives that link, hands it to the waiting call
 //      and brings the management activity forward, which clears the tab and finishes.
 //
@@ -73,7 +74,7 @@ internal interface SpfnSocialAppleTab
 }
 
 /**
- * The flow itself: one tab, one relay, one token.
+ * The flow itself: one tab, one relay, one token — and the name, when Apple sent one.
  *
  * The parameter is an [Activity] rather than a `Context` for the reason the Google
  * driver's is (P15): the tab is started on top of an activity's task, and an application
@@ -94,14 +95,14 @@ class SpfnSocialAppleCustomTabDriver internal constructor(
     constructor(activity: Activity, authorizationUrl: SpfnSocialAppleAuthorizationUrl) :
         this(ActivityTab(activity, authorizationUrl), SpfnSocialAppleRelays.shared)
 
-    override suspend fun identityToken(requestNonce: String): String?
+    override suspend fun credential(requestNonce: String): SpfnSocialAppleCredential?
     {
         val state = mintState();
         val answer = relays.begin(state)
             ?: throw SpfnSocialAppleException.Failed(SpfnSocialApple.SIGN_IN_IN_PROGRESS_REASON);
         return when (val answered = awaitRelay(requestNonce, state, answer))
         {
-            is SpfnSocialAppleAnswer.Token -> answered.value
+            is SpfnSocialAppleAnswer.Signed -> answered.credential
             is SpfnSocialAppleAnswer.Refused -> throw answered.failure
         }
     }

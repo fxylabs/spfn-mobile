@@ -146,16 +146,17 @@ class SpfnSocialAppleTest
  */
 class RecordingAppleDriver(
     private val token: String? = null,
-    private val failure: Throwable? = null
+    private val failure: Throwable? = null,
+    private val name: SpfnSocialAppleName? = null
 ) : SpfnSocialAppleDriver
 {
     var requestedNonce: String? = null
         private set
 
-    override suspend fun identityToken(requestNonce: String): String?
+    override suspend fun credential(requestNonce: String): SpfnSocialAppleCredential?
     {
         this.requestedNonce = requestNonce;
         failure?.let { throw it };
-        return token;
+        return token?.let { SpfnSocialAppleCredential(it, name) };
     }
 }

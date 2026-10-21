@@ -5,12 +5,13 @@
 // its own manifest with its verified https App Link (SpfnSocialAppleAuthorizationUrl
 // carries the declaration).
 //
-// It reads three of the query parameters a relay carries — `id_token`, `state` and
-// `error`; never `user`, the person's name on a first authorization — hands them to the
-// waiting call, and finishes. Being exported means any app can fire anything at it,
-// so nothing here trusts the link: a link that is not hierarchical, carries no state, or
-// carries another call's state is dropped, and so is one that lands in a process that
-// has no call waiting — a stale link, or a process restarted while the tab was open.
+// It reads the four query parameters a relay carries — `id_token`, `state`, `error`, and
+// `user`, the person's name on a first authorization, which stays an unread string until
+// the state has matched — hands them to the waiting call, and finishes. Being exported
+// means any app can fire anything at it, so nothing here trusts the link: a link that is
+// not hierarchical, carries no state, or carries another call's state is dropped, and so
+// is one that lands in a process that has no call waiting — a stale link, or a process
+// restarted while the tab was open.
 // Only a delivered relay brings the management activity forward; a dropped one leaves
 // the tab exactly where it was.
 
@@ -39,7 +40,7 @@ class SpfnSocialAppleRedirectActivity : Activity()
 }
 
 /**
- * The relay's three parameters. An opaque link has no query to read — `getQueryParameter`
+ * The relay's four parameters. An opaque link has no query to read — `getQueryParameter`
  * throws on one — so it is no relay.
  */
 private fun relayOf(link: Uri?): SpfnSocialAppleRelay?
@@ -51,6 +52,7 @@ private fun relayOf(link: Uri?): SpfnSocialAppleRelay?
     return SpfnSocialAppleRelay(
         idToken = link.getQueryParameter("id_token"),
         state = link.getQueryParameter("state"),
-        error = link.getQueryParameter("error")
+        error = link.getQueryParameter("error"),
+        user = link.getQueryParameter("user")
     );
 }

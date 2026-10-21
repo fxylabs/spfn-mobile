@@ -21,7 +21,7 @@ class SpfnSocialAppleRelayTest
     {
         val answer = classifyRelay(SpfnSocialAppleRelay(TOKEN, STATE, null), STATE);
 
-        assertEquals(TOKEN, (answer as SpfnSocialAppleAnswer.Token).value);
+        assertEquals(TOKEN, (answer as SpfnSocialAppleAnswer.Signed).credential.idToken);
     }
 
     /** R2: the call's own state and neither a token nor an error. */
@@ -100,7 +100,7 @@ class SpfnSocialAppleRelayTest
         assertFalse(answer.isCompleted);
 
         assertTrue(relays.deliver(SpfnSocialAppleRelay(TOKEN, STATE, null)));
-        assertEquals(TOKEN, (answer.await() as SpfnSocialAppleAnswer.Token).value);
+        assertEquals(TOKEN, (answer.await() as SpfnSocialAppleAnswer.Signed).credential.idToken);
     }
 
     /**
@@ -125,7 +125,7 @@ class SpfnSocialAppleRelayTest
         assertTrue(relays.deliver(SpfnSocialAppleRelay(TOKEN, STATE, null)));
         assertFalse(relays.deliver(SpfnSocialAppleRelay("second-token", STATE, null)));
         assertFalse(relays.deliver(SpfnSocialAppleRelay(null, STATE, "invalid_request")));
-        assertEquals(TOKEN, (answer.await() as SpfnSocialAppleAnswer.Token).value);
+        assertEquals(TOKEN, (answer.await() as SpfnSocialAppleAnswer.Signed).credential.idToken);
     }
 
     /** Defect 1: nothing a relay renders carries the token. */
