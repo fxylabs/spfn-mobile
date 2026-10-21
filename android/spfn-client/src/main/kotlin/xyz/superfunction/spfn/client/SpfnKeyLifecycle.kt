@@ -387,8 +387,33 @@ class SpfnKeyLifecycle(
      * nonce equal to that fingerprint, and the literal algorithm name. On success the
      * response's `userId` is persisted as the clientId every future proof carries (M2).
      * On any failure the generated key is destroyed (M3).
+     *
+     * This form sends no `profile`: its body is byte for byte what it was before
+     * contract 0.13.5. [enrollWithSignIn] is the form that can carry a name.
      */
-    suspend fun enroll(provider: String, idToken: suspend (SpfnSocialNonce) -> String): SpfnEnrollmentResult
+    suspend fun enroll(provider: String, idToken: suspend (SpfnSocialNonce) -> String): SpfnEnrollmentResult =
+        enrollWithSignIn(provider) { nonce -> SpfnSocialSignIn(idToken = idToken(nonce)) }
+
+    /**
+     * [enroll], for a sign-in that also learned the person's name.
+     *
+     * [signIn] returns the token together with the name the provider reported — Apple's
+     * on the first authorization only, which is why it has to travel now or never. The
+     * name is sent as the body's `profile.name` exactly as given; a null name, or one the
+     * server's trim would empty, sends no `profile` at all. The server keeps it as the
+     * display name when this sign-in first attaches the social account and the account
+     * has no profile yet, and ignores it otherwise. Every other rule is the token-only
+     * form's, and no exception, `toString` or stored record carries the name.
+     *
+     * Its own name rather than an `enroll` overload: two suspend lambdas that differ only
+     * in what they return erase to one JVM signature, and Kotlin cannot pick between
+     * them for a trailing lambda — the token-only call every app writes today would stop
+     * compiling. Swift has the same ambiguity and the same name, `enrollWithSignIn(provider:signIn:)`.
+     */
+    suspend fun enrollWithSignIn(
+        provider: String,
+        signIn: suspend (SpfnSocialNonce) -> SpfnSocialSignIn
+    ): SpfnEnrollmentResult
     {
         if (!isProviderId(provider))
         {
@@ -405,8 +430,8 @@ class SpfnKeyLifecycle(
             val fingerprint = SpfnDigest.sha256Hex(key.publicKeySpkiDer);
             try
             {
-                val token = idToken(SpfnSocialNonce(fingerprint = fingerprint, provider = provider));
-                if (token.isEmpty())
+                val signedIn = signIn(SpfnSocialNonce(fingerprint = fingerprint, provider = provider));
+                if (signedIn.idToken.isEmpty())
                 {
                     throw SpfnKeyLifecycleException.IdTokenMissing();
                 }
@@ -414,12 +439,13 @@ class SpfnKeyLifecycle(
                 val response = client(signer = null).execute(
                     oauthNativeCall(provider),
                     SpfnOauthNativeRequest(
-                        idToken = token,
+                        idToken = signedIn.idToken,
                         nonce = fingerprint,
                         publicKey = Base64.encode(key.publicKeySpkiDer),
                         keyId = key.keyId,
                         fingerprint = fingerprint,
-                        algorithm = ALGORITHM_NAME
+                        algorithm = ALGORITHM_NAME,
+                        profile = signedIn.profile()
                     )
                 );
                 // The discriminant alone decides the branch. A challenge is not evidence

@@ -1125,6 +1125,72 @@ def device_start_bodies(fingerprint: str) -> dict:
     return bodies
 
 
+# What the server's `name?.trim()` removes before it decides a name is blank: ECMAScript's
+# WhiteSpace and LineTerminator, written out by hand. Python's own `str.strip()` and
+# `isspace()` are a third definition — they take U+0085 and U+001C..U+001F, which
+# String.prototype.trim keeps — so neither is used here (P9).
+TRIMMED_BY_THE_SERVER = (
+    "\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
+
+# Names a caller may hand `enroll` that carry nothing once the server trims them. Each
+# one must leave the body without a `profile` key, byte for byte the oauthNative vector.
+# U+FEFF is here because the server trims it while Swift's `isWhitespace` does not. It
+# follows a space because Foundation's UTF-8 decoding drops a U+FEFF that opens a string,
+# so a fixture reader on that path would hand the suite "" instead of the character.
+BLANK_DISPLAY_NAMES = [
+    "",
+    " ",
+    "\t\n\r",
+    "\u000b\u000c",
+    "\u00a0",
+    "\u3000",
+    " \ufeff",
+    "\u2028\u2029",
+    "\u1680\u2000\u200a\u202f\u205f",
+]
+
+# Names that are sent, exactly as given: the SDK neither trims nor composes them. The
+# last three are blank to one platform's own whitespace test and not to the server's —
+# U+0085 to Swift's, U+001C to Kotlin's, U+200B to neither — so a guard written with
+# either language's classifier fails here rather than on a real server (P9).
+NAMED_DISPLAY_NAMES = [
+    "김민수",
+    "  Zoë \"Q\" O'Brien 😀  ",
+    "\u0085",
+    "\u001c",
+    "\u200b",
+]
+
+
+def oauth_native_profile_vectors(body):
+    """The enrollment body with each sendable name, and the names that send none."""
+    assert all(name.strip(TRIMMED_BY_THE_SERVER) == "" for name in BLANK_DISPLAY_NAMES)
+    assert all(name.strip(TRIMMED_BY_THE_SERVER) != "" for name in NAMED_DISPLAY_NAMES)
+    named = []
+    for name in NAMED_DISPLAY_NAMES:
+        value = dict(body, profile={"name": name})
+        canonical_body = canonical(value)
+        named.append({
+            "displayName": name,
+            "value": value,
+            "canonical": canonical_body,
+            "sha256": sha256_hex(canonical_body),
+        })
+    return {
+        "why": "contract 0.13.5's OauthNativeRequest.profile: a sendable name rides as "
+               "profile.name, literally and untrimmed, and a name the server's trim "
+               "empties sends no profile key at all — the oauthNative bytes exactly",
+        "blankRule": "blank means empty after removing ECMAScript WhiteSpace and "
+                     "LineTerminator from both ends, the set String.prototype.trim "
+                     "removes, because that is what the server does before it keeps a name",
+        "named": named,
+        "blank": BLANK_DISPLAY_NAMES,
+    }
+
+
 def build_enrollment():
     """The enrollment surface: the fingerprint rule and the exact unproven wire shape.
 
@@ -1174,6 +1240,7 @@ def build_enrollment():
             "canonical": canonical_body,
             "sha256": sha256_hex(canonical_body),
         },
+        "oauthNativeProfile": oauth_native_profile_vectors(body),
         "deviceStart": {
             "operationId": device_start["id"],
             "path": device_start["path"],

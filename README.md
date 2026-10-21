@@ -201,6 +201,27 @@ The server refusals are `SPFNClientError.server` / `SpfnClientError.Server` carr
 generated code. The signed-in device's half — issuing the code, reading the three numbers,
 confirming — is not on the mobile contract, so a phone is always the new device here.
 
+## Sending the name a provider reported
+
+Apple reports a person's name on the first authorization only. Return it beside the token
+and the server keeps it as the display name when that sign-in first attaches the account:
+
+```swift
+let result = try await lifecycle.enrollWithSignIn(provider: "apple")
+{ nonce in
+    SPFNSocialSignIn(idToken: try await appleToken(nonce), displayName: name)
+}
+```
+
+```kotlin
+val result = lifecycle.enrollWithSignIn(provider = "apple") { nonce ->
+    SpfnSocialSignIn(idToken = appleToken(nonce), displayName = name)
+}
+```
+
+Pass one string, already in the order the app shows names. `enroll` keeps working as it
+was and sends no name.
+
 ## Where the decisions live
 
 The approved repository and release topology is the decision artifact

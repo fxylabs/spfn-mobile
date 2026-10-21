@@ -519,6 +519,20 @@ before the provider is asked, and a sign-in the user abandons would otherwise st
 key nobody registered. The SDK owns the whole flow, so it can destroy it — an Android
 Keystore entry to delete, an iOS value to drop.
 
+**A sign-in may also hand back a name, once.** Apple reports a person's name on the
+first authorization only, beside the token. Since contract 0.13.5 the body carries it as
+`OauthNativeRequest.profile.name`, and `enrollWithSignIn` (both platforms) takes a closure
+that returns `SPFNSocialSignIn` / `SpfnSocialSignIn` — the token and an optional display
+name. The token-only `enroll` is that call with no name, so its bytes are unchanged. The
+SDK sends the app's one string as given and never composes it from given and family names,
+whose order depends on the locale; a name the server's trim would empty (ECMAScript's
+whitespace, written out on both platforms rather than read from either language's
+classifier) sends no `profile` key. The contract declares no length, so none is enforced
+here. The name lives in the request body only: no error, description or stored record
+carries it. The separate name is forced by the languages: a trailing closure that only
+throws would make a label-distinguished Swift overload ambiguous, and two Kotlin suspend
+lambdas differing only in their return type are one JVM signature.
+
 `SPFNSocialNonce` carries the fingerprint and the provider it was minted for, and
 publishes one value: `requestValue`, which is the SHA-256 of the fingerprint for Apple
 and the fingerprint itself for everyone else. One value means an app has nothing to

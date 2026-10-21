@@ -5,6 +5,28 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Re-pin the contract to 0.13.5: `enrollWithSignIn` sends the name a provider reported (additive, both platforms)
+
+- `Contracts/spfn-mobile-contract.json` and `Contracts/upstream-provenance.json` are byte
+  copies of the SPFN primitives export at `fbcd55486b7fc92825d92ae6af5280623d2c6bcd`
+  (bundle SHA-256 `7879036f…`, exporter contract-bundle 6.1.0). The lock names that commit,
+  `@spfn/auth` 0.3.0-beta.45 (released by `25b99078`) and `@spfn/core` 0.3.0-beta.30, on
+  both registries. This replaces the 0.13.4 pin below before it shipped.
+- 0.13.5 declares `OauthNativeRequest.profile`, an optional `OauthNativeProfile { name? }`;
+  no operation, error code or enum moves. The server keeps the name as the display name when
+  a social account is first attached to an account with no profile, never overwrites one,
+  and declares no length.
+- `enrollWithSignIn(provider:signIn:)` / `enrollWithSignIn(provider, signIn)` take a closure
+  returning `SPFNSocialSignIn` / `SpfnSocialSignIn` (the token and an optional display name)
+  and send the name as `profile.name`, as given. A nil name, or one the server's trim
+  empties, sends no `profile` key. `enroll(provider:idToken:)` is unchanged and its body is
+  byte for byte the 0.13.4 one. Neither description of the new value names the token or the
+  person.
+- `Contracts/fixtures/enrollment/enrollment.json` gains `oauthNativeProfile`: five named
+  bodies and nine blank names, written by `derive-expected-values.py`; both suites run E1–E8
+  against it.
+- Both clients now admit `>=0.13.5 <0.14.0` and refuse a server announcing 0.13.4.
+
 ### Re-pin the contract to 0.13.4: Sign in with Apple on Android's native start is generated on both platforms
 
 - `Contracts/spfn-mobile-contract.json` and `Contracts/upstream-provenance.json` are byte
