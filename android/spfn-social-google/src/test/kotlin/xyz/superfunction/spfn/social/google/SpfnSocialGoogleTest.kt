@@ -4,12 +4,22 @@
 // Google's request carries the raw value where Apple's carries the hash, and the
 // request built here is Google's own type, so the assertion is made against the value
 // the launcher would really send.
+//
+// Rows G1–G8 are the request style, which is Android's alone: GoogleSignIn-iOS has no
+// bottom sheet, so they have no Swift counterpart.
 
 package xyz.superfunction.spfn.social.google
 
+import android.app.Activity
+import android.os.Bundle
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -108,13 +118,14 @@ class SpfnSocialGoogleTest
     @Test
     fun theCredentialDriverTakesAnActivityRatherThanAnyContext()
     {
+        // Every constructor, because the style parameter's default adds overloads and each
+        // of them is a way to build the driver.
         val presenting = SpfnSocialGoogleCredentialDriver::class.java
             .constructors
-            .single()
-            .parameterTypes
-            .first();
+            .map { it.parameterTypes.first() }
+            .toSet();
 
-        assertEquals(android.app.Activity::class.java, presenting);
+        assertEquals(setOf(android.app.Activity::class.java), presenting);
     }
 
     /**
@@ -211,6 +222,163 @@ class SpfnSocialGoogleTest
         assertTrue(thrown.cause == null);
     }
 
+    /**
+     * G1: a request that names no style is the bottom sheet request it was before there
+     * was a choice — one `GetGoogleIdOption`, nothing beside it.
+     */
+    @Test
+    fun g1_aRequestWithoutAStyleIsTheBottomSheet()
+    {
+        val nonce = googleNonce();
+
+        assertBottomSheet(nonce, SpfnSocialGoogle.signInRequest(SERVER_CLIENT_ID, nonce));
+        assertBottomSheet(nonce, SpfnSocialGoogle.signInRequest(SERVER_CLIENT_ID, nonce.requestValue));
+    }
+
+    /** G2: the button style asks with one `GetSignInWithGoogleOption`, nothing beside it. */
+    @Test
+    fun g2_theButtonStyleAsksWithSignInWithGoogleOption()
+    {
+        val nonce = googleNonce();
+
+        assertButtonFlow(
+            nonce,
+            SpfnSocialGoogle.signInRequest(SERVER_CLIENT_ID, nonce, SpfnSocialGoogleRequestStyle.BUTTON_FLOW)
+        );
+    }
+
+    /**
+     * G3: the driver holds a raw request value rather than the nonce object, so the String
+     * overload must build the same button request, or "one builder" is two.
+     */
+    @Test
+    fun g3_theRawRequestValueOverloadBuildsTheSameButtonRequest()
+    {
+        val nonce = googleNonce();
+
+        assertButtonFlow(
+            nonce,
+            SpfnSocialGoogle.signInRequest(SERVER_CLIENT_ID, nonce.requestValue, SpfnSocialGoogleRequestStyle.BUTTON_FLOW)
+        );
+    }
+
+    /** G4: a driver built the way every app built one before there was a choice. */
+    @Test
+    fun g4_aDriverWithoutAStyleSendsTheBottomSheetRequest()
+    {
+        val nonce = googleNonce();
+        val driver = SpfnSocialGoogleCredentialDriver(Activity(), SERVER_CLIENT_ID);
+
+        assertBottomSheet(nonce, driver.request(nonce.requestValue));
+    }
+
+    /** G5: a driver built for the button flow asks with it. */
+    @Test
+    fun g5_aDriverWithTheButtonStyleSendsTheButtonRequest()
+    {
+        val nonce = googleNonce();
+        val driver = SpfnSocialGoogleCredentialDriver(
+            Activity(),
+            SERVER_CLIENT_ID,
+            SpfnSocialGoogleRequestStyle.BUTTON_FLOW
+        );
+
+        assertButtonFlow(nonce, driver.request(nonce.requestValue));
+    }
+
+    /**
+     * G6: the button flow answers with the credential type `idToken(credential)` already
+     * accepts. The type is read off Google's own option — it is what Credential Manager is
+     * asked for — and a credential of that type gets past the type check into Google's
+     * reader. On a host JVM the Bundle is a stub with no token in it, so the reader's own
+     * parse failure is the proof it was reached rather than refused as another type.
+     */
+    @Test
+    fun g6_theButtonFlowCredentialIsReadByTheSameTokenReader()
+    {
+        val option = SpfnSocialGoogle.signInWithGoogleOption(SERVER_CLIENT_ID, googleNonce());
+        assertEquals(GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL, option.type);
+
+        assertThrows(GoogleIdTokenParsingException::class.java)
+        {
+            SpfnSocialGoogle.idToken(CustomCredential(option.type, Bundle()));
+        };
+    }
+
+    /** G7: a refusal is classified the same way whichever style the request was asked with. */
+    @Test
+    fun g7_aRefusalIsClassifiedTheSameUnderEitherStyle()
+    {
+        for (style in SpfnSocialGoogleRequestStyle.entries)
+        {
+            assertThrows("$style", SpfnSocialGoogleException.Cancelled::class.java)
+            {
+                runBlocking { refusedUnder(style, GetCredentialCancellationException("dismissed")) };
+            };
+
+            val refusal = NoCredentialException("no credential");
+            val failed = assertThrows("$style", SpfnSocialGoogleException.Failed::class.java)
+            {
+                runBlocking { refusedUnder(style, refusal) };
+            };
+            assertEquals("$style", refusal.type, failed.type);
+
+            val cancellation = CancellationException("the caller's scope was cancelled");
+            val thrown = assertThrows("$style", CancellationException::class.java)
+            {
+                runBlocking { refusedUnder(style, cancellation) };
+            };
+            assertSame("$style", cancellation, thrown);
+        }
+    }
+
+    /** G8: the google-nonce check comes before the request, whichever style it would be. */
+    @Test
+    fun g8_aNonceMintedForAnotherProviderIsRefusedUnderEitherStyle() = runBlocking {
+        for (style in SpfnSocialGoogleRequestStyle.entries)
+        {
+            val driver = StyledGoogleDriver(style, token = "google-token-0001");
+            val thrown = failureOf {
+                SpfnSocialGoogle(driver).idToken(SpfnSocialNonce.forProvider(FINGERPRINT, "apple"));
+            };
+
+            assertTrue("$style: $thrown", thrown is SpfnSocialGoogleException.NonceProviderMismatch);
+            assertNull("$style: the request must not have been built", driver.request);
+        }
+    }
+
+    /** The adapter run against a driver that builds [style]'s request and then fails. */
+    private suspend fun refusedUnder(style: SpfnSocialGoogleRequestStyle, failure: Throwable)
+    {
+        val driver = StyledGoogleDriver(style, failure = failure);
+        try
+        {
+            SpfnSocialGoogle(driver).idToken(googleNonce());
+        }
+        finally
+        {
+            assertTrue("$style: the request was never built", driver.request != null);
+        }
+    }
+
+    /** The bottom sheet request as G1 states it: the C7 values, on the only option. */
+    private fun assertBottomSheet(nonce: SpfnSocialNonce, request: GetCredentialRequest)
+    {
+        val option = request.credentialOptions.single() as GetGoogleIdOption;
+        assertEquals(nonce.requestValue, option.nonce);
+        assertEquals(SERVER_CLIENT_ID, option.serverClientId);
+        assertFalse(option.filterByAuthorizedAccounts);
+    }
+
+    /** The button request as G2 states it: the request value and the app's id, on the only option. */
+    private fun assertButtonFlow(nonce: SpfnSocialNonce, request: GetCredentialRequest)
+    {
+        val option = request.credentialOptions.single() as GetSignInWithGoogleOption;
+        assertEquals(nonce.requestValue, option.nonce);
+        assertEquals(FINGERPRINT, option.nonce);
+        assertEquals(SERVER_CLIENT_ID, option.serverClientId);
+    }
+
     /** A nonce minted the way an enrollment for this adapter mints one. */
     private fun googleNonce(): SpfnSocialNonce =
         SpfnSocialNonce.forProvider(FINGERPRINT, SpfnSocialGoogle.PROVIDER)
@@ -236,6 +404,9 @@ class SpfnSocialGoogleTest
          * it, not its value.
          */
         const val FINGERPRINT = "aa919f16ced3a7bae097e8fde574681a9184cbc53ba1dd9ab43fa716774b690a"
+
+        /** The app's server client id; this module never holds one of its own. */
+        const val SERVER_CLIENT_ID = "server-client-id-0001"
     }
 }
 
@@ -254,6 +425,27 @@ class RecordingGoogleDriver(
     override suspend fun identityToken(requestNonce: String): String?
     {
         this.requestedNonce = requestNonce;
+        failure?.let { throw it };
+        return token;
+    }
+}
+
+/**
+ * The launched flow for one request style: it builds the request that style really sends,
+ * keeps it, and answers with the outcome the row under test needs.
+ */
+class StyledGoogleDriver(
+    private val style: SpfnSocialGoogleRequestStyle,
+    private val token: String? = null,
+    private val failure: Throwable? = null
+) : SpfnSocialGoogleDriver
+{
+    var request: GetCredentialRequest? = null
+        private set
+
+    override suspend fun identityToken(requestNonce: String): String?
+    {
+        this.request = SpfnSocialGoogle.signInRequest("server-client-id-0001", requestNonce, style);
         failure?.let { throw it };
         return token;
     }
