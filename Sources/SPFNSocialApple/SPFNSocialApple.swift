@@ -19,11 +19,12 @@
 //     SDK is not where they belong: an app that wants them asks for them itself and
 //     sends them through a profile operation (decision 1).
 //
-// This module is iOS-only, and the module graph says so: `androidModule` is null on its
-// row. Apple ships no native sign-in SDK for Android, so an Android half would have
-// owned a one-line nonce accessor and a seam the app fills in anyway. An Android app
-// signing in with Apple needs `SpfnSocialNonce`, its `requestValue` and
-// `enroll(provider = "apple", …)` — all three live in spfn-client and always did.
+// The Android half is android/spfn-social-apple, and it is not a wrapper around an SDK:
+// Apple ships none for Android. Apple's web flow ends at the server in browser cookies
+// an Android app cannot read, so that module runs the flow in a Custom Tab and receives
+// the identity token the server relays to an app link. The rules above hold there
+// unchanged — the same provider guard, the same token-only surface, and a cancelled
+// task that stays a cancellation.
 //
 // This module is Apple-only, which tools/module-graph.json states as `"linux":
 // false` on its row. SwiftPM cannot leave a target out of a platform, so the whole

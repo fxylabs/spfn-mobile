@@ -21,7 +21,7 @@
 # all — and every Android-side check skips those. A skip is the other way a check stops
 # checking, so it gets the same treatment:
 #
-#   l. an iOS-only entry that claims an Android module is still checked, and fails;
+#   l. an entry declaring no Android half while an Android module claims it fails;
 #   m. a graph with every androidModule removed fails instead of skipping everything;
 #   n. widening the skip so no module is Android-checked fails on the visit count.
 #
@@ -207,11 +207,15 @@ expect_unrunnable 'an unreadable module graph fails instead of allowing nothing 
 # --- l, m, n. the skip an iOS-only module gets is narrow ---------------------------
 # `androidModule: null` takes a module out of every Android-side check. That is a skip,
 # and a skip is the other way a check stops checking, so all three of its failure modes
-# are probed: an entry that claims an Android half it does not have, a graph where the
+# are probed: an entry that declares no Android half while one exists, a graph where the
 # key is gone entirely, and a validator whose skip has been widened to cover everything.
-sed 's#"androidModule": null#"androidModule": "spfn-social-apple"#' "$TMP/graph.bak" > "$GRAPH"
-expect_fail 'an iOS-only entry that claims an Android module is still checked' \
-    'android/spfn-social-apple missing build script or Kotlin sources'
+#
+# No module declares null today — `social-apple` did until it gained its Android half
+# (issue #95) — so (l) puts the null back on that row. The Android module still names
+# SPFNSocialApple as its counterpart, and the null branch must refuse it rather than skip.
+sed 's#"androidModule": "spfn-social-apple"#"androidModule": null#' "$TMP/graph.bak" > "$GRAPH"
+expect_fail 'an entry declaring no Android half while an Android module claims it fails' \
+    'SPFNSocialApple declares no Android half, but android/spfn-social-apple/build.gradle.kts claims to be its counterpart'
 
 sed 's#"androidModule": "[a-z-]*"#"androidModule": ""#; s#"androidModule": null#"androidModule": ""#' \
     "$TMP/graph.bak" > "$GRAPH"
