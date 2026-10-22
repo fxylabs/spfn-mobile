@@ -243,6 +243,7 @@ fun SpfnGeneratedErrorCode.isAuthFailure(): Boolean = when (this)
     SpfnGeneratedErrorCode.DeviceAuthAlreadyHandledError,
     SpfnGeneratedErrorCode.DeviceLinkExpiredError,
     SpfnGeneratedErrorCode.DeviceLinkDeniedError,
+    SpfnGeneratedErrorCode.DeviceLinkWrongMatchError,
     SpfnGeneratedErrorCode.DeviceLinkNotFoundError,
     SpfnGeneratedErrorCode.Error -> false
 }

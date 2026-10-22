@@ -236,6 +236,15 @@
       "sha256": "294b03da3376f525f68e37b0453f6303c4c519773b9644c80dfd0e30cd4571a8"
     },
     {
+      "name": "device-link-wrong-match-error",
+      "wire": "{\"error\":{\"code\":\"DeviceLinkWrongMatchError\",\"message\":\"test vector for DeviceLinkWrongMatchError\",\"requestId\":\"req-device-link-wrong-match-error\"}}",
+      "code": "DeviceLinkWrongMatchError",
+      "httpStatus": 400,
+      "retryable": false,
+      "surface": "rest",
+      "sha256": "c7fdf7aa21cfaba032fdcdde1cc0380bc646b5712e006fdfebd08b3cb7d5720a"
+    },
+    {
       "name": "device-link-not-found-error",
       "wire": "{\"error\":{\"code\":\"DeviceLinkNotFoundError\",\"message\":\"test vector for DeviceLinkNotFoundError\",\"requestId\":\"req-device-link-not-found-error\"}}",
       "code": "DeviceLinkNotFoundError",

@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
-// contractVersion: 0.13.2
+// bundleSha256:    7879036f33c46ced4c51035521fd25d3934bbb38c21aa9b68779a1c6d1578846
+// contractVersion: 0.13.5
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -89,6 +89,16 @@ public enum SPFNGeneratedOperations
         id: "auth.enroll.oauthNative",
         method: "POST",
         path: "/_auth/oauth/{provider}/native",
+        authProfile: "none",
+        requiresSession: false,
+        declaresResponse: true
+    )
+
+    /// Starts Sign in with Apple on Android: answers the Apple authorize URL whose callback relays the id_token to a configured App Link, for auth.enroll.oauthNative to enroll.
+    public static let authEnrollOauthAppleRelayStart = SPFNOperation(
+        id: "auth.enroll.oauthAppleRelayStart",
+        method: "POST",
+        path: "/_auth/oauth/apple/native/start",
         authProfile: "none",
         requiresSession: false,
         declaresResponse: true
@@ -233,6 +243,7 @@ public enum SPFNGeneratedOperations
         authEnrollRegister,
         authEnrollLogin,
         authEnrollOauthNative,
+        authEnrollOauthAppleRelayStart,
         authMfaVerify,
         authMfaStatus,
         authKeysRotate,

@@ -2,9 +2,9 @@
 //
 // generator:       spfn-ui-codegen 0.1.0-alpha.3
 // spec:            examples/ui-spec
-// specSha256:      0fbec833616cfb9717bb9d80a057d4069bae1f04d1c47d44f98d9becf08dce41
-// bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
-// contractVersion: 0.13.2
+// specSha256:      83ef5335dcd7c486e823ce1bc60ee788e75fb2c3a16a9bcd084222a5a68fb888
+// bundleSha256:    7879036f33c46ced4c51035521fd25d3934bbb38c21aa9b68779a1c6d1578846
+// contractVersion: 0.13.5
 //
 // Regenerate with: ./gradlew :ui-codegen:spfnGenerateHarnessUi
 // Verified by:     ./gradlew :ui-codegen:spfnHarnessUiVerify

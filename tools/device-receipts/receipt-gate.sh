@@ -16,8 +16,9 @@
 # Fifteen cells: {ios × apple, ios × google, android × google} × {first-enroll,
 # re-login, user-cancel, network-failure, server-reject}. Android × Apple is exempt until
 # the harness drives it: the adapter (android/spfn-social-apple, issue #95) and the server
-# relay (`@spfn/auth` 0.3.0-beta.44) both exist, but the native start enters the pinned
-# contract only with 0.13.4, and no harness mode runs the Custom Tab round trip yet.
+# relay (`@spfn/auth` 0.3.0-beta.44) both exist and the pinned contract generates the
+# native start (`oauthAppleRelayStart`), but no harness mode runs the Custom Tab round
+# trip yet.
 # The exemption is printed on every run rather than left as an absence a reader has to
 # notice.
 #

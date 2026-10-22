@@ -261,10 +261,17 @@ final class SPFNLinkCodeEnrollmentTests: XCTestCase
 
     // MARK: - L9–L11: the poll refusals that end the wait
 
-    /// L9: the signed-in device refused, or picked another number — "not approved".
+    /// L9: the signed-in device refused — "not approved".
     func testL9ADeniedPollDestroysTheKeyAndCarriesTheCode() async throws
     {
         try await assertPollRefusalEndsTheWait("DeviceLinkDeniedError", httpStatus: 403, expected: .deviceLinkDeniedError)
+    }
+
+    /// L9b: the signed-in device picked another number. Since 0.13.3 that is its own code,
+    /// not a denial, so an app can say which one happened; it ends the wait the same way.
+    func testL9bAWrongMatchPollDestroysTheKeyAndCarriesItsOwnCode() async throws
+    {
+        try await assertPollRefusalEndsTheWait("DeviceLinkWrongMatchError", httpStatus: 400, expected: .deviceLinkWrongMatchError)
     }
 
     func testL10AnExpiredPollDestroysTheKeyAndCarriesTheCode() async throws

@@ -193,12 +193,34 @@ each of which an app shows differently:
 | not a code | `malformedLinkCode` / `MalformedLinkCode`, nothing sent | "that is not a code" |
 | unknown or already-used code | `DeviceLinkNotFoundError` (404) on `redeem` | "code not found" |
 | code expired | `DeviceLinkExpiredError` (400) on `redeem` or a poll, or `linkCodeExpired` / `LinkCodeExpired` | "code expired — show a new one" |
-| refused or wrong number picked | `DeviceLinkDeniedError` (403) on a poll | "not approved" |
+| refused | `DeviceLinkDeniedError` (403) on a poll | "not approved" |
+| wrong number picked | `DeviceLinkWrongMatchError` (400) on a poll (since 0.13.3) | "wrong number — start again from a fresh code" |
 | approval collected elsewhere | `DeviceLinkNotFoundError` (404) on a poll | start again |
 
 The server refusals are `SPFNClientError.server` / `SpfnClientError.Server` carrying the
 generated code. The signed-in device's half — issuing the code, reading the three numbers,
 confirming — is not on the mobile contract, so a phone is always the new device here.
+
+## Sending the name a provider reported
+
+Apple reports a person's name on the first authorization only. Return it beside the token
+and the server keeps it as the display name when that sign-in first attaches the account:
+
+```swift
+let result = try await lifecycle.enrollWithSignIn(provider: "apple")
+{ nonce in
+    SPFNSocialSignIn(idToken: try await appleToken(nonce), displayName: name)
+}
+```
+
+```kotlin
+val result = lifecycle.enrollWithSignIn(provider = "apple") { nonce ->
+    SpfnSocialSignIn(idToken = appleToken(nonce), displayName = name)
+}
+```
+
+Pass one string, already in the order the app shows names. `enroll` keeps working as it
+was and sends no name.
 
 ## Signing in with Apple on Android
 
@@ -221,9 +243,9 @@ its server issues. It posts `{ requestNonce, state, relayUrl }` to
 `/_auth/oauth/apple/native/start` and returns the `authUrl` in the answer — `requestNonce`
 is the 64-character lowercase SHA-256 hex Apple puts in the token as its nonce, `state` is
 the module's (64 lowercase hex, inside the server's `[A-Za-z0-9_-]{16,128}`), and
-`relayUrl` is the app's relay link. The generated `auth.enroll.oauthAppleRelayStart`
-arrives with the contract 0.13.4 re-pin, a separate change; until then the app calls the
-route itself. Apple's `form_post` goes to `/_auth/oauth/apple/callback`, which answers
+`relayUrl` is the app's relay link. The pinned contract generates that route as
+`auth.enroll.oauthAppleRelayStart` (since 0.13.4); nothing in the SDK calls it, so the
+seam does. Apple's `form_post` goes to `/_auth/oauth/apple/callback`, which answers
 with a 303 to `relayUrl` carrying `id_token` and that `state` in the query — or Apple's
 `error`, or `error=expired` when the start has lapsed.
 
@@ -264,37 +286,34 @@ receiver changes nothing. A closed tab is `Cancelled`, a relay without a token
 `IdentityTokenMissing`, Apple's error code — or `expired` — `Failed(reason)`. The module
 reads the relay's `user` field for the person's name, and only `name.firstName` and
 `name.lastName` in it (see below). One sign-in runs at a time, and cancelling the calling coroutine ends it and takes the
-tab down. No phone has driven the round trip yet, so the device cells for Android × Apple
+tab down. No harness mode drives the round trip yet, so the device cells for Android × Apple
 stay exempt (issue #95).
 
 ### The person's name
 
 Apple sends the name on the **first** authorization of an app for an account and never
 again, and on Android it arrives in the relay link this module receives — so it is this
-module or nobody. `credential(nonce)` returns it with the token; `idToken(nonce)` returns
-the token alone, so the closure above keeps working unchanged:
+module or nobody. `credential(nonce)` returns it with the token, and `enrollWithSignIn`
+sends it on in the same request as the token:
 
 ```kotlin
-var name: SpfnSocialAppleName? = null
-val signedIn = lifecycle.enroll(provider = SpfnSocialApple.PROVIDER) { nonce ->
+val result = lifecycle.enrollWithSignIn(provider = "apple") { nonce ->
     val credential = apple.credential(nonce)
-    name = credential.name
-    credential.idToken
+    SpfnSocialSignIn(idToken = credential.idToken, displayName = displayNameFor(credential.name))
 }
 ```
 
-`name` is null on every sign-in after the first, and on a first one whose `user` is
-missing, larger than the server's 2048-byte relay cap, not JSON, or without a non-blank
-`firstName` or `lastName`; either half of a name may be null. None of that fails the
-sign-in. The module never stores or logs the name, and neither the credential nor the
-name prints it.
+`displayNameFor` is the app's own function: the SDK does not compose `givenName` and
+`familyName` into one string, because the order of the two depends on the locale.
+`idToken(nonce)` returns the token alone, so the `enroll` closure above keeps working and
+sends no name.
 
-Sending it on is the app's job, and **the SDK has no call for it today**. The server's
-`/_auth/oauth/apple/native` accepts `profile: { name }` beside the token, but the mobile
-contract this SDK is pinned to has no `profile` field on that request, so
-`SpfnKeyLifecycle.enroll` cannot carry it, and the contract has no profile operation
-either. Until one exists, the app sends the name to its own backend once `enroll` has
-succeeded — an app route that writes it to the account's profile — and drops it after.
+`credential.name` is null on every sign-in after the first, and on a first one whose
+`user` is missing, larger than the server's 2048-byte relay cap, not JSON, or without a
+non-blank `firstName` or `lastName`; either half of a name may be null. None of that fails
+the sign-in. The server (`@spfn/auth` 0.3.0-beta.45) keeps the name only when the account
+has no profile yet and never overwrites one. The module never stores or logs the name,
+and neither the credential nor the name prints it.
 
 ## Where the decisions live
 

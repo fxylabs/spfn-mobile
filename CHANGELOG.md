@@ -5,6 +5,47 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### Re-pin the contract to 0.13.5: `enrollWithSignIn` sends the name a provider reported (additive, both platforms)
+
+- `Contracts/spfn-mobile-contract.json` and `Contracts/upstream-provenance.json` are byte
+  copies of the SPFN primitives export at `fbcd55486b7fc92825d92ae6af5280623d2c6bcd`
+  (bundle SHA-256 `7879036f…`, exporter contract-bundle 6.1.0). The lock names that commit,
+  `@spfn/auth` 0.3.0-beta.45 (released by `25b99078`) and `@spfn/core` 0.3.0-beta.30, on
+  both registries. This replaces the 0.13.4 pin below before it shipped.
+- 0.13.5 declares `OauthNativeRequest.profile`, an optional `OauthNativeProfile { name? }`;
+  no operation, error code or enum moves. The server keeps the name as the display name when
+  a social account is first attached to an account with no profile, never overwrites one,
+  and declares no length.
+- `enrollWithSignIn(provider:signIn:)` / `enrollWithSignIn(provider, signIn)` take a closure
+  returning `SPFNSocialSignIn` / `SpfnSocialSignIn` (the token and an optional display name)
+  and send the name as `profile.name`, as given. A nil name, or one the server's trim
+  empties, sends no `profile` key. `enroll(provider:idToken:)` is unchanged and its body is
+  byte for byte the 0.13.4 one. Neither description of the new value names the token or the
+  person.
+- `Contracts/fixtures/enrollment/enrollment.json` gains `oauthNativeProfile`: five named
+  bodies and nine blank names, written by `derive-expected-values.py`; both suites run E1–E8
+  against it.
+- Both clients now admit `>=0.13.5 <0.14.0` and refuse a server announcing 0.13.4.
+
+### Re-pin the contract to 0.13.4: Sign in with Apple on Android's native start is generated on both platforms
+
+- `Contracts/spfn-mobile-contract.json` and `Contracts/upstream-provenance.json` are byte
+  copies of the SPFN primitives export at `f2d9688ecd1eef856aff3fca5e76183e4567524d`
+  (bundle SHA-256 `a7cab3c8…`, exporter contract-bundle 6.1.0). The lock names that commit
+  and the npm releases built from it, `@spfn/auth` 0.3.0-beta.44 with `@spfn/core`
+  0.3.0-beta.30, on both registries.
+- 0.13.4 adds `auth.enroll.oauthAppleRelayStart` (`POST /_auth/oauth/apple/native/start`,
+  unproven): `OauthAppleRelayStartRequest { requestNonce, state, relayUrl }` answered by
+  `OauthAppleRelayStartResponse { authUrl }`. Both clients generate the operation, its call
+  descriptor and both types; nothing in the SDK calls it yet.
+- 0.13.3 adds `DeviceLinkWrongMatchError` (400, not retryable): a link poll whose signed-in
+  device picked another number now ends with that code instead of `DeviceLinkDeniedError`,
+  which is a refusal only. It joins the exhaustive auth-failure classification as a REST
+  code on both platforms; `enrollByLinkCode` already ends its wait on any non-retryable
+  refusal and hands the code to the app, so only its documentation and tests moved.
+- The declared range stays `>=0.13.0 <0.14.0`; both clients now admit `>=0.13.4 <0.14.0`
+  and refuse a server announcing 0.13.2 or 0.13.3.
+
 ### Sign in with Apple on Android: `spfn-social-apple`, a Custom Tab and a relay link (additive, Android; #95)
 
 - New module `spfn-social-apple` (`xyz.superfunction.spfn.social.apple`).
@@ -18,9 +59,9 @@ Entries under an unreleased heading describe repository state, not shipped softw
   field, which Apple sends on the first authorization only. It is parsed only after the
   state matched and only when it fits the server's 2048-byte cap, and anything not shaped
   as Apple shapes it is a null name, never a failure. Nothing stores, logs or prints it.
-  The driver seam is `credential(requestNonce): SpfnSocialAppleCredential?`. The SDK has no
-  call that sends the name on: the pinned contract's `OauthNativeRequest` has no `profile`
-  field and there is no profile operation, so the app sends it to its own backend.
+  The driver seam is `credential(requestNonce): SpfnSocialAppleCredential?`. The app sends
+  the name on with `enrollWithSignIn` (the 0.13.5 re-pin above), composed by its own
+  function, since the order of given and family name depends on the locale.
   validate.sh C9 exempts the one file that reads it, `SpfnSocialAppleName.kt`, from its
   profile-field list only.
 - `SpfnSocialAppleCustomTabDriver(activity, authorizationUrl)` opens the URL the app's
@@ -34,9 +75,9 @@ Entries under an unreleased heading describe repository state, not shipped softw
 - The server half shipped in `@spfn/auth` 0.3.0-beta.44: the app's seam posts
   `{ requestNonce, state, relayUrl }` to `/_auth/oauth/apple/native/start` and returns its
   `authUrl`, and the callback answers Apple's `form_post` with a 303 to the app's link. The
-  generated `oauthAppleRelayStart` arrives with the contract 0.13.4 re-pin; until then the
-  app calls the route itself. No phone has driven the round trip, so the receipt gate keeps
-  Android × Apple exempt. `tools/module-graph.json` declares the module, so no row declares
+  generated `oauthAppleRelayStart` arrives with the contract re-pin above; nothing in the SDK
+  calls it, so the app's seam does. No harness mode drives the Custom Tab round trip, so the
+  receipt gate keeps Android × Apple exempt. `tools/module-graph.json` declares the module, so no row declares
   `androidModule: null` any more.
 
 ### The app chooses the Google bottom sheet or the Sign in with Google button flow (additive, Android only)

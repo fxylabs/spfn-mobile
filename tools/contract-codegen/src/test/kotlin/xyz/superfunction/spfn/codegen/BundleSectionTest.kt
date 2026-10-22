@@ -341,7 +341,7 @@ class BundleSectionTest
         val swift = swiftCalls(bundle);
         val kotlin = kotlinCalls(bundle);
 
-        assertEquals(20, bundle.operations.size);
+        assertEquals(21, bundle.operations.size);
         bundle.operations.forEach { operation ->
             val name = Names.lowerCamel(operation.id);
             assertEquals(
@@ -370,8 +370,8 @@ class BundleSectionTest
 
         // Nothing beyond the contract. A descriptor for an operation the bundle does not
         // declare would pass every assertion above.
-        assertEquals(20, Regex("public static let \\w+:").findAll(swift).count());
-        assertEquals(20, Regex("\n    val \\w+:").findAll(kotlin).count());
+        assertEquals(21, Regex("public static let \\w+:").findAll(swift).count());
+        assertEquals(21, Regex("\n    val \\w+:").findAll(kotlin).count());
     }
 
     /**
