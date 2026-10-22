@@ -59,12 +59,14 @@ sealed class SpfnSocialAppleException(message: String) : Exception(message)
  *
  * Apple sends the name on the **first** authorization of an app for that account only,
  * and every later sign-in carries none. So a null [name] is the ordinary case, and a
- * non-null one is the only chance to learn it — the app sends it on before it lets go of
- * the result. This module keeps no copy. Not a data class: its rendering would print the
- * token.
+ * non-null one is the only chance to learn it — the app returns it from the
+ * `SpfnKeyLifecycle.enrollWithSignIn` closure as `SpfnSocialSignIn.displayName`, composed
+ * by its own function, because the order of given and family name depends on the locale.
+ * The server (`@spfn/auth` 0.3.0-beta.45) keeps it only when the account has no profile
+ * yet. This module keeps no copy. Not a data class: its rendering would print the token.
  */
 class SpfnSocialAppleCredential(
-    /** The token to answer `SpfnKeyLifecycle.enroll` with. Never empty. */
+    /** The token to answer `SpfnKeyLifecycle.enroll` or `enrollWithSignIn` with. Never empty. */
     val idToken: String,
     /** The person's name on a first authorization; null on every other. */
     val name: SpfnSocialAppleName?
@@ -94,7 +96,7 @@ class SpfnSocialApple(private val driver: SpfnSocialAppleDriver)
 
     /**
      * The token and, on a first authorization, the person's name. The refusals are
-     * [idToken]'s. The name is the app's to send on — see [SpfnSocialAppleCredential].
+     * [idToken]'s. The name goes on through `enrollWithSignIn` — see [SpfnSocialAppleCredential].
      */
     suspend fun credential(nonce: SpfnSocialNonce): SpfnSocialAppleCredential
     {

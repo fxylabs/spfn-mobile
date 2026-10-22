@@ -293,30 +293,27 @@ stay exempt (issue #95).
 
 Apple sends the name on the **first** authorization of an app for an account and never
 again, and on Android it arrives in the relay link this module receives — so it is this
-module or nobody. `credential(nonce)` returns it with the token; `idToken(nonce)` returns
-the token alone, so the closure above keeps working unchanged:
+module or nobody. `credential(nonce)` returns it with the token, and `enrollWithSignIn`
+sends it on in the same request as the token:
 
 ```kotlin
-var name: SpfnSocialAppleName? = null
-val signedIn = lifecycle.enroll(provider = SpfnSocialApple.PROVIDER) { nonce ->
+val result = lifecycle.enrollWithSignIn(provider = "apple") { nonce ->
     val credential = apple.credential(nonce)
-    name = credential.name
-    credential.idToken
+    SpfnSocialSignIn(idToken = credential.idToken, displayName = displayNameFor(credential.name))
 }
 ```
 
-`name` is null on every sign-in after the first, and on a first one whose `user` is
-missing, larger than the server's 2048-byte relay cap, not JSON, or without a non-blank
-`firstName` or `lastName`; either half of a name may be null. None of that fails the
-sign-in. The module never stores or logs the name, and neither the credential nor the
-name prints it.
+`displayNameFor` is the app's own function: the SDK does not compose `givenName` and
+`familyName` into one string, because the order of the two depends on the locale.
+`idToken(nonce)` returns the token alone, so the `enroll` closure above keeps working and
+sends no name.
 
-Sending it on is the app's job, and **the SDK has no call for it today**. The server's
-`/_auth/oauth/apple/native` accepts `profile: { name }` beside the token, but the mobile
-contract this SDK is pinned to has no `profile` field on that request, so
-`SpfnKeyLifecycle.enroll` cannot carry it, and the contract has no profile operation
-either. Until one exists, the app sends the name to its own backend once `enroll` has
-succeeded — an app route that writes it to the account's profile — and drops it after.
+`credential.name` is null on every sign-in after the first, and on a first one whose
+`user` is missing, larger than the server's 2048-byte relay cap, not JSON, or without a
+non-blank `firstName` or `lastName`; either half of a name may be null. None of that fails
+the sign-in. The server (`@spfn/auth` 0.3.0-beta.45) keeps the name only when the account
+has no profile yet and never overwrites one. The module never stores or logs the name,
+and neither the credential nor the name prints it.
 
 ## Where the decisions live
 

@@ -59,9 +59,9 @@ Entries under an unreleased heading describe repository state, not shipped softw
   field, which Apple sends on the first authorization only. It is parsed only after the
   state matched and only when it fits the server's 2048-byte cap, and anything not shaped
   as Apple shapes it is a null name, never a failure. Nothing stores, logs or prints it.
-  The driver seam is `credential(requestNonce): SpfnSocialAppleCredential?`. The SDK has no
-  call that sends the name on: the pinned contract's `OauthNativeRequest` has no `profile`
-  field and there is no profile operation, so the app sends it to its own backend.
+  The driver seam is `credential(requestNonce): SpfnSocialAppleCredential?`. The app sends
+  the name on with `enrollWithSignIn` (the 0.13.5 re-pin above), composed by its own
+  function, since the order of given and family name depends on the locale.
   validate.sh C9 exempts the one file that reads it, `SpfnSocialAppleName.kt`, from its
   profile-field list only.
 - `SpfnSocialAppleCustomTabDriver(activity, authorizationUrl)` opens the URL the app's
