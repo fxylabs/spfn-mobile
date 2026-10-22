@@ -9,7 +9,7 @@ because there is nothing to drift from.
 
 | File | What it pins |
 | --- | --- |
-| `canonical/serialization.json` | canonical JSON bytes and their SHA-256 for eight inputs, including one whose key order differs between UTF-8 and UTF-16 ordering |
+| `canonical/serialization.json` | canonical JSON bytes and their SHA-256 for eleven inputs, including one whose key order differs between UTF-8 and UTF-16 ordering and two whose string value opens with U+FEFF |
 | `canonical/rejects.json` | inputs that must be refused, and the exact error code each must report |
 | `enrollment/enrollment.json` | the key fingerprint rule (SHA-256 of the SPKI DER, base16-lower) for both fixture keypairs, and the exact unproven wire shape of the native social enrollment request |
 | `proof/proof-input.json` | the canonical `clientProofV1` proof input string, its digest, a deterministic ECDSA P-256 signature over it, the fixed test keypair, and the signature reject table |

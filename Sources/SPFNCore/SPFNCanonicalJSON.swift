@@ -386,12 +386,7 @@ private struct Reader
             if byte == UInt8(ascii: "\"")
             {
                 offset += 1
-                guard let text = String(bytes: scalars, encoding: .utf8)
-                else
-                {
-                    throw SPFNCanonicalError.invalidUTF8
-                }
-                return text
+                return try Self.decodeUTF8(scalars)
             }
 
             if byte == UInt8(ascii: "\\")
@@ -409,6 +404,23 @@ private struct Reader
             scalars.append(byte)
             offset += 1
         }
+    }
+
+    /// Decodes a string's bytes keeping every scalar, and refuses ill-formed UTF-8.
+    ///
+    /// Not `String(bytes:encoding: .utf8)`: Foundation treats the bytes as a document and
+    /// drops a U+FEFF that opens them as a byte-order mark, while inside a JSON string it
+    /// is an ordinary scalar and Kotlin keeps it. The stdlib decoder never strips it; it
+    /// repairs ill-formed input with U+FFFD instead, so a repair shows as changed bytes.
+    private static func decodeUTF8(_ bytes: [UInt8]) throws -> String
+    {
+        let text = String(decoding: bytes, as: UTF8.self)
+        guard text.utf8.elementsEqual(bytes)
+        else
+        {
+            throw SPFNCanonicalError.invalidUTF8
+        }
+        return text
     }
 
     private mutating func readEscape(into scalars: inout [UInt8]) throws

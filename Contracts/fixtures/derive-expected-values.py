@@ -408,6 +408,11 @@ CANONICAL_VECTORS = [
     ("zero-forms", '{"z":0,"n":-0}',
      "`0` and `-0` are the two zeroes JSON grammar admits, and both canonicalize to `0`; "
      "the rule that refuses a leading zero must not reach them"),
+    ("bom-opens-string-raw", '{"k":"\ufeffabc"}',
+     "U+FEFF that opens a string value is an ordinary scalar inside a JSON string and is kept; "
+     "a decoder that strips a byte-order mark from the string's bytes would drop it"),
+    ("bom-opens-string-escaped", '{"k":"\\ufeffabc"}',
+     "the same scalar written as the escape \\ufeff decodes to U+FEFF, is kept, and is emitted literally"),
 ]
 
 CANONICAL_REJECTS = [

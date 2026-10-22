@@ -14,8 +14,8 @@
     },
     {
       "path": "Contracts/fixtures/canonical/serialization.json",
-      "sha256": "9abc14e800fc5f79460bcbb7717e25042673a53be929d523d1ac0a5469452e3c",
-      "bytes": 3277
+      "sha256": "07b7b0f5bdaccdb8be55aa72a3b30bfa3fee32538a7456a4bf70fbc654571f78",
+      "bytes": 4007
     },
     {
       "path": "Contracts/fixtures/enrollment/enrollment.json",

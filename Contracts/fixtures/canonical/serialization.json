@@ -64,6 +64,20 @@
       "input": "{\"z\":0,\"n\":-0}",
       "canonical": "{\"n\":0,\"z\":0}",
       "sha256": "67b9d5d43448e58c992867f93a882fa11b7563de5247b094d2bb29ffe430dfd1"
+    },
+    {
+      "name": "bom-opens-string-raw",
+      "why": "U+FEFF that opens a string value is an ordinary scalar inside a JSON string and is kept; a decoder that strips a byte-order mark from the string's bytes would drop it",
+      "input": "{\"k\":\"﻿abc\"}",
+      "canonical": "{\"k\":\"﻿abc\"}",
+      "sha256": "69a9a02a1f412aee012af8db12cd5e409fbba874e3ba76736c6235ae64e15987"
+    },
+    {
+      "name": "bom-opens-string-escaped",
+      "why": "the same scalar written as the escape \\ufeff decodes to U+FEFF, is kept, and is emitted literally",
+      "input": "{\"k\":\"\\ufeffabc\"}",
+      "canonical": "{\"k\":\"﻿abc\"}",
+      "sha256": "69a9a02a1f412aee012af8db12cd5e409fbba874e3ba76736c6235ae64e15987"
     }
   ]
 }
