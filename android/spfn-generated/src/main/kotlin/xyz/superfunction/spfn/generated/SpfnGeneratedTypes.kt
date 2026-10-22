@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
-// contractVersion: 0.13.2
+// bundleSha256:    7879036f33c46ced4c51035521fd25d3934bbb38c21aa9b68779a1c6d1578846
+// contractVersion: 0.13.5
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -822,7 +822,8 @@ data class SpfnOauthNativeRequest(
     val publicKey: String,
     val keyId: String,
     val fingerprint: String,
-    val algorithm: SpfnKeyAlgorithm
+    val algorithm: SpfnKeyAlgorithm,
+    val profile: SpfnOauthNativeProfile? = null
 )
 {
     /**
@@ -843,6 +844,10 @@ data class SpfnOauthNativeRequest(
         members["keyId"] = SpfnCanonicalValue.Text(keyId);
         members["fingerprint"] = SpfnCanonicalValue.Text(fingerprint);
         members["algorithm"] = algorithm.canonicalValue();
+        if (profile != null)
+        {
+            members["profile"] = profile.canonicalValue();
+        }
         return SpfnCanonicalValue.Obj(members);
     }
 
@@ -858,7 +863,39 @@ data class SpfnOauthNativeRequest(
                 publicKey = SpfnDecoding.string(members["publicKey"], "$path.publicKey"),
                 keyId = SpfnDecoding.string(members["keyId"], "$path.keyId"),
                 fingerprint = SpfnDecoding.string(members["fingerprint"], "$path.fingerprint"),
-                algorithm = SpfnKeyAlgorithm.decode(members["algorithm"] ?: SpfnCanonicalValue.Null, "$path.algorithm")
+                algorithm = SpfnKeyAlgorithm.decode(members["algorithm"] ?: SpfnCanonicalValue.Null, "$path.algorithm"),
+                profile = members["profile"]?.takeIf { it !is SpfnCanonicalValue.Null }?.let { SpfnOauthNativeProfile.decode(it, "$path.profile") }
+            );
+        }
+    }
+}
+
+data class SpfnOauthNativeProfile(
+    val name: String? = null
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        if (name != null)
+        {
+            members["name"] = SpfnCanonicalValue.Text(name);
+        }
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnOauthNativeProfile
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnOauthNativeProfile(
+                name = SpfnDecoding.optionalString(members["name"], "$path.name")
             );
         }
     }
@@ -911,6 +948,68 @@ data class SpfnOauthNativeResponse(
                 userId = SpfnDecoding.optionalString(members["userId"], "$path.userId"),
                 keyId = SpfnDecoding.optionalString(members["keyId"], "$path.keyId"),
                 isNewUser = SpfnDecoding.optionalBoolean(members["isNewUser"], "$path.isNewUser")
+            );
+        }
+    }
+}
+
+data class SpfnOauthAppleRelayStartRequest(
+    val requestNonce: String,
+    val state: String,
+    val relayUrl: String
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        members["requestNonce"] = SpfnCanonicalValue.Text(requestNonce);
+        members["state"] = SpfnCanonicalValue.Text(state);
+        members["relayUrl"] = SpfnCanonicalValue.Text(relayUrl);
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnOauthAppleRelayStartRequest
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnOauthAppleRelayStartRequest(
+                requestNonce = SpfnDecoding.string(members["requestNonce"], "$path.requestNonce"),
+                state = SpfnDecoding.string(members["state"], "$path.state"),
+                relayUrl = SpfnDecoding.string(members["relayUrl"], "$path.relayUrl")
+            );
+        }
+    }
+}
+
+data class SpfnOauthAppleRelayStartResponse(
+    val authUrl: String
+)
+{
+    /**
+     * The canonical form of this value. An absent optional field is omitted,
+     * never written as null, so the digest of a value never depends on how a
+     * caller happened to spell "nothing".
+     */
+    fun canonicalValue(): SpfnCanonicalValue
+    {
+        val members = LinkedHashMap<String, SpfnCanonicalValue>();
+        members["authUrl"] = SpfnCanonicalValue.Text(authUrl);
+        return SpfnCanonicalValue.Obj(members);
+    }
+
+    companion object
+    {
+        fun decode(canonical: SpfnCanonicalValue, path: String = "\$"): SpfnOauthAppleRelayStartResponse
+        {
+            val members = SpfnDecoding.obj(canonical, path);
+            return SpfnOauthAppleRelayStartResponse(
+                authUrl = SpfnDecoding.string(members["authUrl"], "$path.authUrl")
             );
         }
     }

@@ -424,9 +424,12 @@ finding about the SDK.
 
 ## The device sign-in mode, on Android
 
-Apple is not here and will not be. There is no Android Apple adapter — Apple ships no
-native sign-in SDK for this platform — so the mode is Google only, by declaration rather
-than by omission (`tools/module-graph.json`, `social-apple`).
+Apple is not here yet. Apple ships no native sign-in SDK for this platform, so the
+Android adapter (`android/spfn-social-apple`, issue #95) runs Apple's web flow in a Custom
+Tab and receives the identity token the SPFN server relays to an https App Link
+(`@spfn/auth` 0.3.0-beta.44). The pinned contract generates the native start that begins
+it (`oauthAppleRelayStart`), but this mode does not drive the round trip yet, so the mode
+is Google only, and the receipt gate exempts Android × Apple.
 
 ### What you configure, and where
 

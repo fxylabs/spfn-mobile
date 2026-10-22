@@ -60,10 +60,15 @@ property worth keeping, reviewed was.
 
 It also stopped assuming a module has both platforms. `androidModule` is either a name
 or the literal `null`, and `null` means declared absent rather than not yet written.
-`SPFNSocialApple` is the first: Apple ships no native sign-in SDK for Android, an
-Android half would have owned a one-line nonce accessor and a seam the app fills in
-anyway, and an Android app signing in with Apple needs only what `spfn-client` already
-gives it — `SpfnSocialNonce`, its `requestValue` and `enroll(provider = "apple", …)`.
+`SPFNSocialApple` was the first, on the reasoning that Apple ships no native sign-in SDK
+for Android and an Android app signing in with Apple needs only what `spfn-client`
+already gives it — `SpfnSocialNonce`, its `requestValue` and
+`enroll(provider = "apple", …)`. That reasoning missed where the token comes from
+(issue #95). With no SDK it can only come out of Apple's web flow, and the server's web
+flow ends in browser cookies an Android app cannot read, so the app needs a component
+that runs the flow in a Custom Tab and receives the token the server relays to an app
+link. `spfn-social-apple` is that component, and no module declares `null` today; the
+rule stays, because the next one-platform module needs it.
 
 `null` is a declaration, and every reader has to tell it apart from a key it could not
 read: the first is a decision, the second is a broken parse, and a reader that treats
@@ -519,6 +524,20 @@ before the provider is asked, and a sign-in the user abandons would otherwise st
 key nobody registered. The SDK owns the whole flow, so it can destroy it — an Android
 Keystore entry to delete, an iOS value to drop.
 
+**A sign-in may also hand back a name, once.** Apple reports a person's name on the
+first authorization only, beside the token. Since contract 0.13.5 the body carries it as
+`OauthNativeRequest.profile.name`, and `enrollWithSignIn` (both platforms) takes a closure
+that returns `SPFNSocialSignIn` / `SpfnSocialSignIn` — the token and an optional display
+name. The token-only `enroll` is that call with no name, so its bytes are unchanged. The
+SDK sends the app's one string as given and never composes it from given and family names,
+whose order depends on the locale; a name the server's trim would empty (ECMAScript's
+whitespace, written out on both platforms rather than read from either language's
+classifier) sends no `profile` key. The contract declares no length, so none is enforced
+here. The name lives in the request body only: no error, description or stored record
+carries it. The separate name is forced by the languages: a trailing closure that only
+throws would make a label-distinguished Swift overload ambiguous, and two Kotlin suspend
+lambdas differing only in their return type are one JVM signature.
+
 `SPFNSocialNonce` carries the fingerprint and the provider it was minted for, and
 publishes one value: `requestValue`, which is the SHA-256 of the fingerprint for Apple
 and the fingerprint itself for everyone else. One value means an app has nothing to
@@ -537,10 +556,24 @@ same migration for a worse moment, so `validate.sh` now refuses a deprecation
 suppression anywhere in SDK sources — the point being that a suppression is precisely
 what keeps this out of a build log, so a build log cannot be what catches it.
 
-**The Apple adapter is iOS-only.** App Store guideline 4.8 requires Sign in with Apple
-on iOS and nothing requires it on Android, where Apple's own flow is a web one an app
-runs itself. What that app hands the SDK is the same thing every other provider hands
-it: a provider token and the nonce it was bound to.
+**The Apple adapter has an Android half, and it is a relay rather than an SDK
+wrapper.** App Store guideline 4.8 requires Sign in with Apple on iOS and nothing
+requires it on Android, where Apple's own flow is a web one. That flow ends at the
+server's Return URL in a session held in browser cookies, which an Android app cannot
+read, so the token has to be handed back to the app. `spfn-social-apple` opens the
+authorization URL the app supplies from the server's native start (the module names no server endpoint) in a Custom Tab,
+and an exported redirect-receiver activity takes the link the server redirects Apple's
+`form_post` to, carrying `id_token` and a per-call `state`. The state — 32 random bytes
+the module mints — is what makes an exported receiver safe: a link without it changes
+nothing, and a token for another key is refused by the server's nonce binding anyway.
+What the app then hands the SDK is the same thing every other provider hands it: a
+provider token and the nonce it was bound to. The relay also carries Apple's `user` — the
+person's name, sent on the first authorization only — and the module hands that back
+with the token rather than dropping it, because on Android nothing else ever sees it: the
+one exception to decision 1, decided 2026-10-21, never stored or logged by the SDK. The server half shipped in `@spfn/auth`
+0.3.0-beta.44, and it allows an https App Link only: a custom scheme is one any app on
+the device could claim, so the relay link is verified through `assetlinks.json`. The
+Android × Apple device cells stay exempt until a phone has driven the round trip.
 
 **The raw value is not base64.** A base64url value's last character carries fewer than
 six bits, and a provider that re-encodes it can hand back a different last character
@@ -696,6 +729,12 @@ only vectors derived from the contract text.
 A match number outside the contract's 10–99 is a decoding refusal and is never shown: the
 signed-in device would never offer it, so showing it would leave a person looking for a
 number that cannot be picked.
+
+A poll ends on a refusal like any other non-retryable code, so the SDK does not branch on
+which one arrived; it hands the code to the app. Since 0.13.3 a wrong pick arrives as its
+own `DeviceLinkWrongMatchError` (400) instead of inside `DeviceLinkDeniedError` (403), so an
+app can tell "the other device said no" from "the other device picked another number" and
+offer a fresh code for the second.
 
 ## Contract import model
 

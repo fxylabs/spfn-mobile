@@ -106,9 +106,10 @@ final class OperationConformanceTests: XCTestCase
         let responseType: String?
     }
 
-    /// The twenty operations contract 0.13.2 declares, in bundle order. The five device-code
-    /// operations arrived with 0.10.0 and the two device-link operations after them with
-    /// 0.13.2; `auth.device.deny` is the one that names no response type, which
+    /// The twenty-one operations contract 0.13.5 declares, in bundle order. The five
+    /// device-code operations arrived with 0.10.0, the two device-link operations after them
+    /// with 0.13.2, and `auth.enroll.oauthAppleRelayStart` with 0.13.4, listed beside the
+    /// enrollment it starts; `auth.device.deny` is the one that names no response type, which
     /// `restOperations.responseBody` defines as answering 204 with an empty body.
     static let declaredOperations: [DeclaredOperation] = [
         DeclaredOperation(id: "core.time", method: "GET", path: "/_core/time", authProfile: "none", requiresSession: false, since: "0.9.0", requestType: nil, responseType: "ServerTimeResponse"),
@@ -118,6 +119,7 @@ final class OperationConformanceTests: XCTestCase
         DeclaredOperation(id: "auth.enroll.register", method: "POST", path: "/_auth/register", authProfile: "none", requiresSession: false, since: "0.3.0", requestType: "RegisterRequest", responseType: "RegisterResponse"),
         DeclaredOperation(id: "auth.enroll.login", method: "POST", path: "/_auth/login", authProfile: "none", requiresSession: false, since: "0.3.0", requestType: "LoginRequest", responseType: "LoginResponse"),
         DeclaredOperation(id: "auth.enroll.oauthNative", method: "POST", path: "/_auth/oauth/{provider}/native", authProfile: "none", requiresSession: false, since: "0.3.0", requestType: "OauthNativeRequest", responseType: "OauthNativeResponse"),
+        DeclaredOperation(id: "auth.enroll.oauthAppleRelayStart", method: "POST", path: "/_auth/oauth/apple/native/start", authProfile: "none", requiresSession: false, since: "0.13.4", requestType: "OauthAppleRelayStartRequest", responseType: "OauthAppleRelayStartResponse"),
         DeclaredOperation(id: "auth.mfa.verify", method: "POST", path: "/_auth/mfa/verify", authProfile: "none", requiresSession: false, since: "0.13.0", requestType: "MfaVerifyRequest", responseType: "MfaVerifyResponse"),
         DeclaredOperation(id: "auth.mfa.status", method: "GET", path: "/_auth/mfa/status", authProfile: "clientProofV1", requiresSession: false, since: "0.13.0", requestType: nil, responseType: "MfaStatusResponse"),
         DeclaredOperation(id: "auth.keys.rotate", method: "POST", path: "/_auth/keys/rotate", authProfile: "clientProofV1", requiresSession: false, since: "0.3.0", requestType: "RotateKeyRequest", responseType: "RotateKeyResponse"),
@@ -142,7 +144,7 @@ final class OperationConformanceTests: XCTestCase
         ).members()
         let declared = try bundle.list("operations").map { try $0.members() }
 
-        XCTAssertEqual(declared.count, 20, "contract 0.13.2 declares twenty operations")
+        XCTAssertEqual(declared.count, 21, "contract 0.13.5 declares twenty-one operations")
         XCTAssertEqual(declared.count, Self.declaredOperations.count)
 
         for (entry, expected) in zip(declared, Self.declaredOperations)
@@ -255,22 +257,25 @@ final class OperationConformanceTests: XCTestCase
         let binding = SPFNGeneratedContract.binding
         XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: binding.importedVersion))
 
-        // A later patch on the pinned minor is additive and admitted: 0.13.3 would carry
-        // everything 0.13.2 does. This is the direction the lower bound must not close.
-        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.13.3"))
+        // A later patch on the pinned minor is additive and admitted: 0.13.6 would carry
+        // everything 0.13.5 does. This is the direction the lower bound must not close.
+        XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.13.6"))
         XCTAssertNoThrow(try binding.requireSupported(serverContractVersion: "0.13.9"))
 
         // The lower bound is the pinned version and not the minor floor. That rule was
         // written for the 0.4.1 pin, where 0.4.0 was the same minor and a major-and-minor
         // comparison would have admitted it — while the SDK called auth.keys.list,
         // auth.keys.revoke and auth.keys.revokeAll, which 0.4.1 added and a 0.4.0 server
-        // does not serve. At this pin it refuses 0.13.0 and 0.13.1 for the same reason:
+        // does not serve. At this pin it refuses 0.13.0 through 0.13.4 for the same reason:
+        // enrollWithSignIn may send OauthNativeRequest.profile, which 0.13.5 declared,
+        // the generated surface carries auth.enroll.oauthAppleRelayStart, which 0.13.4
+        // added, the link-code wait reads DeviceLinkWrongMatchError, which 0.13.3 added,
         // the SDK calls auth.deviceLink.redeem and auth.deviceLink.poll, which 0.13.2
-        // added, and sends waitMillis on auth.device.poll, which 0.13.1 added.
+        // added, and it sends waitMillis on auth.device.poll, which 0.13.1 added.
         //
         // Neighbouring minors break compatibility on a 0.x line: 0.12.x sits below,
         // 0.14.0 above. The previous 0.10.0 pin lacks the required MFA discriminant.
-        for version in ["0.1.0", "0.4.1", "0.6.0", "0.7.0", "0.8.0", "0.9.0", "0.9.9", "0.10.0", "0.11.0", "0.12.9", "0.13.0", "0.13.1", "0.14.0", "1.0.0", "1.9.0", "2.0.0"]
+        for version in ["0.1.0", "0.4.1", "0.6.0", "0.7.0", "0.8.0", "0.9.0", "0.9.9", "0.10.0", "0.11.0", "0.12.9", "0.13.0", "0.13.1", "0.13.2", "0.13.3", "0.13.4", "0.14.0", "1.0.0", "1.9.0", "2.0.0"]
         {
             XCTAssertThrowsError(try binding.requireSupported(serverContractVersion: version))
             { error in

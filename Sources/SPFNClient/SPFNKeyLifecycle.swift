@@ -345,9 +345,37 @@ public actor SPFNKeyLifecycle
     /// nonce equal to that fingerprint, and the literal algorithm name. On success the
     /// response's `userId` is persisted as the clientID every future proof carries (M2).
     /// On any failure the generated key is destroyed (M3).
+    ///
+    /// This form sends no `profile`: its body is byte for byte what it was before
+    /// contract 0.13.5. `enrollWithSignIn(provider:signIn:)` is the form that can carry a name.
     public func enroll(
         provider: String,
         idToken: @Sendable (SPFNSocialNonce) async throws -> String
+    ) async throws -> SPFNEnrollmentResult
+    {
+        try await enrollWithSignIn(provider: provider)
+        { nonce in
+            SPFNSocialSignIn(idToken: try await idToken(nonce))
+        }
+    }
+
+    /// `enroll(provider:idToken:)`, for a sign-in that also learned the person's name.
+    ///
+    /// `signIn` returns the token together with the name the provider reported — Apple's
+    /// on the first authorization only, which is why it has to travel now or never. The
+    /// name is sent as the body's `profile.name` exactly as given; a nil name, or one the
+    /// server's trim would empty, sends no `profile` at all. The server keeps it as the
+    /// display name when this sign-in first attaches the social account and the account
+    /// has no profile yet, and ignores it otherwise. Every other rule is the token-only
+    /// form's, and no error, description or stored record carries the name.
+    ///
+    /// Its own name rather than an `enroll` overload told apart by the label: a trailing
+    /// closure drops the label, and a closure that only throws — a refused sign-in, a
+    /// cancellation — fits both result types, so the token-only calls apps write today
+    /// would stop compiling as ambiguous. Kotlin cannot overload on it either.
+    public func enrollWithSignIn(
+        provider: String,
+        signIn: @Sendable (SPFNSocialNonce) async throws -> SPFNSocialSignIn
     ) async throws -> SPFNEnrollmentResult
     {
         guard Self.isProviderID(provider)
@@ -364,8 +392,8 @@ public actor SPFNKeyLifecycle
         // tell one story with different amounts of work.
         let key = makeKey(newKeyID())
         let fingerprint = SPFNDigest.sha256Hex(key.publicKeySpkiDer)
-        let token = try await idToken(SPFNSocialNonce(fingerprint: fingerprint, provider: provider))
-        guard !token.isEmpty
+        let signedIn = try await signIn(SPFNSocialNonce(fingerprint: fingerprint, provider: provider))
+        guard !signedIn.idToken.isEmpty
         else
         {
             throw SPFNKeyLifecycleError.idTokenMissing
@@ -374,14 +402,15 @@ public actor SPFNKeyLifecycle
         let response = try await client(signingWith: nil).execute(
             Self.oauthNativeCall(provider: provider),
             request: SPFNOauthNativeRequest(
-                idToken: token,
+                idToken: signedIn.idToken,
                 // The same value twice, by the contract's rule. Reading it from one
                 // local rather than recomputing it means the two fields cannot drift.
                 nonce: fingerprint,
                 publicKey: Data(key.publicKeySpkiDer).base64EncodedString(),
                 keyId: key.keyID,
                 fingerprint: fingerprint,
-                algorithm: Self.algorithmName
+                algorithm: Self.algorithmName,
+                profile: signedIn.profile
             )
         )
 
@@ -519,7 +548,10 @@ public actor SPFNKeyLifecycle
     ///   - `redeem` or a poll refused with `DeviceLinkExpiredError` (400), or
     ///     `linkCodeExpired` from this SDK: the code died — "code expired".
     ///   - a poll refused with `DeviceLinkDeniedError` (403): the signed-in device
-    ///     refused, or picked another number — "not approved".
+    ///     refused — "not approved".
+    ///   - a poll refused with `DeviceLinkWrongMatchError` (400): the signed-in device
+    ///     picked a number other than the one shown, which ends the link — "wrong number,
+    ///     start again from a fresh code".
     ///   - a poll refused with `DeviceLinkNotFoundError`: the approval was collected by
     ///     another poll, which ends the wait as `DeviceAuthNotFoundError` ends a
     ///     device-code wait.

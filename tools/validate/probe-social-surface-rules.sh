@@ -10,7 +10,12 @@
 #   a. the unmodified tree passes both rows;
 #   b. a Swift logging call in an adapter source fails;
 #   c. a Kotlin logging call in the Android adapter fails — the half the XCTest never read;
+#   c2. the same call in the Android Apple adapter's relay fails — the file that holds the
+#      token there, in the tree the scan gained with issue #95;
 #   d. a provider profile field fails;
+#   d2. the same field in the Android Apple relay fails, while the one file exempt from the
+#      profile list — the relay name, operator decision 2026-10-21 — still fails a logging
+#      call, so the exemption is one path and one list;
 #   e. a non-empty `requestedScopes` fails, while the empty literal stays admitted;
 #   f. a logging call written inside a comment does NOT fail, and the same text uncommented
 #      does — the exclusion is the rule's own escape hatch, so both of its ends are pinned;
@@ -53,10 +58,14 @@ TMP=$(mktemp -d "${TMPDIR:-/tmp}/spfn-surface-probe.XXXXXX")
 APPLE_SOURCE=Sources/SPFNSocialApple/SPFNSocialApple.swift
 GOOGLE_SOURCE=Sources/SPFNSocialGoogle/SPFNSocialGoogle.swift
 ANDROID_SOURCE=android/spfn-social-google/src/main/kotlin/xyz/superfunction/spfn/social/google/SpfnSocialGoogle.kt
+ANDROID_APPLE_SOURCE=android/spfn-social-apple/src/main/kotlin/xyz/superfunction/spfn/social/apple/SpfnSocialAppleRelay.kt
+ANDROID_APPLE_NAME_SOURCE=android/spfn-social-apple/src/main/kotlin/xyz/superfunction/spfn/social/apple/SpfnSocialAppleName.kt
 
 cp "$APPLE_SOURCE" "$TMP/apple.bak"
 cp "$GOOGLE_SOURCE" "$TMP/google.bak"
 cp "$ANDROID_SOURCE" "$TMP/android.bak"
+cp "$ANDROID_APPLE_SOURCE" "$TMP/android-apple.bak"
+cp "$ANDROID_APPLE_NAME_SOURCE" "$TMP/android-apple-name.bak"
 
 restore()
 {
@@ -65,6 +74,8 @@ restore()
         cp "$TMP/apple.bak" "$APPLE_SOURCE"
         cp "$TMP/google.bak" "$GOOGLE_SOURCE"
         cp "$TMP/android.bak" "$ANDROID_SOURCE"
+        cp "$TMP/android-apple.bak" "$ANDROID_APPLE_SOURCE"
+        cp "$TMP/android-apple-name.bak" "$ANDROID_APPLE_NAME_SOURCE"
         rm -rf "$TMP"
     fi
 }
@@ -85,6 +96,8 @@ restore_files()
     cp "$TMP/apple.bak" "$APPLE_SOURCE"
     cp "$TMP/google.bak" "$GOOGLE_SOURCE"
     cp "$TMP/android.bak" "$ANDROID_SOURCE"
+    cp "$TMP/android-apple.bak" "$ANDROID_APPLE_SOURCE"
+    cp "$TMP/android-apple-name.bak" "$ANDROID_APPLE_NAME_SOURCE"
 }
 
 # The two rows this section answers with, as the validator prints them when they hold.
@@ -140,10 +153,22 @@ printf 'val leaked = android.util.Log.d("spfn", "token")\n' >> "$ANDROID_SOURCE"
 expect_row 'a Kotlin logging call in the Android adapter fails' \
     'FAIL  C8: an adapter that can log is an adapter that can log a token'
 
+printf 'val leaked = android.util.Log.d("spfn", "token")\n' >> "$ANDROID_APPLE_SOURCE"
+expect_row 'a Kotlin logging call in the Android Apple adapter fails' \
+    'FAIL  C8: an adapter that can log is an adapter that can log a token'
+
 # --- d, e. what an adapter may read ------------------------------------------------
 printf 'let name = credential.fullName\n' >> "$APPLE_SOURCE"
 expect_row 'a provider profile field fails' \
     'FAIL  C9: the identity token is the whole of what an adapter reads'
+
+printf 'val name = user.givenName\n' >> "$ANDROID_APPLE_SOURCE"
+expect_row 'a provider profile field in the Android Apple relay fails' \
+    'FAIL  C9: the identity token is the whole of what an adapter reads'
+
+printf 'val leaked = android.util.Log.d("spfn", "name")\n' >> "$ANDROID_APPLE_NAME_SOURCE"
+expect_row 'a Kotlin logging call in the exempt relay-name source still fails' \
+    'FAIL  C8: an adapter that can log is an adapter that can log a token'
 
 printf 'request.requestedScopes = [.email]\n' >> "$APPLE_SOURCE"
 expect_row 'a non-empty requestedScopes fails' \

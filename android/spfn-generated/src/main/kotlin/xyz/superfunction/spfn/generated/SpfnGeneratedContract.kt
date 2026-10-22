@@ -2,8 +2,8 @@
 //
 // generator:       spfn-contract-codegen 0.2.0-dev
 // bundle:          Contracts/spfn-mobile-contract.json
-// bundleSha256:    8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e
-// contractVersion: 0.13.2
+// bundleSha256:    7879036f33c46ced4c51035521fd25d3934bbb38c21aa9b68779a1c6d1578846
+// contractVersion: 0.13.5
 // origin:          spfn-primitives-ci-export
 //
 // Bundle origin: spfn-primitives-ci-export.
@@ -23,8 +23,8 @@ object SpfnGeneratedContract
 
     /** The pinned bundle these sources were derived from. */
     val BINDING: SpfnContractBinding = SpfnContractBinding(
-        importedVersion = "0.13.2",
-        importedManifestSha256 = "8cce6d896e200a18e1312f23ed63ff4fc36b4ff6ea484f576c3de824be3b589e",
+        importedVersion = "0.13.5",
+        importedManifestSha256 = "7879036f33c46ced4c51035521fd25d3934bbb38c21aa9b68779a1c6d1578846",
         supportedRange = ">=0.13.0 <0.14.0",
         supportedMajor = 0,
         supportedMinor = 13,
@@ -46,6 +46,7 @@ object SpfnGeneratedContract
         "auth.enroll.register",
         "auth.enroll.login",
         "auth.enroll.oauthNative",
+        "auth.enroll.oauthAppleRelayStart",
         "auth.mfa.verify",
         "auth.mfa.status",
         "auth.keys.rotate",
