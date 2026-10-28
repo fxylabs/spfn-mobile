@@ -1,9 +1,18 @@
 # Changelog
 
-`0.1.0-alpha.3` is the current published release and `0.1.0-alpha.2` is superseded.
-Entries under an unreleased heading describe repository state, not shipped software.
+`0.1.0-alpha.4` is the release candidate, `0.1.0-alpha.3` is the current published release
+and `0.1.0-alpha.2` is superseded. Entries under an unreleased or candidate heading describe
+repository state, not shipped software.
 
 ## Unreleased
+
+## 0.1.0-alpha.4 — release candidate
+
+The candidate stages nine Android modules and nine Swift products. `spfn-ui`,
+`spfn-state`, `spfn-events`, `spfn-social-apple` and `spfn-social-google` (Swift `SPFNUI`,
+`SPFNState`, `SPFNEvents`, `SPFNSocialApple`, `SPFNSocialGoogle`) publish for the first
+time; `spfn-sync` and `spfn-hybrid` (Swift `SPFNPersistence`, `SPFNHybrid`) are no longer
+part of the train.
 
 ### The release path no longer has a device-receipt gate
 
