@@ -1,5 +1,5 @@
 {
-  "comment": "Hand-written from the @spfn/core 0.3.0-beta.28 state README; rendered by derive-expected-values.py from state_cases.py. docs/architecture/state-client-design.md §3, §4.",
+  "comment": "Hand-written from the @spfn/core 0.3.0-beta.28 state README; the W-cells instead from issue #104 and docs/architecture/state-client-design.md §2-14, not from the README. Rendered by derive-expected-values.py from state_cases.py. docs/architecture/state-client-design.md §3, §4.",
   "manifest": {
     "aiAccounts": {
       "key": [
@@ -6138,6 +6138,1875 @@
             }
           }
         }
+      }
+    },
+    {
+      "id": "W-1",
+      "name": "w1_firstSubject_isBaseline_clearsNothing",
+      "source": "issue #104; state-client-design.md §2-14 D1: the first signed-in value is the baseline; nothing is cleared",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        }
+      ],
+      "arrival": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        }
+      ],
+      "after": {
+        "entries": [
+          {
+            "state": "consent",
+            "entry": {
+              "status": "ready",
+              "at": "2026-10-17T09:00:00.001Z",
+              "value": "A"
+            }
+          }
+        ],
+        "connections": []
+      }
+    },
+    {
+      "id": "W-2",
+      "name": "w2_signedOut_subscriptionIsLoading",
+      "source": "issue #104; state-client-design.md §2-14 D1, D2, D6: sign-out clears every cell; open subscriptions get loading; reconnecting 0",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        }
+      ],
+      "arrival": [
+        {
+          "op": "subject",
+          "clientID": null
+        }
+      ],
+      "after": {
+        "deliveries": {
+          "s1": [
+            "loading"
+          ]
+        },
+        "entries": [
+          {
+            "state": "consent",
+            "entry": "loading"
+          }
+        ],
+        "connection": {
+          "reconnecting": 0
+        },
+        "connections": [
+          {
+            "reconnecting": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "W-3",
+      "name": "w3_signedOutWhileRevoked_markIsGone",
+      "source": "issue #104; state-client-design.md §2-14 D2: the revoked mark goes with the value; the next account's read is ready",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        },
+        {
+          "op": "revoked",
+          "state": "consent"
+        }
+      ],
+      "arrival": [
+        {
+          "op": "subject",
+          "clientID": null
+        },
+        {
+          "op": "subject",
+          "clientID": "client-b"
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 2
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 2,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-b"
+        },
+        {
+          "op": "get",
+          "call": "g1",
+          "state": "consent"
+        },
+        {
+          "op": "answer",
+          "request": "read",
+          "with": {
+            "at": "2026-10-17T09:00:00.002Z",
+            "value": "B"
+          }
+        }
+      ],
+      "after": {
+        "deliveries": {
+          "s1": [
+            "loading",
+            {
+              "status": "ready",
+              "at": "2026-10-17T09:00:00.002Z",
+              "value": "B"
+            }
+          ]
+        },
+        "entries": [
+          {
+            "state": "consent",
+            "entry": {
+              "status": "ready",
+              "at": "2026-10-17T09:00:00.002Z",
+              "value": "B"
+            }
+          }
+        ],
+        "requests": [
+          {
+            "read": {
+              "state": "consent",
+              "key": {}
+            }
+          }
+        ],
+        "calls": {
+          "g1": {
+            "frame": {
+              "at": "2026-10-17T09:00:00.002Z",
+              "value": "B"
+            }
+          }
+        },
+        "connections": [
+          {
+            "reconnecting": 0
+          },
+          "connected"
+        ]
+      }
+    },
+    {
+      "id": "W-4",
+      "name": "w4_signedInChanged_subscribeIsLoading",
+      "source": "issue #104; state-client-design.md §2-14 (Steps): after sign-out and another sign-in, subscribing the same state is loading first",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        },
+        {
+          "op": "subject",
+          "clientID": null
+        }
+      ],
+      "arrival": [
+        {
+          "op": "subject",
+          "clientID": "client-b"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s2",
+          "state": "consent",
+          "key": {}
+        }
+      ],
+      "after": {
+        "deliveries": {
+          "s2": [
+            "loading"
+          ]
+        },
+        "entries": [
+          {
+            "state": "consent",
+            "entry": "loading"
+          }
+        ]
+      }
+    },
+    {
+      "id": "W-5",
+      "name": "w5_directSwitch_subscriptionIsLoading",
+      "source": "issue #104; state-client-design.md §2-14 D1: another id without nil between clears too (E-43 never passes idle)",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        }
+      ],
+      "arrival": [
+        {
+          "op": "subject",
+          "clientID": "client-b"
+        }
+      ],
+      "after": {
+        "deliveries": {
+          "s1": [
+            "loading"
+          ]
+        },
+        "entries": [
+          {
+            "state": "consent",
+            "entry": "loading"
+          }
+        ],
+        "connection": {
+          "reconnecting": 0
+        },
+        "connections": [
+          {
+            "reconnecting": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "W-6",
+      "name": "w6_frameBeforeNewConnection_isDropped",
+      "source": "issue #104; state-client-design.md §2-14 D4: frames are dropped until an opened of the new id's connection",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        },
+        {
+          "op": "subject",
+          "clientID": "client-b"
+        }
+      ],
+      "arrival": [
+        {
+          "op": "frame",
+          "state": "consent",
+          "at": "2026-10-17T09:00:00.002Z",
+          "value": "A"
+        }
+      ],
+      "after": {
+        "entries": [
+          {
+            "state": "consent",
+            "entry": "loading"
+          }
+        ]
+      }
+    },
+    {
+      "id": "W-7",
+      "name": "w7_openedForPreviousAccount_isDropped",
+      "source": "issue #104; state-client-design.md §2-14 D4, D6: an opened whose clientID is the previous account's opens nothing and reads nothing",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        },
+        {
+          "op": "subject",
+          "clientID": "client-b"
+        }
+      ],
+      "arrival": [
+        {
+          "op": "stream",
+          "state": {
+            "open": 2
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 2,
+          "query": {},
+          "initial": null,
+          "denied": [],
+          "clientID": "client-a"
+        },
+        {
+          "op": "frame",
+          "state": "consent",
+          "at": "2026-10-17T09:00:00.002Z",
+          "value": "A"
+        }
+      ],
+      "after": {
+        "entries": [
+          {
+            "state": "consent",
+            "entry": "loading"
+          }
+        ],
+        "connection": {
+          "reconnecting": 0
+        },
+        "connections": []
+      }
+    },
+    {
+      "id": "W-8",
+      "name": "w8_openedForNewAccount_acceptsItsFrames",
+      "source": "issue #104; state-client-design.md §2-14 D4, D6: the new id's opened is taken as today (C-26 … C-28); then connected",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        },
+        {
+          "op": "subject",
+          "clientID": "client-b"
+        }
+      ],
+      "arrival": [
+        {
+          "op": "stream",
+          "state": {
+            "open": 2
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 2,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-b"
+        },
+        {
+          "op": "frame",
+          "state": "consent",
+          "at": "2026-10-17T09:00:00.002Z",
+          "value": "B"
+        }
+      ],
+      "after": {
+        "deliveries": {
+          "s1": [
+            {
+              "status": "ready",
+              "at": "2026-10-17T09:00:00.002Z",
+              "value": "B"
+            }
+          ]
+        },
+        "entries": [
+          {
+            "state": "consent",
+            "entry": {
+              "status": "ready",
+              "at": "2026-10-17T09:00:00.002Z",
+              "value": "B"
+            }
+          }
+        ],
+        "connection": "connected",
+        "connections": [
+          "connected"
+        ]
+      }
+    },
+    {
+      "id": "W-9",
+      "name": "w9_snapshotOfPreviousAccount_isNotApplied",
+      "source": "issue #104; state-client-design.md §2-14 D3: an automatic read sent for the previous account applies nothing and reports nothing",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": null,
+          "denied": [],
+          "clientID": "client-a"
+        }
+      ],
+      "arrivals": [
+        [
+          {
+            "op": "subject",
+            "clientID": "client-b"
+          },
+          {
+            "op": "answer",
+            "request": "snapshot",
+            "with": {
+              "at": "2026-10-17T09:00:00.002Z",
+              "states": {
+                "consent": {
+                  "value": "A"
+                }
+              }
+            }
+          }
+        ],
+        [
+          {
+            "op": "subject",
+            "clientID": "client-b"
+          },
+          {
+            "op": "answer",
+            "request": "snapshot",
+            "fail": "network"
+          }
+        ]
+      ],
+      "after": {
+        "deliveries": {
+          "s1": [
+            "loading"
+          ]
+        },
+        "entries": [
+          {
+            "state": "consent",
+            "entry": "loading"
+          }
+        ]
+      }
+    },
+    {
+      "id": "W-10",
+      "name": "w10_shadowReadOfPreviousAccount_isNotApplied",
+      "source": "issue #104; state-client-design.md §2-14 D3: a shadow read sent for the previous account applies nothing",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {},
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "runtime",
+          "key": {
+            "workspaceId": "w-b"
+          }
+        },
+        {
+          "op": "subscribe",
+          "sub": "s2",
+          "state": "runtime",
+          "key": {
+            "workspaceId": "w-a"
+          }
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {
+            "workspaceId": "w-a"
+          },
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        }
+      ],
+      "arrivals": [
+        [
+          {
+            "op": "subject",
+            "clientID": "client-b"
+          },
+          {
+            "op": "answer",
+            "request": "read",
+            "with": {
+              "at": "2026-10-17T09:00:00.002Z",
+              "value": "X"
+            }
+          }
+        ],
+        [
+          {
+            "op": "subject",
+            "clientID": "client-b"
+          },
+          {
+            "op": "answer",
+            "request": "read",
+            "fail": "network"
+          }
+        ]
+      ],
+      "after": {
+        "entries": [
+          {
+            "state": "runtime",
+            "key": {
+              "workspaceId": "w-b"
+            },
+            "entry": "loading"
+          }
+        ]
+      }
+    },
+    {
+      "id": "W-11",
+      "name": "w11_getInFlight_refusedSignedInChanged",
+      "source": "issue #104; state-client-design.md §2-14 D3: an app get in flight is refused signedInChanged; its answer is not applied",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        },
+        {
+          "op": "get",
+          "call": "g1",
+          "state": "consent"
+        }
+      ],
+      "arrival": [
+        {
+          "op": "subject",
+          "clientID": "client-b"
+        },
+        {
+          "op": "answer",
+          "request": "read",
+          "with": {
+            "at": "2026-10-17T09:00:00.002Z",
+            "value": "A"
+          }
+        }
+      ],
+      "after": {
+        "calls": {
+          "g1": {
+            "rejected": "signedInChanged"
+          }
+        },
+        "deliveries": {
+          "s1": [
+            "loading"
+          ]
+        },
+        "entries": [
+          {
+            "state": "consent",
+            "entry": "loading"
+          }
+        ]
+      }
+    },
+    {
+      "id": "W-12",
+      "name": "w12_writeInFlight_refusedSignedInChanged",
+      "source": "issue #104; state-client-design.md §2-14 D3: an app write in flight is refused signedInChanged; its answer is not applied",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        },
+        {
+          "op": "write",
+          "call": "c1",
+          "state": "consent",
+          "input": {
+            "choice": "B"
+          }
+        }
+      ],
+      "arrival": [
+        {
+          "op": "subject",
+          "clientID": "client-b"
+        },
+        {
+          "op": "answer",
+          "request": "write",
+          "with": {
+            "at": "2026-10-17T09:00:00.002Z",
+            "value": "B"
+          }
+        }
+      ],
+      "after": {
+        "calls": {
+          "c1": {
+            "rejected": "signedInChanged"
+          }
+        },
+        "deliveries": {
+          "s1": [
+            "loading"
+          ]
+        },
+        "entries": [
+          {
+            "state": "consent",
+            "entry": "loading"
+          }
+        ]
+      }
+    },
+    {
+      "id": "W-13",
+      "name": "w13_getWaitingOnManifest_refusedAtOnce",
+      "source": "issue #104; state-client-design.md §2-14 D3: a call waiting on the manifest is refused at once and never sent",
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "get",
+          "call": "g1",
+          "state": "consent"
+        }
+      ],
+      "arrival": [
+        {
+          "op": "subject",
+          "clientID": "client-b"
+        },
+        {
+          "op": "answer",
+          "request": "snapshot",
+          "with": {
+            "at": "2026-10-17T09:00:00.001Z",
+            "states": {}
+          }
+        }
+      ],
+      "after": {
+        "calls": {
+          "g1": {
+            "rejected": "signedInChanged"
+          }
+        }
+      }
+    },
+    {
+      "id": "W-14",
+      "name": "w14_snapshotCallInFlight_refusedSignedInChanged",
+      "source": "issue #104; state-client-design.md §2-14 D3: an app snapshot() in flight is refused signedInChanged; its answer is not applied",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        },
+        {
+          "op": "snapshotCall",
+          "call": "n1"
+        }
+      ],
+      "arrival": [
+        {
+          "op": "subject",
+          "clientID": "client-b"
+        },
+        {
+          "op": "answer",
+          "request": "snapshot",
+          "with": {
+            "at": "2026-10-17T09:00:00.002Z",
+            "states": {
+              "consent": {
+                "value": "A"
+              }
+            }
+          }
+        }
+      ],
+      "after": {
+        "calls": {
+          "n1": {
+            "rejected": "signedInChanged"
+          }
+        },
+        "deliveries": {
+          "s1": [
+            "loading"
+          ]
+        },
+        "entries": [
+          {
+            "state": "consent",
+            "entry": "loading"
+          }
+        ]
+      }
+    },
+    {
+      "id": "W-15",
+      "name": "w15_newAccountsOlderAt_isApplied",
+      "source": "issue #104; state-client-design.md §2-14 D2: the ordering stamps go too, so the next account's older `at` is applied",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.003Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        },
+        {
+          "op": "subject",
+          "clientID": "client-b"
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 2
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 2,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-b"
+        }
+      ],
+      "arrival": [
+        {
+          "op": "frame",
+          "state": "consent",
+          "at": "2026-10-17T09:00:00.002Z",
+          "value": "B"
+        }
+      ],
+      "after": {
+        "deliveries": {
+          "s1": [
+            {
+              "status": "ready",
+              "at": "2026-10-17T09:00:00.002Z",
+              "value": "B"
+            }
+          ]
+        },
+        "entries": [
+          {
+            "state": "consent",
+            "entry": {
+              "status": "ready",
+              "at": "2026-10-17T09:00:00.002Z",
+              "value": "B"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "W-16",
+      "name": "w16_grantOrRevokeBeforeNewConnection_isDropped",
+      "source": "issue #104; state-client-design.md §2-14 D4: grant and revoke signals are dropped until an opened of the new id's connection",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        },
+        {
+          "op": "subject",
+          "clientID": "client-b"
+        }
+      ],
+      "arrivals": [
+        [
+          {
+            "op": "revoked",
+            "state": "consent"
+          }
+        ],
+        [
+          {
+            "op": "granted",
+            "state": "consent"
+          }
+        ]
+      ],
+      "after": {
+        "entries": [
+          {
+            "state": "consent",
+            "entry": "loading"
+          }
+        ]
+      }
+    },
+    {
+      "id": "W-17",
+      "name": "w17_sameSubjectAgain_changesNothing",
+      "source": "issue #104; state-client-design.md §2-14 D1: a rotation keeps the client id and clears nothing",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        }
+      ],
+      "arrival": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "frame",
+          "state": "consent",
+          "at": "2026-10-17T09:00:00.002Z",
+          "value": "B"
+        }
+      ],
+      "after": {
+        "deliveries": {
+          "s1": [
+            {
+              "status": "ready",
+              "at": "2026-10-17T09:00:00.002Z",
+              "value": "B"
+            }
+          ]
+        },
+        "entries": [
+          {
+            "state": "consent",
+            "entry": {
+              "status": "ready",
+              "at": "2026-10-17T09:00:00.002Z",
+              "value": "B"
+            }
+          }
+        ],
+        "connections": []
+      }
+    },
+    {
+      "id": "W-18",
+      "name": "w18_closedClient_stillClears",
+      "source": "issue #104; state-client-design.md §2-14 D1, D2: a closed client (C-19) keeps its entries, and a change clears them",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        },
+        {
+          "op": "close"
+        }
+      ],
+      "arrival": [
+        {
+          "op": "subject",
+          "clientID": null
+        },
+        {
+          "op": "subscribe",
+          "sub": "s2",
+          "state": "consent",
+          "key": {}
+        }
+      ],
+      "after": {
+        "deliveries": {
+          "s2": [
+            "loading"
+          ]
+        },
+        "entries": [
+          {
+            "state": "consent",
+            "entry": "loading"
+          }
+        ]
+      }
+    },
+    {
+      "id": "W-19",
+      "name": "w19_getAfterChange_usesKeptManifest",
+      "source": "issue #104; state-client-design.md §2-14 D2: the manifest is server-wide and kept; a get after the change reads no snapshot",
+      "initial": {
+        "snapshot": {
+          "at": "2026-10-17T09:00:00.001Z",
+          "states": {
+            "consent": {
+              "value": "A"
+            }
+          },
+          "manifest": {
+            "aiAccounts": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": false
+            },
+            "consent": {
+              "key": [],
+              "write": true
+            },
+            "runtime": {
+              "key": [
+                "workspaceId"
+              ],
+              "write": true
+            }
+          }
+        },
+        "query": {}
+      },
+      "before": [
+        {
+          "op": "subject",
+          "clientID": "client-a"
+        },
+        {
+          "op": "subscribe",
+          "sub": "s1",
+          "state": "consent",
+          "key": {}
+        },
+        {
+          "op": "stream",
+          "state": {
+            "open": 1
+          }
+        },
+        {
+          "op": "opened",
+          "epoch": 1,
+          "query": {},
+          "initial": [
+            "state.aiAccounts.changed",
+            "state.consent.changed",
+            "state.runtime.changed"
+          ],
+          "denied": [],
+          "clientID": "client-a"
+        },
+        {
+          "op": "subject",
+          "clientID": "client-b"
+        }
+      ],
+      "arrival": [
+        {
+          "op": "get",
+          "call": "g1",
+          "state": "consent"
+        },
+        {
+          "op": "answer",
+          "request": "read",
+          "with": {
+            "at": "2026-10-17T09:00:00.002Z",
+            "value": "B"
+          }
+        }
+      ],
+      "after": {
+        "requests": [
+          {
+            "read": {
+              "state": "consent",
+              "key": {}
+            }
+          }
+        ],
+        "calls": {
+          "g1": {
+            "frame": {
+              "at": "2026-10-17T09:00:00.002Z",
+              "value": "B"
+            }
+          }
+        },
+        "deliveries": {
+          "s1": [
+            {
+              "status": "ready",
+              "at": "2026-10-17T09:00:00.002Z",
+              "value": "B"
+            }
+          ]
+        },
+        "entries": [
+          {
+            "state": "consent",
+            "entry": {
+              "status": "ready",
+              "at": "2026-10-17T09:00:00.002Z",
+              "value": "B"
+            }
+          }
+        ]
       }
     }
   ]

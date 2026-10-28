@@ -395,7 +395,7 @@ class SpfnEventListenerHubTest
         assertEquals(
             listOf(
                 SpfnWireSignal.Attached,
-                SpfnWireSignal.Opened(SpfnStreamConnected(2, emptyMap(), listOf("sessionActivity"), listOf("sessionUnread"), listOf("sessionActivity")))
+                SpfnWireSignal.Opened(SpfnStreamConnected(2, emptyMap(), listOf("sessionActivity"), listOf("sessionUnread"), listOf("sessionActivity"), SessionFixtureValues.CLIENT_ID))
             ),
             signals
         );
@@ -419,7 +419,7 @@ class SpfnEventListenerHubTest
         assertEquals(
             listOf(
                 SpfnWireSignal.Attached,
-                SpfnWireSignal.Opened(SpfnStreamConnected(1, emptyMap(), listOf("sessionActivity", "sessionUnread"), emptyList(), null))
+                SpfnWireSignal.Opened(SpfnStreamConnected(1, emptyMap(), listOf("sessionActivity", "sessionUnread"), emptyList(), null, SessionFixtureValues.CLIENT_ID))
             ),
             signals
         );

@@ -654,6 +654,122 @@ class SpfnStateClientTest
         assertNotNull(run.timer);
     }
 
+    // ---- W: the signed-in boundary (§2-14, issue #104) ---------------------
+
+    @Test
+    fun w1_firstSubject_isBaseline_clearsNothing()
+    {
+        StateCases.run("W-1");
+    }
+
+    @Test
+    fun w2_signedOut_subscriptionIsLoading()
+    {
+        StateCases.run("W-2");
+    }
+
+    @Test
+    fun w3_signedOutWhileRevoked_markIsGone()
+    {
+        StateCases.run("W-3");
+    }
+
+    @Test
+    fun w4_signedInChanged_subscribeIsLoading()
+    {
+        StateCases.run("W-4");
+    }
+
+    @Test
+    fun w5_directSwitch_subscriptionIsLoading()
+    {
+        StateCases.run("W-5");
+    }
+
+    @Test
+    fun w6_frameBeforeNewConnection_isDropped()
+    {
+        StateCases.run("W-6");
+    }
+
+    @Test
+    fun w7_openedForPreviousAccount_isDropped()
+    {
+        StateCases.run("W-7");
+    }
+
+    @Test
+    fun w8_openedForNewAccount_acceptsItsFrames()
+    {
+        StateCases.run("W-8");
+    }
+
+    @Test
+    fun w9_snapshotOfPreviousAccount_isNotApplied()
+    {
+        StateCases.run("W-9");
+    }
+
+    @Test
+    fun w10_shadowReadOfPreviousAccount_isNotApplied()
+    {
+        StateCases.run("W-10");
+    }
+
+    @Test
+    fun w11_getInFlight_refusedSignedInChanged()
+    {
+        StateCases.run("W-11");
+    }
+
+    @Test
+    fun w12_writeInFlight_refusedSignedInChanged()
+    {
+        StateCases.run("W-12");
+    }
+
+    @Test
+    fun w13_getWaitingOnManifest_refusedAtOnce()
+    {
+        StateCases.run("W-13");
+    }
+
+    @Test
+    fun w14_snapshotCallInFlight_refusedSignedInChanged()
+    {
+        StateCases.run("W-14");
+    }
+
+    @Test
+    fun w15_newAccountsOlderAt_isApplied()
+    {
+        StateCases.run("W-15");
+    }
+
+    @Test
+    fun w16_grantOrRevokeBeforeNewConnection_isDropped()
+    {
+        StateCases.run("W-16");
+    }
+
+    @Test
+    fun w17_sameSubjectAgain_changesNothing()
+    {
+        StateCases.run("W-17");
+    }
+
+    @Test
+    fun w18_closedClient_stillClears()
+    {
+        StateCases.run("W-18");
+    }
+
+    @Test
+    fun w19_getAfterChange_usesKeptManifest()
+    {
+        StateCases.run("W-19");
+    }
+
     private companion object
     {
         const val T1 = "2026-10-17T09:00:00.001Z";

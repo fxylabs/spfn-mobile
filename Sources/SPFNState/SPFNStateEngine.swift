@@ -4,6 +4,13 @@
 // tasks it starts; nothing the engine starts holds the client. When the app lets go of the
 // client, `deinit` finishes the inbox, the loop ends and the engine cancels what still runs.
 //
+// The signed-in boundary (§2-14, D5) is crossed twice. The key lifecycle's observer moves
+// `SPFNStateShared` to the next account inside the call that stored its key, on that call's
+// thread — `current` answers `loading` from then on — and queues `.subject` for the core. Until
+// the core has processed it, what the core still produces is the last account's: the engine
+// hands no value to a subscriber or to `current`, and no answer to a call, while the two
+// epochs differ. A `loading` still goes through: it carries no account's value.
+//
 // android/spfn-state/.../SpfnStateClient.kt carries the same runner in Kotlin.
 
 import Foundation
@@ -108,11 +115,20 @@ actor SPFNStateEngine
         switch effect
         {
         case .deliver(let subscription, let cell):
-            sinks[subscription]?.deliver(cell)
+            // A `loading` carries no account's value, so it is handed on even while behind.
+            if current || cell == nil
+            {
+                sinks[subscription]?.deliver(cell)
+            }
         case .finish(let subscription):
             sinks.removeValue(forKey: subscription)?.finish()
         case .publish(let slot, let cell):
-            shared.publish(slot, cell)
+            if current
+            {
+                shared.publish(slot, cell)
+            }
+        case .clear:
+            shared.clear()
         case .execute(let request, let what):
             execute(request, what)
         case .setQuery(let query):
@@ -128,7 +144,7 @@ actor SPFNStateEngine
         case .report(let error):
             services.onError(error)
         case .resolve(let call, let result):
-            calls.removeValue(forKey: call)?.resume(with: result)
+            calls.removeValue(forKey: call)?.resume(with: current ? result : .failure(SPFNStateClientError.signedInChanged))
         case .countDropped:
             shared.countDropped()
         case .scheduleFlush:
@@ -139,6 +155,12 @@ actor SPFNStateEngine
             listening.forEach { $0.cancel() }
             listening = []
         }
+    }
+
+    /// The core works for the account `shared` was last moved to (D5).
+    private var current: Bool
+    {
+        core.epoch == shared.epoch
     }
 
     private func execute(_ request: Int, _ what: SPFNStateRequest)
@@ -211,6 +233,8 @@ final class SPFNStateShared: @unchecked Sendable
     private var status: SPFNStateConnection = .reconnecting(attempt: 0)
     private var watchers: [UUID: AsyncStream<SPFNStateConnection>.Continuation] = [:]
     private var dropped = 0
+    private var subject: String??
+    private var changes = 0
 
     var connection: SPFNStateConnection
     {
@@ -222,6 +246,12 @@ final class SPFNStateShared: @unchecked Sendable
         lock.withLock { dropped }
     }
 
+    /// Counts the changes of the signed-in account, as the core's `epoch` does.
+    var epoch: Int
+    {
+        lock.withLock { changes }
+    }
+
     func cell(_ slot: SPFNStateSlot) -> SPFNStateCell?
     {
         lock.withLock { cells[slot] }
@@ -230,6 +260,29 @@ final class SPFNStateShared: @unchecked Sendable
     func publish(_ slot: SPFNStateSlot, _ cell: SPFNStateCell)
     {
         lock.withLock { cells[slot] = cell }
+    }
+
+    func clear()
+    {
+        lock.withLock { cells = [:] }
+    }
+
+    /// The key lifecycle's observer, inside the call that stored the key: the first id is the
+    /// baseline; another one empties what `current` answers before that call returns.
+    func signedIn(_ clientID: String?)
+    {
+        lock.withLock
+        {
+            let known = subject
+            subject = .some(clientID)
+            guard known != nil, known != .some(clientID)
+            else
+            {
+                return
+            }
+            changes += 1
+            cells = [:]
+        }
     }
 
     func countDropped()

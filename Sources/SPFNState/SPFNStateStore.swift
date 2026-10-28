@@ -102,6 +102,15 @@ struct SPFNStateStore
         return replace(slot, SPFNStateCell(status: .revoked, frame: cells[slot]?.frame))
     }
 
+    /// Forgets every entry, stamp and mark: what the next signed-in account sees starts from
+    /// nothing, and its older `at` is not taken for a stale one (§2-14, W-15).
+    mutating func clear()
+    {
+        cells = [:]
+        stamps = [:]
+        marks = [:]
+    }
+
     /// The newest `at` seen for `slot`.
     func stamp(_ slot: SPFNStateSlot) -> String?
     {

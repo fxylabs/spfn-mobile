@@ -140,4 +140,9 @@ public enum SPFNStateClientError: Error, Equatable, Sendable
 
     /// `close()` ended the call before it was answered (C-19).
     case closed
+
+    /// The signed-in account changed — signed out, or another account signed in — while the
+    /// call was in flight or waiting for the manifest; its answer, if any, is not applied
+    /// (§2-14). A refused `write` may already have been applied on the server.
+    case signedInChanged
 }

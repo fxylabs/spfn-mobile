@@ -109,4 +109,11 @@ sealed class SpfnStateClientError(message: String) : Exception(message)
 
     /** `close()` ended the call before it was answered (C-19). */
     data object Closed : SpfnStateClientError("the state client was closed")
+
+    /**
+     * The signed-in account changed — signed out, or another account signed in — while the
+     * call was in flight or waiting for the manifest; its answer, if any, is not applied
+     * (§2-14). A refused `write` may already have been applied on the server.
+     */
+    data object SignedInChanged : SpfnStateClientError("the signed-in account changed")
 }

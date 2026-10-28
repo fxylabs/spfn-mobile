@@ -124,7 +124,8 @@ struct StateCase
                 step["query"]?.key ?? [:],
                 initial: step["initial"]?.strings,
                 denied: step["denied"]?.strings ?? [],
-                described: described
+                described: described,
+                clientID: step["clientID"]?.string
             )
         case "frame":
             run.frame(state, at: step["at"]!.string!, step["value"]!, key: step["key"]?.key, data: step["data"])
@@ -152,6 +153,8 @@ struct StateCase
             run.fireTimer()
         case "subscribeConnection":
             run.watchConnection(step["watch"]!.string!)
+        case "subject":
+            run.feed(.subject(clientID: step["clientID"]!.string))
         default:
             XCTFail("\(id): unknown step \(step)")
         }
@@ -308,6 +311,8 @@ struct StateCase
             value = .object(["readOnly": .string(state)])
         case is StateTestNetworkError:
             value = .string("network")
+        case SPFNStateClientError.signedInChanged:
+            value = .string("signedInChanged")
         default:
             value = .string(String(describing: error))
         }

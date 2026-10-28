@@ -4,9 +4,11 @@
 // the first snapshot before anything else (Man), one connection query that is the union of
 // the subscribed keys (Str, §2-7), every arrival through the store's ordering rule (Ord),
 // revoked marks per connection (Rev, §2-8), the connection status (Con, §2-9) and the
-// initial snapshot (Cfg, §2-10). Where the native stream differs — it is the app's, opened
-// by the SDK's lifecycle, and its `opened` signal arrives in the frames' queue — §2-2 and
-// §2-6 say what stands in for the web client's own `SSEClient`.
+// initial snapshot (Cfg, §2-10). The signed-in boundary (§2-14) is the native client's own:
+// one client lives through every account, so a change of account empties the store. Where
+// the native stream differs — it is the app's, opened by the SDK's lifecycle, and its
+// `opened` signal arrives in the frames' queue — §2-2 and §2-6 say what stands in for the web
+// client's own `SSEClient`.
 //
 // One input at a time, effects back; nothing here waits or locks. SPFNStateClient's engine
 // is the only caller.
@@ -27,14 +29,14 @@ final class SPFNStateCore
     }
 
     /// Which connection an automatic read was started for, and when (§2-8).
-    private struct Tag
+    fileprivate struct Tag
     {
         let lifetime: Int
         let generation: Int
         let tick: Int
     }
 
-    private enum Pending
+    fileprivate enum Pending
     {
         case snapshot(query: SPFNStateKey, tag: Tag, call: Int?, first: Bool)
         case shadow(SPFNStateSlot, Tag)
@@ -84,6 +86,20 @@ final class SPFNStateCore
     private var status: SPFNStateConnection = .reconnecting(attempt: 0)
     private var reportedUnavailable: Set<String> = []
 
+    /// Whose values the store holds: nil until the key lifecycle's first value, the baseline;
+    /// then the signed-in client id, or none (§2-14).
+    private var subject: String??
+    /// Counts the changes of `subject`. The engine hands nothing on that the core produced
+    /// for an older one (D5).
+    private(set) var epoch = 0
+    /// Wire frames, grants, revokes and overflows are taken only while this holds: always
+    /// while the subject is unknown, else from an `opened` of a connection made for it (W-6,
+    /// W-7, W-16).
+    private var wireTrusted = true
+    /// From a change of subject until its connection opens: the status stays
+    /// `reconnecting(0)` (D6).
+    private var switching = false
+
     init(configuration: Configuration, initial: SPFNStateInitial?)
     {
         self.configuration = configuration
@@ -130,6 +146,8 @@ final class SPFNStateCore
             close()
         case .retryElapsed(let generation):
             retryElapsed(generation)
+        case .subject(let clientID):
+            follow(clientID)
         }
         return effects
     }
@@ -554,6 +572,103 @@ final class SPFNStateCore
         }
     }
 
+    // MARK: - The signed-in subject
+
+    /// The key lifecycle's client id (§2-14). The first is the baseline and clears nothing; the
+    /// same id again — a rotation — changes nothing (W-1, W-17). Another id, or none, ends the
+    /// last subject's values, and the wire is not trusted until the new subject's connection
+    /// opens; the baseline too waits for one, so a connection replayed for another account
+    /// when the client attaches is not taken.
+    private func follow(_ clientID: String?)
+    {
+        let known = subject
+        guard known != .some(clientID)
+        else
+        {
+            return
+        }
+        subject = .some(clientID)
+        wireTrusted = false
+        guard known != nil
+        else
+        {
+            return
+        }
+        epoch += 1
+        switching = true
+        forgetSubject()
+    }
+
+    /// D2: the entries, stamps, marks and grants go; the manifest, the names already reported
+    /// unavailable and the subscriptions stay, each told `loading` — once: one already at
+    /// `loading` hears nothing (W-2 … W-5). Even a closed client forgets (W-18).
+    private func forgetSubject()
+    {
+        let held = store.cells
+        store.clear()
+        grants = [:]
+        effects.append(.clear)
+        for (subscription, slot) in subscriptions.sorted(by: { $0.key < $1.key }) where held[slot] != nil
+        {
+            effects.append(.deliver(subscription: subscription, nil))
+        }
+        refuseCalls()
+        restartFirstSnapshot()
+        setConnection(.reconnecting(attempt: 0))
+    }
+
+    /// Every request in flight was sent for the last subject: it is forgotten, so its answer
+    /// is applied to nothing (W-9, W-10), and an app call on one — or waiting for the
+    /// manifest — is refused now, once (W-11 … W-14).
+    private func refuseCalls()
+    {
+        let calls = pending.values.compactMap(\.call) + waiters.map(\.call)
+        for call in calls.sorted()
+        {
+            effects.append(.resolve(call: call, .failure(SPFNStateClientError.signedInChanged)))
+        }
+        pending = [:]
+        waiters = []
+    }
+
+    /// A first snapshot in flight was the last subject's and is forgotten with it; the
+    /// subscriptions that waited on it wait on one read for the next subject.
+    private func restartFirstSnapshot()
+    {
+        guard firstRead != nil
+        else
+        {
+            return
+        }
+        firstRead = nil
+        if waiting
+        {
+            waiting = false
+            queueFlush()
+        }
+    }
+
+    /// While the subject is known, only a connection opened for it is trusted; any other —
+    /// the last account's, replayed or late — is dropped whole, its snapshot unread (W-7). The
+    /// subject's own ends the switch, and the status follows the stream again (W-8).
+    private func trust(_ connected: SPFNStreamConnected) -> Bool
+    {
+        if case .some(let clientID) = subject, connected.clientID != clientID
+        {
+            return false
+        }
+        wireTrusted = true
+        if switching
+        {
+            switching = false
+            if streamBound
+            {
+                followStream(streamState)
+            }
+        }
+        return true
+    }
+
     // MARK: - The connection status
 
     /// The native stream's state, read as the web client reads its `SSEClient` callbacks —
@@ -578,7 +693,10 @@ final class SPFNStateCore
         {
         case .open:
             streamFailed = false
-            setConnection(.connected)
+            if !switching
+            {
+                setConnection(.connected)
+            }
         case .connecting:
             if status == .failed
             {
@@ -627,17 +745,19 @@ final class SPFNStateCore
             break
         case .opened(let connected):
             opened(connected)
-        case .frame(let name, let value):
+        case .frame(let name, let value) where wireTrusted:
             frame(name, value)
-        case .subscription(let name, let change):
+        case .subscription(let name, let change) where wireTrusted:
             subscription(name, change)
-        case .overflow:
+        case .overflow where wireTrusted:
             if let connectionQuery, manifest != nil, !watched.isEmpty
             {
                 refresh(connectionQuery)
             }
         case .unavailable(let names):
             unavailable(names)
+        case .frame, .subscription, .overflow:
+            break
         }
     }
 
@@ -646,6 +766,11 @@ final class SPFNStateCore
     /// server predates `initial` (C-26 … C-28); a denied watched state is revoked (R-3, R-4).
     private func opened(_ connected: SPFNStreamConnected)
     {
+        guard trust(connected)
+        else
+        {
+            return
+        }
         generation = connected.epoch
         connectionQuery = connected.query
         guard manifest != nil, !watched.isEmpty
@@ -1034,6 +1159,23 @@ private extension SPFNEventStreamState
             return true
         }
         return false
+    }
+}
+
+private extension SPFNStateCore.Pending
+{
+    /// The app call this request answers; nil for an automatic read.
+    var call: Int?
+    {
+        switch self
+        {
+        case .snapshot(_, _, let call, _), .get(_, let call):
+            return call
+        case .write(_, let call, _):
+            return call
+        case .shadow:
+            return nil
+        }
     }
 }
 

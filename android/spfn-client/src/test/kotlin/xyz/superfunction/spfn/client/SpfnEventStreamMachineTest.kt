@@ -848,6 +848,28 @@ class SpfnEventStreamMachineTest
         SpfnEventInput.StableElapsed(generation)
     )
 
+    // ---- the signed-in boundary (state-client-design §2-14) ----------------
+
+    /**
+     * W-23: the connected value names the account its connection was opened for — A for
+     * A's, B for the one an account switch begins (E-43).
+     */
+    @Test
+    fun w23_opened_namesTheAccountOfItsConnection()
+    {
+        val run = run().open();
+        assertEquals(CLIENT_A, connectedValue(run.effects)?.clientId);
+        val switched = run.feed(SpfnEventInput.SetSignedIn(CLIENT_B))
+            .issued { SpfnEventInput.TokenMinted(it, token) }
+            .issued { SpfnEventInput.StreamAnswered(it, SpfnStreamAnswer.EventStream) }
+            .issued { SpfnEventInput.FrameReceived(it, CONNECTED) };
+        assertEquals(SpfnEventStreamState.Open(2), switched.public);
+        assertEquals(CLIENT_B, connectedValue(switched.effects)?.clientId);
+    }
+
+    private fun connectedValue(effects: List<SpfnEventEffect>): SpfnStreamConnected? =
+        effects.filterIsInstance<SpfnEventEffect.Connected>().firstOrNull()?.connected
+
     private companion object
     {
         const val CLIENT_A = "client-a";

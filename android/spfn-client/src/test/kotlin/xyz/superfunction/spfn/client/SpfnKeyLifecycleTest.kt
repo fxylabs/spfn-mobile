@@ -1106,6 +1106,48 @@ class SpfnKeyLifecycleTest
         watcher.cancel();
     }
 
+    /**
+     * W-22 (docs/architecture/state-client-design.md §2-14): the synchronous observer hears
+     * the stored id at registration, then once per change — inside `enroll` and `wipe()`,
+     * with the store already written, before the call returns — and nothing for a rotation.
+     */
+    @OptIn(SpfnSignedInObserverAccess::class)
+    @Test
+    fun w22_signedInObserver_calledInsideEnrollAndWipe_notRotate() = runBlocking {
+        val transport = ScriptedTransport(
+            listOf(answer("{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}"))
+        );
+        val store = InMemoryKeyMetadataStore();
+        val lifecycle = makeLifecycle(transport, store, scriptedEngine(testKeyPair()), keyIds = listOf("key-test-0001"));
+        val calls = mutableListOf<String?>();
+        val stored = mutableListOf<String?>();
+        val observation = lifecycle.observeSignedIn {
+            calls.add(it);
+            stored.add(store.load(SpfnKeyLifecycle.ACTIVE_SLOT)?.clientId);
+        };
+        assertEquals("the id at registration, before it returns", listOf<String?>(null), calls);
+
+        lifecycle.enroll(provider = "google") { "id-token-test" };
+        assertEquals("once, before enroll returned", listOf(null, "user-test-0001"), calls);
+        assertEquals("called after the store was written", listOf(null, "user-test-0001"), stored);
+
+        lifecycle.wipe();
+        assertEquals("once, before wipe() returned", listOf(null, "user-test-0001", null), calls);
+        assertEquals(listOf(null, "user-test-0001", null), stored);
+        observation.cancel();
+
+        val install = rotatingInstall(ScriptedTransport(listOf(answer("{\"keyId\":\"key-test-0002\",\"success\":true}"))));
+        val rotating = mutableListOf<String?>();
+        val watching = install.lifecycle.observeSignedIn { rotating.add(it) };
+        install.lifecycle.rotate();
+        assertEquals("a rotation keeps the id and calls nothing", listOf<String?>("client-test-0001"), rotating);
+        install.lifecycle.noteSessionRevoked();
+        assertEquals(listOf("client-test-0001", null), rotating);
+        watching.cancel();
+        install.lifecycle.wipe();
+        assertEquals("a cancelled observer hears nothing", listOf("client-test-0001", null), rotating);
+    }
+
     // ---- M7: the TTL judgment ----------------------------------------------
 
     @Test

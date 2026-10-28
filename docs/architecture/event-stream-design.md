@@ -641,7 +641,7 @@ id는 제안 0의 것을 지킨다. 뜻이 바뀐 셀은 "바뀜" 칸에 옛 입
 | S-1 | `setQuery(_ fields: [String: String]) throws` — `events`·`token`은 `SPFNEventStreamError.reservedQueryField(name)` | `setQuery(fields: Map<String, String>)` — `events`·`token`은 `IllegalArgumentException` |
 | S-2 | `listenWire(_ names: [String]) -> AsyncStream<SPFNWireSignal>` | `listenWire(names: List<String>): Flow<SpfnWireSignal>` |
 | S-2 신호 | `attached`, `opened(SPFNStreamConnected)`, `frame(name:value:)`, `subscription(name:status:)`, `overflow`, `unavailable([String])` | `Attached`, `Opened(SpfnStreamConnected)`, `Frame(name, value)`, `Subscription(name, status)`, `Overflow`, `Unavailable(names)` |
-| S-2 연결 | `SPFNStreamConnected(epoch, query, subscribedEvents, deniedEvents, initial?)` — `connected` 프레임에 없는 칸은 요청한 대로 읽는다 (요청 이름 전부 구독, 거부 없음, `initial` 없음) | `SpfnStreamConnected` 같은 칸 |
+| S-2 연결 | `SPFNStreamConnected(epoch, query, subscribedEvents, deniedEvents, initial?, clientID?)` — `connected` 프레임에 없는 칸은 요청한 대로 읽는다 (요청 이름 전부 구독, 거부 없음, `initial` 없음). `clientID`는 서버가 아니라 기계의 것이다: 그 연결을 연 로그인 값 (`setSignedIn`). 전환(E-43)은 새 세대를 시작하므로 앞 연결이 새 id를 싣지 않는다. 상태 클라이언트가 계정이 바뀐 뒤 원선을 다시 믿는 표지다 (state-client-design §2-14, W-23, 이슈 #104) | `SpfnStreamConnected` 같은 칸 (`clientId`) |
 | S-3 | `SPFNSubscriptionStatus.granted`/`.revoked` | `SpfnSubscriptionStatus.GRANTED`/`REVOKED` |
 | S-4 | `reconnectNow()` | `reconnectNow()` |
 

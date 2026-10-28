@@ -54,6 +54,9 @@ enum SPFNStateInput: Sendable
     case retry
     case close
     case retryElapsed(generation: Int)
+    /// The key lifecycle's signed-in client id: the first is the baseline, every other one
+    /// that differs ends what the store holds for the last (§2-14).
+    case subject(clientID: String?)
 }
 
 enum SPFNStateEffect: Sendable
@@ -63,6 +66,8 @@ enum SPFNStateEffect: Sendable
     case finish(subscription: Int)
     /// The entry `current` answers from now on.
     case publish(SPFNStateSlot, SPFNStateCell)
+    /// No entry any more: `current` answers `loading` for every state (§2-14).
+    case clear
     case execute(request: Int, SPFNStateRequest)
     case setQuery(SPFNStateKey)
     case reconnectNow

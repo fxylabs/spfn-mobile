@@ -69,6 +69,12 @@ internal sealed interface SpfnStateInput
     data object Close : SpfnStateInput
 
     data class RetryElapsed(val generation: Int) : SpfnStateInput
+
+    /**
+     * The key lifecycle's signed-in client id: the first is the baseline, every other one
+     * that differs ends what the store holds for the last (§2-14).
+     */
+    data class Subject(val clientId: String?) : SpfnStateInput
 }
 
 internal sealed interface SpfnStateEffect
@@ -80,6 +86,9 @@ internal sealed interface SpfnStateEffect
 
     /** The entry `current` answers from now on. */
     data class Publish(val slot: SpfnStateSlot, val cell: SpfnStateCell) : SpfnStateEffect
+
+    /** No entry any more: `current` answers `Loading` for every state (§2-14). */
+    data object Clear : SpfnStateEffect
 
     data class Execute(val request: Int, val what: SpfnStateRequest) : SpfnStateEffect
 

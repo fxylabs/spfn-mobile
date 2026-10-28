@@ -5,6 +5,26 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The state client never serves one signed-in account's values to the next (#104, both platforms)
+
+- **Behaviour change:** after sign-out or an account switch, subscriptions see `.loading` /
+  `Loading` until the new account's values arrive. A change of the signed-in client id clears
+  every entry, revoked mark, ordering stamp and grant, and what `current` answers, inside the
+  `enroll…` or `wipe()` call that stored it; the manifest and open subscriptions stay. A key
+  rotation keeps the id and clears nothing. The connection status is `reconnecting(0)` until
+  the new account's connection opens (state-client-design.md §2-14, D1–D6).
+- New error case `SPFNStateClientError.signedInChanged` / `SpfnStateClientError.SignedInChanged`:
+  a `get`, `write` or `snapshot()` in flight, or waiting for the manifest, when the signed-in
+  account changes is refused with it and its answer is not applied. A refused `write` may
+  already have been applied on the server.
+- `SPFNStreamConnected.clientID` / `SpfnStreamConnected.clientId` (default nil / null, so
+  existing constructions compile): the signed-in client id the connection was opened for.
+- `SPFNKeyLifecycle.observeSignedIn(_:)` (`package`) / `SpfnKeyLifecycle.observeSignedIn`
+  (opt-in `@SpfnSignedInObserverAccess`, hidden from Java): a synchronous observer of the
+  signed-in client id, called inside the call that writes the key store. It is the state
+  client's; an app reads `signedInClientID(s)` / `signedInClientId`. `wipe()` now publishes
+  the signed-in value even when deleting the rotation candidate throws.
+
 ### Re-pin the contract to 0.13.5: `enrollWithSignIn` sends the name a provider reported (additive, both platforms)
 
 - `Contracts/spfn-mobile-contract.json` and `Contracts/upstream-provenance.json` are byte

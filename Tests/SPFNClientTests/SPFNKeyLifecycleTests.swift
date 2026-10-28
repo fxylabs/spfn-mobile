@@ -816,6 +816,43 @@ final class SPFNKeyLifecycleTests: XCTestCase
         XCTAssertEqual(next, .some(nil))
     }
 
+    /// W-22 (docs/architecture/state-client-design.md §2-14): the synchronous observer hears
+    /// the stored id at registration, then once per change — inside `enroll` and `wipe()`,
+    /// with the store already written, before the call returns — and nothing for a rotation.
+    func test_w22_signedInObserver_calledInsideEnrollAndWipe_notRotate() async throws
+    {
+        let transport = ScriptedTransport([
+            .success(.json(200, "{\"mfaRequired\":false,\"isNewUser\":true,\"keyId\":\"key-test-0001\",\"userId\":\"user-test-0001\"}")),
+        ])
+        let store = InMemoryKeyStore()
+        let lifecycle = try makeLifecycle(transport, store: store, keys: [try testKey()], keyIDs: ["key-test-0001"])
+        let heard = SignedInHeard(store)
+        let observation = lifecycle.observeSignedIn { heard.hear($0) }
+        XCTAssertEqual(heard.calls, [.none], "the id at registration, before it returns")
+
+        _ = try await lifecycle.enroll(provider: "google") { _ in "id-token-test" }
+        XCTAssertEqual(heard.calls, [.none, "user-test-0001"], "once, before enroll returned")
+        XCTAssertEqual(heard.stored, [.none, "user-test-0001"], "called after the store was written")
+
+        try await lifecycle.wipe()
+        XCTAssertEqual(heard.calls, [.none, "user-test-0001", .none], "once, before wipe() returned")
+        XCTAssertEqual(heard.stored, [.none, "user-test-0001", .none])
+        observation.cancel()
+
+        let install = try rotatingInstall(ScriptedTransport([
+            .success(.json(200, "{\"keyId\":\"key-test-0002\",\"success\":true}")),
+        ]))
+        let rotating = SignedInHeard(install.store)
+        let watching = install.lifecycle.observeSignedIn { rotating.hear($0) }
+        _ = try await install.lifecycle.rotate()
+        XCTAssertEqual(rotating.calls, ["client-test-0001"], "a rotation keeps the id and calls nothing")
+        try await install.lifecycle.noteSessionRevoked()
+        XCTAssertEqual(rotating.calls, ["client-test-0001", .none])
+        watching.cancel()
+        try await install.lifecycle.wipe()
+        XCTAssertEqual(rotating.calls, ["client-test-0001", .none], "a cancelled observer hears nothing")
+    }
+
     // MARK: - M7: the TTL judgment
 
     func testRotationDueFollowsTheKeyPolicyTtl() async throws
@@ -1130,5 +1167,34 @@ extension InMemoryKeyStore
     func loadSync(_ slot: String) -> SPFNStoredKey?
     {
         try? load(slot: slot)
+    }
+}
+
+/// What a signed-in observer heard, and what the store held at that moment.
+private final class SignedInHeard: @unchecked Sendable
+{
+    private let lock = NSLock()
+    private let store: any SPFNKeyStore
+    private var heard: [(call: String?, stored: String?)] = []
+
+    init(_ store: any SPFNKeyStore)
+    {
+        self.store = store
+    }
+
+    var calls: [String?]
+    {
+        lock.withLock { heard.map(\.call) }
+    }
+
+    var stored: [String?]
+    {
+        lock.withLock { heard.map(\.stored) }
+    }
+
+    func hear(_ clientID: String?)
+    {
+        let stored = (try? store.load(slot: SPFNKeyLifecycle.activeSlot))?.clientID
+        lock.withLock { heard.append((clientID, stored)) }
     }
 }

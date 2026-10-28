@@ -1326,7 +1326,7 @@ def build_state_cases():
     import state_cases
 
     return {
-        "comment": "Hand-written from the @spfn/core 0.3.0-beta.28 state README; rendered by derive-expected-values.py from state_cases.py. docs/architecture/state-client-design.md §3, §4.",
+        "comment": "Hand-written from the @spfn/core 0.3.0-beta.28 state README; the W-cells instead from issue #104 and docs/architecture/state-client-design.md §2-14, not from the README. Rendered by derive-expected-values.py from state_cases.py. docs/architecture/state-client-design.md §3, §4.",
         "manifest": state_cases.MANIFEST,
         "described": ["aiAccounts", "consent", "runtime"],
         "cases": state_cases.CASES,

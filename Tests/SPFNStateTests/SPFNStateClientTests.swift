@@ -611,4 +611,101 @@ final class SPFNStateClientTests: XCTestCase
         XCTAssertEqual(run.errors.count, 1, "the waiting subscription follows C-9")
         XCTAssertNotNil(run.timer)
     }
+
+    // MARK: - W: the signed-in boundary (§2-14, issue #104)
+
+    func test_w1_firstSubject_isBaseline_clearsNothing() throws
+    {
+        try StateCases.run("W-1")
+    }
+
+    func test_w2_signedOut_subscriptionIsLoading() throws
+    {
+        try StateCases.run("W-2")
+    }
+
+    func test_w3_signedOutWhileRevoked_markIsGone() throws
+    {
+        try StateCases.run("W-3")
+    }
+
+    func test_w4_signedInChanged_subscribeIsLoading() throws
+    {
+        try StateCases.run("W-4")
+    }
+
+    func test_w5_directSwitch_subscriptionIsLoading() throws
+    {
+        try StateCases.run("W-5")
+    }
+
+    func test_w6_frameBeforeNewConnection_isDropped() throws
+    {
+        try StateCases.run("W-6")
+    }
+
+    func test_w7_openedForPreviousAccount_isDropped() throws
+    {
+        try StateCases.run("W-7")
+    }
+
+    func test_w8_openedForNewAccount_acceptsItsFrames() throws
+    {
+        try StateCases.run("W-8")
+    }
+
+    func test_w9_snapshotOfPreviousAccount_isNotApplied() throws
+    {
+        try StateCases.run("W-9")
+    }
+
+    func test_w10_shadowReadOfPreviousAccount_isNotApplied() throws
+    {
+        try StateCases.run("W-10")
+    }
+
+    func test_w11_getInFlight_refusedSignedInChanged() throws
+    {
+        try StateCases.run("W-11")
+    }
+
+    func test_w12_writeInFlight_refusedSignedInChanged() throws
+    {
+        try StateCases.run("W-12")
+    }
+
+    func test_w13_getWaitingOnManifest_refusedAtOnce() throws
+    {
+        try StateCases.run("W-13")
+    }
+
+    func test_w14_snapshotCallInFlight_refusedSignedInChanged() throws
+    {
+        try StateCases.run("W-14")
+    }
+
+    func test_w15_newAccountsOlderAt_isApplied() throws
+    {
+        try StateCases.run("W-15")
+    }
+
+    func test_w16_grantOrRevokeBeforeNewConnection_isDropped() throws
+    {
+        try StateCases.run("W-16")
+    }
+
+    func test_w17_sameSubjectAgain_changesNothing() throws
+    {
+        try StateCases.run("W-17")
+    }
+
+    func test_w18_closedClient_stillClears() throws
+    {
+        try StateCases.run("W-18")
+    }
+
+    func test_w19_getAfterChange_usesKeptManifest() throws
+    {
+        try StateCases.run("W-19")
+    }
 }

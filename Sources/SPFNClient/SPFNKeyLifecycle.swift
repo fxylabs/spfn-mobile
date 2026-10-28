@@ -235,6 +235,9 @@ public actor SPFNKeyLifecycle
     private var signedInWatchers: [UUID: AsyncStream<String?>.Continuation] = [:]
     private var lastSignedIn: String??
 
+    /// The same value for observers that are called inside the write (`observeSignedIn`).
+    private nonisolated let signedInMirror: SPFNSignedInMirror
+
     /// The client `signedInClient()` last built, and the key it signs with.
     private var signedInSigner: (clientID: String, keyID: String, client: SPFNClient)?
 
@@ -273,6 +276,7 @@ public actor SPFNKeyLifecycle
         self.newKeyID = newKeyID
         self.makeKey = makeKey
         self.onOutcome = onOutcome
+        self.signedInMirror = SPFNSignedInMirror((try? store.load(slot: Self.activeSlot))?.clientID)
     }
 
     // MARK: - Observation
@@ -1019,9 +1023,9 @@ public actor SPFNKeyLifecycle
     /// Deletes both slots. After this nothing can sign until a new enrollment.
     public func wipe() throws
     {
+        defer { publishSignedIn() }
         try store.delete(slot: Self.activeSlot)
         try store.delete(slot: Self.candidateSlot)
-        publishSignedIn()
     }
 
     // MARK: - The signed-in value the event stream observes
@@ -1045,6 +1049,17 @@ public actor SPFNKeyLifecycle
         continuation.yield(signedInClientID)
         lastSignedIn = .some(signedInClientID)
         return stream
+    }
+
+    /// Calls `observer` with `signedInClientID` now — before this returns — and then once per
+    /// change of it, synchronously, inside the `enroll…` or `wipe()` call that wrote the store
+    /// and before that call returns. A rotation keeps the id and calls nothing. The observer
+    /// runs under the mirror's lock on the caller's thread: it must be quick and must not call
+    /// back into this lifecycle. For the state client, which may not hold one account's values
+    /// a moment after the next account's key is stored (state-client-design.md §2-14).
+    package nonisolated func observeSignedIn(_ observer: @escaping @Sendable (String?) -> Void) -> SPFNSignedInObservation
+    {
+        signedInMirror.observe(observer)
     }
 
     /// A client that signs with the key signed in now, or nil when nobody is. Every call
@@ -1078,10 +1093,12 @@ public actor SPFNKeyLifecycle
         signedInWatchers[id] = nil
     }
 
-    /// Yields the stored value to every watcher when it differs from the last one yielded.
+    /// Hands the stored value to the synchronous observers, then yields it to every watcher
+    /// when it differs from the last one yielded.
     private func publishSignedIn()
     {
         let current = signedInClientID
+        signedInMirror.set(current)
         guard lastSignedIn != .some(current)
         else
         {

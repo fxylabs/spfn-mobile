@@ -13,8 +13,14 @@
 // The stream is the app's and stays the app's: this client attaches a wire listener and
 // writes the connection query, and never opens or closes the connection itself (§2-2).
 //
+// One client lives through every account the app signs in (§2-14): it observes the key
+// lifecycle's signed-in client id from construction until its scope ends, synchronously, so
+// no value received for one account is answered once another account's key — or none — is
+// stored.
+//
 // Kotlin has no deinit: the client runs until its scope is cancelled, which is when its
-// engine stops and its stream may take another state client. `close()` is what detaches it
+// engine stops, its signed-in observer is removed and its stream may take another state
+// client. `close()` is what detaches it
 // from the stream while the scope lives.
 //
 // Sources/SPFNState/SPFNStateClient.swift is the same client in Swift.
@@ -35,6 +41,7 @@ import xyz.superfunction.spfn.client.SpfnEventStream
 import xyz.superfunction.spfn.client.SpfnEventStreamConfiguration
 import xyz.superfunction.spfn.client.SpfnEventStreamState
 import xyz.superfunction.spfn.client.SpfnKeyLifecycle
+import xyz.superfunction.spfn.client.SpfnSignedInObserverAccess
 import xyz.superfunction.spfn.client.SpfnSleeper
 import xyz.superfunction.spfn.client.SpfnWireSignal
 import xyz.superfunction.spfn.core.SpfnCall
@@ -74,7 +81,7 @@ class SpfnStateClient internal constructor(
         schedule = { work -> scope.launch { work() } }
     );
 
-    private val shared = SpfnStateShared();
+    internal val shared = SpfnStateShared();
     private val inbox = Channel<SpfnStateEngineInput>(Channel.UNLIMITED);
     private val ids = AtomicInteger();
 
@@ -91,6 +98,7 @@ class SpfnStateClient internal constructor(
             shared = shared,
             inbox = inbox
         );
+        val stopObserving = observeSignedIn(configuration.keyLifecycle);
         val loop = scope.launch {
             try
             {
@@ -106,7 +114,27 @@ class SpfnStateClient internal constructor(
                 engine.shutDown();
             }
         };
-        loop.invokeOnCompletion { SpfnStateClaims.release(stream.owner, this) };
+        loop.invokeOnCompletion {
+            stopObserving();
+            SpfnStateClaims.release(stream.owner, this);
+        };
+    }
+
+    /**
+     * D5: called with the id at once — the baseline, queued before the loop runs — then
+     * inside every call that changes it. The lambda holds the cache and the inbox, never the
+     * client. Answers what removes it.
+     */
+    @OptIn(SpfnSignedInObserverAccess::class)
+    private fun observeSignedIn(keyLifecycle: SpfnKeyLifecycle): () -> Unit
+    {
+        val cache = shared;
+        val queue = inbox;
+        val observation = keyLifecycle.observeSignedIn { clientId ->
+            cache.signedIn(clientId);
+            queue.trySend(SpfnStateEngineInput.Core(SpfnStateInput.Subject(clientId)));
+        };
+        return observation::cancel;
     }
 
     // ---- states ------------------------------------------------------------

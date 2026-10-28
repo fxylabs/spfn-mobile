@@ -94,14 +94,20 @@ public struct SPFNStreamConnected: Equatable, Sendable
     public let deniedEvents: [String]
     /// The events whose initial frames follow; nil from a server that predates them.
     public let initial: [String]?
+    /// The signed-in client id this connection was opened for (`setSignedIn`). A change of
+    /// account begins a new connection (E-43), so an older connection never carries the new
+    /// id: the state client trusts the wire again only once one does (state-client-design.md
+    /// §2-14).
+    public let clientID: String?
 
-    public init(epoch: Int, query: [String: String], subscribedEvents: [String], deniedEvents: [String], initial: [String]?)
+    public init(epoch: Int, query: [String: String], subscribedEvents: [String], deniedEvents: [String], initial: [String]?, clientID: String? = nil)
     {
         self.epoch = epoch
         self.query = query
         self.subscribedEvents = subscribedEvents
         self.deniedEvents = deniedEvents
         self.initial = initial
+        self.clientID = clientID
     }
 }
 
