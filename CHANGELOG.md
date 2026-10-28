@@ -1,12 +1,12 @@
 # Changelog
 
-`0.1.0-alpha.4` is the release candidate, `0.1.0-alpha.3` is the current published release
-and `0.1.0-alpha.2` is superseded. Entries under an unreleased or candidate heading describe
-repository state, not shipped software.
+`0.1.0-alpha.4` is the current published release; `0.1.0-alpha.3` and `0.1.0-alpha.2` are
+superseded. Entries under an unreleased heading describe repository state, not shipped
+software.
 
 ## Unreleased
 
-## 0.1.0-alpha.4 — release candidate
+## 0.1.0-alpha.4 — published 2026-10-29
 
 The candidate stages nine Android modules and nine Swift products. `spfn-ui`,
 `spfn-state`, `spfn-events`, `spfn-social-apple` and `spfn-social-google` (Swift `SPFNUI`,
@@ -1112,7 +1112,7 @@ part of the train.
   derived from it; `rc-verify.sh` and `verify-published.sh` now do too, so their consumer
   dependency lists, imports and Maven coordinates cannot drift from the train.
 
-## 0.1.0-alpha.3 — published 2026-08-04
+## 0.1.0-alpha.3 — published 2026-08-04, superseded by 0.1.0-alpha.4
 
 Published to Maven Central (deployment `b7ae0261`) with the matching SwiftPM tag at
 source commit `70781e4`. Verified from the published coordinates alone by

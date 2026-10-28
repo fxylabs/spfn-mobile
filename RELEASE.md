@@ -1,9 +1,9 @@
 # Release policy
 
-**Two alpha releases have been made.** `0.1.0-alpha.3` (source commit `70781e4`) is the
-current published release and `0.1.0-alpha.2` is superseded; both are on Maven Central
-under `xyz.superfunction.spfn` with matching prefix-free SwiftPM tags. `0.1.0-alpha.4` is
-the release candidate. Publication did not
+**Three alpha releases have been made.** `0.1.0-alpha.4` (source commit `660a84a`) is the
+current published release; `0.1.0-alpha.3` and `0.1.0-alpha.2` are superseded. All three are
+on Maven Central under `xyz.superfunction.spfn` with matching prefix-free SwiftPM tags.
+Publication did not
 turn this into a finished SDK: it is still a scaffold with one vertical slice, nothing
 has run on a device, and every support row in `COMPATIBILITY.md` stays UNRESOLVED. What
 is proven is that the published coordinates resolve, verify and compile — not that the
