@@ -241,7 +241,8 @@ if (publishingEnabled)
 // ---------------------------------------------------------------------------
 // `cyclonedxDirectBom` / `cyclonedxBom` run only when named on the command line;
 // nothing here attaches them to assemble, build or check. The aggregate covers the
-// SDK modules alone: the build tools (:contract-codegen, :reference-server) never
+// SDK modules alone: the build tools (:contract-codegen, :ui-codegen,
+// :reference-server) and the applications (:harness-android, :example-compose) never
 // ship, so their dependencies do not belong in a candidate SBOM.
 subprojects {
     if (projectDir.parentFile.name != "android")
@@ -253,10 +254,14 @@ subprojects {
 }
 
 allprojects {
+    val ships = projectDir.parentFile.name == "android"
     tasks.withType(org.cyclonedx.gradle.CyclonedxDirectTask::class.java).configureEach {
         // Runtime dependencies of the shipped AAR only; test and tooling
-        // configurations describe this repository, not the artifact.
-        includeConfigs.set(listOf("releaseRuntimeClasspath"))
+        // configurations describe this repository, not the artifact. A disabled task
+        // still resolves its configurations while the aggregate's graph is built, so a
+        // project that never ships matches none: an application's release classpath is
+        // outside the dependency verification the SDK modules carry.
+        includeConfigs.set(listOf(if (ships) "releaseRuntimeClasspath" else "^$"))
         includeBuildSystem.set(false)
     }
 }
