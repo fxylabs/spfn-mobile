@@ -578,7 +578,8 @@ struct SPFNEventStreamMachine: Sendable
             query: state.query,
             subscribedEvents: Self.texts(members["subscribedEvents"]) ?? state.requested,
             deniedEvents: Self.texts(members["deniedEvents"]) ?? [],
-            initial: Self.texts(members["initial"])
+            initial: Self.texts(members["initial"]),
+            clientID: state.clientID
         )
     }
 

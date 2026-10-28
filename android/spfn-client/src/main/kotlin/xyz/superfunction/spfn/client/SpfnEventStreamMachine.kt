@@ -464,7 +464,8 @@ internal class SpfnEventStreamMachine(
             query = state.query,
             subscribedEvents = texts(members["subscribedEvents"]) ?: state.requested,
             deniedEvents = texts(members["deniedEvents"]) ?: emptyList(),
-            initial = texts(members["initial"])
+            initial = texts(members["initial"]),
+            clientId = state.clientId
         );
     }
 

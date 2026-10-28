@@ -607,6 +607,31 @@ final class SPFNEventStreamMachineTests: XCTestCase
         XCTAssertEqual(try run().signedInForeground().issued { .tokenFailed(generation: $0, failure: .serverError(status: 429, retryAfterMillis: 9_000_000)) }.retryDelay, 300_000)
     }
 
+    // MARK: - The signed-in boundary (state-client-design §2-14)
+
+    /// W-23: the connected value names the account its connection was opened for — A for
+    /// A's, B for the one an account switch begins (E-43).
+    func test_w23_opened_namesTheAccountOfItsConnection() throws
+    {
+        let run = try run().open()
+        XCTAssertEqual(Self.connectedValue(run.effects)?.clientID, Self.clientA)
+        let switched = run.feed(.setSignedIn(Self.clientB))
+            .issued { .tokenMinted(generation: $0, token: Self.token) }
+            .issued { .streamAnswered(generation: $0, answer: .eventStream) }
+            .issued { .frameReceived(generation: $0, event: Self.connected) }
+        XCTAssertEqual(switched.publicState, .open(epoch: 2))
+        XCTAssertEqual(Self.connectedValue(switched.effects)?.clientID, Self.clientB)
+    }
+
+    private static func connectedValue(_ effects: [SPFNEventEffect]) -> SPFNStreamConnected?
+    {
+        for case .connected(let connected) in effects
+        {
+            return connected
+        }
+        return nil
+    }
+
     // MARK: - Revision 4 (state-client-design §5-1)
 
     static let query = ["workspaceId": "w-1"]

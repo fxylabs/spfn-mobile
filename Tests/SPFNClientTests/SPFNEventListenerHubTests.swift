@@ -358,7 +358,7 @@ final class SPFNEventListenerHubTests: XCTestCase
         XCTAssertTrue(opened)
         XCTAssertEqual(
             log.all,
-            [.attached, .opened(SPFNStreamConnected(epoch: 2, query: [:], subscribedEvents: ["sessionActivity"], deniedEvents: ["sessionUnread"], initial: ["sessionActivity"]))]
+            [.attached, .opened(SPFNStreamConnected(epoch: 2, query: [:], subscribedEvents: ["sessionActivity"], deniedEvents: ["sessionUnread"], initial: ["sessionActivity"], clientID: SessionFixtureValues.clientID))]
         )
         task.cancel()
     }
@@ -383,7 +383,7 @@ final class SPFNEventListenerHubTests: XCTestCase
         XCTAssertTrue(both)
         XCTAssertEqual(
             log.all,
-            [.attached, .opened(SPFNStreamConnected(epoch: 1, query: [:], subscribedEvents: ["sessionActivity", "sessionUnread"], deniedEvents: [], initial: nil))]
+            [.attached, .opened(SPFNStreamConnected(epoch: 1, query: [:], subscribedEvents: ["sessionActivity", "sessionUnread"], deniedEvents: [], initial: nil, clientID: SessionFixtureValues.clientID))]
         )
         XCTAssertEqual(fixture.tokens.tokenRequests.count, 1, "attaching never reaches the connection")
         task.cancel()

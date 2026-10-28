@@ -94,13 +94,18 @@ sealed interface SpfnWireSignal
  * @property epoch the stream's open count, the `epoch` of `Open`.
  * @property query the query fields this connection was opened with (`setQuery`).
  * @property initial the events whose initial frames follow; null from a server that predates them.
+ * @property clientId the signed-in client id this connection was opened for (`setSignedIn`).
+ *   A change of account begins a new connection (E-43), so an older connection never carries
+ *   the new id: the state client trusts the wire again only once one does
+ *   (state-client-design.md §2-14).
  */
 data class SpfnStreamConnected(
     val epoch: Int,
     val query: Map<String, String>,
     val subscribedEvents: List<String>,
     val deniedEvents: List<String>,
-    val initial: List<String>?
+    val initial: List<String>?,
+    val clientId: String? = null
 )
 
 enum class SpfnSubscriptionStatus
