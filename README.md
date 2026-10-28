@@ -28,7 +28,7 @@ model cannot drift apart between them.
 | Conformance | one fixture directory, two suites, cross-platform digest parity |
 | Offline validator | working, and still the cheapest gate in the repository |
 | CI | three required checks on every pull request — `swift`, `android`, `contract` — and three manual-only files for what D2 leaves outside |
-| Release / publication | `0.1.0-alpha.4` is the release candidate and `0.1.0-alpha.3` the current published release; publishing stays disabled by default in the build |
+| Release / publication | `0.1.0-alpha.4` is the current published release; publishing stays disabled by default in the build |
 
 ## Layout
 
