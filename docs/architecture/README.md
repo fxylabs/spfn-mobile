@@ -804,13 +804,11 @@ adapter; the emulator and real-device cells; and anything signed or published. T
 integration run stays out too, for a reason specific to it: the `swift-e` cell fails on
 Linux, so a Linux job could only report a failure it is not allowed to fix.
 
-One consequence is worth stating plainly, because it looks like a broken build. The
-offline validator is red on purpose: the device-receipt gate refuses the committed
-receipts, which were taken against contract `0.9.0` before the 2026-09-02 re-pin. CI does
-not hide that and does not obey it either. `tools/ci/validate.sh` judges the validator's
-output against `tools/ci/validate-known-red.txt`, admits exactly those two rows, and fails
-on any other — *and* on either of those two no longer appearing, because an allowlist that
-outlives its failure is how a real failure gets admitted later.
+CI does not obey the offline validator's exit code directly. `tools/ci/validate.sh` judges
+the validator's output against `tools/ci/validate-known-red.txt`, admits exactly the rows
+listed there, and fails on any other — *and* on a listed row no longer appearing, because
+an allowlist that outlives its failure is how a real failure gets admitted later. The list
+is empty since the device-receipt gate, its only two rows, was retired on 2026-10-28.
 
 ## Where the independence in the integration run comes from
 

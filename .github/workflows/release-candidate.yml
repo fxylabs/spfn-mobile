@@ -2,16 +2,14 @@
 #
 # D2 (partly resolved 2026-09-18) put every Linux-runnable check under the three required
 # workflows. A release candidate is the clearest case of what stays out: it is a signed,
-# published artifact plus real-device evidence, and all three of those — macOS, hardware
-# and publication — are what D2 leaves open.
+# published artifact built on macOS, and both of those — macOS and publication — are what
+# D2 leaves open. Real-device verification is not part of it: since 2026-10-28 that
+# happens in the consumer app.
 #
 # Concretely, what this file would have to do that a pull-request runner cannot:
 #   - build on macOS, because `tools/rc-verify/rc-verify.sh` needs a Swift toolchain, an
 #     Android SDK and the Apple half in one place;
-#   - sign, with a key that exists only as a GitHub secret and is injected per run;
-#   - clear `tools/device-receipts/receipt-gate.sh`, which rc-verify runs before it will
-#     verify anything and which needs fifteen cells driven by a person on two real phones.
-#     That gate is the one failure CI admits by name, in tools/ci/validate-known-red.txt.
+#   - sign, with a key that exists only as a GitHub secret and is injected per run.
 #
 # Manual-only, and deliberately inert besides. This file exists so the location is reserved
 # and so nobody adds release automation somewhere less visible. It performs no build, holds

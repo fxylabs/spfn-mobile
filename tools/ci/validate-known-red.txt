@@ -3,14 +3,6 @@
 # anything here that stops appearing is also a red build, because it means the list has
 # outlived the failure it was written for.
 #
-# Both rows below are the device-receipt gate, red on purpose since the 2026-09-02 re-pin
-# to contract 0.10.0: the committed receipts were taken against 0.9.0, so the gate refuses
-# them and says so. COMPATIBILITY.md states the same thing in prose. Clearing it needs two
-# real phones and a person (see the Device sign-in row), which is exactly the kind of
-# evidence D2 leaves outside CI.
-#
-# When that fifteen-cell run happens, both lines below disappear from the validator's
-# output and tools/ci/validate.sh fails until somebody empties this file. That is the
-# intended way to find out.
-tools/device-receipts/probe-receipt-gate.sh fails; the device receipt gate no longer fails closed
-the committed device receipts do not clear tools/device-receipts/receipt-gate.sh
+# The list is empty. Its only two rows were the device-receipt gate, which was retired on
+# 2026-10-28 by decision: real-device verification happens in the consumer app now, not in
+# this repository's release path. An empty list means every validator row must pass.

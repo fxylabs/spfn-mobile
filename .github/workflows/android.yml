@@ -9,9 +9,9 @@
 # no second opinion. The workflow calls the script and nothing else.
 #
 # What it deliberately does not run, all of it D2's macOS/device/publication boundary:
-#   - an emulator and a real device. The nine lifecycle cells and the fifteen device
-#     sign-in cells need hardware a hosted runner does not have, which is exactly why
-#     tools/ci/validate-known-red.txt admits the receipt gate's two red rows.
+#   - an emulator and a real device. The nine lifecycle cells need hardware a hosted
+#     runner does not have; real-device sign-in verification happens in the consumer app
+#     (decided 2026-10-28).
 #   - `assemble` of a release variant, signing and any publication task.
 #   - the integration run. `tools/reference-server/run-integration.sh` expects ten
 #     receipts and its `swift-e` cell fails on Linux (confirmed 2026-09-18, Mac-only);

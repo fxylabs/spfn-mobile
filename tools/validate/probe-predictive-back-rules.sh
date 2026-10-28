@@ -95,9 +95,8 @@ trap 'on_signal 130' INT
 trap 'on_signal 143' TERM
 
 # Section 16 begins at its own heading and runs to the end of the report. Scoped on purpose:
-# this repository's validator has failing checks in other sections — the device receipt gate
-# — and a probe that keyed on the validator's exit status would report those as its own
-# evidence.
+# a failing check in any other section of the validator would also set its exit status, and a
+# probe that keyed on that status would report the other failure as its own evidence.
 BACK_SECTION='/^16\. the Android apps declare/,$p'
 
 # Runs the validator and expects section 16 to refuse, on the named rule.

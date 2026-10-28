@@ -5,6 +5,19 @@ Entries under an unreleased heading describe repository state, not shipped softw
 
 ## Unreleased
 
+### The release path no longer has a device-receipt gate
+
+- Real-device verification moved to the consumer app that uses this SDK (decided
+  2026-10-28). A release candidate no longer needs a person-driven fifteen-cell run on real
+  phones, and nothing replaces the gate.
+- `tools/device-receipts/` is removed — the gate, its probe and the 2026-09-01 receipts.
+  Git history keeps the receipts.
+- `tools/rc-verify/rc-verify.sh` no longer runs the gate, and the candidate manifest no
+  longer carries a `deviceReceipts` block. The validator drops the gate's rows, and
+  `tools/ci/validate-known-red.txt` is empty.
+- `COMPATIBILITY.md` marks the device sign-in row retired by decision and keeps the
+  2026-09-01 run as history.
+
 ### The state client never serves one signed-in account's values to the next (#104, both platforms)
 
 - **Behaviour change:** after sign-out or an account switch, subscriptions see `.loading` /

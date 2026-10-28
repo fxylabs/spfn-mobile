@@ -1,11 +1,10 @@
 #!/bin/sh
 # SPFN Mobile — the CI referee over the offline validator.
 #
-# `tools/validate/validate.sh` exits non-zero whenever it counts any failure, and this
-# repository has failures it has decided to keep: the device-receipt gate is red on
-# purpose until a person re-runs fifteen cells on two real phones. A CI job that ran the
-# validator directly would be red forever and therefore ignored, and a job that ran it
-# with `|| true` would be green forever and therefore worthless.
+# `tools/validate/validate.sh` exits non-zero whenever it counts any failure, and a
+# repository can have failures it has decided to keep for a while. A CI job that ran the
+# validator directly would then be red until they were fixed and therefore ignored, and a
+# job that ran it with `|| true` would be green forever and therefore worthless.
 #
 # So this script judges the OUTPUT and decides its own exit code. The validator's exit
 # code is read and reported, never obeyed and never discarded.
@@ -14,8 +13,8 @@
 #   - A row the validator failed is a line beginning `  FAIL  ` — that is what fail()
 #     prints, and nothing else in the output has that shape.
 #   - A deeper-indented FAIL line is the captured output of a sub-tool that one of those
-#     rows ran (the receipt gate prints its own per-cell table, which validate.sh
-#     re-indents under the row). It belongs to the row above it and is admitted with it,
+#     rows ran, which validate.sh re-indents under the row. It belongs to the row above
+#     it and is admitted with it,
 #     so only the `  FAIL  ` rows are judged.
 #   - Every judged row must appear verbatim in tools/ci/validate-known-red.txt.
 #   - Every line in that file must appear as a judged row. A known failure that stopped

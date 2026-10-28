@@ -265,7 +265,6 @@ for path in \
     tools/ci/swift-toolchain.lock tools/ci/actions-allowlist.txt \
     tools/rc-verify/rc-verify.sh tools/rc-verify/generate-ios-sbom.sh \
     tools/rc-verify/probe-trap-exit.sh tools/rc-verify/local-signed-run.sh \
-    tools/device-receipts/receipt-gate.sh tools/device-receipts/probe-receipt-gate.sh \
     tools/cocoapods-compat/generate-podspec.sh \
     tools/verify-server/run.sh tools/verify-server/probe-refusals.sh \
     tools/verify-server/README.md tools/verify-server/spfn-versions.sh \
@@ -287,7 +286,6 @@ for path in \
     examples/android-compose examples/ui-spec examples/ui-spec/contracts \
     examples/ui-spec/generated/flows \
     examples/ios-swiftui/Generated docs/architecture docs/migration docs/security \
-    tools/device-receipts tools/device-receipts/runs \
     Tests/SPFNConformanceTests "$SWIFT_GENERATED" "$KOTLIN_GENERATED"
 do
     if [ -d "$path" ]
@@ -1938,44 +1936,6 @@ else
     fail 'tools/verify-server/probe-refusals.sh fails; the real-server runner no longer fails closed'
 fi
 
-# The device receipts are the only evidence in this repository that a person ever held a
-# phone, and the gate over them is the only thing standing between "no device run
-# happened" and a published candidate. Both are checked here rather than only inside
-# rc-verify, because rc-verify needs a Swift toolchain, an Android SDK and a clean tree,
-# and a check that only runs on a release day is a check nobody is watching.
-if sh tools/device-receipts/probe-receipt-gate.sh > "$TMP/receipt-probe.txt" 2>&1
-then
-    pass 'the device receipt gate refuses every way its evidence can be missing, unreadable or wrong'
-else
-    fail 'tools/device-receipts/probe-receipt-gate.sh fails; the device receipt gate no longer fails closed'
-    sed 's/^/          /' "$TMP/receipt-probe.txt"
-fi
-
-# And the committed evidence must actually clear it. The probe proves the gate bites;
-# this proves the repository is on the passing side of it, which is what a reader of
-# COMPATIBILITY.md is being asked to believe.
-if sh tools/device-receipts/receipt-gate.sh > "$TMP/receipt-gate.txt" 2>&1
-then
-    RECEIPT_LINE=$(grep '^RECEIPT-GATE-SUMMARY ' "$TMP/receipt-gate.txt" || true)
-    if [ -z "$RECEIPT_LINE" ]
-    then
-        fail 'the device receipt gate passed without reporting what it counted'
-    else
-        pass "the committed device receipts clear the gate ($RECEIPT_LINE)"
-    fi
-else
-    fail 'the committed device receipts do not clear tools/device-receipts/receipt-gate.sh'
-    sed 's/^/          /' "$TMP/receipt-gate.txt"
-fi
-
-# The gate only guards publication if the publication path actually calls it, and only
-# guards it honestly if a shell variable cannot redirect it elsewhere. Both are pinned
-# as fixed strings: an edit that removes the refusal removes the string.
-contains tools/rc-verify/rc-verify.sh 'sh tools/device-receipts/receipt-gate.sh' \
-    'rc-verify runs the device receipt gate before it will verify a candidate'
-contains tools/rc-verify/rc-verify.sh 'unset SPFN_RECEIPT_ROOT SPFN_RECEIPT_LOCK' \
-    'rc-verify clears the gate overrides, so no environment variable can point it at hand-written evidence'
-
 # A build/parity baseline is not a support commitment, and neither is a proven sign-in
 # path. The iOS and Android rows name whole-platform gates — lifecycle cells and release
 # evidence — that the 2026-09-01 device run did not meet, so they must not quietly
@@ -1986,13 +1946,6 @@ then
 else
     fail 'an iOS or Android support row claims support without real-device evidence'
 fi
-
-# The one row that DOES claim something must point at the evidence and at the gate that
-# judges it, so the claim and its proof cannot drift apart silently.
-contains COMPATIBILITY.md 'tools/device-receipts/receipt-gate.sh' \
-    'the device sign-in row names the gate that enforces it'
-contains COMPATIBILITY.md 'tools/device-receipts/runs/2026-09-01/' \
-    'the device sign-in row names the receipts it rests on'
 
 # ---------------------------------------------------------------------------
 section '12. repository status is stated, not implied'

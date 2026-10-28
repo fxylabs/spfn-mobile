@@ -89,9 +89,8 @@ trap 'on_signal 130' INT
 trap 'on_signal 143' TERM
 
 # Section 17 begins at its own heading and runs to the end of the report. Scoped on purpose:
-# this repository's validator has failing checks in other sections — the device receipt gate
-# — and a probe that keyed on the validator's exit status would report those as its own
-# evidence.
+# a failing check in any other section of the validator would also set its exit status, and a
+# probe that keyed on that status would report the other failure as its own evidence.
 POINTER_SECTION='/^17\. no pointer input/,$p'
 
 # Plants a line at the top of a file, after the shebang-free Kotlin header, without needing a

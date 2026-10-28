@@ -12,9 +12,8 @@
 #   d. a deleted allowlist fails as "did not run" rather than passing with nothing to read;
 #   e. a tag entry inside the allowlist itself fails, so the list cannot admit a moving ref.
 #
-# The validator exits non-zero for reasons that have nothing to do with this section — the
-# device-receipt gate is red on purpose — so every judgement here is made on section 24's
-# own rows and never on the exit code.
+# The validator can exit non-zero for reasons that have nothing to do with this section, so
+# every judgement here is made on section 24's own rows and never on the exit code.
 #
 # Offline, zero toolchain.
 #
