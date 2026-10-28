@@ -23,11 +23,9 @@
 # version, and a re-verification of the pinned export against the SPFN primitives
 # repository. Neither exists yet, and neither is blocked by D2.
 #
-# Two failures are expected and admitted by name in tools/ci/validate-known-red.txt: the
-# device-receipt gate has been red on purpose since the 2026-09-02 re-pin to contract
-# 0.10.0, because the committed receipts were taken against 0.9.0. Clearing it needs two
-# real phones and a person, which D2 leaves outside CI. Any OTHER failure, and the
-# disappearance of either of those two, fails this job.
+# tools/ci/validate-known-red.txt is empty: the device-receipt gate, its only two rows,
+# was retired on 2026-10-28. Any failure fails this job, and so would a row left in the
+# list after its failure stopped appearing.
 #
 # Expected duration: under a minute — the validator takes 5 seconds on this repository's
 # development VM. timeout-minutes is 20, which is the "something hung" line.

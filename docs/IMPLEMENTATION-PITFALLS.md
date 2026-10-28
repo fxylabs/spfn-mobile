@@ -332,9 +332,7 @@ wire 경로를 건드리지 않은 change set에서는 재실행이 선택이다
   셸에 export한 채 발행을 돌리면 손으로 쓴 디렉터리가 증거 행세를 한다. 탐지: 게이트
   스크립트가 `${SPFN_...:-<기본값>}` 꼴로 경로·핀을 받는가, 그 변수를 호출자가
   지우는가. 처방: 발행 경로(rc-verify)에서 호출 직전 `unset`하고, 그 `unset` 줄 자체를
-  validate의 고정 문자열 검사로 박는다. 증거:
-  `tools/device-receipts/receipt-gate.sh`(오버라이드 보유) +
-  `tools/rc-verify/rc-verify.sh`의 `unset SPFN_RECEIPT_ROOT SPFN_RECEIPT_LOCK`.
+  validate의 고정 문자열 검사로 박는다.
 - **probe 전에 `cp`로 사본을 뜬다.** `git checkout --`는 HEAD에서 복원해 미커밋 작업을
   먹는다. 전역 훅이 막고 있지만 습관이 먼저다.
 - **Kotlin 테스트 결과는 `testDebugUnitTest` 변형에 있다.** `:spfn-core:test`가 아니라

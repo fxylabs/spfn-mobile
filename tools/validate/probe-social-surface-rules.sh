@@ -21,8 +21,8 @@
 #      does — the exclusion is the rule's own escape hatch, so both of its ends are pinned;
 #   g. a source tree the scan cannot read fails as "did not run" rather than as clean.
 #
-# It judges the ROWS rather than the validator's exit code. The exit code today also
-# carries the device-receipt rows, which are red for a reason that has nothing to do with
+# It judges the ROWS rather than the validator's exit code. The exit code also carries
+# every other section's rows, which can be red for a reason that has nothing to do with
 # this section, and a probe reading it would report green for the wrong reason — which is
 # the same mistake it exists to catch.
 #

@@ -15,11 +15,9 @@
 # Offline, zero toolchain: it runs tools/validate/validate.sh repeatedly. Mutations are
 # made on the real files and restored by a trap on every exit path.
 #
-# THE VALIDATOR'S EXIT CODE IS NOT THE SIGNAL HERE. It already exits non-zero on this
-# tree for an unrelated reason — the committed device receipts were taken against
-# contract 0.9.0 and the repository pins 0.10.0 — so a probe reading the exit code would
-# report every case as refused whether or not the rule under test fired. Each case is
-# judged on the line section 5 printed instead.
+# THE VALIDATOR'S EXIT CODE IS NOT THE SIGNAL HERE. Any failure elsewhere in the tree sets
+# it, so a probe reading the exit code would report every case as refused whether or not
+# the rule under test fired. Each case is judged on the line section 5 printed instead.
 #
 #   sh tools/validate/probe-contract-lock-rules.sh
 

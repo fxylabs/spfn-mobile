@@ -1,7 +1,7 @@
 #if canImport(SwiftUI)
 // GENERATED FILE — DO NOT EDIT.
 //
-// generator:       spfn-ui-codegen 0.1.0-alpha.3
+// generator:       spfn-ui-codegen 0.1.0-alpha.4
 // spec:            examples/ui-spec
 // specSha256:      83ef5335dcd7c486e823ce1bc60ee788e75fb2c3a16a9bcd084222a5a68fb888
 // bundleSha256:    7879036f33c46ced4c51035521fd25d3934bbb38c21aa9b68779a1c6d1578846

@@ -360,8 +360,8 @@ sh tools/validate/probe-social-surface-rules.sh   # prove each refusal bites
 ```
 
 The probe appends one line at a time to each adapter source and reads section 23's own two
-rows rather than the validator's exit code — the exit code today also carries the
-device-receipt rows, and a probe that read it would report green for the wrong reason.
+rows rather than the validator's exit code — the exit code also carries every other
+section's rows, and a probe that read it would report green for the wrong reason.
 Both ends of the comment exclusion are pinned, and the last case takes the source trees
 away.
 

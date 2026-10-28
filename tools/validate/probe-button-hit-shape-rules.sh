@@ -81,8 +81,8 @@ trap 'on_signal 130' INT
 trap 'on_signal 143' TERM
 
 # Section 20 begins at its own heading and runs to the end of the report. Scoped on purpose:
-# this repository's validator has failing checks in other sections — the device receipt gate —
-# and a probe that keyed on the validator's exit status would report those as its own evidence.
+# a failing check in any other section of the validator would also set its exit status, and a
+# probe that keyed on that status would report the other failure as its own evidence.
 HIT_SHAPE_SECTION='/^20\. every plain-styled Button/,$p'
 
 # Runs the validator and expects section 20 to refuse, on the named rule.

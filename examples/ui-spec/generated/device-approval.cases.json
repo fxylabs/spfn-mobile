@@ -1,5 +1,5 @@
 {
-  "comment": "GENERATED FILE — DO NOT EDIT. spfn-ui-codegen 0.1.0-alpha.3.",
+  "comment": "GENERATED FILE — DO NOT EDIT. spfn-ui-codegen 0.1.0-alpha.4.",
   "expectationsFrom": "tools/ui-codegen/src/main/kotlin/xyz/superfunction/spfn/uicodegen/Rules.kt",
   "spec": "examples/ui-spec",
   "specSha256": "83ef5335dcd7c486e823ce1bc60ee788e75fb2c3a16a9bcd084222a5a68fb888",

@@ -54,8 +54,8 @@ exact text a failed row prints after its `  FAIL  ` prefix.
 - A judged row is a line beginning with exactly `  FAIL  `. That is what the validator's
   `fail()` prints and nothing else in the output has that shape.
 - A **deeper-indented** FAIL line is the captured output of a sub-tool one of those rows
-  ran — the receipt gate prints its own fifteen-cell table, which the validator re-indents
-  underneath the row. It belongs to the row above it and is admitted with it.
+  ran, which the validator re-indents underneath the row. It belongs to the row above it
+  and is admitted with it.
 - A judged row that is not in the file fails the check.
 - A line in the file that is not a judged row **also** fails the check. A known failure
   that stopped failing means the file has outlived its reason, and a stale allowlist is how
@@ -64,9 +64,9 @@ exact text a failed row prints after its `  FAIL  ` prefix.
   read. A mismatch means a failure was reported in a shape this script cannot judge, and
   judging the rest would be a false green.
 
-Today the file holds two lines, both the device-receipt gate, red on purpose since the
-2026-09-02 re-pin to contract `0.10.0`. Clearing them needs fifteen cells driven by a
-person on two real phones — the kind of evidence D2 leaves outside CI.
+Today the file holds no rows. Its last two were the device-receipt gate, retired on
+2026-10-28 by decision: real-device verification happens in the consumer app, not in this
+repository's release path. With the file empty, every validator row must pass.
 
 ## Pinning
 

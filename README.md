@@ -28,7 +28,7 @@ model cannot drift apart between them.
 | Conformance | one fixture directory, two suites, cross-platform digest parity |
 | Offline validator | working, and still the cheapest gate in the repository |
 | CI | three required checks on every pull request — `swift`, `android`, `contract` — and three manual-only files for what D2 leaves outside |
-| Release / publication | disabled by default, and no channel is configured |
+| Release / publication | `0.1.0-alpha.4` is the release candidate and `0.1.0-alpha.3` the current published release; publishing stays disabled by default in the build |
 
 ## Layout
 
@@ -91,10 +91,10 @@ sh tools/ci/swift.sh          # swift build --build-tests, swift test --skip-bui
 ```
 
 `tools/ci/validate.sh` is the one that needs explaining: the validator exits non-zero
-whenever it counts any failure, and the device-receipt gate has been red on purpose since
-the 2026-09-02 contract re-pin. So the script judges the validator's output against a
-named list of admitted failures instead of obeying its exit code — and a failure that
-stops happening reddens the check too, so the list cannot outlive its reason. See
+whenever it counts any failure. The script judges the validator's output against a named
+list of admitted failures instead of obeying its exit code — and a failure that stops
+happening reddens the check too, so the list cannot outlive its reason. The list is empty
+today, so any failure reddens it. See
 [tools/ci/README.md](tools/ci/README.md).
 
 What CI does not run is what D2 leaves outside it: the macOS half of the Swift suite, any
