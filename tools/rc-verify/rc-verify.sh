@@ -261,6 +261,8 @@ precondition(SPFNAuthPolicy.allowedProfiles == [SPFNAuthProfile.clientProofV1])
 precondition(!SPFNGeneratedContract.operationIDs.isEmpty)
 _ = SPFNWireHeaders.self
 _ = SPFNClient.self
+_ = SPFNStateClient.self
+_ = SPFNNetworkMonitor.self
 _ = SPFNSocialApple.self
 _ = SPFNSocialGoogle.self
 _ = Loadable<Int>.loading
@@ -423,9 +425,11 @@ package xyz.superfunction.spfn.rcconsumer
 import xyz.superfunction.spfn.auth.SpfnAuthPolicy
 import xyz.superfunction.spfn.client.SpfnClient
 import xyz.superfunction.spfn.core.SpfnVersion
+import xyz.superfunction.spfn.events.SpfnNetworkMonitor
 import xyz.superfunction.spfn.generated.SpfnGeneratedContract
 import xyz.superfunction.spfn.social.apple.SpfnSocialApple
 import xyz.superfunction.spfn.social.google.SpfnSocialGoogle
+import xyz.superfunction.spfn.state.SpfnStateClientConfiguration
 import xyz.superfunction.spfn.ui.FlowEntry
 
 object RcConsumerSmoke
@@ -434,7 +438,9 @@ object RcConsumerSmoke
     val allowedProfiles: Int = SpfnAuthPolicy.ALLOWED_PROFILES.size
     val operations: Int = SpfnGeneratedContract.OPERATION_IDS.size
     val clientType: Class<SpfnClient> = SpfnClient::class.java
-    val flowEntries: Int = FlowEntry.entries.size
+    val stateConfigurationType: Class<SpfnStateClientConfiguration> = SpfnStateClientConfiguration::class.java
+    val networkMonitorType: Class<SpfnNetworkMonitor> = SpfnNetworkMonitor::class.java
+    val flowEntryType: Class<FlowEntry> = FlowEntry::class.java
     val appleAdapterType: Class<SpfnSocialApple> = SpfnSocialApple::class.java
     val googleAdapterType: Class<SpfnSocialGoogle> = SpfnSocialGoogle::class.java
 }
