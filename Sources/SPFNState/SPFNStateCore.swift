@@ -6,9 +6,9 @@
 // revoked marks per connection (Rev, §2-8), the connection status (Con, §2-9) and the
 // initial snapshot (Cfg, §2-10). The signed-in boundary (§2-14) is the native client's own:
 // one client lives through every account, so a change of account empties the store. Where
-// the native stream differs — it is the app's, opened
-// by the SDK's lifecycle, and its `opened` signal arrives in the frames' queue — §2-2 and
-// §2-6 say what stands in for the web client's own `SSEClient`.
+// the native stream differs — it is the app's, opened by the SDK's lifecycle, and its
+// `opened` signal arrives in the frames' queue — §2-2 and §2-6 say what stands in for the web
+// client's own `SSEClient`.
 //
 // One input at a time, effects back; nothing here waits or locks. SPFNStateClient's engine
 // is the only caller.
