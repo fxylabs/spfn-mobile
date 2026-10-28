@@ -5,6 +5,13 @@
 // below are never touched concurrently. The jobs it starts — requests, the timer, the two
 // listeners — only send inputs back into the inbox.
 //
+// The signed-in boundary (§2-14, D5) is crossed twice. The key lifecycle's observer moves
+// `SpfnStateShared` to the next account inside the call that stored its key, on that call's
+// thread — `current` answers `Loading` from then on — and queues `Subject` for the core. Until
+// the core has processed it, what the core still produces is the last account's: the engine
+// hands no entry to a subscriber or to `current`, and no answer to a call, while the two
+// epochs differ.
+//
 // Sources/SPFNState/SPFNStateEngine.swift is the same runner in Swift.
 
 package xyz.superfunction.spfn.state
@@ -108,9 +115,10 @@ internal class SpfnStateEngine(
     {
         when (effect)
         {
-            is SpfnStateEffect.Deliver -> sinks[effect.subscription]?.deliver?.invoke(effect.cell)
+            is SpfnStateEffect.Deliver -> if (current) sinks[effect.subscription]?.deliver?.invoke(effect.cell)
             is SpfnStateEffect.Finish -> sinks.remove(effect.subscription)?.finish?.invoke()
-            is SpfnStateEffect.Publish -> shared.publish(effect.slot, effect.cell)
+            is SpfnStateEffect.Publish -> if (current) shared.publish(effect.slot, effect.cell)
+            SpfnStateEffect.Clear -> shared.clear()
             is SpfnStateEffect.Execute -> execute(effect.request, effect.what)
             is SpfnStateEffect.SetQuery -> runCatching { services.stream.setQuery(effect.query) }
             SpfnStateEffect.ReconnectNow -> services.stream.reconnectNow()
@@ -118,7 +126,8 @@ internal class SpfnStateEngine(
             is SpfnStateEffect.StartRetryTimer -> startTimer(effect.generation, effect.millis)
             SpfnStateEffect.CancelRetryTimer -> timer?.cancel()
             is SpfnStateEffect.Report -> services.onError(effect.error)
-            is SpfnStateEffect.Resolve -> calls.remove(effect.call)?.completeWith(effect.result)
+            is SpfnStateEffect.Resolve ->
+                calls.remove(effect.call)?.completeWith(if (current) effect.result else Result.failure(SpfnStateClientError.SignedInChanged))
             SpfnStateEffect.CountDropped -> shared.countDropped()
             SpfnStateEffect.ScheduleFlush -> services.schedule { inbox.trySend(SpfnStateEngineInput.Core(SpfnStateInput.Flush)) }
             SpfnStateEffect.AttachWire -> listen()
@@ -129,6 +138,10 @@ internal class SpfnStateEngine(
             }
         };
     }
+
+    /** The core works for the account [shared] was last moved to (D5). */
+    private val current: Boolean
+        get() = core.epoch == shared.epoch;
 
     /** A cancelled request sends nothing back: cancellation is not a failure (P16). */
     private fun execute(request: Int, what: SpfnStateRequest)
@@ -170,8 +183,16 @@ internal class SpfnStateShared
     private val cells = mutableMapOf<SpfnStateSlot, SpfnStateCell>();
     private val status = MutableStateFlow<SpfnStateConnection>(SpfnStateConnection.Reconnecting(0));
     private var dropped = 0;
+    private var subject: Subject? = null;
+    private var changes = 0;
+
+    private data class Subject(val clientId: String?)
 
     val connection: StateFlow<SpfnStateConnection> = status.asStateFlow();
+
+    /** Counts the changes of the signed-in account, as the core's `epoch` does. */
+    val epoch: Int
+        get() = synchronized(lock) { changes };
 
     val droppedFrames: Int
         get() = synchronized(lock) { dropped };
@@ -181,6 +202,28 @@ internal class SpfnStateShared
     fun publish(slot: SpfnStateSlot, cell: SpfnStateCell)
     {
         synchronized(lock) { cells[slot] = cell };
+    }
+
+    fun clear()
+    {
+        synchronized(lock) { cells.clear() };
+    }
+
+    /**
+     * The key lifecycle's observer, inside the call that stored the key: the first id is the
+     * baseline; another one empties what `current` answers before that call returns.
+     */
+    fun signedIn(clientId: String?)
+    {
+        synchronized(lock) {
+            val known = subject;
+            subject = Subject(clientId);
+            if (known != null && known != subject)
+            {
+                changes += 1;
+                cells.clear();
+            }
+        };
     }
 
     fun countDropped()

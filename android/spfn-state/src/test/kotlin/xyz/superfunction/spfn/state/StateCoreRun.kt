@@ -131,7 +131,14 @@ internal class StateCoreRun(
         feed(SpfnStateInput.Stream(state));
     }
 
-    fun opened(epoch: Int, query: SpfnStateKey = emptyMap(), initial: List<String>? = null, denied: List<String> = emptyList(), described: List<String> = DESCRIBED)
+    fun opened(
+        epoch: Int,
+        query: SpfnStateKey = emptyMap(),
+        initial: List<String>? = null,
+        denied: List<String> = emptyList(),
+        described: List<String> = DESCRIBED,
+        clientId: String? = null
+    )
     {
         val events = described.map { SpfnStateAccess.eventName(it) };
         val connected = SpfnStreamConnected(
@@ -139,7 +146,8 @@ internal class StateCoreRun(
             query = query,
             subscribedEvents = events.filter { !denied.contains(it) },
             deniedEvents = denied,
-            initial = initial
+            initial = initial,
+            clientId = clientId
         );
         feed(SpfnStateInput.Wire(SpfnWireSignal.Opened(connected)));
     }
@@ -222,6 +230,7 @@ internal class StateCoreRun(
             is SpfnStateEffect.Deliver -> deliveries.getOrPut(subscriptionName(effect.subscription)) { mutableListOf() }.add(effect.cell)
             is SpfnStateEffect.Finish -> finished.add(subscriptionName(effect.subscription))
             is SpfnStateEffect.Publish -> cells[effect.slot] = effect.cell
+            SpfnStateEffect.Clear -> cells.clear()
             is SpfnStateEffect.Execute ->
             {
                 pending.add(effect.request to effect.what.kind);

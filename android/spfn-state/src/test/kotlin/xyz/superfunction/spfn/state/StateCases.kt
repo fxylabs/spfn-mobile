@@ -91,7 +91,8 @@ internal class StateCase(private val members: Map<String, SpfnCanonicalValue>)
                 query = step["query"]?.key ?: emptyMap(),
                 initial = step["initial"]?.strings,
                 denied = step["denied"]?.strings.orEmpty(),
-                described = described
+                described = described,
+                clientId = step["clientID"]?.string
             )
             "frame" -> run.frame(state, step.text("at"), step.getValue("value"), step["key"]?.key, step["data"])
             "granted" -> run.feed(SpfnStateInput.Wire(SpfnWireSignal.Subscription(SpfnStateAccess.eventName(state), SpfnSubscriptionStatus.GRANTED)))
@@ -106,6 +107,7 @@ internal class StateCase(private val members: Map<String, SpfnCanonicalValue>)
             "close" -> run.feed(SpfnStateInput.Close)
             "timer" -> run.fireTimer()
             "subscribeConnection" -> run.watchConnection(step.text("watch"))
+            "subject" -> run.feed(SpfnStateInput.Subject(step.getValue("clientID").string))
             else -> fail("$id: unknown step $step")
         };
     }
@@ -216,6 +218,7 @@ internal class StateCase(private val members: Map<String, SpfnCanonicalValue>)
                 is SpfnStateClientError.Unavailable -> obj("unavailable" to text(error.name))
                 is SpfnStateClientError.ReadOnly -> obj("readOnly" to text(error.state))
                 is StateTestNetworkError -> text("network")
+                SpfnStateClientError.SignedInChanged -> text("signedInChanged")
                 else -> text(error.toString())
             };
             return SpfnCanonicalJson.encodeToString(value);

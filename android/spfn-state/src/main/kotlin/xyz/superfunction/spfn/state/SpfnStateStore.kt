@@ -107,6 +107,17 @@ internal class SpfnStateStore
         return replace(slot, SpfnStateCell(SpfnStateStatus.REVOKED, entries[slot]?.frame));
     }
 
+    /**
+     * Forgets every entry, stamp and mark: what the next signed-in account sees starts from
+     * nothing, and its older `at` is not taken for a stale one (§2-14, W-15).
+     */
+    fun clear()
+    {
+        entries.clear();
+        stamps.clear();
+        marks.clear();
+    }
+
     /** The newest `at` seen for `slot`. */
     fun stamp(slot: SpfnStateSlot): String? = stamps[slot];
 

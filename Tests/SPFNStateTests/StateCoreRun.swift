@@ -146,7 +146,14 @@ final class StateCoreRun
         feed(.stream(state))
     }
 
-    func opened(_ epoch: Int, _ query: SPFNStateKey = [:], initial: [String]? = nil, denied: [String] = [], described: [String] = ["aiAccounts", "consent", "runtime"])
+    func opened(
+        _ epoch: Int,
+        _ query: SPFNStateKey = [:],
+        initial: [String]? = nil,
+        denied: [String] = [],
+        described: [String] = ["aiAccounts", "consent", "runtime"],
+        clientID: String? = nil
+    )
     {
         let events = described.map(SPFNStateAccess.eventName(of:))
         let connected = SPFNStreamConnected(
@@ -154,7 +161,8 @@ final class StateCoreRun
             query: query,
             subscribedEvents: events.filter { !denied.contains($0) },
             deniedEvents: denied,
-            initial: initial
+            initial: initial,
+            clientID: clientID
         )
         feed(.wire(.opened(connected)))
     }
@@ -262,6 +270,8 @@ final class StateCoreRun
             finished.append(subscriptionName(subscription))
         case .publish(let slot, let cell):
             cells[slot] = cell
+        case .clear:
+            cells = [:]
         case .execute(let id, let request):
             pending.append((id, request.kind))
             requests.append(request.kind)

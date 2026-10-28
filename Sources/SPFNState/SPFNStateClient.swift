@@ -13,6 +13,10 @@
 // The stream is the app's and stays the app's: this client attaches a wire listener and
 // writes the connection query, and never opens or closes the connection itself (§2-2).
 //
+// One client lives through every account the app signs in (§2-14): it observes the key
+// lifecycle's signed-in client id from construction to `deinit`, synchronously, so no value
+// received for one account is answered once another account's key — or none — is stored.
+//
 // android/spfn-state/.../SpfnStateClient.kt is the same client in Kotlin.
 
 import Foundation
@@ -22,10 +26,11 @@ import SPFNCore
 public final class SPFNStateClient: Sendable
 {
     public let configuration: SPFNStateClientConfiguration
-    private let shared: SPFNStateShared
+    let shared: SPFNStateShared
     private let inbox: AsyncStream<SPFNStateEngineInput>.Continuation
     private let ids = SPFNStateCounter()
     private let claim: ObjectIdentifier
+    private let signedIn: SPFNSignedInObservation
 
     /// - Throws: `SPFNStateClientError.invalidConfiguration` naming what is wrong: no state, an
     ///   id twice, a `state.<id>.changed` missing from the stream's events, or a stream that
@@ -83,6 +88,7 @@ public final class SPFNStateClient: Sendable
         self.shared = shared
         self.inbox = inbox
         self.claim = ObjectIdentifier(stream)
+        self.signedIn = Self.observeSignedIn(configuration.keyLifecycle, shared: shared, inbox: inbox)
         Task
         {
             await engine.attach()
@@ -96,8 +102,26 @@ public final class SPFNStateClient: Sendable
 
     deinit
     {
+        signedIn.cancel()
         inbox.finish()
         SPFNStateClaims.release(claim)
+    }
+
+    /// D5: called with the id at once — the baseline, queued before anything else reaches
+    /// the engine — then inside every call that changes it. Holds the cache and the inbox,
+    /// never the client, so the client's `deinit` still runs.
+    private static func observeSignedIn(
+        _ keyLifecycle: SPFNKeyLifecycle,
+        shared: SPFNStateShared,
+        inbox: AsyncStream<SPFNStateEngineInput>.Continuation
+    ) -> SPFNSignedInObservation
+    {
+        keyLifecycle.observeSignedIn
+        {
+            clientID in
+            shared.signedIn(clientID)
+            inbox.yield(.core(.subject(clientID: clientID)))
+        }
     }
 
     /// The default `onError`: the error's name only. A key and a value are the app's data.

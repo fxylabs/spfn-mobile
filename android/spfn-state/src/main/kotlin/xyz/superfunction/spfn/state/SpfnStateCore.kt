@@ -4,7 +4,9 @@
 // the first snapshot before anything else (Man), one connection query that is the union of
 // the subscribed keys (Str, §2-7), every arrival through the store's ordering rule (Ord),
 // revoked marks per connection (Rev, §2-8), the connection status (Con, §2-9) and the
-// initial snapshot (Cfg, §2-10). Where the native stream differs — it is the app's, opened
+// initial snapshot (Cfg, §2-10). The signed-in boundary (§2-14) is the native client's own:
+// one client lives through every account, so a change of account empties the store. Where
+// the native stream differs — it is the app's, opened
 // by the SDK's lifecycle, and its `Opened` signal arrives in the frames' queue — §2-2 and
 // §2-6 say what stands in for the web client's own `SSEClient`.
 //
@@ -38,14 +40,24 @@ internal class SpfnStateCore(private val configuration: Configuration, initial: 
 
     private sealed interface Pending
     {
-        class Snapshot(val query: SpfnStateKey, val tag: Tag, val call: Int?, val first: Boolean) : Pending
+        /** The app call this request answers; null for an automatic read. */
+        val call: Int?
+
+        class Snapshot(val query: SpfnStateKey, val tag: Tag, override val call: Int?, val first: Boolean) : Pending
 
         class Shadow(val slot: SpfnStateSlot, val tag: Tag) : Pending
+        {
+            override val call: Int?
+                get() = null;
+        }
 
-        class Get(val slot: SpfnStateSlot, val call: Int?) : Pending
+        class Get(val slot: SpfnStateSlot, override val call: Int?) : Pending
 
-        class Write(val slot: SpfnStateSlot, val call: Int, val decode: (SpfnCanonicalValue) -> Any?) : Pending
+        class Write(val slot: SpfnStateSlot, override val call: Int, val decode: (SpfnCanonicalValue) -> Any?) : Pending
     }
+
+    /** A signed-in client id the key lifecycle reported, or none. */
+    private data class Subject(val clientId: String?)
 
     /** An app call waiting for the first snapshot. */
     private sealed interface Waiter
@@ -91,6 +103,26 @@ internal class SpfnStateCore(private val configuration: Configuration, initial: 
     private var status: SpfnStateConnection = SpfnStateConnection.Reconnecting(0);
     private val reportedUnavailable = mutableSetOf<String>();
 
+    /**
+     * Whose values the store holds: null until the key lifecycle's first value, the baseline;
+     * then the signed-in client id, or none (§2-14).
+     */
+    private var subject: Subject? = null;
+
+    /** Counts the changes of [subject]. The engine hands nothing on that the core produced for an older one (D5). */
+    var epoch = 0
+        private set;
+
+    /**
+     * Wire frames, grants, revokes and overflows are taken only while this holds: always
+     * while the subject is unknown, else from an `Opened` of a connection made for it (W-6,
+     * W-7, W-16).
+     */
+    private var wireTrusted = true;
+
+    /** From a change of subject until its connection opens: the status stays `Reconnecting(0)` (D6). */
+    private var switching = false;
+
     /** The entries as the core holds them; the suites read them. */
     val cells: Map<SpfnStateSlot, SpfnStateCell>
         get() = store.cells;
@@ -123,6 +155,7 @@ internal class SpfnStateCore(private val configuration: Configuration, initial: 
             SpfnStateInput.Retry -> retry()
             SpfnStateInput.Close -> close()
             is SpfnStateInput.RetryElapsed -> retryElapsed(input.generation)
+            is SpfnStateInput.Subject -> follow(input.clientId)
         };
         return drain();
     }
@@ -547,6 +580,114 @@ internal class SpfnStateCore(private val configuration: Configuration, initial: 
         }
     }
 
+    // ---- the signed-in subject ---------------------------------------------
+
+    /**
+     * The key lifecycle's client id (§2-14). The first is the baseline and clears nothing; the
+     * same id again — a rotation — changes nothing (W-1, W-17). Another id, or none, ends the
+     * last subject's values, and the wire is not trusted until the new subject's connection
+     * opens; the baseline too waits for one, so a connection replayed for another account
+     * when the client attaches is not taken.
+     */
+    private fun follow(clientId: String?)
+    {
+        val known = subject;
+        if (known == Subject(clientId))
+        {
+            return;
+        }
+        subject = Subject(clientId);
+        wireTrusted = false;
+        if (known == null)
+        {
+            return;
+        }
+        epoch += 1;
+        switching = true;
+        forgetSubject();
+    }
+
+    /**
+     * D2: the entries, stamps, marks and grants go; the manifest, the names already reported
+     * unavailable and the subscriptions stay, each told `Loading` — once: one already at
+     * `Loading` hears nothing (W-2 … W-5). Even a closed client forgets (W-18).
+     */
+    private fun forgetSubject()
+    {
+        val held = store.cells.keys.toSet();
+        store.clear();
+        grants.clear();
+        effects.add(SpfnStateEffect.Clear);
+        for ((subscription, slot) in subscriptions.entries.sortedBy { it.key })
+        {
+            if (slot in held)
+            {
+                effects.add(SpfnStateEffect.Deliver(subscription, null));
+            }
+        }
+        refuseCalls();
+        restartFirstSnapshot();
+        setConnection(SpfnStateConnection.Reconnecting(0));
+    }
+
+    /**
+     * Every request in flight was sent for the last subject: it is forgotten, so its answer
+     * is applied to nothing (W-9, W-10), and an app call on one — or waiting for the
+     * manifest — is refused now, once (W-11 … W-14).
+     */
+    private fun refuseCalls()
+    {
+        val calls = pending.values.mapNotNull { it.call } + waiters.map { it.call };
+        for (call in calls.sorted())
+        {
+            effects.add(SpfnStateEffect.Resolve(call, Result.failure(SpfnStateClientError.SignedInChanged)));
+        }
+        pending.clear();
+        waiters = mutableListOf();
+    }
+
+    /**
+     * A first snapshot in flight was the last subject's and is forgotten with it; the
+     * subscriptions that waited on it wait on one read for the next subject.
+     */
+    private fun restartFirstSnapshot()
+    {
+        if (firstRead == null)
+        {
+            return;
+        }
+        firstRead = null;
+        if (waiting)
+        {
+            waiting = false;
+            queueFlush();
+        }
+    }
+
+    /**
+     * While the subject is known, only a connection opened for it is trusted; any other —
+     * the last account's, replayed or late — is dropped whole, its snapshot unread (W-7). The
+     * subject's own ends the switch, and the status follows the stream again (W-8).
+     */
+    private fun trust(connected: SpfnStreamConnected): Boolean
+    {
+        val known = subject;
+        if (known != null && connected.clientId != known.clientId)
+        {
+            return false;
+        }
+        wireTrusted = true;
+        if (switching)
+        {
+            switching = false;
+            if (streamBound)
+            {
+                followStream(streamState);
+            }
+        }
+        return true;
+    }
+
     // ---- the connection status ---------------------------------------------
 
     /**
@@ -574,7 +715,10 @@ internal class SpfnStateCore(private val configuration: Configuration, initial: 
             is SpfnEventStreamState.Open ->
             {
                 streamFailed = false;
-                setConnection(SpfnStateConnection.Connected);
+                if (!switching)
+                {
+                    setConnection(SpfnStateConnection.Connected);
+                }
             }
             is SpfnEventStreamState.Connecting ->
             {
@@ -625,12 +769,12 @@ internal class SpfnStateCore(private val configuration: Configuration, initial: 
         {
             SpfnWireSignal.Attached -> Unit
             is SpfnWireSignal.Opened -> opened(signal.connected)
-            is SpfnWireSignal.Frame -> frame(signal.name, signal.value)
-            is SpfnWireSignal.Subscription -> subscription(signal.name, signal.status)
+            is SpfnWireSignal.Frame -> if (wireTrusted) frame(signal.name, signal.value)
+            is SpfnWireSignal.Subscription -> if (wireTrusted) subscription(signal.name, signal.status)
             SpfnWireSignal.Overflow ->
             {
                 val carried = connectionQuery;
-                if (carried != null && manifest != null && watched.isNotEmpty())
+                if (wireTrusted && carried != null && manifest != null && watched.isNotEmpty())
                 {
                     refresh(carried);
                 }
@@ -646,6 +790,10 @@ internal class SpfnStateCore(private val configuration: Configuration, initial: 
      */
     private fun opened(connected: SpfnStreamConnected)
     {
+        if (!trust(connected))
+        {
+            return;
+        }
         generation = connected.epoch;
         connectionQuery = connected.query;
         if (manifest == null || watched.isEmpty())
