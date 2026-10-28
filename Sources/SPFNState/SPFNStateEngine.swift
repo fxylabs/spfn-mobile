@@ -8,8 +8,8 @@
 // `SPFNStateShared` to the next account inside the call that stored its key, on that call's
 // thread — `current` answers `loading` from then on — and queues `.subject` for the core. Until
 // the core has processed it, what the core still produces is the last account's: the engine
-// hands no entry to a subscriber or to `current`, and no answer to a call, while the two
-// epochs differ.
+// hands no value to a subscriber or to `current`, and no answer to a call, while the two
+// epochs differ. A `loading` still goes through: it carries no account's value.
 //
 // android/spfn-state/.../SpfnStateClient.kt carries the same runner in Kotlin.
 

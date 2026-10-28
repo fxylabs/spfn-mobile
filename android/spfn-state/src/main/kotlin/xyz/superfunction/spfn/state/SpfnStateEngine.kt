@@ -9,8 +9,8 @@
 // `SpfnStateShared` to the next account inside the call that stored its key, on that call's
 // thread — `current` answers `Loading` from then on — and queues `Subject` for the core. Until
 // the core has processed it, what the core still produces is the last account's: the engine
-// hands no entry to a subscriber or to `current`, and no answer to a call, while the two
-// epochs differ.
+// hands no value to a subscriber or to `current`, and no answer to a call, while the two
+// epochs differ. A `loading` still goes through: it carries no account's value.
 //
 // Sources/SPFNState/SPFNStateEngine.swift is the same runner in Swift.
 
