@@ -147,6 +147,56 @@ extension SPFNStateClientRuntimeTests
         XCTAssertNil(shared.cell(Self.consent))
     }
 
+    /// W-20, two changes ahead: the observer has fired `nil` and then B before the engine
+    /// processed either `.subject`. The first change's `loading` reaches the subscription
+    /// though the core is still behind; the second finds the store empty and adds nothing.
+    func test_w20_twoChangesAhead_subscriptionStillHearsLoading() async throws
+    {
+        let (engine, shared) = try makeEngine(initial: Self.consentInitial)
+        let heard = CellLog()
+        shared.signedIn("client-a")
+        await engine.process(.core(.subject(clientID: "client-a")))
+        await engine.process(.subscribe(1, Self.consent, SPFNStateSink(deliver: { heard.add($0) }, finish: {})))
+
+        shared.signedIn(nil)
+        shared.signedIn("client-b")
+        await engine.process(.core(.subject(clientID: nil)))
+        await engine.process(.core(.subject(clientID: "client-b")))
+        XCTAssertEqual(heard.cells, ["ready(\(Self.t1), \"pending\", {\"marketing\":false,\"version\":1})", "loading"], "loading, once")
+    }
+
+    /// W-20, subscribe ahead of a change: `.subscribe` for a slot with no cell was queued
+    /// before `.subject(B)` when the observer fired. Its first entry is `loading`, once.
+    func test_w20_subscribeAheadOfChange_firstEntryIsLoading() async throws
+    {
+        let (engine, shared) = try makeEngine(initial: nil)
+        let heard = CellLog()
+        shared.signedIn("client-a")
+        await engine.process(.core(.subject(clientID: "client-a")))
+
+        shared.signedIn("client-b")
+        await engine.process(.subscribe(1, Self.consent, SPFNStateSink(deliver: { heard.add($0) }, finish: {})))
+        await engine.process(.core(.subject(clientID: "client-b")))
+        XCTAssertEqual(heard.cells, ["loading"])
+    }
+
+    /// An engine over a core `initial` hydrates, driven input by input as its inbox would.
+    func makeEngine(initial: SPFNStateInitial?) throws -> (SPFNStateEngine, SPFNStateShared)
+    {
+        let stream = try ScriptedStream()
+        let configuration = try makeClient(try ScriptedStream(), ScriptedExecutor(answers: [])).configuration
+        let core = SPFNStateCore(
+            configuration: .init(states: try configuration.accesses(carriedBy: stream.configuration), snapshot: configuration.snapshot, retryDelayMillis: 0, maxRetries: 0),
+            initial: initial
+        )
+        let shared = SPFNStateShared()
+        let services = SPFNStateServices(
+            stream: stream, names: [], executor: ScriptedExecutor(answers: []), sleeper: SPFNTaskSleeper(), schedule: { _ in }, onError: { _ in }
+        )
+        let engine = SPFNStateEngine(core: core, services: services, shared: shared, inbox: AsyncStream.makeStream(of: SPFNStateEngineInput.self).continuation)
+        return (engine, shared)
+    }
+
     /// W-21 (§2-14, D5): the client observes the signed-in id from construction — the id then
     /// is the baseline and clears nothing; a wipe right after clears before it returns — and
     /// stops when the app lets go of it.

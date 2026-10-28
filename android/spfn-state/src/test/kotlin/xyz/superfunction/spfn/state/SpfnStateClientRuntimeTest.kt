@@ -182,6 +182,56 @@ class SpfnStateClientRuntimeTest
     }
 
     /**
+     * W-20, two changes ahead: the observer has fired `null` and then B before the engine
+     * processed either `Subject`. The first change's `Loading` reaches the subscription
+     * though the core is still behind; the second finds the store empty and adds nothing.
+     */
+    @Test
+    fun w20_twoChangesAhead_subscriptionStillHearsLoading() = runTest()
+    {
+        val (engine, shared) = engine(hydrated = true);
+        val heard = mutableListOf<SpfnStateCell?>();
+        shared.signedIn("client-a");
+        engine.process(SpfnStateEngineInput.Core(SpfnStateInput.Subject("client-a")));
+        engine.process(SpfnStateEngineInput.Subscribe(1, CONSENT, SpfnStateSink(deliver = { heard.add(it) }, finish = {})));
+
+        shared.signedIn(null);
+        shared.signedIn("client-b");
+        engine.process(SpfnStateEngineInput.Core(SpfnStateInput.Subject(null)));
+        engine.process(SpfnStateEngineInput.Core(SpfnStateInput.Subject("client-b")));
+        assertEquals("Loading, once", listOf(ready(T1, "pending", 1), SpfnStateEntry.Loading), heard.map { SpfnStateShared.entry<GetConsentStateResponseValue, GetConsentStateResponseData>(it) });
+    }
+
+    /**
+     * W-20, subscribe ahead of a change: `Subscribe` for a slot with no cell was queued
+     * before `Subject(B)` when the observer fired. Its first entry is `Loading`, once.
+     */
+    @Test
+    fun w20_subscribeAheadOfChange_firstEntryIsLoading() = runTest()
+    {
+        val (engine, shared) = engine(hydrated = false);
+        val heard = mutableListOf<SpfnStateCell?>();
+        shared.signedIn("client-a");
+        engine.process(SpfnStateEngineInput.Core(SpfnStateInput.Subject("client-a")));
+
+        shared.signedIn("client-b");
+        engine.process(SpfnStateEngineInput.Subscribe(1, CONSENT, SpfnStateSink(deliver = { heard.add(it) }, finish = {})));
+        engine.process(SpfnStateEngineInput.Core(SpfnStateInput.Subject("client-b")));
+        assertEquals(listOf<SpfnStateEntry<GetConsentStateResponseValue, GetConsentStateResponseData>>(SpfnStateEntry.Loading), heard.map { SpfnStateShared.entry<GetConsentStateResponseValue, GetConsentStateResponseData>(it) });
+    }
+
+    /** An engine over a core the client's `initial` hydrates or not, driven input by input as its inbox would. */
+    private fun TestScope.engine(hydrated: Boolean): Pair<SpfnStateEngine, SpfnStateShared>
+    {
+        val stream = FakeStateStream(SpfnEventStreamConfiguration(events = StateFixtureStates.events));
+        val configuration = Wired(this).client.configuration;
+        val core = SpfnStateCore(SpfnStateCore.Configuration(configuration.accesses(stream.configuration), configuration.snapshot, 0, 0), configuration.initial.takeIf { hydrated });
+        val shared = SpfnStateShared();
+        val services = SpfnStateServices(stream, emptyList(), ScriptedExecutor(), { awaitCancellation() }, {}, {}, backgroundScope);
+        return Pair(SpfnStateEngine(core, services, shared, Channel(Channel.UNLIMITED)), shared);
+    }
+
+    /**
      * W-21 (§2-14, D5): the client observes the signed-in id from construction — the id then
      * is the baseline and clears nothing; a wipe right after clears before it returns — and
      * stops when its scope ends.

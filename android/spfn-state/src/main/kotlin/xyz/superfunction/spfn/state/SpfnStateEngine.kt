@@ -115,7 +115,8 @@ internal class SpfnStateEngine(
     {
         when (effect)
         {
-            is SpfnStateEffect.Deliver -> if (current) sinks[effect.subscription]?.deliver?.invoke(effect.cell)
+            // A `Loading` carries no account's value, so it is handed on even while behind.
+            is SpfnStateEffect.Deliver -> if (current || effect.cell == null) sinks[effect.subscription]?.deliver?.invoke(effect.cell)
             is SpfnStateEffect.Finish -> sinks.remove(effect.subscription)?.finish?.invoke()
             is SpfnStateEffect.Publish -> if (current) shared.publish(effect.slot, effect.cell)
             SpfnStateEffect.Clear -> shared.clear()

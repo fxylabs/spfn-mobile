@@ -115,7 +115,8 @@ actor SPFNStateEngine
         switch effect
         {
         case .deliver(let subscription, let cell):
-            if current
+            // A `loading` carries no account's value, so it is handed on even while behind.
+            if current || cell == nil
             {
                 sinks[subscription]?.deliver(cell)
             }
