@@ -16,9 +16,13 @@ final class SPFNStateClientRuntimeTests: XCTestCase
     static let t1 = "2026-10-17T09:00:00.001Z"
     static let t2 = "2026-10-17T09:00:00.002Z"
 
-    func makeClient(_ stream: ScriptedStream, _ executor: ScriptedExecutor, initial: SPFNStateInitial? = nil) throws -> SPFNStateClient
+    func makeClient(
+        _ stream: ScriptedStream,
+        _ executor: ScriptedExecutor,
+        initial: SPFNStateInitial? = nil,
+        lifecycle: SPFNKeyLifecycle = SPFNKeyLifecycle(transport: NoTransport(), store: NoKeyStore(), baseURL: "https://example.test")
+    ) throws -> SPFNStateClient
     {
-        let lifecycle = SPFNKeyLifecycle(transport: NoTransport(), store: NoKeyStore(), baseURL: "https://example.test")
         let events = SPFNEventStream(keyLifecycle: lifecycle, configuration: stream.configuration)
         return try SPFNStateClient(
             configuration: .init(
@@ -96,6 +100,118 @@ final class SPFNStateClientRuntimeTests: XCTestCase
         let next = await statuses.next()
         XCTAssertEqual(next, .connected)
         _ = entries
+    }
+}
+
+extension SPFNStateClientRuntimeTests
+{
+    static let consent = SPFNStateSlot(id: "consent", key: [:])
+
+    static var consentInitial: SPFNStateInitial
+    {
+        SPFNStateInitial(snapshot: try! SPFNStatesSnapshot(canonical: consentSnapshot))
+    }
+
+    /// W-20 (state-client-design.md §2-14, D5): the key lifecycle's observer has moved the
+    /// cache to B while `.subject(B)` still waits in the inbox. `current` answers `loading` at
+    /// once, and an entry the core still makes for A reaches no subscriber and not `current`.
+    func test_w20_observerAhead_previousAccountsEntriesHandedToNobody() async throws
+    {
+        let stream = try ScriptedStream()
+        let configuration = try makeClient(try ScriptedStream(), ScriptedExecutor(answers: []), initial: Self.consentInitial).configuration
+        let core = SPFNStateCore(
+            configuration: .init(states: try configuration.accesses(carriedBy: stream.configuration), snapshot: configuration.snapshot, retryDelayMillis: 0, maxRetries: 0),
+            initial: configuration.initial
+        )
+        let shared = SPFNStateShared()
+        let services = SPFNStateServices(
+            stream: stream, names: [], executor: ScriptedExecutor(answers: []), sleeper: SPFNTaskSleeper(), schedule: { _ in }, onError: { _ in }
+        )
+        let engine = SPFNStateEngine(core: core, services: services, shared: shared, inbox: AsyncStream.makeStream(of: SPFNStateEngineInput.self).continuation)
+        let heard = CellLog()
+        shared.signedIn("client-a")
+        await engine.process(.core(.subject(clientID: "client-a")))
+        await engine.process(.subscribe(1, Self.consent, SPFNStateSink(deliver: { heard.add($0) }, finish: {})))
+        await engine.process(.core(.wire(.opened(SPFNStreamConnected(epoch: 1, query: [:], subscribedEvents: StateFixtureStates.events, deniedEvents: [], initial: StateFixtureStates.events, clientID: "client-a")))))
+        XCTAssertEqual(heard.cells, ["ready(\(Self.t1), \"pending\", {\"marketing\":false,\"version\":1})"])
+
+        shared.signedIn("client-b")
+        XCTAssertNil(shared.cell(Self.consent), "current answers loading as soon as the store holds B")
+        let frame = try SPFNCanonicalJSON.parse("{\"at\":\"\(Self.t2)\",\"value\":\"agreed\",\"data\":{\"marketing\":true,\"version\":1}}")
+        await engine.process(.core(.wire(.frame(name: "state.consent.changed", value: frame))))
+        XCTAssertEqual(heard.cells.count, 1, "A's frame, applied by a core still behind, reaches no subscriber")
+        XCTAssertNil(shared.cell(Self.consent), "nor current")
+
+        await engine.process(.core(.subject(clientID: "client-b")))
+        XCTAssertEqual(heard.cells.last, "loading", "the core caught up: the subscription is told loading")
+        XCTAssertNil(shared.cell(Self.consent))
+    }
+
+    /// W-21 (§2-14, D5): the client observes the signed-in id from construction — the id then
+    /// is the baseline and clears nothing; a wipe right after clears before it returns — and
+    /// stops when the app lets go of it.
+    func test_w21_client_observesSignedInFromConstructionUntilReleased() async throws
+    {
+        let lifecycle = SPFNKeyLifecycle(transport: NoTransport(), store: HeldKeyStore("client-a"), baseURL: "https://example.test")
+        let client = try makeClient(try ScriptedStream(), ScriptedExecutor(answers: []), initial: Self.consentInitial, lifecycle: lifecycle)
+        XCTAssertEqual(client.current(StateFixtureStates.consent).value, .pending, "the id at construction is the baseline")
+        try await lifecycle.wipe()
+        XCTAssertEqual(client.current(StateFixtureStates.consent).status, .loading, "observed since construction, cleared inside wipe()")
+
+        let other = SPFNKeyLifecycle(transport: NoTransport(), store: HeldKeyStore("client-a"), baseURL: "https://example.test")
+        var released: SPFNStateClient? = try makeClient(try ScriptedStream(), ScriptedExecutor(answers: []), initial: Self.consentInitial, lifecycle: other)
+        let shared = try XCTUnwrap(released?.shared)
+        released = nil
+        try await other.wipe()
+        XCTAssertEqual(shared.epoch, 0, "a released client's observer is gone")
+        XCTAssertNotNil(shared.cell(Self.consent))
+    }
+}
+
+/// What a sink was handed, as `describe` prints it.
+final class CellLog: @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var heard: [String] = []
+
+    var cells: [String]
+    {
+        lock.withLock { heard }
+    }
+
+    func add(_ cell: SPFNStateCell?)
+    {
+        lock.withLock { heard.append(describe(cell)) }
+    }
+}
+
+/// One active key for `clientID`, until a wipe deletes it.
+final class HeldKeyStore: SPFNKeyStore, @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var active: SPFNStoredKey?
+
+    init(_ clientID: String)
+    {
+        active = SPFNStoredKey(keyID: "key-test-0001", clientID: clientID, custody: .softwareKeychain, createdAtMillis: 0, keyBlob: [])
+    }
+
+    func load(slot: String) throws -> SPFNStoredKey?
+    {
+        lock.withLock { slot == SPFNKeyLifecycle.activeSlot ? active : nil }
+    }
+
+    func save(_ record: SPFNStoredKey, slot: String) throws {}
+
+    func delete(slot: String) throws
+    {
+        lock.withLock
+        {
+            if slot == SPFNKeyLifecycle.activeSlot
+            {
+                active = nil
+            }
+        }
     }
 }
 

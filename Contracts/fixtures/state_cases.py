@@ -18,6 +18,13 @@ SpfnStateCore) through the same small interpreter:
   `entries`, `connection`, `connections`, `calls`, `timers`, `dropped` and
   `connectionWatch` are checked when present.
 
+The W-cells (the signed-in boundary, state-client-design.md §2-14) do not come from the
+README: the web client never outlives a sign-in. Their expected values are written by hand
+from issue #104 and the decisions D1 … D6 of §2-14, and each carries that source as `source`
+instead of `readme`. They use two steps the README's cells never need: `subject`, the key
+lifecycle's signed-in client id (`clientID`, null for none), and `opened` with the `clientID`
+its connection was made for. A case that never gives `subject` runs as before it existed.
+
 After every step the interpreter runs the flush the step asked for, so each step is its own
 turn. The cells whose point is time, turns or cancellation are platform tests instead
 (state-client-design.md §4, "픽스처" column).
@@ -61,8 +68,11 @@ def subscribe(sub, state, key=None):
     return {"op": "subscribe", "sub": sub, "state": state, "key": key or {}}
 
 
-def opened(epoch, query=None, initial=ALL, denied=()):
-    return {"op": "opened", "epoch": epoch, "query": query or {}, "initial": initial, "denied": list(denied)}
+def opened(epoch, query=None, initial=ALL, denied=(), client=None):
+    step = {"op": "opened", "epoch": epoch, "query": query or {}, "initial": initial, "denied": list(denied)}
+    if client is not None:
+        step["clientID"] = client
+    return step
 
 
 def frame(state, at, value, key=None, data=None):
@@ -104,6 +114,22 @@ def opened_consent(epoch=1):
 
 
 CONSENT_A = initial({"consent": {"value": "A"}})
+
+CA = "client-a"
+CB = "client-b"
+
+
+def subject(client):
+    return {"op": "subject", "clientID": client}
+
+
+def signed_in_consent(client=CA, epoch=1):
+    """Signed in as `client`, consent subscribed as s1, connection `epoch` opened for it."""
+    return [subject(client), subscribe("s1", "consent"), stream({"open": epoch}), opened(epoch, client=client)]
+
+
+REFUSED = {"rejected": "signedInChanged"}
+ISSUE_104 = "issue #104; state-client-design.md §2-14"
 
 CASES = [
     # ---- O: ordering --------------------------------------------------------------------
@@ -530,4 +556,116 @@ CASES = [
      "initial": initial(manifest=dict(MANIFEST, consent={"key": [], "write": False})),
      "arrival": [{"op": "write", "call": "c1", "state": "consent", "input": {"choice": "B"}}],
      "after": {"calls": {"c1": {"rejected": {"readOnly": "consent"}}}}},
+
+    # ---- W: the signed-in boundary (issue #104, §2-14 — not the README) ---------------
+    {"id": "W-1", "name": "w1_firstSubject_isBaseline_clearsNothing",
+     "source": ISSUE_104 + " D1: the first signed-in value is the baseline; nothing is cleared",
+     "initial": CONSENT_A, "before": [subscribe("s1", "consent")],
+     "arrival": [subject(CA)],
+     "after": {"entries": [{"state": "consent", "entry": ready(T1, "A")}], "connections": []}},
+    {"id": "W-2", "name": "w2_signedOut_subscriptionIsLoading",
+     "source": ISSUE_104 + " D1, D2, D6: sign-out clears every cell; open subscriptions get loading; reconnecting 0",
+     "initial": CONSENT_A, "before": signed_in_consent(),
+     "arrival": [subject(None)],
+     "after": {"deliveries": {"s1": ["loading"]}, "entries": [{"state": "consent", "entry": "loading"}],
+               "connection": {"reconnecting": 0}, "connections": [{"reconnecting": 0}]}},
+    {"id": "W-3", "name": "w3_signedOutWhileRevoked_markIsGone",
+     "source": ISSUE_104 + " D2: the revoked mark goes with the value; the next account's read is ready",
+     "initial": CONSENT_A, "before": signed_in_consent() + [{"op": "revoked", "state": "consent"}],
+     "arrival": [subject(None), subject(CB), stream({"open": 2}), opened(2, client=CB),
+                 {"op": "get", "call": "g1", "state": "consent"}, answer("read", read(T2, "B"))],
+     "after": {"deliveries": {"s1": ["loading", ready(T2, "B")]}, "entries": [{"state": "consent", "entry": ready(T2, "B")}],
+               "requests": [{"read": {"state": "consent", "key": {}}}], "calls": {"g1": {"frame": {"at": T2, "value": "B"}}},
+               "connections": [{"reconnecting": 0}, "connected"]}},
+    {"id": "W-4", "name": "w4_signedInChanged_subscribeIsLoading",
+     "source": ISSUE_104 + " (Steps): after sign-out and another sign-in, subscribing the same state is loading first",
+     "initial": CONSENT_A, "before": signed_in_consent() + [subject(None)],
+     "arrival": [subject(CB), subscribe("s2", "consent")],
+     "after": {"deliveries": {"s2": ["loading"]}, "entries": [{"state": "consent", "entry": "loading"}]}},
+    {"id": "W-5", "name": "w5_directSwitch_subscriptionIsLoading",
+     "source": ISSUE_104 + " D1: another id without nil between clears too (E-43 never passes idle)",
+     "initial": CONSENT_A, "before": signed_in_consent(),
+     "arrival": [subject(CB)],
+     "after": {"deliveries": {"s1": ["loading"]}, "entries": [{"state": "consent", "entry": "loading"}],
+               "connection": {"reconnecting": 0}, "connections": [{"reconnecting": 0}]}},
+    {"id": "W-6", "name": "w6_frameBeforeNewConnection_isDropped",
+     "source": ISSUE_104 + " D4: frames are dropped until an opened of the new id's connection",
+     "initial": CONSENT_A, "before": signed_in_consent() + [subject(CB)],
+     "arrival": [frame("consent", T2, "A")],
+     "after": {"entries": [{"state": "consent", "entry": "loading"}]}},
+    {"id": "W-7", "name": "w7_openedForPreviousAccount_isDropped",
+     "source": ISSUE_104 + " D4, D6: an opened whose clientID is the previous account's opens nothing and reads nothing",
+     "initial": CONSENT_A, "before": signed_in_consent() + [subject(CB)],
+     "arrival": [stream({"open": 2}), opened(2, initial=None, client=CA), frame("consent", T2, "A")],
+     "after": {"entries": [{"state": "consent", "entry": "loading"}], "connection": {"reconnecting": 0}, "connections": []}},
+    {"id": "W-8", "name": "w8_openedForNewAccount_acceptsItsFrames",
+     "source": ISSUE_104 + " D4, D6: the new id's opened is taken as today (C-26 … C-28); then connected",
+     "initial": CONSENT_A, "before": signed_in_consent() + [subject(CB)],
+     "arrival": [stream({"open": 2}), opened(2, client=CB), frame("consent", T2, "B")],
+     "after": {"deliveries": {"s1": [ready(T2, "B")]}, "entries": [{"state": "consent", "entry": ready(T2, "B")}],
+               "connection": "connected", "connections": ["connected"]}},
+    {"id": "W-9", "name": "w9_snapshotOfPreviousAccount_isNotApplied",
+     "source": ISSUE_104 + " D3: an automatic read sent for the previous account applies nothing and reports nothing",
+     "initial": CONSENT_A,
+     "before": [subject(CA), subscribe("s1", "consent"), stream({"open": 1}), opened(1, initial=None, client=CA)],
+     "arrivals": [[subject(CB), answer("snapshot", snapshot({"consent": {"value": "A"}}))],
+                  [subject(CB), fail("snapshot")]],
+     "after": {"deliveries": {"s1": ["loading"]}, "entries": [{"state": "consent", "entry": "loading"}]}},
+    {"id": "W-10", "name": "w10_shadowReadOfPreviousAccount_isNotApplied",
+     "source": ISSUE_104 + " D3: a shadow read sent for the previous account applies nothing",
+     "initial": initial(),
+     "before": [subject(CA), subscribe("s1", "runtime", WB), subscribe("s2", "runtime", WA), stream({"open": 1}),
+                opened(1, WA, client=CA)],
+     "arrivals": [[subject(CB), answer("read", read(T2, "X"))],
+                  [subject(CB), fail("read")]],
+     "after": {"entries": [{"state": "runtime", "key": WB, "entry": "loading"}]}},
+    {"id": "W-11", "name": "w11_getInFlight_refusedSignedInChanged",
+     "source": ISSUE_104 + " D3: an app get in flight is refused signedInChanged; its answer is not applied",
+     "initial": CONSENT_A, "before": signed_in_consent() + [{"op": "get", "call": "g1", "state": "consent"}],
+     "arrival": [subject(CB), answer("read", read(T2, "A"))],
+     "after": {"calls": {"g1": REFUSED}, "deliveries": {"s1": ["loading"]}, "entries": [{"state": "consent", "entry": "loading"}]}},
+    {"id": "W-12", "name": "w12_writeInFlight_refusedSignedInChanged",
+     "source": ISSUE_104 + " D3: an app write in flight is refused signedInChanged; its answer is not applied",
+     "initial": CONSENT_A,
+     "before": signed_in_consent() + [{"op": "write", "call": "c1", "state": "consent", "input": {"choice": "B"}}],
+     "arrival": [subject(CB), answer("write", read(T2, "B"))],
+     "after": {"calls": {"c1": REFUSED}, "deliveries": {"s1": ["loading"]}, "entries": [{"state": "consent", "entry": "loading"}]}},
+    {"id": "W-13", "name": "w13_getWaitingOnManifest_refusedAtOnce",
+     "source": ISSUE_104 + " D3: a call waiting on the manifest is refused at once and never sent",
+     "before": [subject(CA), {"op": "get", "call": "g1", "state": "consent"}],
+     "arrival": [subject(CB), answer("snapshot", snapshot({}, at=T1))],
+     "after": {"calls": {"g1": REFUSED}}},
+    {"id": "W-14", "name": "w14_snapshotCallInFlight_refusedSignedInChanged",
+     "source": ISSUE_104 + " D3: an app snapshot() in flight is refused signedInChanged; its answer is not applied",
+     "initial": CONSENT_A, "before": signed_in_consent() + [{"op": "snapshotCall", "call": "n1"}],
+     "arrival": [subject(CB), answer("snapshot", snapshot({"consent": {"value": "A"}}))],
+     "after": {"calls": {"n1": REFUSED}, "deliveries": {"s1": ["loading"]}, "entries": [{"state": "consent", "entry": "loading"}]}},
+    {"id": "W-15", "name": "w15_newAccountsOlderAt_isApplied",
+     "source": ISSUE_104 + " D2: the ordering stamps go too, so the next account's older `at` is applied",
+     "initial": initial({"consent": {"value": "A"}}, at=T3),
+     "before": signed_in_consent() + [subject(CB), stream({"open": 2}), opened(2, client=CB)],
+     "arrival": [frame("consent", T2, "B")],
+     "after": {"deliveries": {"s1": [ready(T2, "B")]}, "entries": [{"state": "consent", "entry": ready(T2, "B")}]}},
+    {"id": "W-16", "name": "w16_grantOrRevokeBeforeNewConnection_isDropped",
+     "source": ISSUE_104 + " D4: grant and revoke signals are dropped until an opened of the new id's connection",
+     "initial": CONSENT_A, "before": signed_in_consent() + [subject(CB)],
+     "arrivals": [[{"op": "revoked", "state": "consent"}], [{"op": "granted", "state": "consent"}]],
+     "after": {"entries": [{"state": "consent", "entry": "loading"}]}},
+    {"id": "W-17", "name": "w17_sameSubjectAgain_changesNothing",
+     "source": ISSUE_104 + " D1: a rotation keeps the client id and clears nothing",
+     "initial": CONSENT_A, "before": signed_in_consent(),
+     "arrival": [subject(CA), frame("consent", T2, "B")],
+     "after": {"deliveries": {"s1": [ready(T2, "B")]}, "entries": [{"state": "consent", "entry": ready(T2, "B")}],
+               "connections": []}},
+    {"id": "W-18", "name": "w18_closedClient_stillClears",
+     "source": ISSUE_104 + " D1, D2: a closed client (C-19) keeps its entries, and a change clears them",
+     "initial": CONSENT_A, "before": signed_in_consent() + [{"op": "close"}],
+     "arrival": [subject(None), subscribe("s2", "consent")],
+     "after": {"deliveries": {"s2": ["loading"]}, "entries": [{"state": "consent", "entry": "loading"}]}},
+    {"id": "W-19", "name": "w19_getAfterChange_usesKeptManifest",
+     "source": ISSUE_104 + " D2: the manifest is server-wide and kept; a get after the change reads no snapshot",
+     "initial": CONSENT_A, "before": signed_in_consent() + [subject(CB)],
+     "arrival": [{"op": "get", "call": "g1", "state": "consent"}, answer("read", read(T2, "B"))],
+     "after": {"requests": [{"read": {"state": "consent", "key": {}}}], "calls": {"g1": {"frame": {"at": T2, "value": "B"}}},
+               "deliveries": {"s1": [ready(T2, "B")]}, "entries": [{"state": "consent", "entry": ready(T2, "B")}]}},
 ]

@@ -22,8 +22,12 @@
 
 package xyz.superfunction.spfn.state
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +41,8 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -45,6 +51,7 @@ import xyz.superfunction.spfn.client.SpfnEventStream
 import xyz.superfunction.spfn.client.SpfnEventStreamConfiguration
 import xyz.superfunction.spfn.client.SpfnEventStreamState
 import xyz.superfunction.spfn.client.SpfnIdleReason
+import xyz.superfunction.spfn.client.SpfnKeyCustody
 import xyz.superfunction.spfn.client.SpfnKeyLifecycle
 import xyz.superfunction.spfn.client.SpfnKeyMetadataStore
 import xyz.superfunction.spfn.client.SpfnKeystoreEngine
@@ -137,15 +144,81 @@ class SpfnStateClientRuntimeTest
         assertTrue(missing.message.orEmpty().contains("state.aiAccounts.changed"));
     }
 
+    /**
+     * W-20 (state-client-design.md §2-14, D5): the key lifecycle's observer has moved the
+     * cache to B while `Subject(B)` still waits in the inbox. `current` answers `Loading` at
+     * once, and an entry the core still makes for A reaches no subscriber and not `current`.
+     */
+    @Test
+    fun w20_observerAhead_previousAccountsEntriesHandedToNobody() = runTest()
+    {
+        val wired = Wired(this);
+        val stream = FakeStateStream(SpfnEventStreamConfiguration(events = StateFixtureStates.events));
+        val configuration = wired.client.configuration;
+        val core = SpfnStateCore(
+            SpfnStateCore.Configuration(configuration.accesses(stream.configuration), configuration.snapshot, 0, 0),
+            configuration.initial
+        );
+        val shared = SpfnStateShared();
+        val services = SpfnStateServices(stream, emptyList(), ScriptedExecutor(), { awaitCancellation() }, {}, {}, backgroundScope);
+        val engine = SpfnStateEngine(core, services, shared, Channel(Channel.UNLIMITED));
+        val heard = mutableListOf<SpfnStateCell?>();
+        shared.signedIn("client-a");
+        engine.process(SpfnStateEngineInput.Core(SpfnStateInput.Subject("client-a")));
+        engine.process(SpfnStateEngineInput.Subscribe(1, CONSENT, SpfnStateSink(deliver = { heard.add(it) }, finish = {})));
+        val opened = SpfnStreamConnected(1, emptyMap(), StateFixtureStates.events, emptyList(), StateFixtureStates.events, "client-a");
+        engine.process(SpfnStateEngineInput.Core(SpfnStateInput.Wire(SpfnWireSignal.Opened(opened))));
+        assertEquals(listOf(ready(T1, "pending", 1)), heard.map { SpfnStateShared.entry<GetConsentStateResponseValue, GetConsentStateResponseData>(it) });
+
+        shared.signedIn("client-b");
+        assertNull("current answers Loading as soon as the store holds B", shared.cell(CONSENT));
+        engine.process(SpfnStateEngineInput.Core(SpfnStateInput.Wire(SpfnWireSignal.Frame("state.consent.changed", consent(T2, "agreed", 2)))));
+        assertEquals("A's frame, applied by a core still behind, reaches no subscriber", 1, heard.size);
+        assertNull("nor current", shared.cell(CONSENT));
+
+        engine.process(SpfnStateEngineInput.Core(SpfnStateInput.Subject("client-b")));
+        assertEquals("the core caught up: the subscription is told Loading", listOf(ready(T1, "pending", 1), SpfnStateEntry.Loading), heard.map { SpfnStateShared.entry<GetConsentStateResponseValue, GetConsentStateResponseData>(it) });
+        assertNull(shared.cell(CONSENT));
+    }
+
+    /**
+     * W-21 (§2-14, D5): the client observes the signed-in id from construction — the id then
+     * is the baseline and clears nothing; a wipe right after clears before it returns — and
+     * stops when its scope ends.
+     */
+    @Test
+    fun w21_client_observesSignedInFromConstructionUntilReleased() = runTest()
+    {
+        val lifecycle = signedInLifecycle("client-a");
+        val wired = Wired(this, lifecycle);
+        assertEquals("the id at construction is the baseline", ready(T1, "pending", 1), wired.client.current(StateFixtureStates.consent));
+        lifecycle.wipe();
+        assertEquals("observed since construction, cleared inside wipe()", SpfnStateEntry.Loading, wired.client.current(StateFixtureStates.consent));
+
+        val other = signedInLifecycle("client-a");
+        val scope = CoroutineScope(backgroundScope.coroutineContext + Job());
+        val shared = Wired(this, other, scope).client.shared;
+        runCurrent();
+        scope.cancel();
+        runCurrent();
+        other.wipe();
+        assertEquals("a released client's observer is gone", 0, shared.epoch);
+        assertNotNull(shared.cell(CONSENT));
+    }
+
     /** One client over a scripted stream and `execute`, started from a snapshot with `consent`. */
-    private class Wired(private val test: TestScope)
+    private class Wired(
+        private val test: TestScope,
+        lifecycle: SpfnKeyLifecycle = signedOutLifecycle(),
+        private val scope: CoroutineScope = test.backgroundScope
+    )
     {
         val stream = FakeStateStream(SpfnEventStreamConfiguration(events = StateFixtureStates.events));
         val executor = ScriptedExecutor();
         val errors = mutableListOf<Throwable>();
         private val configuration = SpfnStateClientConfiguration(
             stream = SpfnEventStream(signedOutLifecycle(), SpfnEventStreamConfiguration(events = StateFixtureStates.events), scope = test.backgroundScope),
-            keyLifecycle = signedOutLifecycle(),
+            keyLifecycle = lifecycle,
             states = StateFixtureStates.all,
             snapshot = StateFixtureStates.snapshot,
             onError = { errors.add(it) },
@@ -154,7 +227,7 @@ class SpfnStateClientRuntimeTest
         val client = client(stream);
 
         fun client(on: SpfnStateStream): SpfnStateClient =
-            SpfnStateClient(configuration, test.backgroundScope, on, executor, { awaitCancellation() }, { work -> test.backgroundScope.launch { work() } });
+            SpfnStateClient(configuration, scope, on, executor, { awaitCancellation() }, { work -> scope.launch { work() } });
 
         /** Connection 1 opens and serves every state in its initial frames. */
         fun open()
@@ -224,6 +297,7 @@ class SpfnStateClientRuntimeTest
     {
         const val T1 = "2026-10-17T09:00:00.001Z";
         const val T2 = "2026-10-17T09:00:00.002Z";
+        val CONSENT = SpfnStateSlot("consent", emptyMap());
 
         fun ready(at: String, value: String, version: Long): SpfnStateEntry<GetConsentStateResponseValue, GetConsentStateResponseData> =
             SpfnStateEntry.Ready(SpfnStateFrame(at, GetConsentStateResponseValue.of(value), GetConsentStateResponseData(marketing = version > 1, version = version)));
@@ -252,19 +326,30 @@ class SpfnStateClientRuntimeTest
             );
 
         /** Nobody signed in, nothing reachable: the configuration's stream is never put in the foreground. */
-        fun signedOutLifecycle(): SpfnKeyLifecycle = SpfnKeyLifecycle(
+        fun signedOutLifecycle(): SpfnKeyLifecycle = lifecycle(null);
+
+        /** One active key for [clientId], until a wipe deletes it; nothing reachable. */
+        fun signedInLifecycle(clientId: String): SpfnKeyLifecycle = lifecycle(clientId);
+
+        private fun lifecycle(clientId: String?): SpfnKeyLifecycle = SpfnKeyLifecycle(
             transport = object : SpfnTransport
             {
                 override suspend fun execute(request: SpfnTransportRequest): SpfnTransportResponse = error("not in this suite");
             },
             store = object : SpfnKeyMetadataStore
             {
-                override fun load(slot: String): SpfnStoredKeyMetadata? = null;
+                private var active = clientId?.let { SpfnStoredKeyMetadata("key-test-0001", it, SpfnKeyCustody.TRUSTED_ENVIRONMENT, 0, "alias-test-0001") };
+
+                override fun load(slot: String): SpfnStoredKeyMetadata? = if (slot == SpfnKeyLifecycle.ACTIVE_SLOT) active else null;
 
                 override fun save(slot: String, metadata: SpfnStoredKeyMetadata) = error("not in this suite");
 
                 override fun delete(slot: String)
                 {
+                    if (slot == SpfnKeyLifecycle.ACTIVE_SLOT)
+                    {
+                        active = null;
+                    }
                 }
             },
             engine = object : SpfnKeystoreEngine
