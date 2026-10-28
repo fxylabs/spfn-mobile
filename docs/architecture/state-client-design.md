@@ -25,6 +25,7 @@
 | `initial` | 이미 읽은 스냅샷(`snapshot()`의 답, 또는 테스트 픽스처)으로 만든다. 매니페스트와 값이 생성 시각에 들어가고, `revoked`는 표시하지 않는다 (§2-10) | 제안 | `c6216b0` |
 | API | 두 언어 같은 이름. `subscribe`·`current`·`get`·`write`·`snapshot`·`connection`·`subscribeConnection`·`retry`·`close`. 항목은 `loading · ready(frame) · revoked(frame?)` — Swift 연관값 enum, Kotlin sealed. 멤버가 받는 서술은 앱이 쓰지 않는다: 생성된 `AppStates.<id>`다 (§2-11, §2-13) | 제안 | `c6216b0` |
 | 상태 서술 (Q-G) | **앱 계약 코드젠이 생성한다.** 선택에 `getStates`가 있으면, 그 파생 응답 스키마의 `states`가 상태 id를 대고, id마다 `get<Id>State`(필수)·`put<Id>State`(있으면)를 이름과 모양으로 확인한다. 출력: `AppStates.<id>` (`SPFNStateDescriptor`/`SpfnStateDescriptor`, 쓰기가 있으면 쓰기 서술), `AppStates.all`, `AppStates.events` (`state.<id>.changed`), `AppStates.snapshot`. `keyFields`는 읽기 연산의 쿼리에서 온다. 앱은 상태마다 아무것도 쓰지 않는다 (§2-13-2, §2-13-4) | **결정** (운영자, 2026-10-17) | `67e956b` — `writable(write:)`, 아래 §2-13-2 주 |
+| 로그인 경계 (이슈 #104) | 경계는 **로그인한 클라이언트 id**. 바뀌면(로그아웃·다른 계정) 값·표시·도장·grant·동기 캐시를 지우고, 앞 id의 호출은 `signedInChanged`로 거부하고, 새 id의 연결이 열릴 때까지 원선을 믿지 않고 `reconnecting(0)`. 키 라이프사이클의 **동기** 관찰자가 저장소를 쓰는 호출 안에서 캐시를 먼저 비운다 (§2-14) | **결정** (운영자, D1–D6) | 이 PR |
 | 관찰 어댑터 (Q-F) | **SDK가 `events` 모듈에 둔다** — `@spfn/core/state/react`의 짝. Swift `@SPFNServerState`·`@SPFNConnectionStatus` (`@Observable` 모델 `SPFNServerStateModel`), Kotlin `rememberServerState`·`rememberConnectionStatus`. 루트 부착이 상태 클라이언트를 함께 받는다. 현재 값 먼저, 메인 액터, 뷰가 떠나면 해지. `state` 모듈은 툴킷 없는 그대로이고, 그래프에 간선 `events → state` 하나가 는다 (§2-12, §7) | **결정** (운영자, 2026-10-17) | `6ad788a` |
 
 ## 1. 맥락과 요구
@@ -225,10 +226,11 @@ Superself 앱의 루트는 서버가 가진 사실 몇 개로 갈 곳을 정한�
 | 조건 | 연결 상태 | 까닭 |
 |---|---|---|
 | 구독 없음 | `reconnecting(0)` | 원본: "nothing subscribed", "The last unsubscribe … 'reconnecting' 0, the start value". 스트림은 SDK 수명으로 열려 있을 수 있다 (§2-2) |
+| 로그인한 클라이언트 id가 바뀌었고, 새 id의 연결이 아직 열리지 않았다 (그 `opened`가 오지 않았다) | `reconnecting(0)` | §2-14 D6. 계정 전환(E-43)은 `idle`을 지나지 않으므로 스트림 상태만으로는 알 수 없다. 앞 계정의 연결이 늦게 연 `open`도 `connected`로 만들지 않는다 |
 | 매니페스트를 모르고, 첫 스냅샷이 `maxRetries`를 다 썼다 | `failed` | 원본 그대로 |
 | 매니페스트를 모른다 (첫 스냅샷을 읽거나 재시도 중) | `reconnecting(0)` | 원본 그대로 |
 | 스트림 `open(e, …)` | `connected` | `onOpen`의 짝. 네이티브는 `connected` 프레임에서 열린다 |
-| 스트림 `connecting(n)` | **앞의 값 그대로.** 앞이 `failed`면 `reconnecting(0)` | 열린 연결에서 `connecting`으로 바로 가는 것은 쿼리 재연결(S-1)과 계정 전환(E-43)뿐이다. 원본: "a reopen on a key change while connected stays 'connected'." `failed`에서 오는 것은 재시작이다: "The status is 'reconnecting' 0 until it opens" |
+| 스트림 `connecting(n)` | **앞의 값 그대로.** 앞이 `failed`면 `reconnecting(0)` | 열린 연결에서 `connecting`으로 바로 가는 것은 쿼리 재연결(S-1)과 계정 전환(E-43)뿐이다. 쿼리 재연결은 `connected`를 지킨다. 원본: "a reopen on a key change while connected stays 'connected'." 계정 전환은 지키지 않는다: 로그인 값이 바뀐 순간 위의 행이 이미 `reconnecting(0)`으로 만들었고, `connecting`은 그 값을 그대로 둔다 (§2-14 D6, 개정 전에는 E-43 내내 `connected`였다). `failed`에서 오는 것은 재시작이다: "The status is 'reconnecting' 0 until it opens" |
 | 스트림 `retrying(n, …)` | `reconnecting(n)` | `onReconnect(attempt)`의 짝 |
 | 스트림 `offline(n)` | `reconnecting(n)` (n ≥ 1) | 아래 |
 | 스트림 `idle(_)` | `reconnecting(0)` | 연결할 조건이 아니다 (뒤쪽, 로그아웃). "not yet"이다 |
@@ -493,6 +495,21 @@ Q-F와 Q-G를 뒤집은 근거가 이 표다 (운영자, 2026-10-17). 웹 줄은
 
 뒤집기 전에는 여기에 상태마다 서술 다섯 줄(Q-G), 이름 목록에 상태마다 한 줄, 스냅샷 감싸기 한 줄, 그리고 앱이 만드는 `@Observable` 모델·`@Composable` 훅(Q-F)이 더 있었다.
 
+### 2-14. 로그인 경계 (결정, 운영자 2026-10-28, 이슈 #104)
+
+웹 클라이언트는 로그인 하나보다 오래 살지 않는다 — 로그인이 바뀌면 페이지가 다시 그려진다. 네이티브 앱은 상태 클라이언트 **하나**를 프로세스 내내 들고, 호출마다 그 순간 로그인한 키로 서명한다 (§2-3). 그래서 앞 계정이 받은 값이 저장소에 남았다: 스트림 `idle(_)`은 연결 상태만 `reconnecting(0)`으로 만들고 (§2-9), `revoked` 표시는 값을 두고 (§2-8), 계정 전환(E-43)은 `idle`을 지나지도 않는다. 스냅샷 답은 `close()`만 움직이는 `lifetime`으로만 걸렀고, `get`·`write`의 답은 꼬리표 없이 적용됐다. 다음 계정의 첫 `subscribe`가 앞 계정의 항목을 먼저 받았다 (이슈 #104). README에는 이 경계가 없다 — 아래 결정과 W-셀(§3-7)은 이슈와 운영자의 결정에서 왔고, 원본 문장에서 오지 않았다.
+
+| # | 결정 |
+|---|---|
+| D1 | 경계는 로그인한 **클라이언트 id**다. 그것이 바뀌면 (`nil`로, 또는 다른 id로) 지운다. 회전은 id를 지키므로 아무것도 지우지 않는다 (E-41) |
+| D2 | 바뀌면 지우는 것: 모든 칸의 값, `revoked` 표시, 순서 도장, grant, 동기 읽기 캐시. 두는 것: 매니페스트 (서버 전체에 하나, 계정마다 같다), 이름마다 한 번의 `unavailable` 기억, 열린 구독. 항목이 있던 구독은 `loading`을 한 번 받고 (`nil` 칸) 열린 채 남는다. 이미 `loading`인 구독은 같은 값을 다시 받지 않는다 (C-23과 같은 규칙) |
+| D3 | 앞 id로 낸 호출은 새 오류로 거부한다: Swift `SPFNStateClientError.signedInChanged`, Kotlin `SpfnStateClientError.SignedInChanged`. 진행 중인 앱의 `get`·`write`·`snapshot`과 매니페스트를 기다리는 호출이다. 그 답은 저장소에 적용하지 않는다. 오류의 문서 주석이 말한다: 거부된 `write`는 서버에 이미 적용됐을 수 있다 |
+| D4 | 바뀐 뒤에는 원선 프레임과 grant·revoke 신호 (그리고 `overflow`)를 버린다 — 새 id의 연결에 속한 `opened`가 올 때까지. `SPFNStreamConnected.clientID` / `SpfnStreamConnected.clientId` (기본 nil, 옛 생성이 그대로 컴파일된다)는 기계가 그 연결의 `connected` 값을 만들 때의 클라이언트 id다. 전환(E-43)은 새 세대를 시작하므로 앞 연결의 `connected`가 새 id를 실을 수 없다 |
+| D5 | 키 라이프사이클이 **동기** 로그인 관찰자를 얻는다: 저장소를 쓰는 호출 안에서, 그 호출이 돌아가기 전에, 저장된 클라이언트 id가 바뀔 때마다 한 번. Swift `SPFNKeyLifecycle.observeSignedIn(_:)` (`nonisolated package`, 저장소에서 초기화하고 쓰는 길마다 맞추는, 락으로 지킨 거울), Kotlin `SpfnKeyLifecycle.observeSignedIn` (옵트인 `@SpfnSignedInObserverAccess`, Java에서 감추는 `@JvmSynthetic`, P15). 등록하는 순간 관찰자는 현재 값을 같은 락 안에서 받는다 — 그것이 기준이고, 등록과 기준 사이에 바뀜이 끼지 못한다. 상태 클라이언트는 생성할 때 등록하고 놓일 때 뗀다 (Swift `deinit`, Kotlin 스코프 끝). 관찰자는 부른 스레드에서 (1) 동기 읽기 캐시의 epoch를 올리고 캐시를 비운 뒤 (2) `subject(id)`를 엔진 수신함에 넣는다. 엔진은 코어의 epoch가 캐시의 epoch와 같을 때만 `deliver`·`publish`를 구독자와 캐시에 넘기고, 다를 때 풀리는 앱 호출은 `signedInChanged`로 바꾼다. 그래서 저장소가 쓰인 순간부터 앞 id의 값은 넘겨지지도 읽히지도 않는다. 관찰자는 캐시와 수신함만 잡고 클라이언트를 잡지 않는다. 비동기 `signedInClientIDs`·`StateFlow` 수집은 쓰지 않는다 (이벤트 모듈의 `SPFNEventStreamAttachment`는 그대로 그것을 쓴다) |
+| D6 | 바뀌면 연결 상태는 `reconnecting(0)`이고, 새 id의 연결이 열릴 때 (그 `opened`)까지 그대로다. §2-9 표의 `connecting(n)` 행이 이것으로 바뀌었다 |
+
+코어의 모양. 주체(subject)는 "모름"이거나 알려진 id (또는 `nil`)다. 첫 값은 기준이고 아무것도 지우지 않는다 (W-1). 같은 값은 아무 일도 아니다 (W-17). 다른 값이면 epoch를 올리고 위의 D2·D3·D6을 한다. 진행 중인 요청은 그 순간 **모두 잊는다**: 늦게 온 답은 주인이 없어 적용되지 않고 (W-9, W-10), 앱 호출은 그때 한 번 거부된다 — 나중의 답이 두 번 풀 수 없다 (W-11–W-14). 첫 스냅샷이 진행 중이었으면 그것도 잊고, 기다리던 구독은 새 주체로 한 번 다시 읽는다. 원선은 알려진 주체의 `opened`가 와야 믿는다 — 기준을 받은 뒤에도 같다. 부착할 때 다시 받은 `opened`가 다른 계정의 연결이면 받지 않는다. 주체를 모르는 동안 (기준이 오기 전, 그리고 공유 픽스처의 옛 행 전부) 코어는 이 절 이전과 똑같이 돈다. 앱에서는 기준이 수신함의 첫 입력이다: 생성자가 원선을 붙이기 전에 등록한다.
+
 ## 3. 경우의 수 표
 
 표기: 칸 = `(id, key)`. **s** 순서 도장, **E** 항목 (`ready(at, v)`, `revoked(at, v)`, `revoked(nil)`, `loading`), **g** 세대(스트림 epoch), **r(g)** g가 붙인 `revoked` 표시, **Q** 연결 쿼리, **W** 구독 중인 칸. `t1 < t2 < t3`은 `at` 문자열의 순서. "알림"은 그 칸의 구독 열이 새 항목을 낸다는 뜻이다.
@@ -627,6 +644,38 @@ Hook = "`useServerState(client, id, key?)`", Conn = "`useConnectionStatus(client
 
 셀 수: O 16, K 13, R 16, C 28, I 12 = **85**. 모두 툴킷 없는 단위 테스트다. 가짜 스트림(원선 신호를 손으로 밀어 넣는다)과 가짜 `execute`로 돈다. 실제 서버가 필요한 것은 §5-3의 U-셀이다.
 
+### 3-7. W — 로그인 경계 (이슈 #104, §2-14)
+
+근거는 README가 아니라 이슈 #104와 §2-14의 결정이다. 표기 **A**, **B**는 클라이언트 id, "게이트"는 원선을 믿는지 (D4).
+
+| id | 전 | 도착 | 후 | 근거 |
+|---|---|---|---|---|
+| W-1 | 주체 모름, `initial`로 채움 | 주체 A | 아무것도 지우지 않음. 항목 그대로 (기준) | D1 |
+| W-2 | 주체 A, 칸 `ready`, 구독 s1 | 주체 nil | s1이 `loading`. 값·도장·표시 없음. 연결 `reconnecting(0)` | D1, D2, D6 |
+| W-3 | 주체 A, 칸 `revoked` (값 있음) | 주체 nil | s1이 `loading`. 표시가 없어져 다음 계정의 읽기 답은 `ready` | D2 |
+| W-4 | W-2 뒤 | 주체 B, `subscribe` s2 | s2의 첫 항목이 `loading` (이슈의 재현 단계) | D2 |
+| W-5 | 주체 A, 칸 `ready`, s1 | 주체 B (nil을 거치지 않음) | s1이 `loading` | D1 |
+| W-6 | W-5 뒤, 게이트 닫힘 | s1 칸의 프레임 | 버림. 알림 없음 | D4 |
+| W-7 | W-5 뒤 | `clientID` A인 `opened`, 그 뒤 프레임 | 둘 다 버림. 스냅샷 읽기 없음. s1은 `loading`, 연결 `reconnecting(0)` | D4, D6 |
+| W-8 | W-5 뒤 | `clientID` B인 `opened`, 그 뒤 B의 프레임 | 지금처럼 받음 (C-26–C-28). s1 `ready(B)`, `connected` | D4, D6 |
+| W-9 | A로 보낸 스냅샷 읽기 | 주체 B, 그 뒤 답 (성공·실패 모두) | 적용하지 않음. 알림 없음. 오류 보고 없음 | D3 |
+| W-10 | A로 보낸 그림자 읽기 | 주체 B, 그 뒤 답 | 적용하지 않음. 알림 없음 | D3 |
+| W-11 | A로 낸 앱 `get` 진행 중 | 주체 B, 그 뒤 답 | 호출이 `signedInChanged`로 거부. 저장소 그대로 | D3 |
+| W-12 | A로 낸 앱 `write` 진행 중 | 주체 B, 그 뒤 답 | 호출이 `signedInChanged`로 거부. 저장소 그대로 | D3 |
+| W-13 | 매니페스트를 기다리는 앱 `get` | 주체 B | 곧바로 `signedInChanged`로 거부. 아무것도 보내지 않음 | D3 |
+| W-14 | A로 낸 앱 `snapshot()` 진행 중 | 주체 B, 그 뒤 답 | 호출이 `signedInChanged`로 거부. 저장소 그대로 | D3 |
+| W-15 | W-8의 모양, A의 마지막 `at`이 t3 | B의 프레임 `at` t2 | 적용 (도장이 지워졌다) | D2 |
+| W-16 | W-5 뒤, 게이트 닫힘 | grant 또는 revoke 원선 신호 | 버림 | D4 |
+| W-17 | 주체 A, 칸 `ready` | 주체 A 다시 (회전) | 아무 일 없음: 알림 없음, 칸 그대로, 게이트 열린 채 | D1 |
+| W-18 | `close()`됨, 칸 남음 (C-19) | 주체 nil, 그 뒤 `subscribe` | `loading` | D1, D2 |
+| W-19 | W-5 뒤 | 앱 `get` | 남은 매니페스트로 돈다. 매니페스트를 위한 스냅샷 재읽기 없음 | D2 |
+| W-20 | 엔진, A의 칸. `subject(B)`가 수신함에 있고 처리되지 않음 | 관찰자가 불림 (저장소에 B) | `current`가 `loading`. `subject(B)` 전에 처리된 A 칸의 `deliver`·`publish`는 구독자에도 캐시에도 닿지 않음 | D5 |
+| W-21 | 클라이언트 생성 | — / 클라이언트 놓임 | 관찰자가 동기로 등록되고 생성 때 값이 기준. 놓이면 떨어짐 | D5 |
+| W-22 | 키 라이프사이클, 관찰자 등록 | `enroll…`, `wipe()`, `rotate()` | `enroll`과 `wipe`에는 한 번, 동기로, 호출이 돌아가기 전에 (저장소는 이미 쓰임). `rotate`에는 불리지 않음 | D5 |
+| W-23 | 이벤트 스트림, A로 로그인, 그 뒤 `setSignedIn(B)` | 연결이 열림 | `opened.clientID`는 A의 연결에 A, 새 연결에 B | D4 |
+
+W-1–W-19는 코어의 셀이고 공유 픽스처 `cases.json`의 행이다. W-20·W-21은 엔진과 클라이언트, W-22는 키 라이프사이클, W-23은 이벤트 스트림 기계의 셀이라 플랫폼마다 쓴다. 셀 수: 85 + W 23 = **108**.
+
 ## 4. 테스트 이름 표
 
 §3의 셀 하나에 이름 하나. 이벤트 스트림 설계 §9와 같은 방식이다.
@@ -721,6 +770,31 @@ Hook = "`useServerState(client, id, key?)`", Conn = "`useConnectionStatus(client
 | I-10 | `i10_getBringsManifest_servesWaitingSubscriptions` | — |
 | I-11 | `i11_writeOnReadOnlyState_refusedBeforeRequest` | ○ |
 | I-12 | `i12_failedFirstSnapshot_rejectsCallingGet` | — |
+| W-1 | `w1_firstSubject_isBaseline_clearsNothing` | ○ |
+| W-2 | `w2_signedOut_subscriptionIsLoading` | ○ |
+| W-3 | `w3_signedOutWhileRevoked_markIsGone` | ○ |
+| W-4 | `w4_signedInChanged_subscribeIsLoading` | ○ |
+| W-5 | `w5_directSwitch_subscriptionIsLoading` | ○ |
+| W-6 | `w6_frameBeforeNewConnection_isDropped` | ○ |
+| W-7 | `w7_openedForPreviousAccount_isDropped` | ○ |
+| W-8 | `w8_openedForNewAccount_acceptsItsFrames` | ○ |
+| W-9 | `w9_snapshotOfPreviousAccount_isNotApplied` | ○ |
+| W-10 | `w10_shadowReadOfPreviousAccount_isNotApplied` | ○ |
+| W-11 | `w11_getInFlight_refusedSignedInChanged` | ○ |
+| W-12 | `w12_writeInFlight_refusedSignedInChanged` | ○ |
+| W-13 | `w13_getWaitingOnManifest_refusedAtOnce` | ○ |
+| W-14 | `w14_snapshotCallInFlight_refusedSignedInChanged` | ○ |
+| W-15 | `w15_newAccountsOlderAt_isApplied` | ○ |
+| W-16 | `w16_grantOrRevokeBeforeNewConnection_isDropped` | ○ |
+| W-17 | `w17_sameSubjectAgain_changesNothing` | ○ |
+| W-18 | `w18_closedClient_stillClears` | ○ |
+| W-19 | `w19_getAfterChange_usesKeptManifest` | ○ |
+| W-20 | `w20_observerAhead_previousAccountsEntriesHandedToNobody` | — (`SPFNStateClientRuntimeTests` / `SpfnStateClientRuntimeTest`) |
+| W-21 | `w21_client_observesSignedInFromConstructionUntilReleased` | — (`SPFNStateClientRuntimeTests` / `SpfnStateClientRuntimeTest`) |
+| W-22 | `w22_signedInObserver_calledInsideEnrollAndWipe_notRotate` | — (`SPFNKeyLifecycleTests` / `SpfnKeyLifecycleTest`) |
+| W-23 | `w23_opened_namesTheAccountOfItsConnection` | — (`SPFNEventStreamMachineTests` / `SpfnEventStreamMachineTest`, 이벤트 스트림 이름 대조에 든다) |
+
+W-셀 (§3-7)의 기대값은 README가 아니라 이슈 #104와 §2-14의 표에서 손으로 썼다. 픽스처의 W-행은 `readme` 대신 `source`에 그것을 적는다. W-20–W-23은 코어 밖이라 "픽스처" 칸의 괄호가 테스트가 있는 스위트다 — `SPFNStateClientTests`/`SpfnStateClientTest`의 이름 대조 (validate 13절)에는 W-1–W-19만 든다.
 
 성질 테스트 둘을 더한다 (고정 시드, 무작위 입력 1 000개). 보행이 목표 상태에 **닿았는지** 단언한다 (P46):
 
@@ -750,7 +824,7 @@ Hook = "`useServerState(client, id, key?)`", Conn = "`useConnectionStatus(client
 | id | 무엇 | 상태 기계·허브에 닿는 곳 | 없으면 | 구현 |
 |---|---|---|---|---|
 | S-1 | **연결 쿼리 입력** `setQuery(_ fields: [String: String])` / `setQuery(fields: Map<String, String>)`. 스트림 GET이 `token`·`events` 옆에 싣는다. 열린 연결(T·S·O)에서 값이 바뀌면 닫고 새 토큰으로 곧바로 다시 연다 (백오프 없음, 새 epoch). R·N·I·X에서는 기억만 하고 다음 연결에 쓴다. 같은 값은 무시. `events`·`token`이라는 필드는 거부 | 새 입력 하나와 E-셀 몇 개. 조건 W는 그대로 | 키 있는 상태는 연결 시점에 거부된다 (`deniedEvents`). Q2·Q3이 막힌다 | done in `377e463` |
-| S-2 | **원선 청취** `listenWire(_ names: [String]) -> AsyncStream<SPFNWireSignal>` / `Flow<SpfnWireSignal>`. 여러 이름을 **큐 하나**로: `attached`, `opened(SPFNStreamConnected)` (`epoch`, 그 연결의 쿼리, `subscribedEvents`, `deniedEvents`, `initial?`), `frame(name, SPFNCanonicalValue)`, `subscription(name, granted \| revoked)` (S-3), `overflow`, `unavailable([String])`. 열린 동안 붙으면 `attached` 다음 현재 연결의 `opened`를 한 번 다시 준다 | 허브에 청취자 종류 하나. 이름 검사(L-3)와 넘침(L-4)은 같다 | `reread(.opened(e))`로 대신한다: 매 열림 스냅샷, 연결 시점 거부는 스냅샷 누락으로만 안다 (§2-6, §6 Q-C) | done in `377e463` |
+| S-2 | **원선 청취** `listenWire(_ names: [String]) -> AsyncStream<SPFNWireSignal>` / `Flow<SpfnWireSignal>`. 여러 이름을 **큐 하나**로: `attached`, `opened(SPFNStreamConnected)` (`epoch`, 그 연결의 쿼리, `subscribedEvents`, `deniedEvents`, `initial?`, 그 연결을 연 `clientID?` — §2-14), `frame(name, SPFNCanonicalValue)`, `subscription(name, granted \| revoked)` (S-3), `overflow`, `unavailable([String])`. 열린 동안 붙으면 `attached` 다음 현재 연결의 `opened`를 한 번 다시 준다 | 허브에 청취자 종류 하나. 이름 검사(L-3)와 넘침(L-4)은 같다 | `reread(.opened(e))`로 대신한다: 매 열림 스냅샷, 연결 시점 거부는 스냅샷 누락으로만 안다 (§2-6, §6 Q-C) | done in `377e463` |
 | S-3 | **`subscription.granted`/`revoked` 전달.** 스트림 소유 프레임이다. `data.event`가 설정된 이름이면 그 이름의 원선 청취자에게 `subscription`으로. 보통의 `listen` 청취자에게는 가지 않는다. `unexpectedFrames`로 세지 않는다 | E-23의 갈래 하나 | 서버의 `grant`/`revoke`를 다음 스냅샷까지 모른다. R-1·R-2·R-10이 막힌다 | done in `377e463` |
 | S-4 | **지금 다시** `reconnectNow()`. R → T(1) (타이머 끔, 수 초기화), X → T(1), O·T·S·I → 아무것도 하지 않음, N → 그대로 (네트워크가 없다 — 경로 감시기가 권위다) | 새 입력 하나 | `retry()`가 매니페스트를 안 뒤에는 할 일이 없다. C-13·C-16이 막힌다 | done in `377e463` |
 
@@ -854,6 +928,8 @@ Hook = "`useServerState(client, id, key?)`", Conn = "`useConnectionStatus(client
 | [P47](../IMPLEMENTATION-PITFALLS.md#p47) · [P7](../IMPLEMENTATION-PITFALLS.md#p7) · [P5](../IMPLEMENTATION-PITFALLS.md#p5) | validate에 두 플랫폼 이름 대조 추가 | 13절의 새 뿌리: 한 단계 들여쓴 멤버만, 바닥 85 |
 | [P20](../IMPLEMENTATION-PITFALLS.md#p20) · [P7](../IMPLEMENTATION-PITFALLS.md#p7) | `#if canImport` 가드 추가 | `state` 모듈은 가드할 파일이 없다 — Linux에서 전부 빌드된다. 이벤트 모듈의 어댑터 파일(래퍼·모델)은 `#if canImport(SwiftUI)`로 통째로 (`canImport(UIKit)`이 아니다, P20). 드라이버와 부착 검사는 가드 밖 |
 | [P8](../IMPLEMENTATION-PITFALLS.md#p8) | 계약 타입 문법 변화 | 상태 값 스키마가 코드젠 표 밖이면 생성이 상태 id를 대고 멈춘다 (§2-13-2 거부 행, P-a). 상태를 알아보는 규칙이 추측하지 않는다: 닻(`getStates`의 파생 스키마)과 모양이 모두 맞아야 하고, 어긋나면 이름을 대고 멈춘다. 상태 클라이언트는 문서를 읽지 않는다 |
+
+이슈 #104 (§2-14)가 더한 것: [P48](../IMPLEMENTATION-PITFALLS.md#p48) — 데이터로만 키를 잡은 클라이언트 캐시가 로그인한 사람을 키로 잡지 않아 한 계정의 값을 다음 계정에 낸다. W-셀이 그 탐지의 테스트다.
 
 브리프의 결함 예상과 처리:
 
