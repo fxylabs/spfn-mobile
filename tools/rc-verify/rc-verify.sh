@@ -347,7 +347,7 @@ do
         fi
     done
 done
-printf '  staged 6 modules (AAR + POM + sources), POMs carry the full Central metadata set\n'
+printf '  staged %s modules (AAR + POM + sources), POMs carry the full Central metadata set\n' "$STAGED_COUNT"
 
 ANDROID_CONSUMER="$WORK/android-consumer"
 mkdir -p "$ANDROID_CONSUMER/src/main/kotlin/xyz/superfunction/spfn/rcconsumer"
@@ -526,7 +526,7 @@ printf '  candidate:        %s\n' "$VERSION"
 printf '  source commit:    %s\n' "$COMMIT"
 printf '  contract digest:  %s\n' "$CONTRACT_DIGEST"
 printf '  swiftpm:          tag %s resolved at %s\n' "$RESOLVED_VERSION" "$RESOLVED_REVISION"
-printf '  maven staging:    %s (6 modules)\n' "$STAGING"
+printf '  maven staging:    %s (%s modules)\n' "$STAGING" "$STAGED_COUNT"
 printf '  sbom:             %s\n' "$SBOM_DIR"
 printf '  manifest:         %s (%s artifacts)\n' "$OUT/manifest.json" "$ARTIFACT_COUNT"
 printf '  logs:             %s\n' "$LOGS"
