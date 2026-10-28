@@ -309,6 +309,22 @@ class SpfnKeyLifecycle(
      */
     val signedInClientId: StateFlow<String?> = signedIn.asStateFlow()
 
+    /** The same value for observers that are called inside the write ([observeSignedIn]). */
+    private val signedInMirror = SpfnSignedInMirror(signedIn.value)
+
+    /**
+     * Calls [observer] with the signed-in client id now — before this returns — and then once
+     * per change of it, synchronously, inside the `enroll…` or [wipe] call that wrote the
+     * store and before that call returns. A rotation keeps the id and calls nothing. The
+     * observer runs under the mirror's lock and the lifecycle's mutex on the caller's thread:
+     * it must be quick and must not call back into this lifecycle. For the state client,
+     * which may not hold one account's values a moment after the next account's key is
+     * stored (state-client-design.md §2-14). Thread-safe.
+     */
+    @SpfnSignedInObserverAccess
+    @JvmSynthetic
+    fun observeSignedIn(observer: (String?) -> Unit): SpfnSignedInObservation = signedInMirror.observe(observer)
+
     /** The client [signedInClient] last built, and the key it signs with. Touched under [mutex]. */
     private var signedInSigner: SignedInSigner? = null
 
@@ -1128,16 +1144,22 @@ class SpfnKeyLifecycle(
 
     private fun wipeLocked()
     {
-        for (slot in listOf(ACTIVE_SLOT, CANDIDATE_SLOT))
+        try
         {
-            val record = store.load(slot);
-            if (record != null)
+            for (slot in listOf(ACTIVE_SLOT, CANDIDATE_SLOT))
             {
-                engine.delete(record.alias);
+                val record = store.load(slot);
+                if (record != null)
+                {
+                    engine.delete(record.alias);
+                }
+                store.delete(slot);
             }
-            store.delete(slot);
         }
-        publishSignedIn();
+        finally
+        {
+            publishSignedIn();
+        }
     }
 
     /**
@@ -1166,10 +1188,15 @@ class SpfnKeyLifecycle(
         return signedInSigner;
     }
 
-    /** The stored client id, now. A rotation writes the same id, so the value holds. */
+    /**
+     * The stored client id, now: to the synchronous observers first, then to the flow. A
+     * rotation writes the same id, so the value holds.
+     */
     private fun publishSignedIn()
     {
-        signedIn.value = store.load(ACTIVE_SLOT)?.clientId;
+        val clientId = store.load(ACTIVE_SLOT)?.clientId;
+        signedInMirror.set(clientId);
+        signedIn.value = clientId;
     }
 
     // ---- assembly ----------------------------------------------------------
